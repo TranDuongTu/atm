@@ -13,8 +13,19 @@ Bootstrapping. See `AGENTS.md` for how AI agents should work in this repo.
 ## Build & verify
 
 ```sh
-go build ./... && go test ./...
+make build
+make test
 ```
+
+## Verify
+
+Run the full verification step used by the AGENTS.md workflow:
+
+```sh
+make verify
+```
+
+This runs `make build && make test`.
 
 The current implementation lives under `internal/store` (the stable in-process
 API), `internal/cli` (the stable out-of-process API), and `internal/tui` (a

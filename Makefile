@@ -54,4 +54,6 @@ help:
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 ## verify: the AGENTS.md verify step - build + test
-verify: build test
+verify:
+	$(MAKE) build
+	$(MAKE) test
