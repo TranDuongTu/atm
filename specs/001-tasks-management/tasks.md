@@ -138,12 +138,12 @@
 
 ### Tests for User Story 5
 
-- [ ] T028 [P] [US5] Golden test for `review queue` grouped by claimant and for `review approve`/`reject` transitioning status and recording the comment as a discussion entry by the human.
+- [X] T028 [P] [US5] Golden test for `review queue` grouped by claimant and for `review approve`/`reject` transitioning status and recording the comment as a discussion entry by the human.
 
 ### Implementation for User Story 5
 
-- [ ] T029 [P] [US5] Implement `internal/store/review.go`: `Request(id, actor)` (status -> `review`), `Approve(id, actor, comment)` (-> `done`), `Reject(id, actor, comment)` (-> `in-progress` or `open`; comment appended as a discussion entry), `Queue(projectCode)` grouped by claimant, `OpenFollowups(projectCode)`, `Dashboard(projectCode)` composing `queue + open_followups + guide_status` (calls `store.Guide.Status` from T022). Unit test.
-- [ ] T030 [US5] Implement CLI in `internal/cli/review.go`: `review request/approve/reject/queue/followups/dashboard` and `internal/cli/actor.go`: `actor list/show`. Integration test per `quickstart.md` Scenario 5; verify the dashboard payload matches the contract in `contracts/cli.md`.
+- [X] T029 [P] [US5] Implement `internal/store/review.go`: `Request(id, actor)` (status -> `review`), `Approve(id, actor, comment)` (-> `done`), `Reject(id, actor, comment)` (-> `in-progress` or `open`; comment appended as a discussion entry), `Queue(projectCode)` grouped by claimant, `OpenFollowups(projectCode)`, `Dashboard(projectCode)` composing `queue + open_followups + guide_status` (calls `store.Guide.Status` from T022). Unit test.
+- [X] T030 [US5] Implement CLI in `internal/cli/review.go`: `review request/approve/reject/queue/followups/dashboard` and `internal/cli/actor.go`: `actor list/show`. Integration test per `quickstart.md` Scenario 5; verify the dashboard payload matches the contract in `contracts/cli.md`.
 
 **Checkpoint**: US5 fully functional; the agent<->human coordination loop closes.
 

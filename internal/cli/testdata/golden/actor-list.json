@@ -1,0 +1,16 @@
+{
+  "actors": [
+    {
+      "first_seen": "TIMESTAMP",
+      "id": "agent:claude-1",
+      "kind": "agent",
+      "name": ""
+    },
+    {
+      "first_seen": "TIMESTAMP",
+      "id": "human:alice",
+      "kind": "human",
+      "name": ""
+    }
+  ]
+}

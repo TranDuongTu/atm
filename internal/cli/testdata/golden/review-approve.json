@@ -1,0 +1,86 @@
+{
+  "task": {
+    "claim": {
+      "actor": "agent:claude-1",
+      "at": "TIMESTAMP"
+    },
+    "created_at": "TIMESTAMP",
+    "description": "",
+    "discussions": [
+      {
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "d1",
+        "text": "Looks good"
+      }
+    ],
+    "followups": [],
+    "history": [
+      {
+        "action": "created",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1",
+        "meta": {}
+      },
+      {
+        "action": "claimed",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {}
+      },
+      {
+        "action": "status-changed",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {
+          "from": "open",
+          "to": "review"
+        }
+      },
+      {
+        "action": "review-requested",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h4",
+        "meta": {}
+      },
+      {
+        "action": "status-changed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h5",
+        "meta": {
+          "from": "review",
+          "to": "done"
+        }
+      },
+      {
+        "action": "discussion-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h6",
+        "meta": {}
+      },
+      {
+        "action": "approved",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h7",
+        "meta": {}
+      }
+    ],
+    "id": "ATM-0002",
+    "labels": [
+      "type:impl"
+    ],
+    "links": [],
+    "project_code": "ATM",
+    "status": "done",
+    "title": "Impl: claim command",
+    "todos": [],
+    "updated_at": "TIMESTAMP"
+  }
+}
