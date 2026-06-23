@@ -67,6 +67,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newTaskCmd(st))
 	root.AddCommand(newReviewCmd(st))
 	root.AddCommand(newActorCmd(st))
+	root.AddCommand(newTUICmd(st))
 	root.AddCommand(newVersionCmd(st))
 
 	return root
