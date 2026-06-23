@@ -9,9 +9,9 @@ import (
 // Actor is an agent or human recorded in actors.json. Actors are registered lazily
 // on first mutation; the registry is informational provenance, not authn (local-trust).
 type Actor struct {
-	ID       string    `json:"id"`
-	Kind     string    `json:"kind"`
-	Name     string    `json:"name,omitempty"`
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Name      string    `json:"name,omitempty"`
 	FirstSeen time.Time `json:"first_seen"`
 }
 
@@ -64,9 +64,9 @@ func (s *Store) RegisterActor(id, name string) (Actor, error) {
 		}
 	}
 	a := Actor{
-		ID:       id,
-		Kind:     ActorKind(id),
-		Name:     name,
+		ID:        id,
+		Kind:      ActorKind(id),
+		Name:      name,
 		FirstSeen: Now(),
 	}
 	af.Actors = append(af.Actors, a)
