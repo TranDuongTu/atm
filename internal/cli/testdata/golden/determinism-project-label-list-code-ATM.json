@@ -1,0 +1,32 @@
+{
+  "labels": [
+    {
+      "description": "",
+      "name": "area:cli"
+    },
+    {
+      "description": "",
+      "name": "area:tui"
+    },
+    {
+      "description": "",
+      "name": "kind:convention"
+    },
+    {
+      "description": "",
+      "name": "type:bug"
+    },
+    {
+      "description": "",
+      "name": "type:epic"
+    },
+    {
+      "description": "",
+      "name": "type:impl"
+    },
+    {
+      "description": "",
+      "name": "type:user-story"
+    }
+  ]
+}

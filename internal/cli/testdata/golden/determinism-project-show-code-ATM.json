@@ -1,0 +1,120 @@
+{
+  "project": {
+    "code": "ATM",
+    "created_at": "TIMESTAMP",
+    "created_by": "human:alice",
+    "guide": {
+      "sections": [
+        {
+          "name": "conventions",
+          "refs": [
+            {
+              "kind": "task",
+              "target": "ATM-0001"
+            }
+          ]
+        },
+        {
+          "name": "testing",
+          "refs": [
+            {
+              "kind": "task",
+              "target": "ATM-0006"
+            }
+          ]
+        }
+      ],
+      "updated_at": "TIMESTAMP",
+      "updated_by": "human:alice"
+    },
+    "guide_freshness_threshold": "720h",
+    "history": [
+      {
+        "action": "guide-updated",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1",
+        "meta": {
+          "section": "conventions"
+        }
+      },
+      {
+        "action": "guide-updated",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {
+          "section": "testing"
+        }
+      },
+      {
+        "action": "guide-updated",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {
+          "kind": "task",
+          "section": "conventions",
+          "target": "ATM-0001"
+        }
+      },
+      {
+        "action": "guide-updated",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h4",
+        "meta": {
+          "kind": "task",
+          "section": "testing",
+          "target": "ATM-0006"
+        }
+      },
+      {
+        "action": "guide-updated",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h5",
+        "meta": {
+          "threshold": "720h"
+        }
+      }
+    ],
+    "labels": [
+      {
+        "description": "",
+        "name": "area:cli"
+      },
+      {
+        "description": "",
+        "name": "area:tui"
+      },
+      {
+        "description": "",
+        "name": "kind:convention"
+      },
+      {
+        "description": "",
+        "name": "type:bug"
+      },
+      {
+        "description": "",
+        "name": "type:epic"
+      },
+      {
+        "description": "",
+        "name": "type:impl"
+      },
+      {
+        "description": "",
+        "name": "type:user-story"
+      }
+    ],
+    "name": "Agent Tasks Management",
+    "next_task_n": 7,
+    "repo_paths": [
+      "/tmp/repo-atm"
+    ],
+    "type_axis": "type",
+    "updated_at": "TIMESTAMP"
+  }
+}

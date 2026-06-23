@@ -1,0 +1,321 @@
+{
+  "context": {
+    "conventions": [
+      {
+        "id": "ATM-0001",
+        "matched_labels": [
+          "type:bug"
+        ],
+        "title": "PR conventions for bug fixes"
+      },
+      {
+        "id": "ATM-0006",
+        "matched_labels": [
+          "area:cli"
+        ],
+        "title": "Testing conventions"
+      }
+    ],
+    "guide": {
+      "sections": [
+        {
+          "name": "conventions",
+          "refs": [
+            {
+              "kind": "task",
+              "target": "ATM-0001"
+            }
+          ]
+        },
+        {
+          "name": "testing",
+          "refs": [
+            {
+              "kind": "task",
+              "target": "ATM-0006"
+            }
+          ]
+        }
+      ],
+      "updated_at": "TIMESTAMP",
+      "updated_by": "human:alice"
+    },
+    "links_in": [],
+    "links_out": [
+      {
+        "direction": "out",
+        "link": {
+          "target": "ATM-0003",
+          "type": "blocks"
+        }
+      }
+    ],
+    "timeline": [
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "created",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h1"
+        },
+        "id": "h1",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "link-added",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h2"
+        },
+        "id": "h2",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "title-changed",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h3"
+        },
+        "id": "h3",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "description-changed",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h4"
+        },
+        "id": "h4",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "label-added",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h5"
+        },
+        "id": "h5",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "label-removed",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h6"
+        },
+        "id": "h6",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "todo-added",
+          "actor": "agent:claude-1",
+          "at": "TIMESTAMP",
+          "id": "h7"
+        },
+        "id": "h7",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "at": "TIMESTAMP",
+          "author": "agent:claude-1",
+          "done": true,
+          "id": "t1",
+          "text": "Write tests for claim"
+        },
+        "id": "t1",
+        "kind": "todo"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "todo-toggled",
+          "actor": "agent:claude-1",
+          "at": "TIMESTAMP",
+          "id": "h8"
+        },
+        "id": "h8",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "assignee": "human:alice",
+          "at": "TIMESTAMP",
+          "author": "human:alice",
+          "id": "f1",
+          "status": "open",
+          "text": "Decide storage format"
+        },
+        "id": "f1",
+        "kind": "followup"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "followup-added",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h9"
+        },
+        "id": "h9",
+        "kind": "history"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "at": "TIMESTAMP",
+          "author": "human:alice",
+          "id": "d1",
+          "text": "Use file-level locking."
+        },
+        "id": "d1",
+        "kind": "discussion"
+      },
+      {
+        "at": "TIMESTAMP",
+        "data": {
+          "action": "discussion-added",
+          "actor": "human:alice",
+          "at": "TIMESTAMP",
+          "id": "h10"
+        },
+        "id": "h10",
+        "kind": "history"
+      }
+    ]
+  },
+  "task": {
+    "claim": null,
+    "created_at": "TIMESTAMP",
+    "description": "Investigate and fix the claim race.",
+    "discussions": [
+      {
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "d1",
+        "text": "Use file-level locking."
+      }
+    ],
+    "followups": [
+      {
+        "assignee": "human:alice",
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "f1",
+        "status": "open",
+        "text": "Decide storage format"
+      }
+    ],
+    "history": [
+      {
+        "action": "created",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1",
+        "meta": {}
+      },
+      {
+        "action": "link-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {}
+      },
+      {
+        "action": "title-changed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {}
+      },
+      {
+        "action": "description-changed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h4",
+        "meta": {}
+      },
+      {
+        "action": "label-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h5",
+        "meta": {}
+      },
+      {
+        "action": "label-removed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h6",
+        "meta": {}
+      },
+      {
+        "action": "todo-added",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h7",
+        "meta": {}
+      },
+      {
+        "action": "todo-toggled",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h8",
+        "meta": {}
+      },
+      {
+        "action": "followup-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h9",
+        "meta": {}
+      },
+      {
+        "action": "discussion-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h10",
+        "meta": {}
+      }
+    ],
+    "id": "ATM-0002",
+    "labels": [
+      "area:cli",
+      "type:bug"
+    ],
+    "links": [
+      {
+        "target": "ATM-0003",
+        "type": "blocks"
+      }
+    ],
+    "project_code": "ATM",
+    "status": "open",
+    "title": "Fix claim race (revised)",
+    "todos": [
+      {
+        "at": "TIMESTAMP",
+        "author": "agent:claude-1",
+        "done": true,
+        "id": "t1",
+        "text": "Write tests for claim"
+      }
+    ],
+    "updated_at": "TIMESTAMP"
+  }
+}

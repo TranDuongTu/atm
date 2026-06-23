@@ -1,0 +1,121 @@
+{
+  "task": {
+    "claim": null,
+    "created_at": "TIMESTAMP",
+    "description": "Investigate and fix the claim race.",
+    "discussions": [
+      {
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "d1",
+        "text": "Use file-level locking."
+      }
+    ],
+    "followups": [
+      {
+        "assignee": "human:alice",
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "f1",
+        "status": "open",
+        "text": "Decide storage format"
+      }
+    ],
+    "history": [
+      {
+        "action": "created",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1",
+        "meta": {}
+      },
+      {
+        "action": "link-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {}
+      },
+      {
+        "action": "title-changed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {}
+      },
+      {
+        "action": "description-changed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h4",
+        "meta": {}
+      },
+      {
+        "action": "label-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h5",
+        "meta": {}
+      },
+      {
+        "action": "label-removed",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h6",
+        "meta": {}
+      },
+      {
+        "action": "todo-added",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h7",
+        "meta": {}
+      },
+      {
+        "action": "todo-toggled",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h8",
+        "meta": {}
+      },
+      {
+        "action": "followup-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h9",
+        "meta": {}
+      },
+      {
+        "action": "discussion-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h10",
+        "meta": {}
+      }
+    ],
+    "id": "ATM-0002",
+    "labels": [
+      "area:cli",
+      "type:bug"
+    ],
+    "links": [
+      {
+        "target": "ATM-0003",
+        "type": "blocks"
+      }
+    ],
+    "project_code": "ATM",
+    "status": "open",
+    "title": "Fix claim race (revised)",
+    "todos": [
+      {
+        "at": "TIMESTAMP",
+        "author": "agent:claude-1",
+        "done": true,
+        "id": "t1",
+        "text": "Write tests for claim"
+      }
+    ],
+    "updated_at": "TIMESTAMP"
+  }
+}

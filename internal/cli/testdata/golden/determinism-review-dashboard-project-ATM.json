@@ -1,0 +1,47 @@
+{
+  "guide_status": {
+    "coverage": {
+      "empty_sections": [],
+      "total_refs": 2,
+      "total_sections": 2
+    },
+    "freshness": [
+      {
+        "kind": "task",
+        "section": "conventions",
+        "state": "fresh",
+        "target": "ATM-0001",
+        "updated_at": "TIMESTAMP"
+      },
+      {
+        "kind": "task",
+        "section": "testing",
+        "state": "fresh",
+        "target": "ATM-0006",
+        "updated_at": "TIMESTAMP"
+      }
+    ]
+  },
+  "open_followups": [
+    {
+      "assignee": "human:alice",
+      "followup": "f1",
+      "id": "ATM-0002",
+      "text": "Decide storage format"
+    }
+  ],
+  "project": "ATM",
+  "review_queue": {
+    "groups": [
+      {
+        "claimant": "agent:claude-1",
+        "tasks": [
+          {
+            "id": "ATM-0005",
+            "title": "Impl: claim command"
+          }
+        ]
+      }
+    ]
+  }
+}

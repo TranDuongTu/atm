@@ -1,0 +1,10 @@
+{
+  "actor": {
+    "first_seen": "TIMESTAMP",
+    "id": "human:alice",
+    "kind": "human",
+    "name": ""
+  },
+  "claimed_tasks": [],
+  "open_followups": 0
+}
