@@ -9,3 +9,14 @@ A JIRA-like task management system, but purpose-built for **AI agents**.
 ## Status
 
 Bootstrapping. See `AGENTS.md` for how AI agents should work in this repo.
+
+## Build & verify
+
+```sh
+go build ./... && go test ./...
+```
+
+The current implementation lives under `internal/store` (the stable in-process
+API), `internal/cli` (the stable out-of-process API), and `internal/tui` (a
+thin Bubble Tea client). The binary entrypoint is `cmd/atm`. The first feature
+spec, plan, and task list live under `specs/001-tasks-management/`.

@@ -47,4 +47,10 @@ Anything agent-specific — skills, commands, subagents, prompts, permission rul
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at specs/001-tasks-management/plan.md (Tasks Management System). Key facts:
+- Language: Go 1.22+; single binary `atm` (CLI + Bubble Tea TUI).
+- Layers: internal/store (stable in-process API), internal/cli (stable out-of-process API via cobra), internal/tui (thin client over store).
+- Storage: local text files under `.atm/` (one file per task JSON; per-project file locking; no DB).
+- Spec/design artifacts: specs/001-tasks-management/{spec,plan,research,data-model,quickstart}.md + contracts/cli.md.
+- Verify: `go build ./... && go test ./...` before declaring done.
 <!-- SPECKIT END -->
