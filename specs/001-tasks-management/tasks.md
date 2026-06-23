@@ -102,11 +102,11 @@
 
 ### Tests for User Story 3
 
-- [ ] T024 [P] [US3] Golden test for id assignment ordering across creates and for `task link list` returning both `out` and computed `in` edges (including implied `blocked-by`).
+- [X] T024 [P] [US3] Golden test for id assignment ordering across creates and for `task link list` returning both `out` and computed `in` edges (including implied `blocked-by`).
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Implement CLI in `internal/cli/link.go`: `task link add/remove/list` wired to `store.Link` (T011). `link list` returns both stored `out` edges and computed `in` edges tagged with `direction: out|in`. Integration test in `internal/cli/task_test.go` per `quickstart.md` Scenario 3 verifying the `implements` link is traversable from both endpoints and that `blocks` excludes the target from `task next`.
+- [X] T025 [US3] Implement CLI in `internal/cli/link.go`: `task link add/remove/list` wired to `store.Link` (T011). `link list` returns both stored `out` edges and computed `in` edges tagged with `direction: out|in`. Integration test in `internal/cli/task_test.go` per `quickstart.md` Scenario 3 verifying the `implements` link is traversable from both endpoints and that `blocks` excludes the target from `task next`.
 
 **Checkpoint**: US3 fully functional; the authoring side is complete.
 
