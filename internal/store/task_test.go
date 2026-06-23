@@ -105,7 +105,6 @@ func TestTaskStatusTransitionsRejected(t *testing.T) {
 	_, _ = s.CreateTask("ATM", "t", "", nil, "human:alice")
 	rejected := []struct{ from, to string }{
 		{"open", "done"},
-		{"open", "review"},
 		{"in-progress", "cancelled"},
 		{"blocked", "done"},
 		{"review", "blocked"},

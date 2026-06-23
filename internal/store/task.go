@@ -8,7 +8,7 @@ import (
 )
 
 var allowedTransitions = map[string]map[string]bool{
-	"open":        {"in-progress": true, "blocked": true, "cancelled": true},
+	"open":        {"in-progress": true, "blocked": true, "cancelled": true, "review": true},
 	"in-progress": {"review": true, "done": true, "open": true},
 	"blocked":     {"open": true, "in-progress": true, "cancelled": true},
 	"review":      {"done": true, "in-progress": true, "open": true},

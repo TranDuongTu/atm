@@ -115,7 +115,7 @@ Fields:
 - `created_at`, `updated_at` (RFC 3339, required).
 
 Status transitions (allowed, anything not listed is rejected with an error):
-- `open` -> `in-progress`, `blocked`, `cancelled`
+- `open` -> `in-progress`, `blocked`, `cancelled`, `review`
 - `in-progress` -> `review`, `done`, `open`
 - `blocked` -> `open`, `in-progress`, `cancelled`
 - `review` -> `done` (approve), `in-progress` (reject), `open` (reject)

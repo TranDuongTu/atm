@@ -1,0 +1,26 @@
+{
+  "groups": [
+    {
+      "claimant": "agent:claude-1",
+      "tasks": [
+        {
+          "id": "ATM-0001",
+          "title": "T1"
+        },
+        {
+          "id": "ATM-0003",
+          "title": "T3"
+        }
+      ]
+    },
+    {
+      "claimant": "agent:claude-2",
+      "tasks": [
+        {
+          "id": "ATM-0002",
+          "title": "T2"
+        }
+      ]
+    }
+  ]
+}
