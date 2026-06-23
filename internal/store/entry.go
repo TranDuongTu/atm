@@ -150,3 +150,15 @@ func (s *Store) Timeline(id string) ([]timelineItem, error) {
 	})
 	return items, nil
 }
+
+func (s *Store) TimelineList(id string) ([]TimelineEntry, error) {
+	items, err := s.Timeline(id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TimelineEntry, 0, len(items))
+	for _, it := range items {
+		out = append(out, TimelineEntry{Kind: it.kind, ID: it.id, At: it.at, Data: it.data})
+	}
+	return out, nil
+}

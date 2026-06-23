@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"atm/internal/cli"
 )
 
 func main() {
-	fmt.Println("atm version dev")
-	os.Exit(0)
+	os.Exit(cli.Execute())
 }

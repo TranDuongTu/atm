@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"atm/internal/store"
 )
 
 type ErrorCode string
@@ -29,13 +31,13 @@ func CodeForError(err error) ErrorCode {
 	if err == nil {
 		return CodeSuccess
 	}
-	if errors.Is(err, ErrUsage) {
+	if errors.Is(err, ErrUsage) || errors.Is(err, store.ErrUsage) {
 		return CodeUsage
 	}
-	if errors.Is(err, ErrNotFound) {
+	if errors.Is(err, ErrNotFound) || errors.Is(err, store.ErrNotFound) {
 		return CodeNotFound
 	}
-	if errors.Is(err, ErrConflict) {
+	if errors.Is(err, ErrConflict) || errors.Is(err, store.ErrConflict) {
 		return CodeConflict
 	}
 	return CodeGeneric
