@@ -1,0 +1,77 @@
+{
+  "task": {
+    "claim": {
+      "actor": "agent:claude-1",
+      "at": "TIMESTAMP"
+    },
+    "created_at": "TIMESTAMP",
+    "description": "",
+    "discussions": [],
+    "followups": [],
+    "history": [
+      {
+        "action": "created",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1",
+        "meta": {}
+      },
+      {
+        "action": "link-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {}
+      },
+      {
+        "action": "claimed",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {}
+      },
+      {
+        "action": "status-changed",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h4",
+        "meta": {
+          "from": "open",
+          "to": "in-progress"
+        }
+      },
+      {
+        "action": "status-changed",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h5",
+        "meta": {
+          "from": "in-progress",
+          "to": "review"
+        }
+      },
+      {
+        "action": "review-requested",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h6",
+        "meta": {}
+      }
+    ],
+    "id": "ATM-0005",
+    "labels": [
+      "type:impl"
+    ],
+    "links": [
+      {
+        "target": "ATM-0004",
+        "type": "implements"
+      }
+    ],
+    "project_code": "ATM",
+    "status": "review",
+    "title": "Impl: claim command",
+    "todos": [],
+    "updated_at": "TIMESTAMP"
+  }
+}

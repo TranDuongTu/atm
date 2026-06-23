@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "claimant": "agent:claude-1",
+      "tasks": [
+        {
+          "id": "ATM-0005",
+          "title": "Impl: claim command"
+        }
+      ]
+    }
+  ]
+}

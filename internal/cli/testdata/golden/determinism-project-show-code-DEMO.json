@@ -1,0 +1,25 @@
+{
+  "project": {
+    "code": "DEMO",
+    "created_at": "TIMESTAMP",
+    "created_by": "human:alice",
+    "guide": null,
+    "guide_freshness_threshold": "",
+    "history": [],
+    "labels": [
+      {
+        "description": "Bug fix",
+        "name": "type:bug"
+      },
+      {
+        "description": "",
+        "name": "type:impl"
+      }
+    ],
+    "name": "Demo Project",
+    "next_task_n": 2,
+    "repo_paths": [],
+    "type_axis": "type",
+    "updated_at": "TIMESTAMP"
+  }
+}

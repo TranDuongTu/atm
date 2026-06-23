@@ -1,0 +1,12 @@
+{
+  "labels": [
+    {
+      "description": "Bug fix",
+      "name": "type:bug"
+    },
+    {
+      "description": "",
+      "name": "type:impl"
+    }
+  ]
+}

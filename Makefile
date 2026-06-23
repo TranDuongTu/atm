@@ -4,7 +4,7 @@ BIN := bin
 BINARY := $(BIN)/atm
 PKG := ./...
 
-.PHONY: all build test lint vet fmt clean install help
+.PHONY: all build test lint vet fmt clean install help dogfood
 
 all: build
 
@@ -57,3 +57,7 @@ help:
 verify:
 	$(MAKE) build
 	$(MAKE) test
+
+## dogfood: bootstrap the ATM project + follow-on tasks in the machine-global store (idempotent, opt-in)
+dogfood: build
+	./scripts/dogfood.sh $(BINARY)

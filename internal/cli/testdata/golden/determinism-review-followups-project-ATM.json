@@ -1,0 +1,10 @@
+{
+  "followups": [
+    {
+      "assignee": "human:alice",
+      "followup": "f1",
+      "id": "ATM-0002",
+      "text": "Decide storage format"
+    }
+  ]
+}

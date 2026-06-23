@@ -1,0 +1,12 @@
+{
+  "actor": {
+    "first_seen": "TIMESTAMP",
+    "id": "agent:claude-1",
+    "kind": "agent",
+    "name": ""
+  },
+  "claimed_tasks": [
+    "ATM-0005"
+  ],
+  "open_followups": 0
+}
