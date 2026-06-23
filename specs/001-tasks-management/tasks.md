@@ -175,8 +175,8 @@
 
 - [X] T042 [P] Add a determinism + detachability snapshot suite in `internal/cli/determinism_test.go`: commit `testdata/golden/*.json` for every CLI command in `quickstart.md`; the test runs each command twice and diffs byte-for-byte (SC-002a), and copies the store wholesale to a temp dir and diffs output (SC-004/FR-001).
 - [X] T043 [P] Document the CLI in `README.md` with the command groups from `contracts/cli.md`, a TUI section pointing to `tui-mockups.md` + `contracts/tui.md`, the store resolution rule, and the verify command (`make verify`).
-- [ ] T044 Run `make lint` (`golangci-lint run`) and `gofmt -l .`; fix any findings.
-- [ ] T045 Run `make verify` from repo root; ensure green. Tag the commit `atm-v0.1.0`.
+- [X] T044 Run `make lint` (`golangci-lint run`) and `gofmt -l .`; fix any findings.
+- [X] T045 Run `make verify` from repo root; ensure green. Tag the commit `atm-v0.1.0`.
 - [X] T046 [P] Dogfood: create project `ATM` in the machine-global store and register this feature's follow-on tasks there (bootstrap the dogfooding loop).
 
 ---
