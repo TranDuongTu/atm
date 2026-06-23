@@ -17,7 +17,11 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectCreateCmd(st))
 	cmd.AddCommand(newProjectListCmd(st))
 	cmd.AddCommand(newProjectShowCmd(st))
+	cmd.AddCommand(newProjectSetNameCmd(st))
+	cmd.AddCommand(newProjectSetTypeAxisCmd(st))
+	cmd.AddCommand(newProjectRepoCmd(st))
 	cmd.AddCommand(newProjectLabelCmd(st))
+	cmd.AddCommand(newProjectGuideCmd(st))
 	return cmd
 }
 
@@ -158,6 +162,171 @@ func newProjectLabelCmd(st *cliState) *cobra.Command {
 	add.Flags().StringVar(&description, "description", "", "label description")
 	_ = add.MarkFlagRequired("code")
 	_ = add.MarkFlagRequired("label")
-	cmd.AddCommand(list, add)
+	remove := &cobra.Command{
+		Use:   "remove",
+		Short: "Soft-remove a label from a project",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			res, err := s.LabelRemove(code, label, actor)
+			if err != nil {
+				return err
+			}
+			retained := 0
+			if res != nil {
+				retained = res.RetainedUsage
+			}
+			ls := s.LabelList(code)
+			return st.emit(st.stdout(), map[string]any{
+				"labels":         labelsToJSON(ls),
+				"retained_usage": retained,
+			}, func() {
+				fmt.Fprintf(os.Stdout, "removed label %s from %s (retained_usage: %d)\n", label, code, retained)
+			})
+		},
+	}
+	remove.Flags().StringVar(&code, "code", "", "project code")
+	remove.Flags().StringVar(&label, "label", "", "label name")
+	_ = remove.MarkFlagRequired("code")
+	_ = remove.MarkFlagRequired("label")
+	cmd.AddCommand(list, add, remove)
+	return cmd
+}
+
+func newProjectSetNameCmd(st *cliState) *cobra.Command {
+	var code, name string
+	cmd := &cobra.Command{
+		Use:   "set-name",
+		Short: "Set a project's name",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.SetProjectName(code, name, actor); err != nil {
+				return err
+			}
+			p, err := s.GetProject(code)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+				fmt.Fprintf(os.Stdout, "%s name -> %s\n", p.Code, p.Name)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "project code")
+	cmd.Flags().StringVar(&name, "name", "", "project name")
+	_ = cmd.MarkFlagRequired("code")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newProjectSetTypeAxisCmd(st *cliState) *cobra.Command {
+	var code, namespace string
+	cmd := &cobra.Command{
+		Use:   "set-type-axis",
+		Short: "Set a project's type axis namespace",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.SetTypeAxis(code, namespace, actor); err != nil {
+				return err
+			}
+			p, err := s.GetProject(code)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+				fmt.Fprintf(os.Stdout, "%s type_axis -> %s\n", p.Code, p.TypeAxis)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "project code")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "type axis namespace")
+	_ = cmd.MarkFlagRequired("code")
+	_ = cmd.MarkFlagRequired("namespace")
+	return cmd
+}
+
+func newProjectRepoCmd(st *cliState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Project repo path commands",
+	}
+	var code, path string
+	add := &cobra.Command{
+		Use:   "add",
+		Short: "Add a repo path to a project",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.RepoAdd(code, path, actor); err != nil {
+				return err
+			}
+			p, err := s.GetProject(code)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+				fmt.Fprintf(os.Stdout, "%s repo add %s\n", p.Code, path)
+			})
+		},
+	}
+	add.Flags().StringVar(&code, "code", "", "project code")
+	add.Flags().StringVar(&path, "path", "", "repo path")
+	_ = add.MarkFlagRequired("code")
+	_ = add.MarkFlagRequired("path")
+	remove := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove a repo path from a project",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.RepoRemove(code, path, actor); err != nil {
+				return err
+			}
+			p, err := s.GetProject(code)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+				fmt.Fprintf(os.Stdout, "%s repo remove %s\n", p.Code, path)
+			})
+		},
+	}
+	remove.Flags().StringVar(&code, "code", "", "project code")
+	remove.Flags().StringVar(&path, "path", "", "repo path")
+	_ = remove.MarkFlagRequired("code")
+	_ = remove.MarkFlagRequired("path")
+	cmd.AddCommand(add, remove)
 	return cmd
 }

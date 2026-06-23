@@ -1,0 +1,26 @@
+{
+  "guide": {
+    "sections": [
+      {
+        "name": "conventions",
+        "refs": [
+          {
+            "kind": "task",
+            "target": "ATM-0001"
+          }
+        ]
+      },
+      {
+        "name": "testing",
+        "refs": [
+          {
+            "kind": "task",
+            "target": "ATM-0004"
+          }
+        ]
+      }
+    ],
+    "updated_at": "TIMESTAMP",
+    "updated_by": "human:alice"
+  }
+}

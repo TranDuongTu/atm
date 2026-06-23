@@ -1,0 +1,23 @@
+{
+  "coverage": {
+    "empty_sections": [],
+    "total_refs": 2,
+    "total_sections": 2
+  },
+  "freshness": [
+    {
+      "kind": "task",
+      "section": "conventions",
+      "state": "fresh",
+      "target": "ATM-0001",
+      "updated_at": "TIMESTAMP"
+    },
+    {
+      "kind": "task",
+      "section": "testing",
+      "state": "stale",
+      "target": "ATM-0004",
+      "updated_at": "TIMESTAMP"
+    }
+  ]
+}
