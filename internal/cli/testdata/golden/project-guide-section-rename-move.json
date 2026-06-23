@@ -1,0 +1,16 @@
+{
+  "guide": {
+    "sections": [
+      {
+        "name": "testing",
+        "refs": []
+      },
+      {
+        "name": "convs",
+        "refs": []
+      }
+    ],
+    "updated_at": "TIMESTAMP",
+    "updated_by": "human:alice"
+  }
+}

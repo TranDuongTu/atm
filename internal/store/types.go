@@ -24,17 +24,19 @@ type Guide struct {
 }
 
 type Project struct {
-	Code                    string    `json:"code"`
-	Name                    string    `json:"name"`
-	TypeAxis                string    `json:"type_axis,omitempty"`
-	Labels                  []Label   `json:"labels"`
-	NextTaskN               int       `json:"next_task_n"`
-	Guide                   *Guide    `json:"guide,omitempty"`
-	GuideFreshnessThreshold string    `json:"guide_freshness_threshold,omitempty"`
-	RepoPaths               []string  `json:"repo_paths,omitempty"`
-	CreatedAt               time.Time `json:"created_at"`
-	CreatedBy               string    `json:"created_by"`
-	UpdatedAt               time.Time `json:"updated_at"`
+	Code                    string         `json:"code"`
+	Name                    string         `json:"name"`
+	TypeAxis                string         `json:"type_axis,omitempty"`
+	Labels                  []Label        `json:"labels"`
+	NextTaskN               int            `json:"next_task_n"`
+	Guide                   *Guide         `json:"guide,omitempty"`
+	GuideFreshnessThreshold string         `json:"guide_freshness_threshold,omitempty"`
+	RepoPaths               []string       `json:"repo_paths,omitempty"`
+	History                 []HistoryEntry `json:"history,omitempty"`
+	NextHistoryN            int            `json:"next_history_n,omitempty"`
+	CreatedAt               time.Time      `json:"created_at"`
+	CreatedBy               string         `json:"created_by"`
+	UpdatedAt               time.Time      `json:"updated_at"`
 }
 
 type Link struct {

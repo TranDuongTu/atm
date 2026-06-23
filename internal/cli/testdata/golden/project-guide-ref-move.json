@@ -1,0 +1,21 @@
+{
+  "guide": {
+    "sections": [
+      {
+        "name": "conventions",
+        "refs": [
+          {
+            "kind": "task",
+            "target": "ATM-0002"
+          },
+          {
+            "kind": "task",
+            "target": "ATM-0001"
+          }
+        ]
+      }
+    ],
+    "updated_at": "TIMESTAMP",
+    "updated_by": "human:alice"
+  }
+}

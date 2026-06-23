@@ -261,23 +261,28 @@ func labelsToJSON(ls []store.Label) []jsonLabel {
 }
 
 type jsonProject struct {
-	Code                    string      `json:"code"`
-	Name                    string      `json:"name"`
-	TypeAxis                string      `json:"type_axis"`
-	Labels                  []jsonLabel `json:"labels"`
-	NextTaskN               int         `json:"next_task_n"`
-	Guide                   *jsonGuide  `json:"guide"`
-	GuideFreshnessThreshold string      `json:"guide_freshness_threshold"`
-	RepoPaths               []string    `json:"repo_paths"`
-	CreatedAt               string      `json:"created_at"`
-	CreatedBy               string      `json:"created_by"`
-	UpdatedAt               string      `json:"updated_at"`
+	Code                    string        `json:"code"`
+	Name                    string        `json:"name"`
+	TypeAxis                string        `json:"type_axis"`
+	Labels                  []jsonLabel   `json:"labels"`
+	NextTaskN               int           `json:"next_task_n"`
+	Guide                   *jsonGuide    `json:"guide"`
+	GuideFreshnessThreshold string        `json:"guide_freshness_threshold"`
+	RepoPaths               []string      `json:"repo_paths"`
+	History                 []jsonHistory `json:"history"`
+	CreatedAt               string        `json:"created_at"`
+	CreatedBy               string        `json:"created_by"`
+	UpdatedAt               string        `json:"updated_at"`
 }
 
 func projectToJSON(p *store.Project) jsonProject {
 	repos := p.RepoPaths
 	if repos == nil {
 		repos = []string{}
+	}
+	hist := historyToJSON(p.History)
+	if hist == nil {
+		hist = []jsonHistory{}
 	}
 	return jsonProject{
 		Code:                    p.Code,
@@ -288,6 +293,7 @@ func projectToJSON(p *store.Project) jsonProject {
 		Guide:                   guideToJSON(p.Guide),
 		GuideFreshnessThreshold: p.GuideFreshnessThreshold,
 		RepoPaths:               repos,
+		History:                 hist,
 		CreatedAt:               renderTime(p.CreatedAt),
 		CreatedBy:               p.CreatedBy,
 		UpdatedAt:               renderTime(p.UpdatedAt),
