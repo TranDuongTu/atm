@@ -1,0 +1,14 @@
+# build artifacts
+bin/
+*.test
+*.out
+
+# go workspace files
+go.work
+go.work.sum
+
+# editor/OS noise
+.DS_Store
+*.swp
+*.swo
+*~

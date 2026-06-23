@@ -8,6 +8,14 @@
 
 **Input**: User description: "Local-storage, CLI/API first for agents to query next tasks to work on and relevant context, as well as tracking todo tasks, followup items, discussions and coordinate with human coordinator. CLI tool with TUI and commands (prefer Go bubbletea). Tasks are units organized into projects; task ID named by project code (e.g. ATM-0001). Humans manage projects and labels; tasks organized by labels and hierarchically via labels. Tasks can be linked together to help agents discover context and find project-wide best practices defined by humans (PR conventions, managing task types like epic/user-story/implementation-task/bug)."
 
+## Clarifications
+
+### Session 2026-06-23
+
+- Q: Where should task data be stored, and how is detachability achieved? → A: Task data lives in `~/.config/atm` (global, machine-level); each project may reference one or more repo paths but is NOT 1:1 with a repo (a project can span multiple repos). Detachability is achieved by copying the global dir to another machine. ATM's domain is projects/tasks only — it must not store user-specific artifacts (shell/editor/git config, etc.).
+  - **Constitution amended (v1.1.0)**: Principle III and V updated to align with the `~/.config/atm` storage decision and the added `Guide` entity. No further amendment needed before `/speckit.plan`.
+- Q: How should the "agent-context harness" (project-wide info agents always read) be modeled? → A: Add a project-level `guide` entity: an ordered list of references to convention docs (tasks) or external file paths, grouped by named section (e.g. "conventions", "work-conduct", "communication", "testing"). Agents always receive the guide in `show`/`next` context. The coordinator dashboard surfaces guide coverage and freshness (stale/missing sections) per project.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Agent queries next task and context (Priority: P1)
@@ -107,7 +115,7 @@ The human coordinator views a dashboard of agent activity: which tasks are claim
 
 ### Functional Requirements
 
-- **FR-001**: System MUST store all data locally in the workspace as plain text that version-controls cleanly; no external database or network service is required for v1.
+- **FR-001**: System MUST store all task/project data locally in the machine-global `~/.config/atm` directory as plain text that version-controls cleanly via export; no external database or network service is required for v1. The store MUST be detachable: copying the global directory to another machine and re-running `atm` MUST reproduce the same state. A project is NOT 1:1 with a repo; a project MAY reference one or more repository paths (or none), and ATM's domain is limited to projects/tasks — it MUST NOT store user-specific artifacts (shell, editor, git config, etc.).
 - **FR-002**: System MUST expose every operation as a CLI command with machine-readable output (JSON) and human-readable output; the TUI is a thin client over the same operations.
 - **FR-003**: System MUST support multiple projects identified by a unique short code (e.g. `ATM`); task IDs are `<CODE>-<NNNN>` with a per-project sequential counter that widens as needed.
 - **FR-004**: Humans MUST be able to create, list, and edit projects and their label sets, including declaring which label namespace is the task-type axis.
@@ -116,12 +124,15 @@ The human coordinator views a dashboard of agent activity: which tasks are claim
 - **FR-007**: Agents MUST be able to query the next claimable, non-blocked task for a project and to claim/unclaim tasks; claim is atomic and records the claiming actor and timestamp.
 - **FR-008**: `show`/context retrieval MUST surface, alongside the task, the convention/best-practice docs whose labels match the task's labels (especially the task-type label).
 - **FR-009**: Any task MUST be able to carry todos (checklist items), followups (assignable action items with status `open`/`resolved`), and discussion entries; each entry records author (agent id or human id) and timestamp.
-- **FR-010**: The human coordinator MUST be able to view tasks grouped by claimant, tasks with open followups, and tasks awaiting review, and act on review requests (approve/reject with comment).
+- **FR-010**: The human coordinator MUST be able to view tasks grouped by claimant, tasks with open followups, tasks awaiting review, and the project guide coverage/freshness, and act on review requests (approve/reject with comment) and guide edits (FR-018).
 - **FR-011**: Every mutating operation MUST record the actor (agent id or human id) and a timestamp in an append-only history per task.
 - **FR-012**: System MUST treat agents as first-class actors with stable identifiers; no action is attributed to an anonymous "system" actor.
 - **FR-013**: System MUST allow querying tasks by label (single and multi-label intersection) and by link traversal (e.g. "all tasks this task implements" / "all tasks blocking this task").
 - **FR-014**: System MUST keep deterministic command output for a given store so that agent runs and snapshot tests are reproducible.
 - **FR-015**: Project conventions and task-type taxonomy MUST be data (project-configured labels and convention docs), not hard-coded behavior; adding a new task type requires no code change.
+- **FR-016**: Each project MAY declare a `guide`: an ordered list of references to convention docs (tasks) or external file paths, grouped by named section (e.g. "conventions", "work-conduct", "communication", "testing"). The guide is the set of project-wide information agents MUST read when working on any task in the project.
+- **FR-017**: `next`/`show`/context retrieval MUST include the project's guide references in the returned context (alongside the per-task label-matched convention docs from FR-008), so an agent always receives the always-read harness regardless of the task's labels.
+- **FR-018**: The human coordinator MUST be able to edit a project's guide (add/remove/reorder references, name sections) and view guide coverage and freshness on the coordinator dashboard — specifically: which sections are empty, and which referenced convention docs are stale (last-updated beyond a project-configured threshold) or missing.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -135,6 +146,7 @@ The human coordinator views a dashboard of agent activity: which tasks are claim
 - **Discussion entry**: A comment on a task recording a decision/question, with author and timestamp; flat (no threading) for v1.
 - **History entry**: An append-only record of a task mutation (status change, label add/remove, link add/remove, claim, etc.) with actor and timestamp.
 - **Convention doc**: A task (or linked document) tagged as a convention/best-practice; discoverable from other tasks via label match and explicit links.
+- **Guide**: A project-level entity; an ordered list of references to convention docs (tasks) or external file paths, grouped by named section. The guide is the always-read harness agents receive in `next`/`show` context; it is edited by the human coordinator and surfaced on the dashboard for coverage/freshness followup.
 
 ## Success Criteria *(mandatory)*
 
@@ -144,7 +156,7 @@ The human coordinator views a dashboard of agent activity: which tasks are claim
 - **SC-002**: Two agents running "next task" concurrently never claim the same task; the second receives a clear "already claimed" response.
 - **SC-002a**: All commands produce byte-identical output for the same store and arguments (reproducible for agents and snapshot tests).
 - **SC-003**: A human can create a project, configure its labels, and define a task-type taxonomy in under 2 minutes using only CLI commands.
-- **SC-004**: All task data is stored as plain text in the workspace and produces clean, reviewable diffs under version control.
+- **SC-004**: All task data is stored as plain text in the machine-global `~/.config/atm` directory and can be exported/copied wholesale to another machine to reproduce the same state (detachability); the on-disk format produces clean, reviewable diffs when exported.
 - **SC-005**: The TUI coordinator view renders the current agent activity, open followups, and review queue in under 1 second on a project with 1,000 tasks.
 - **SC-006**: Adding a new task type (e.g. `type:spike`) requires zero code changes — only project label configuration and (optionally) a convention doc.
 - **SC-007**: Every mutating command records actor and timestamp so the full history of any task is reconstructable from the store.
@@ -153,7 +165,7 @@ The human coordinator views a dashboard of agent activity: which tasks are claim
 
 - The primary users are AI agents and a small number of human coordinators, not a large human team; scale targets are modest (thousands of tasks per project, tens of projects).
 - All access is local-trust: there is no multi-tenant isolation or authn/authz in v1. Actor identity is declared by the caller (e.g. `--actor agent:claude-1` or `--actor human:alice`) and trusted. Hardening access control is a later concern.
-- The store lives in a single workspace directory (e.g. `.atm/` under the repo); concurrent writers are expected to be few and are serialized by file locking at the store level.
+- The store lives in a single machine-global directory (`~/.config/atm`); concurrent writers are expected to be few and are serialized by file locking at the store level. The store is detachable: copying the directory to another machine reproduces the same state.
 - The TUI is built with Go and Bubble Tea as stated in the user description; the API is the Go package the TUI calls, also exposed via the CLI.
 - Convention/best-practice docs are modeled as tasks (or links to external files) rather than a separate top-level entity, to keep the model minimal.
 - Time tracking, boards, sprints, and remote sync (Jira/GitHub Issues) are explicitly out of scope for v1.

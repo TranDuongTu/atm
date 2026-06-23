@@ -12,7 +12,7 @@ Tasks, workflows, and states are modeled for agentic software-development lifecy
 
 ### III. Local-First & Offline-Capable
 
-All task data is stored locally in the workspace. No network dependency is required for core operation. Synchronization with remote systems (if any) is a non-goal for v1 and must not leak into the core API. The storage format MUST be text (machine-readable) so it diffs, merges, and version-controls cleanly.
+All task data is stored locally in a machine-global directory (`~/.config/atm`), not per-repo. A project is not 1:1 with a repository; a project may span multiple repos, and ATM's domain is limited to projects/tasks (no user-specific artifacts). The store MUST be detachable: copying the directory to another machine reproduces the same state. No network dependency is required for core operation. Synchronization with remote systems (if any) is a non-goal for v1 and must not leak into the core API. The storage format MUST be text (machine-readable) so it diffs, merges, and version-controls cleanly when exported.
 
 ### IV. Stability & Versioning
 
@@ -20,12 +20,12 @@ The API surface MUST stay stable and versioned; the TUI consumes it. Breaking ch
 
 ### V. Simplicity (YAGNI)
 
-Start with the minimal model that supports the agent workflow: Projects, Tasks, Labels, Links, Discussions, and a human-coordinator loop. Defer everything else (boards, time tracking, sprints, remote sync) until a concrete need is proven. Complexity must be justified against a simpler alternative.
+Start with the minimal model that supports the agent workflow: Projects, Tasks, Labels, Links, Discussions, a project Guide, and a human-coordinator loop. Defer everything else (boards, time tracking, sprints, remote sync) until a concrete need is proven. Complexity must be justified against a simpler alternative.
 
 ## Constraints
 
 - **No emojis** in code, specs, commits, or stored data.
-- **Text storage**: on-disk format is plain text that version-controls well (JSON or YAML are both acceptable; pick one per store and stay consistent).
+- **Text storage**: on-disk format is plain text that version-controls well when exported (JSON or YAML are both acceptable; pick one per store and stay consistent). Storage location is the machine-global `~/.config/atm`; detachable by directory copy.
 - **Single binary**: the CLI/TUI ships as one binary; subcommands are the primary interaction mode.
 - **Deterministic output**: the same command with the same store produces the same output (for agent reproducibility and snapshot testing).
 
@@ -41,4 +41,4 @@ Start with the minimal model that supports the agent workflow: Projects, Tasks, 
 
 The constitution supersedes ad-hoc practice. Amendments require documentation, approval, and a migration plan. All PRs/reviews MUST verify compliance with these principles. Complexity beyond the minimal model must be justified against the YAGNI principle.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-23 | **Last Amended**: 2026-06-23
+**Version**: 1.1.0 | **Ratified**: 2026-06-23 | **Last Amended**: 2026-06-23

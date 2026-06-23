@@ -50,7 +50,9 @@ shell commands, and other important information, read the current plan
 at specs/001-tasks-management/plan.md (Tasks Management System). Key facts:
 - Language: Go 1.22+; single binary `atm` (CLI + Bubble Tea TUI).
 - Layers: internal/store (stable in-process API), internal/cli (stable out-of-process API via cobra), internal/tui (thin client over store).
-- Storage: local text files under `.atm/` (one file per task JSON; per-project file locking; no DB).
-- Spec/design artifacts: specs/001-tasks-management/{spec,plan,research,data-model,quickstart}.md + contracts/cli.md.
-- Verify: `go build ./... && go test ./...` before declaring done.
+- Storage: machine-global text files under `$ATM_HOME` (default ~/.config/atm; one file per task JSON; per-project file locking; no DB; detachable by directory copy). A project is NOT 1:1 with a repo.
+- Guide: each project has an optional Guide (the always-read agent-context harness); `next`/`show --with-context` return it alongside per-task label-matched convention docs.
+- TUI: `atm tui` is a first-class management surface that mirrors every CLI op (FR-002); see specs/001-tasks-management/tui-mockups.md + contracts/tui.md.
+- Spec/design artifacts: specs/001-tasks-management/{spec,plan,research,data-model,quickstart,tui-mockups}.md + contracts/{cli,tui}.md.
+- Verify: `make verify` (or `make build && make test`) before declaring done.
 <!-- SPECKIT END -->
