@@ -14,6 +14,17 @@
     {
       "at": "TIMESTAMP",
       "data": {
+        "action": "todo-added",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h2"
+      },
+      "id": "h2",
+      "kind": "history"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
         "at": "TIMESTAMP",
         "author": "agent:claude-1",
         "done": false,
@@ -22,17 +33,6 @@
       },
       "id": "t1",
       "kind": "todo"
-    },
-    {
-      "at": "TIMESTAMP",
-      "data": {
-        "action": "todo-added",
-        "actor": "agent:claude-1",
-        "at": "TIMESTAMP",
-        "id": "h2"
-      },
-      "id": "h2",
-      "kind": "history"
     },
     {
       "at": "TIMESTAMP",

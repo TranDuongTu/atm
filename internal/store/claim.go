@@ -67,7 +67,7 @@ func (s *Store) Next(projectCode string, claim bool, actor string) (*Task, *Guid
 			ts := Now()
 			picked.Claim = &Claim{Actor: actor, At: ts}
 			picked.UpdatedAt = ts
-			picked.appendHistory("claimed", actor, map[string]any{})
+			picked.appendHistoryAt("claimed", actor, ts, map[string]any{})
 			if err := WriteJSON(s.taskPath(picked.ID), picked); err != nil {
 				return err
 			}
@@ -135,7 +135,7 @@ func (s *Store) Claim(id, actor string) (*Task, error) {
 		ts := Now()
 		t.Claim = &Claim{Actor: actor, At: ts}
 		t.UpdatedAt = ts
-		t.appendHistory("claimed", actor, map[string]any{})
+		t.appendHistoryAt("claimed", actor, ts, map[string]any{})
 		if err := WriteJSON(s.taskPath(id), t); err != nil {
 			return err
 		}
@@ -167,8 +167,9 @@ func (s *Store) Unclaim(id, actor string) (*Task, error) {
 			return nil
 		}
 		t.Claim = nil
-		t.UpdatedAt = Now()
-		t.appendHistory("unclaimed", actor, map[string]any{})
+		ts := Now()
+		t.UpdatedAt = ts
+		t.appendHistoryAt("unclaimed", actor, ts, map[string]any{})
 		if err := WriteJSON(s.taskPath(id), t); err != nil {
 			return err
 		}

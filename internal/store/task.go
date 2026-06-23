@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 )
 
 var allowedTransitions = map[string]map[string]bool{
@@ -95,13 +96,13 @@ func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
 		return fmt.Errorf("%w: title is required", ErrUsage)
 	}
-	return s.mutateTask(id, actor, "title-changed", func(t *Task) {
+	return s.mutateTask(id, actor, "title-changed", func(t *Task, now time.Time) {
 		t.Title = title
 	})
 }
 
 func (s *Store) SetDescription(id, description, actor string) error {
-	return s.mutateTask(id, actor, "description-changed", func(t *Task) {
+	return s.mutateTask(id, actor, "description-changed", func(t *Task, now time.Time) {
 		t.Description = description
 	})
 }
@@ -129,15 +130,16 @@ func (s *Store) SetStatus(id, status, actor string) error {
 			return fmt.Errorf("%w: invalid transition %s -> %s", ErrConflict, t.Status, status)
 		}
 		from := t.Status
+		now := Now()
 		t.Status = status
-		t.UpdatedAt = Now()
-		t.appendHistory("status-changed", actor, map[string]any{"from": from, "to": status})
+		t.UpdatedAt = now
+		t.appendHistoryAt("status-changed", actor, now, map[string]any{"from": from, "to": status})
 		return WriteJSON(s.taskPath(id), t)
 	})
 }
 
 func (s *Store) TaskLabelAdd(id, label, actor string) error {
-	return s.mutateTask(id, actor, "label-added", func(t *Task) {
+	return s.mutateTask(id, actor, "label-added", func(t *Task, now time.Time) {
 		for _, l := range t.Labels {
 			if l == label {
 				return
@@ -149,7 +151,7 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
-	return s.mutateTask(id, actor, "label-removed", func(t *Task) {
+	return s.mutateTask(id, actor, "label-removed", func(t *Task, now time.Time) {
 		out := t.Labels[:0]
 		for _, l := range t.Labels {
 			if l != label {
@@ -160,7 +162,7 @@ func (s *Store) TaskLabelRemove(id, label, actor string) error {
 	})
 }
 
-func (s *Store) mutateTask(id, actor, action string, fn func(t *Task)) error {
+func (s *Store) mutateTask(id, actor, action string, fn func(t *Task, now time.Time)) error {
 	if err := ValidateActorID(actor); err != nil {
 		return err
 	}
@@ -176,9 +178,10 @@ func (s *Store) mutateTask(id, actor, action string, fn func(t *Task)) error {
 		if err != nil {
 			return err
 		}
-		fn(t)
-		t.UpdatedAt = Now()
-		t.appendHistory(action, actor, map[string]any{})
+		now := Now()
+		fn(t, now)
+		t.UpdatedAt = now
+		t.appendHistoryAt(action, actor, now, map[string]any{})
 		return WriteJSON(s.taskPath(id), t)
 	})
 }
@@ -231,12 +234,16 @@ func (t *Task) nextCounter(prefix string) int {
 }
 
 func (t *Task) appendHistory(action, actor string, meta map[string]any) {
+	t.appendHistoryAt(action, actor, Now(), meta)
+}
+
+func (t *Task) appendHistoryAt(action, actor string, at time.Time, meta map[string]any) {
 	n := t.nextCounter("h")
 	t.History = append(t.History, HistoryEntry{
 		ID:     fmt.Sprintf("h%d", n),
 		Action: action,
 		Actor:  actor,
-		At:     Now(),
+		At:     at,
 		Meta:   meta,
 	})
 }
