@@ -1,0 +1,14 @@
+{
+  "id": "ATM-0001",
+  "links_in": [
+    {
+      "direction": "in",
+      "link": {
+        "target": "ATM-0002",
+        "type": "implements"
+      }
+    }
+  ],
+  "links_out": [],
+  "stale": []
+}
