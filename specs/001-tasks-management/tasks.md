@@ -25,10 +25,10 @@
 
 **Purpose**: Project initialization and basic structure.
 
-- [ ] T001 [P] Initialize Go module `atm` with Go 1.22 in `go.mod` at repo root; add `cmd/atm/main.go` stub that prints `atm version dev` and exits 0.
-- [ ] T002 [P] Add dependencies in `go.mod`: `github.com/spf13/cobra`, `github.com/charmbracelet/bubbletea`, `github.com/charmbracelet/lipgloss`, `golang.org/x/sys`; run `go mod tidy`.
-- [ ] T003 [P] Create `Makefile` with `build` (`go build -o bin/atm ./cmd/atm`), `test` (`go test ./...`), `lint` (`golangci-lint run`), `verify` (`make build && make test`), and `clean` targets; outputs go to gitignored `bin/`. Add `.gitignore` entries for `bin/` and `*.test`.
-- [ ] T004 [P] Add `.golangci.yml` enabling `gofmt`/`govet`/`gosimple`/`unused`; document the verify command (`make verify`) in `README.md`.
+- [X] T001 [P] Initialize Go module `atm` with Go 1.22 in `go.mod` at repo root; add `cmd/atm/main.go` stub that prints `atm version dev` and exits 0.
+- [X] T002 [P] Add dependencies in `go.mod`: `github.com/spf13/cobra`, `github.com/charmbracelet/bubbletea`, `github.com/charmbracelet/lipgloss`, `golang.org/x/sys`; run `go mod tidy`.
+- [X] T003 [P] Create `Makefile` with `build` (`go build -o bin/atm ./cmd/atm`), `test` (`go test ./...`), `lint` (`golangci-lint run`), `verify` (`make build && make test`), and `clean` targets; outputs go to gitignored `bin/`. Add `.gitignore` entries for `bin/` and `*.test`.
+- [X] T004 [P] Add `.golangci.yml` enabling `gofmt`/`govet`/`gosimple`/`unused`; document the verify command (`make verify`) in `README.md`.
 
 ---
 
