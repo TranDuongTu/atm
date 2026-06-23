@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 )
 
 var validLinkTypes = map[string]bool{
@@ -37,7 +38,7 @@ func (s *Store) LinkAdd(id, linkType, target, actor string) error {
 	if _, _, ok := ParseTaskID(target); !ok {
 		return fmt.Errorf("%w: invalid target task id %q", ErrUsage, target)
 	}
-	return s.mutateTask(id, actor, "link-added", func(t *Task) {
+	return s.mutateTask(id, actor, "link-added", func(t *Task, now time.Time) {
 		for _, l := range t.Links {
 			if l.Type == linkType && l.Target == target {
 				return
@@ -57,7 +58,7 @@ func (s *Store) LinkAdd(id, linkType, target, actor string) error {
 }
 
 func (s *Store) LinkRemove(id, linkType, target, actor string) error {
-	return s.mutateTask(id, actor, "link-removed", func(t *Task) {
+	return s.mutateTask(id, actor, "link-removed", func(t *Task, now time.Time) {
 		out := t.Links[:0]
 		for _, l := range t.Links {
 			if l.Type == linkType && l.Target == target {

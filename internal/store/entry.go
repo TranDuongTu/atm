@@ -25,13 +25,13 @@ func (s *Store) TodoAdd(id, text, actor string) (*Task, error) {
 		return nil, fmt.Errorf("%w: todo text is required", ErrUsage)
 	}
 	var out *Task
-	err := s.mutateTask(id, actor, "todo-added", func(t *Task) {
+	err := s.mutateTask(id, actor, "todo-added", func(t *Task, now time.Time) {
 		n := t.nextCounter("t")
 		t.Todos = append(t.Todos, Todo{
 			ID:     fmt.Sprintf("t%d", n),
 			Text:   text,
 			Author: actor,
-			At:     Now(),
+			At:     now,
 		})
 		out = t
 	})
@@ -40,7 +40,7 @@ func (s *Store) TodoAdd(id, text, actor string) (*Task, error) {
 
 func (s *Store) TodoToggle(id, todoID, actor string) (*Task, error) {
 	var out *Task
-	err := s.mutateTask(id, actor, "todo-toggled", func(t *Task) {
+	err := s.mutateTask(id, actor, "todo-toggled", func(t *Task, now time.Time) {
 		for i := range t.Todos {
 			if t.Todos[i].ID == todoID {
 				t.Todos[i].Done = !t.Todos[i].Done
@@ -66,7 +66,7 @@ func (s *Store) FollowupAdd(id, text, assignee, author string, due *time.Time) (
 		assignee = author
 	}
 	var out *Task
-	err := s.mutateTask(id, author, "followup-added", func(t *Task) {
+	err := s.mutateTask(id, author, "followup-added", func(t *Task, now time.Time) {
 		n := t.nextCounter("f")
 		f := Followup{
 			ID:       fmt.Sprintf("f%d", n),
@@ -75,7 +75,7 @@ func (s *Store) FollowupAdd(id, text, assignee, author string, due *time.Time) (
 			Status:   "open",
 			Due:      due,
 			Author:   author,
-			At:       Now(),
+			At:       now,
 		}
 		t.Followups = append(t.Followups, f)
 		out = t
@@ -85,10 +85,9 @@ func (s *Store) FollowupAdd(id, text, assignee, author string, due *time.Time) (
 
 func (s *Store) FollowupResolve(id, followupID, actor string) (*Task, error) {
 	var out *Task
-	err := s.mutateTask(id, actor, "followup-resolved", func(t *Task) {
+	err := s.mutateTask(id, actor, "followup-resolved", func(t *Task, now time.Time) {
 		for i := range t.Followups {
 			if t.Followups[i].ID == followupID {
-				now := Now()
 				t.Followups[i].Status = "resolved"
 				t.Followups[i].ResolvedAt = &now
 				t.Followups[i].ResolvedBy = actor
@@ -111,13 +110,13 @@ func (s *Store) DiscussionAdd(id, text, actor string) (*Task, error) {
 		return nil, fmt.Errorf("%w: discussion text is required", ErrUsage)
 	}
 	var out *Task
-	err := s.mutateTask(id, actor, "discussion-added", func(t *Task) {
+	err := s.mutateTask(id, actor, "discussion-added", func(t *Task, now time.Time) {
 		n := t.nextCounter("d")
 		t.Discussions = append(t.Discussions, DiscussionEntry{
 			ID:     fmt.Sprintf("d%d", n),
 			Text:   text,
 			Author: actor,
-			At:     Now(),
+			At:     now,
 		})
 		out = t
 	})
