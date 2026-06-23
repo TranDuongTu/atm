@@ -48,11 +48,11 @@ type jsonFollowup struct {
 	Text       string  `json:"text"`
 	Assignee   string  `json:"assignee"`
 	Status     string  `json:"status"`
-	Due        *string `json:"due"`
+	Due        *string `json:"due,omitempty"`
 	Author     string  `json:"author"`
 	At         string  `json:"at"`
-	ResolvedAt *string `json:"resolved_at"`
-	ResolvedBy string  `json:"resolved_by"`
+	ResolvedAt *string `json:"resolved_at,omitempty"`
+	ResolvedBy *string `json:"resolved_by,omitempty"`
 }
 
 type jsonDiscussion struct {
@@ -147,7 +147,7 @@ func followupsToJSON(fus []store.Followup) []jsonFollowup {
 	for _, f := range fus {
 		jf := jsonFollowup{
 			ID: f.ID, Text: f.Text, Assignee: f.Assignee, Status: f.Status,
-			Author: f.Author, At: renderTime(f.At), ResolvedBy: f.ResolvedBy,
+			Author: f.Author, At: renderTime(f.At),
 		}
 		if f.Due != nil {
 			s := renderTime(*f.Due)
@@ -156,6 +156,10 @@ func followupsToJSON(fus []store.Followup) []jsonFollowup {
 		if f.ResolvedAt != nil {
 			s := renderTime(*f.ResolvedAt)
 			jf.ResolvedAt = &s
+		}
+		if f.ResolvedBy != "" {
+			rb := f.ResolvedBy
+			jf.ResolvedBy = &rb
 		}
 		out = append(out, jf)
 	}

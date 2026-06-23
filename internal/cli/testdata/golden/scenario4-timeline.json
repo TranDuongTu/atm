@@ -1,0 +1,85 @@
+{
+  "entries": [
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "action": "created",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h1"
+      },
+      "id": "h1",
+      "kind": "history"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "action": "todo-added",
+        "actor": "agent:claude-1",
+        "at": "TIMESTAMP",
+        "id": "h2"
+      },
+      "id": "h2",
+      "kind": "history"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "at": "TIMESTAMP",
+        "author": "agent:claude-1",
+        "done": false,
+        "id": "t1",
+        "text": "Write tests for claim"
+      },
+      "id": "t1",
+      "kind": "todo"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "assignee": "human:alice",
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "f1",
+        "status": "open",
+        "text": "Decide storage format"
+      },
+      "id": "f1",
+      "kind": "followup"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "action": "followup-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h3"
+      },
+      "id": "h3",
+      "kind": "history"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "at": "TIMESTAMP",
+        "author": "human:alice",
+        "id": "d1",
+        "text": "Use file-level locking."
+      },
+      "id": "d1",
+      "kind": "discussion"
+    },
+    {
+      "at": "TIMESTAMP",
+      "data": {
+        "action": "discussion-added",
+        "actor": "human:alice",
+        "at": "TIMESTAMP",
+        "id": "h4"
+      },
+      "id": "h4",
+      "kind": "history"
+    }
+  ],
+  "id": "ATM-0002"
+}

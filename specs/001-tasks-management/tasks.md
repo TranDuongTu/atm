@@ -120,11 +120,11 @@
 
 ### Tests for User Story 4
 
-- [ ] T026 [P] [US4] Golden test for `task timeline` ordering (history + todo + followup + discussion interleaved by timestamp then entry id) and for `followup resolve` setting `resolved_at`/`resolved_by`.
+- [X] T026 [P] [US4] Golden test for `task timeline` ordering (history + todo + followup + discussion interleaved by timestamp then entry id) and for `followup resolve` setting `resolved_at`/`resolved_by`.
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Implement CLI in `internal/cli/entry.go`: `task todo add/toggle`, `task followup add/resolve`, `task discussion add`, `task timeline` wired to `store.Entry` (T012). Integration test per `quickstart.md` Scenario 4.
+- [X] T027 [US4] Implement CLI in `internal/cli/entry.go`: `task todo add/toggle`, `task followup add/resolve`, `task discussion add`, `task timeline` wired to `store.Entry` (T012). Integration test per `quickstart.md` Scenario 4.
 
 **Checkpoint**: US4 fully functional; coordination primitives are in place.
 
