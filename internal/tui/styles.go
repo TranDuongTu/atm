@@ -18,11 +18,59 @@ var (
 	activeTabStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
 			Background(lipgloss.Color("39")).
+			Bold(true).
 			Padding(0, 1)
 
 	inactiveTabStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
+				Foreground(lipgloss.Color("245")).
+				Padding(0, 1)
+
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Padding(0, 2)
+
+	locationStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).Italic(true)
+
+	// keyMenuStyle renders the contextual key hints in the bottom status bar.
+	keyMenuStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).Bold(true)
+
+	keyMenuDimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
+	// dialogStyle renders the create/edit dialog as a bordered overlay with
+	// no opaque background so the underlying content shows through.
+	dialogStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("39")).
 			Padding(0, 1)
+
+	dialogTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true).
+				Padding(0, 1)
+
+	fieldLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Bold(true)
+
+	fieldValueStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF"))
+
+	fieldHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245")).Italic(true)
+
+	buttonActiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("0")).
+				Background(lipgloss.Color("39")).
+				Bold(true).
+				Padding(0, 2)
+
+	buttonInactiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("245")).
+				Padding(0, 2)
 )
 
 // box renders `inner` inside a bordered block at least `w` columns wide (so

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type formField struct {
@@ -14,26 +15,33 @@ type formField struct {
 	Hint     string
 }
 
+type formFocus int
+
+const (
+	focusFields formFocus = iota
+	focusButtons
+)
+
 type Form struct {
-	Title  string
-	Fields []formField
-	Cursor int
-	Active bool
-	Done   bool
-	Cancel bool
-	Err    string
-	width  int
+	Title   string
+	Fields  []formField
+	cursor  int // active field index
+	btnIdx  int // 0 = Submit, 1 = Cancel
+	zone    formFocus
+	Active  bool
+	Done    bool
+	Cancel  bool
+	Err     string
+	width   int
 }
 
 func NewForm(title string, fields []formField) *Form {
-	return &Form{Title: title, Fields: fields, Active: true, width: 60}
+	return &Form{Title: title, Fields: fields, Active: true, width: 48, zone: focusFields}
 }
 
-func (f *Form) SetWidth(w int) {
-	if w > 20 {
-		f.width = w - 4
-	}
-}
+// SetWidth is kept for backwards compatibility but the form uses a fixed
+// compact width so it never spans the full screen.
+func (f *Form) SetWidth(w int) {}
 
 func (f *Form) Values() map[string]string {
 	out := map[string]string{}
@@ -47,61 +55,115 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 	if !f.Active {
 		return f, nil
 	}
-	switch m := msg.(type) {
-	case tea.KeyMsg:
-		switch m.String() {
-		case "esc":
-			f.Cancel = true
-			f.Active = false
-			return f, nil
-		case "enter":
-			if f.Cursor == len(f.Fields)-1 {
+	m, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return f, nil
+	}
+	switch m.String() {
+	case "esc":
+		f.Cancel = true
+		f.Active = false
+		return f, nil
+	case "tab":
+		f.next()
+		return f, nil
+	case "shift+tab":
+		f.prev()
+		return f, nil
+	case "up":
+		f.prev()
+		return f, nil
+	case "down":
+		f.next()
+		return f, nil
+	case "left":
+		if f.zone == focusButtons && f.btnIdx == 1 {
+			f.btnIdx = 0
+		}
+		return f, nil
+	case "right":
+		if f.zone == focusButtons && f.btnIdx == 0 {
+			f.btnIdx = 1
+		}
+		return f, nil
+	case "enter":
+		if f.zone == focusButtons {
+			if f.btnIdx == 0 {
 				if err := f.validate(); err != "" {
 					f.Err = err
 					return f, nil
 				}
 				f.Done = true
 				f.Active = false
+			} else {
+				f.Cancel = true
+				f.Active = false
+			}
+			return f, nil
+		}
+		// Enter on the last field submits directly.
+		if f.cursor == len(f.Fields)-1 {
+			if err := f.validate(); err != "" {
+				f.Err = err
 				return f, nil
 			}
-			f.Cursor++
+			f.Done = true
+			f.Active = false
 			return f, nil
-		case "tab":
-			if f.Cursor < len(f.Fields)-1 {
-				f.Cursor++
-			} else {
-				f.Cursor = 0
-			}
-			return f, nil
-		case "shift+tab":
-			if f.Cursor > 0 {
-				f.Cursor--
-			} else {
-				f.Cursor = len(f.Fields) - 1
-			}
-			return f, nil
-		case "backspace":
-			fld := &f.Fields[f.Cursor]
+		}
+		f.next()
+		return f, nil
+	case "backspace":
+		if f.zone == focusFields {
+			fld := &f.Fields[f.cursor]
 			if len(fld.Value) > 0 {
 				fld.Value = fld.Value[:len(fld.Value)-1]
 			}
 			f.Err = ""
-			return f, nil
-		default:
-			if m.Type == tea.KeyRunes {
-				f.Fields[f.Cursor].Value += string(m.Runes)
-				f.Err = ""
-			}
-			return f, nil
 		}
+		return f, nil
+	default:
+		if f.zone == focusFields && m.Type == tea.KeyRunes {
+			f.Fields[f.cursor].Value += string(m.Runes)
+			f.Err = ""
+		}
+		return f, nil
 	}
-	return f, nil
+}
+
+func (f *Form) next() {
+	if f.zone == focusFields {
+		if f.cursor < len(f.Fields)-1 {
+			f.cursor++
+		} else {
+			f.zone = focusButtons
+			f.btnIdx = 0
+		}
+		return
+	}
+	// In buttons, wrap to first field.
+	f.zone = focusFields
+	f.cursor = 0
+}
+
+func (f *Form) prev() {
+	if f.zone == focusButtons {
+		f.zone = focusFields
+		f.cursor = len(f.Fields) - 1
+		return
+	}
+	if f.cursor > 0 {
+		f.cursor--
+	} else {
+		f.zone = focusButtons
+		f.btnIdx = 1
+	}
 }
 
 func (f *Form) validate() string {
 	for _, fld := range f.Fields {
 		if fld.Required && fld.Value == "" {
-			return fmt.Sprintf("2 usage: %s is required", fld.Label)
+			return fmt.Sprintf("%s is required", fld.Label)
 		}
 	}
 	return ""
@@ -109,56 +171,59 @@ func (f *Form) validate() string {
 
 func (f *Form) View() string {
 	var b strings.Builder
-	border := strings.Repeat("-", f.width)
-	b.WriteString("+" + border + "+\n")
-	title := fmt.Sprintf(" %s ", f.Title)
-	pad := f.width - len(title)
-	if pad < 0 {
-		pad = 0
-	}
-	b.WriteString("|" + title + strings.Repeat(" ", pad) + "|\n")
-	b.WriteString("+" + border + "+\n")
+	innerW := f.width
+
+	// Title bar.
+	b.WriteString(dialogTitleStyle.Render(f.Title))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", innerW))
+	b.WriteString("\n\n")
+
+	// Fields.
 	for i, fld := range f.Fields {
-		marker := " "
+		active := f.zone == focusFields && i == f.cursor
+		label := fieldLabelStyle.Render(fld.Label + ":")
 		cursor := " "
-		if i == f.Cursor {
-			cursor = "_"
-			marker = ">"
+		if active {
+			cursor = "▌"
 		}
-		label := fld.Label + ":"
-		val := fld.Value
-		avail := f.width - len(label) - 4
-		if len(val) > avail {
-			val = val[:avail]
+		val := fld.Value + cursor
+		valStyle := fieldValueStyle
+		if active {
+			valStyle = fieldValueStyle.Underline(true)
 		}
-		pad = f.width - len(label) - len(val) - 3
-		if pad < 0 {
-			pad = 0
-		}
-		b.WriteString(fmt.Sprintf("|%s %s %s%s%s|\n", marker, label, val, strings.Repeat(" ", pad), cursor))
+		row := fmt.Sprintf("%s %s", label, valStyle.Render(val))
+		b.WriteString(row)
+		b.WriteString("\n")
 		if fld.Hint != "" {
-			h := "  " + fld.Hint
-			if len(h) > f.width {
-				h = h[:f.width]
-			}
-			pad := f.width - len(h)
-			if pad < 0 {
-				pad = 0
-			}
-			b.WriteString("|" + h + strings.Repeat(" ", pad) + "|\n")
+			b.WriteString(fieldHintStyle.Render("  " + fld.Hint))
+			b.WriteString("\n")
 		}
+		b.WriteString("\n")
 	}
+
 	if f.Err != "" {
-		e := " err: " + f.Err
-		if len(e) > f.width {
-			e = e[:f.width]
-		}
-		pad := f.width - len(e)
-		if pad < 0 {
-			pad = 0
-		}
-		b.WriteString("|" + e + strings.Repeat(" ", pad) + "|\n")
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+		b.WriteString(errStyle.Render("✗ " + f.Err))
+		b.WriteString("\n\n")
 	}
-	b.WriteString("+" + border + "+")
-	return b.String()
+
+	// Action buttons row.
+	submitActive := f.zone == focusButtons && f.btnIdx == 0
+	cancelActive := f.zone == focusButtons && f.btnIdx == 1
+	submit := buttonInactiveStyle.Render("[ Submit ]")
+	cancel := buttonInactiveStyle.Render("[ Cancel ]")
+	if submitActive {
+		submit = buttonActiveStyle.Render("[ Submit ]")
+	}
+	if cancelActive {
+		cancel = buttonActiveStyle.Render("[ Cancel ]")
+	}
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, submit, "  ", cancel)
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("Tab/arrows to navigate  Enter to confirm  Esc to cancel")
+	b.WriteString(buttons)
+	b.WriteString("\n")
+	b.WriteString(hint)
+
+	return dialogStyle.Render(b.String())
 }

@@ -163,13 +163,14 @@ func (m *Model) SetSize(w, h int) {
 }
 
 // topPaneHeight is the outer height (including borders) of the top pane for
-// the current width. The header is one logical line; the tab bar is another.
-// With a rounded border that yields 1 + 2 + 1 = 4 lines.
-func topPaneHeight(w int) int { return 4 }
+// the current width. The header is three logical lines (title, location,
+// tabs); with a rounded border that yields 1 + 3 + 1 = 5 lines.
+func topPaneHeight(w int) int { return 5 }
 
 // bottomPaneHeight is the outer height (including borders) of the bottom pane.
-// The footer is one logical line -> 1 + 2 = 3 lines.
-func bottomPaneHeight(w int) int { return 3 }
+// The footer (status bar) is two logical lines (key menu + status line) ->
+// 1 + 2 + 1 = 4 lines.
+func bottomPaneHeight(w int) int { return 4 }
 
 func (m *Model) refreshAll() {
 	m.dash.refresh()
@@ -282,8 +283,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter.value = ""
 		return m, nil
 	case m.km.escape:
-		m.hideToast()
-		return m, nil
+		// If a toast is visible, Esc dismisses it; otherwise let the active
+		// tab handle Esc (e.g. exit a project/task detail view).
+		if m.toast.visible {
+			m.hideToast()
+			return m, nil
+		}
 	case "1":
 		m.tab = tabDashboard
 		return m, nil
@@ -377,7 +382,6 @@ func (m *Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if f.Cancel {
 		m.closeForm()
-		m.showToast("cancelled")
 	}
 	return m, nil
 }
@@ -453,29 +457,101 @@ func (m *Model) View() string {
 	if w < 20 {
 		w = 20
 	}
+	h := m.height
 
-	top := box(topStyle, w, m.renderHeader()+"\n"+m.renderTabBar())
+	// Fullscreen stack: title bar (header), content, status bar.
+	top := box(topStyle, w, m.renderHeader())
 	content := box(contentStyle, w, m.renderContent())
 	bottom := box(bottomStyle, w, m.renderFooter())
 
-	var b strings.Builder
-	b.WriteString(top)
-	b.WriteString("\n")
-	b.WriteString(content)
-	b.WriteString("\n")
-	b.WriteString(bottom)
+	// Stretch content so the layout fills the terminal; lipgloss.Place then
+	// drops the floating status bar at the absolute bottom.
+	stack := top + "\n" + content
+	out := lipgloss.Place(w, h, lipgloss.Left, lipgloss.Top, stack)
+
+	// Floating status bar at the bottom.
+	out = placeSafe(out, bottom, w, h, lipgloss.Center, lipgloss.Bottom)
+
 	if m.form.active && m.form.form != nil {
-		b.WriteString("\n")
-		b.WriteString(m.form.form.View())
+		out = placeSafe(out, m.form.form.View(), w, h, lipgloss.Center, lipgloss.Center)
 	}
 	if m.overlay.visible {
-		b.WriteString("\n")
-		b.WriteString(m.renderOverlayBox())
+		out = placeSafe(out, m.renderOverlayBox(), w, h, lipgloss.Center, lipgloss.Center)
 	}
 	if m.toast.visible && m.toast.msg != "" {
-		b.WriteString("\n[ " + m.toast.msg + " ]")
+		toast := lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("203")).Padding(0, 1).Render(m.toast.msg)
+		out = placeSafe(out, toast, w, h, lipgloss.Center, lipgloss.Bottom)
 	}
-	return b.String()
+	return out
+}
+
+// placeSafe composites `overlay` onto `base` at the given position. Each
+// overlay line is placed onto its target row using lipgloss.PlaceHorizontal
+// (ANSI-safe), so styled content is never split mid-sequence. Base rows that
+// are entirely covered by the overlay are replaced; partially covered rows
+// keep their non-overlapping edges.
+func placeSafe(base, overlay string, w, h int, hPos, vPos lipgloss.Position) string {
+	olHeight := strings.Count(overlay, "\n") + 1
+	olWidth := maxLineWidth(overlay)
+	var x, y int
+	switch hPos {
+	case lipgloss.Right:
+		x = w - olWidth
+	default:
+		x = (w - olWidth) / 2
+	}
+	switch vPos {
+	case lipgloss.Top:
+		y = 0
+	case lipgloss.Bottom:
+		y = h - olHeight
+	default:
+		y = (h - olHeight) / 2
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	baseLines := strings.Split(base, "\n")
+	for len(baseLines) < h {
+		baseLines = append(baseLines, strings.Repeat(" ", w))
+	}
+	if len(baseLines) > h {
+		baseLines = baseLines[:h]
+	}
+
+	ovLines := strings.Split(overlay, "\n")
+	for i, ol := range ovLines {
+		yy := y + i
+		if yy < 0 || yy >= len(baseLines) {
+			continue
+		}
+		// Build the overlay row inside a w-wide line: left pad + overlay + right pad.
+		// lipgloss.PlaceHorizontal handles the styling safely and pads with spaces.
+		placed := lipgloss.PlaceHorizontal(w, hPos, ol)
+		baseLines[yy] = placed
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func maxLineWidth(s string) int {
+	maxw := 0
+	for _, l := range strings.Split(s, "\n") {
+		if w := lipgloss.Width(l); w > maxw {
+			maxw = w
+		}
+	}
+	return maxw
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (m *Model) renderStartupInit() string {
@@ -502,12 +578,26 @@ func (m *Model) renderStartupActor() string {
 }
 
 func (m *Model) renderHeader() string {
-	storeInd := m.store.StorePath()
-	actor := m.actor
-	if actor == "" {
-		actor = "(unset)"
+	title := titleStyle.Render(" Agents Tasks Management - ATM ")
+	loc := locationStyle.Render(fmt.Sprintf(" %s  actor: %s ", m.store.StorePath(), m.actorString()))
+	tabs := m.renderTabBar()
+	// Stack the three lines, each center-aligned across the full width.
+	innerW := m.width - 2
+	if innerW < 1 {
+		innerW = 1
 	}
-	return fmt.Sprintf("atm  %s  actor: %s  [r]efresh [q]uit", storeInd, actor)
+	return lipgloss.JoinVertical(lipgloss.Center,
+		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title),
+		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, loc),
+		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, tabs),
+	)
+}
+
+func (m *Model) actorString() string {
+	if m.actor == "" {
+		return "(unset)"
+	}
+	return m.actor
 }
 
 func (m *Model) renderTabBar() string {
@@ -544,8 +634,18 @@ func (m *Model) renderFooter() string {
 	if actor == "" {
 		actor = "(unset)"
 	}
+	status := fmt.Sprintf("actor: %s | store: %s", actor, m.store.StorePath())
 	hint := m.footerHint()
-	return fmt.Sprintf("actor: %s | store: %s | %s", actor, m.store.StorePath(), hint)
+	innerW := m.width - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	// Two centered lines: the contextual key menu, then the status line.
+	menu := keyMenuStyle.Render(" " + hint + " ")
+	menuLine := lipgloss.PlaceHorizontal(innerW, lipgloss.Center, menu)
+	statusLine := lipgloss.PlaceHorizontal(innerW, lipgloss.Center,
+		keyMenuDimStyle.Render(" "+status+" "))
+	return lipgloss.JoinVertical(lipgloss.Left, menuLine, statusLine)
 }
 
 func (m *Model) footerHint() string {
@@ -566,31 +666,21 @@ func (m *Model) footerHint() string {
 
 func (m *Model) renderOverlayBox() string {
 	var b strings.Builder
-	w := m.width - 4
-	if w < 20 {
-		w = 20
+	w := m.width - 6
+	if w < 30 {
+		w = 30
 	}
-	border := strings.Repeat("-", w)
-	b.WriteString("+" + border + "+\n")
-	title := " " + m.overlay.title + " "
-	pad := w - len(title)
-	if pad < 0 {
-		pad = 0
-	}
-	b.WriteString("|" + title + strings.Repeat(" ", pad) + "|\n")
-	b.WriteString("+" + border + "+\n")
+	b.WriteString(dialogTitleStyle.Render(m.overlay.title))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", w))
+	b.WriteString("\n")
 	for _, l := range m.overlay.lines {
-		if len(l) > w {
-			l = l[:w]
-		}
-		p := w - len(l)
-		if p < 0 {
-			p = 0
-		}
-		b.WriteString("|" + l + strings.Repeat(" ", p) + "|\n")
+		b.WriteString(l)
+		b.WriteString("\n")
 	}
-	b.WriteString("+" + border + "+")
-	return b.String()
+	b.WriteString("\n")
+	b.WriteString(buttonInactiveStyle.Render("[ Close ]"))
+	return dialogStyle.Render(b.String())
 }
 
 func Run(storePath, actor string) error {
