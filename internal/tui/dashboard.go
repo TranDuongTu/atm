@@ -222,11 +222,21 @@ func (d *dashboardModel) view() string {
 		}
 		projects := d.app.store.ListProjects()
 		if len(projects) == 0 {
-			return "  No projects. Create one in the Projects tab."
+			return "  No projects. Create one in the Projects tab (press 2)."
 		}
-		return "  Dashboard empty for " + projects[0].Code
+		return "  Dashboard empty for " + projects[0].Code + ". See Projects (2) and Tasks (3) tabs."
 	}
 	var b strings.Builder
+	code := d.dash.Project
+	tasks := d.app.store.ListTasks(store.QueryFilters{Project: code})
+	counts := map[string]int{}
+	for _, t := range tasks {
+		counts[t.Status]++
+	}
+	b.WriteString(fmt.Sprintf("PROJECT %s   %d task(s)   open:%d  in-progress:%d  review:%d  done:%d  blocked:%d  cancelled:%d\n",
+		code, len(tasks),
+		counts["open"], counts["in-progress"], counts["review"], counts["done"], counts["blocked"], counts["cancelled"]))
+	b.WriteString("\n")
 	b.WriteString("REVIEW QUEUE")
 	b.WriteString(fmt.Sprintf("  %d task(s) awaiting\n", countReview(d.dash)))
 	for _, g := range d.dash.ReviewQueue.Groups {

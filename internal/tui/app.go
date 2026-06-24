@@ -7,6 +7,7 @@ import (
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -141,7 +142,12 @@ func storeExists(s *store.Store) bool {
 func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	contentH := h - 5
+	// Reserve space for top (header+tabbar) and bottom (footer) bordered
+	// panes plus their surrounding borders. Each bordered pane occupies
+	// (1 top border + content rows + 1 bottom border) lines.
+	topH := topPaneHeight(m.width)
+	bottomH := bottomPaneHeight(m.width)
+	contentH := h - topH - bottomH
 	if contentH < 2 {
 		contentH = 2
 	}
@@ -155,6 +161,15 @@ func (m *Model) SetSize(w, h int) {
 	m.actors.setSize(contentW, contentH)
 	m.help.setSize(contentW, contentH)
 }
+
+// topPaneHeight is the outer height (including borders) of the top pane for
+// the current width. The header is one logical line; the tab bar is another.
+// With a rounded border that yields 1 + 2 + 1 = 4 lines.
+func topPaneHeight(w int) int { return 4 }
+
+// bottomPaneHeight is the outer height (including borders) of the bottom pane.
+// The footer is one logical line -> 1 + 2 = 3 lines.
+func bottomPaneHeight(w int) int { return 3 }
 
 func (m *Model) refreshAll() {
 	m.dash.refresh()
@@ -434,14 +449,21 @@ func (m *Model) View() string {
 		return m.renderStartupActor()
 	}
 
+	w := m.width
+	if w < 20 {
+		w = 20
+	}
+
+	top := box(topStyle, w, m.renderHeader()+"\n"+m.renderTabBar())
+	content := box(contentStyle, w, m.renderContent())
+	bottom := box(bottomStyle, w, m.renderFooter())
+
 	var b strings.Builder
-	b.WriteString(m.renderHeader())
+	b.WriteString(top)
 	b.WriteString("\n")
-	b.WriteString(m.renderTabBar())
+	b.WriteString(content)
 	b.WriteString("\n")
-	b.WriteString(m.renderContent())
-	b.WriteString("\n")
-	b.WriteString(m.renderFooter())
+	b.WriteString(bottom)
 	if m.form.active && m.form.form != nil {
 		b.WriteString("\n")
 		b.WriteString(m.form.form.View())
@@ -493,12 +515,12 @@ func (m *Model) renderTabBar() string {
 	var parts []string
 	for i, t := range tabs {
 		if i == m.tab {
-			parts = append(parts, "["+t+"]")
+			parts = append(parts, activeTabStyle.Render(t))
 		} else {
-			parts = append(parts, " "+t+" ")
+			parts = append(parts, inactiveTabStyle.Render(t))
 		}
 	}
-	return strings.Join(parts, " ")
+	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 
 func (m *Model) renderContent() string {
