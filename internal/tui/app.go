@@ -56,8 +56,7 @@ type filterState struct {
 }
 
 type toastState struct {
-	msg     string
-	visible bool
+	msg string
 }
 
 type overlayState struct {
@@ -182,11 +181,10 @@ func (m *Model) refreshAll() {
 
 func (m *Model) showToast(msg string) {
 	m.toast.msg = msg
-	m.toast.visible = true
 }
 
 func (m *Model) hideToast() {
-	m.toast.visible = false
+	m.toast.msg = ""
 }
 
 func (m *Model) showOverlay(title string, lines []string) {
@@ -283,9 +281,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter.value = ""
 		return m, nil
 	case m.km.escape:
-		// If a toast is visible, Esc dismisses it; otherwise let the active
-		// tab handle Esc (e.g. exit a project/task detail view).
-		if m.toast.visible {
+		// Clear any status message; otherwise let the active tab handle
+		// Esc (e.g. exit a project/task detail view).
+		if m.toast.msg != "" {
 			m.hideToast()
 			return m, nil
 		}
@@ -478,10 +476,6 @@ func (m *Model) View() string {
 	if m.overlay.visible {
 		out = placeSafe(out, m.renderOverlayBox(), w, h, lipgloss.Center, lipgloss.Center)
 	}
-	if m.toast.visible && m.toast.msg != "" {
-		toast := lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("203")).Padding(0, 1).Render(m.toast.msg)
-		out = placeSafe(out, toast, w, h, lipgloss.Center, lipgloss.Bottom)
-	}
 	return out
 }
 
@@ -643,8 +637,15 @@ func (m *Model) renderFooter() string {
 	// Two centered lines: the contextual key menu, then the status line.
 	menu := keyMenuStyle.Render(" " + hint + " ")
 	menuLine := lipgloss.PlaceHorizontal(innerW, lipgloss.Center, menu)
-	statusLine := lipgloss.PlaceHorizontal(innerW, lipgloss.Center,
-		keyMenuDimStyle.Render(" "+status+" "))
+	// Status line: show a transient status message when present, otherwise the
+	// actor/store info.
+	var statusText string
+	if m.toast.msg != "" {
+		statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true).Render(" " + m.toast.msg + " ")
+	} else {
+		statusText = keyMenuDimStyle.Render(" " + status + " ")
+	}
+	statusLine := lipgloss.PlaceHorizontal(innerW, lipgloss.Center, statusText)
 	return lipgloss.JoinVertical(lipgloss.Left, menuLine, statusLine)
 }
 
