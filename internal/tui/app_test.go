@@ -254,6 +254,26 @@ func TestWorkspace_ProjectsRightColumnUsesStackedPanesWithKeyMenus(t *testing.T)
 	}
 }
 
+func TestWorkspace_ProjectsRightColumnPanesSpanFullHeight(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(120, 60)
+	right := m.projects.rightView()
+	lines := strings.Split(right, "\n")
+	if len(lines) != m.contentHeight {
+		t.Fatalf("projects right stack should span content height %d, got %d:\n%s", m.contentHeight, len(lines), right)
+	}
+	for _, label := range []string{"Project Details", "Labels", "Repos", "Guide", "Advanced"} {
+		if !strings.Contains(right, label) {
+			t.Fatalf("expected project right pane %q:\n%s", label, right)
+		}
+	}
+}
+
 func TestWorkspace_ViewDoesNotRenderContentUnderFooter(t *testing.T) {
 	root := setupTempStore(t)
 	seedProject(t, root, "human:alice")

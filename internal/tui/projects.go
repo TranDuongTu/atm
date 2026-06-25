@@ -185,19 +185,20 @@ func (p *projectsModel) rightView() string {
 		}
 	}
 	if selected == nil {
-		return p.app.renderPane("Project Details", "No project selected.\n", p.width, 0, p.paneCursor == 0)
+		return p.app.renderPane("Project Details", "No project selected.\n", p.width, p.app.contentHeight, p.paneCursor == 0)
 	}
+	heights := splitHeights(p.app.contentHeight, len(projectRightSections))
 	return lipgloss.JoinVertical(lipgloss.Left,
-		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, 0, p.paneCursor == 0),
-		p.app.renderPane("Labels", p.labelsBody(selected), p.width, 0, p.paneCursor == 1),
-		p.app.renderPane("Repos", p.reposBody(selected), p.width, 0, p.paneCursor == 2),
-		p.app.renderPane("Guide", p.guideBody(selected), p.width, 0, p.paneCursor == 3),
-		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, 0, p.paneCursor == 4),
+		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, heights[0], p.paneCursor == 0),
+		p.app.renderPane("Labels", p.labelsBody(selected), p.width, heights[1], p.paneCursor == 1),
+		p.app.renderPane("Repos", p.reposBody(selected), p.width, heights[2], p.paneCursor == 2),
+		p.app.renderPane("Guide", p.guideBody(selected), p.width, heights[3], p.paneCursor == 3),
+		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, heights[4], p.paneCursor == 4),
 	)
 }
 
 func (p *projectsModel) projectDetailsBody(selected *store.Project) string {
-	return fmt.Sprintf("code: %s\nname: %s\ntype axis: %s\ncreated: %s\nupdated: %s\n\nkeys: [N] name [T] type [e] edit\n",
+	return fmt.Sprintf("keys: [N] name [T] type [e] edit\ncode: %s\nname: %s\ntype axis: %s\ncreated: %s\nupdated: %s\n",
 		selected.Code, selected.Name, selected.TypeAxis,
 		selected.CreatedAt.Format("2006-01-02 15:04"),
 		selected.UpdatedAt.Format("2006-01-02 15:04"))
@@ -205,6 +206,7 @@ func (p *projectsModel) projectDetailsBody(selected *store.Project) string {
 
 func (p *projectsModel) labelsBody(selected *store.Project) string {
 	var b strings.Builder
+	b.WriteString("keys: [L] add [l] remove\n")
 	b.WriteString("Labels\n")
 	if len(selected.Labels) == 0 {
 		b.WriteString("  none\n")
@@ -212,24 +214,24 @@ func (p *projectsModel) labelsBody(selected *store.Project) string {
 	for _, l := range selected.Labels {
 		b.WriteString(fmt.Sprintf("  %s  %s\n", l.Name, l.Description))
 	}
-	b.WriteString("\nkeys: [L] add [l] remove\n")
 	return b.String()
 }
 
 func (p *projectsModel) reposBody(selected *store.Project) string {
 	var b strings.Builder
+	b.WriteString("keys: [R] add [r] remove\n")
 	if len(selected.RepoPaths) == 0 {
 		b.WriteString("  none\n")
 	}
 	for _, r := range selected.RepoPaths {
 		b.WriteString("  " + r + "\n")
 	}
-	b.WriteString("\nkeys: [R] add [r] remove\n")
 	return b.String()
 }
 
 func (p *projectsModel) guideBody(selected *store.Project) string {
 	var b strings.Builder
+	b.WriteString("keys: [S] section [g] ref [F] freshness\n")
 	if selected.Guide == nil || len(selected.Guide.Sections) == 0 {
 		b.WriteString("  none\n")
 	} else {
@@ -237,12 +239,11 @@ func (p *projectsModel) guideBody(selected *store.Project) string {
 			b.WriteString("  " + section.Name + "\n")
 		}
 	}
-	b.WriteString("\nkeys: [S] section [g] ref [F] freshness\n")
 	return b.String()
 }
 
 func (p *projectsModel) advancedBody(selected *store.Project) string {
-	return "remove project is guarded by zero-task store constraints\n\nkeys: [x] remove\n"
+	return "keys: [x] remove\nremove project is guarded by zero-task store constraints\n"
 }
 
 func (p *projectsModel) updateDetail(key string) (tea.Model, tea.Cmd) {
