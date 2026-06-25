@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
-# setup.sh — one-time bootstrap for the ATM repo.
-# Installs the Spec Kit `specify` CLI at a pinned version.
+# setup.sh - one-time sanity check for the ATM repo.
 set -euo pipefail
 
-SPEC_KIT_VERSION="v0.11.5"
-SPEC_KIT_REPO="https://github.com/github/spec-kit.git"
+missing=0
 
-command -v uv >/dev/null 2>&1 || {
-  echo "error: 'uv' is required. Install it first: https://docs.astral.sh/uv/"
-  exit 1
+require() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "missing required command: $1"
+    missing=1
+  fi
 }
 
-echo "Installing specify-cli @ ${SPEC_KIT_VERSION} ..."
-uv tool install specify-cli --from "git+${SPEC_KIT_REPO}@${SPEC_KIT_VERSION}"
+require go
+require make
 
-echo
-echo "Done. Verify with:  specify --version"
-echo "Next, initialize specs in this repo with:  specify init"
+if [[ ! -d docs/superpowers/specs ]]; then
+  echo "missing docs/superpowers/specs"
+  missing=1
+fi
+
+if [[ "$missing" -ne 0 ]]; then
+  exit 1
+fi
+
+echo "ATM repo prerequisites look ready."
+echo "Use Superpowers brainstorming/planning for new design work."
+echo "Verify changes with: make verify"

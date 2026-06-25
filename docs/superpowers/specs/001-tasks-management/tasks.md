@@ -1,10 +1,10 @@
 # Tasks: Tasks Management System
 
-**Input**: Design documents from `specs/001-tasks-management/`
+**Input**: Design documents from `docs/superpowers/specs/001-tasks-management/`
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/cli.md, contracts/tui.md, tui-mockups.md
 
-**Tests**: Tests are included (the constitution's verification step requires `make verify`, i.e. `make build && make test`).
+**Tests**: Tests are included (the Superpowers workflow's verification step requires `make verify`, i.e. `make build && make test`).
 
 **Organization**: Tasks are grouped by user story (US1-US5) to enable independent implementation and testing of each story. The Guide entity (FR-016/017/018, v1.1.0) is folded into US2 (editing) and US5 (dashboard) per the clarifications session, with its always-read inclusion wired into US1's `next`/`show --with-context`.
 
@@ -264,7 +264,7 @@ With multiple developers:
 - `[P]` tasks = different files, no dependencies on incomplete tasks.
 - `[Story]` label maps a task to its user story for traceability.
 - Each user story is independently completable and testable.
-- Verify tests fail before implementing (constitution principle: verify before declaring done).
+- Verify tests fail before implementing (design principle: verify before declaring done).
 - Commit after each task or logical group; no emojis in code, data, or commits.
 - Stop at any checkpoint to validate the story independently with `make verify`.
 - Avoid: vague tasks, same-file conflicts, cross-story dependencies that break independence.

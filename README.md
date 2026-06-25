@@ -50,7 +50,7 @@ the surface the TUI wraps. Output format is selected globally with
 keys, stable whitespace, RFC 3339 UTC timestamps). All mutating commands accept
 `--actor <id>` (or read `ATM_ACTOR`). Errors go to stderr with a non-zero exit
 code and a stable `{"error":{"code":"...","message":"..."}}` envelope in JSON
-mode. See `specs/001-tasks-management/contracts/cli.md` for the full contract.
+mode. See `docs/superpowers/specs/001-tasks-management/contracts/cli.md` for the full contract.
 
 Global flags:
 
@@ -193,8 +193,8 @@ Actors are registered lazily on first mutation; there is no `actor create`.
 ## TUI
 
 `atm tui` is a first-class management surface that mirrors every CLI op (FR-002).
-See `specs/001-tasks-management/tui-mockups.md` for screens/keymaps and
-`specs/001-tasks-management/contracts/tui.md` for the CLI/TUI parity matrix.
+See `docs/superpowers/specs/001-tasks-management/tui-mockups.md` for screens/keymaps and
+`docs/superpowers/specs/001-tasks-management/contracts/tui.md` for the CLI/TUI parity matrix.
 
 ```
 atm tui [--store <path>] [--actor <id>]
@@ -218,4 +218,4 @@ See `scripts/dogfood.sh` for the exact commands.
 The current implementation lives under `internal/store` (the stable in-process
 API), `internal/cli` (the stable out-of-process API), and `internal/tui` (a
 thin Bubble Tea client). The binary entrypoint is `cmd/atm`. The first feature
-spec, plan, and task list live under `specs/001-tasks-management/`.
+spec, plan, and task list live under `docs/superpowers/specs/001-tasks-management/`.

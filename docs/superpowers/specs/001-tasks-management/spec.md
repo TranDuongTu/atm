@@ -13,7 +13,7 @@
 ### Session 2026-06-23
 
 - Q: Where should task data be stored, and how is detachability achieved? → A: Task data lives in `~/.config/atm` (global, machine-level); each project may reference one or more repo paths but is NOT 1:1 with a repo (a project can span multiple repos). Detachability is achieved by copying the global dir to another machine. ATM's domain is projects/tasks only — it must not store user-specific artifacts (shell/editor/git config, etc.).
-  - **Constitution amended (v1.1.0)**: Principle III and V updated to align with the `~/.config/atm` storage decision and the added `Guide` entity. No further amendment needed before `/speckit.plan`.
+  - **Design principles updated (v1.1.0)**: Principle III and V updated to align with the `~/.config/atm` storage decision and the added `Guide` entity. No further design-principle amendment is needed before Superpowers planning.
 - Q: How should the "agent-context harness" (project-wide info agents always read) be modeled? → A: Add a project-level `guide` entity: an ordered list of references to convention docs (tasks) or external file paths, grouped by named section (e.g. "conventions", "work-conduct", "communication", "testing"). Agents always receive the guide in `show`/`next` context. The coordinator dashboard surfaces guide coverage and freshness (stale/missing sections) per project.
 
 ## User Scenarios & Testing *(mandatory)*

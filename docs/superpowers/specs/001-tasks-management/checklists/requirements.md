@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-06-23
-**Feature**: specs/001-tasks-management/spec.md
+**Feature**: docs/superpowers/specs/001-tasks-management/spec.md
 
 ## Content Quality
 

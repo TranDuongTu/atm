@@ -100,9 +100,9 @@ Every row is a round-trip guarantee: the TUI action and the CLI command call the
 4. **Status-transition guard**: the set-status popup enables only the transitions allowed by the data-model matrix; invalid transitions are disabled with a hint (not silently rejected after submit).
 5. **Soft-removal surfacing**: removing a label shows the `retained_usage` count inline (matches CLI JSON `retained_usage`).
 6. **Stale-link surfacing**: a `blocks/implements/documents` link whose target is deleted is preserved with a `[STALE]` marker; a guide `kind:task` ref whose task is deleted is flagged `[MISS]`/`[STALE]` but not auto-removed (matches the spec's stale-link edge case and FR-018).
-7. **No auto-refresh** in v1; `r` refreshes on demand (research R5 / constitution IV scope). Auto-refresh is deferred.
+7. **No auto-refresh** in v1; `r` refreshes on demand (research R5 / design principle IV scope). Auto-refresh is deferred.
 8. **Keyboard-first**: all primary actions have single-key bindings; forms are field-based Bubble Tea inputs. Mouse click-to-focus is a nicety, not a v1 requirement.
-9. **No emojis** (constitution). Status/labels use text tokens (`open`, `type:bug`, `[STALE]`, `[EMPTY]`).
+9. **No emojis** (design principles). Status/labels use text tokens (`open`, `type:bug`, `[STALE]`, `[EMPTY]`).
 
 ## Performance
 

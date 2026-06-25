@@ -2,14 +2,14 @@
 
 Guidance for any AI agent working in this repository. These rules are **agent-agnostic**: they apply regardless of which coding assistant (Claude Code, Codex, Cursor, Gemini, Copilot, opencode, …) is driving.
 
-## 1. Spec-Driven Development is mandatory
+## 1. Superpowers-driven development is mandatory
 
-This repo uses **[Spec Kit](https://github.com/github/spec-kit)** for its software-development lifecycle (SDLC). Specs are the source of truth; code follows specs.
+This repo uses **Superpowers** for its software-development lifecycle (SDLC). Specs/design docs are the source of truth; code follows the approved design and implementation plan.
 
-- Initialize once: `./setup.sh` (installs the `specify` CLI).
-- Day-to-day workflow lives under the `.specify/` directory that `specify` creates: `memory/` (constitution, plans, specs), `templates/`, `scripts/`, `workflows/`, etc. Slash commands live in `.agents/commands/`.
-- Before writing or changing code, check for an existing spec in `specs/`. If none exists, draft one via `specify` before implementing.
-- Never edit or delete generated artifacts outside the documented Spec Kit workflow.
+- Initialize once: `./setup.sh` (validates the local repo workflow; Superpowers itself is provided by the agent environment).
+- Day-to-day design artifacts live under `docs/superpowers/specs/`.
+- Before writing or changing code, check for an existing Superpowers design/spec in `docs/superpowers/specs/`. If none exists, use the Superpowers brainstorming and planning workflow before implementing.
+- Keep design docs honest: update them only when requirements genuinely change; never rewrite requirements just to match code.
 
 ## 2. Agent configuration lives in `.agents/`
 
@@ -28,15 +28,16 @@ Anything agent-specific — skills, commands, subagents, prompts, permission rul
 ## 3. Workflow
 
 1. Pick a task from the task system (this repo dogfoods itself).
-2. Find or author the corresponding spec via `specify`.
-3. Implement against the spec.
+2. Find or author the corresponding Superpowers design/spec.
+3. Write or follow the implementation plan.
 4. Verify: run lint/typecheck/tests before declaring done.
 5. Update the spec only if requirements genuinely changed; never to match code.
 
 ## 4. Tooling prerequisites
 
-- `uv` — required by Spec Kit (`specify` is installed as a uv tool).
-- `./setup.sh` — run once to install `specify` at the pinned version.
+- Go 1.22+.
+- `make verify` for the repository verification gate.
+- `./setup.sh` — optional local sanity check for required commands.
 
 ## 5. Conventions
 
@@ -44,15 +45,15 @@ Anything agent-specific — skills, commands, subagents, prompts, permission rul
 - No emojis in code or commits.
 - Follow existing style in neighboring files.
 
-<!-- SPECKIT START -->
+<!-- SUPERPOWERS START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-tasks-management/plan.md (Tasks Management System). Key facts:
+at docs/superpowers/specs/001-tasks-management/plan.md (Tasks Management System). Key facts:
 - Language: Go 1.22+; single binary `atm` (CLI + Bubble Tea TUI).
 - Layers: internal/store (stable in-process API), internal/cli (stable out-of-process API via cobra), internal/tui (thin client over store).
 - Storage: machine-global text files under `$ATM_HOME` (default ~/.config/atm; one file per task JSON; per-project file locking; no DB; detachable by directory copy). A project is NOT 1:1 with a repo.
 - Guide: each project has an optional Guide (the always-read agent-context harness); `next`/`show --with-context` return it alongside per-task label-matched convention docs.
-- TUI: `atm tui` is a first-class management surface that mirrors every CLI op (FR-002); see specs/001-tasks-management/tui-mockups.md + contracts/tui.md.
-- Spec/design artifacts: specs/001-tasks-management/{spec,plan,research,data-model,quickstart,tui-mockups}.md + contracts/{cli,tui}.md.
+- TUI: `atm tui` is a first-class management surface that mirrors every CLI op (FR-002); see docs/superpowers/specs/001-tasks-management/tui-mockups.md + contracts/tui.md.
+- Spec/design artifacts: docs/superpowers/specs/001-tasks-management/{spec,plan,research,data-model,quickstart,tui-mockups}.md + contracts/{cli,tui}.md.
 - Verify: `make verify` (or `make build && make test`) before declaring done.
-<!-- SPECKIT END -->
+<!-- SUPERPOWERS END -->

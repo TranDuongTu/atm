@@ -9,7 +9,7 @@ Design goals:
 2. **Coordinator-first default, author-capable everywhere**: the landing view is the coordinator dashboard (US5/FR-010/FR-018), but every view is writable for the signed-in actor — a human can create tasks, labels, and guide refs from the TUI, not just review.
 3. **Determinism**: TUI reads come from the same `store` functions that back the CLI, so output is identical for a given store. The TUI never owns a separate data path.
 4. **Keyboard-driven**: all primary actions have single-key bindings; forms are field-based (Bubble Tea text inputs), never modal labyrinths.
-5. **No emojis** (constitution). Status/labels use text tokens (`open`, `type:bug`, `[STALE]`).
+5. **No emojis** (design principles). Status/labels use text tokens (`open`, `type:bug`, `[STALE]`).
 
 ## Navigation model
 
@@ -401,7 +401,7 @@ A scrollable parity table mapping every CLI command to its TUI path, so a human 
 - **Same payload**: every TUI screen renders data from the same `store.*` functions the CLI wraps. The task list order matches `task list --output json` for the same filters; the dashboard matches `review dashboard --output json`; the task detail matches `task show --with-context --output json`. A snapshot test can therefore drive both surfaces from the same fixture.
 - **Same mutations**: every TUI action calls the same `store.*` mutation as the CLI command, including history append and actor/timestamp recording (FR-011/FR-012). There is no TUI-only mutation path.
 - **Same error semantics**: TUI forms surface the same stable error codes (`4 conflict` for already-claimed / invalid transition / duplicate code, `3 not-found` for missing task/project) as inline messages, not ad-hoc text.
-- **No auto-refresh** in v1 (matches research R5 / constitution IV scope); `r` refreshes on demand. A later version may add a debounced refresh; it is not part of v1.
+- **No auto-refresh** in v1 (matches research R5 / design principle IV scope); `r` refreshes on demand. A later version may add a debounced refresh; it is not part of v1.
 
 ## Performance
 

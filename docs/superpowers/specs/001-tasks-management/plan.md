@@ -1,8 +1,8 @@
 # Implementation Plan: Tasks Management System
 
-**Branch**: `001-tasks-management` | **Date**: 2026-06-23 | **Spec**: specs/001-tasks-management/spec.md | **Spec revision**: v1.1.0
+**Branch**: `001-tasks-management` | **Date**: 2026-06-23 | **Spec**: docs/superpowers/specs/001-tasks-management/spec.md | **Spec revision**: v1.1.0
 
-**Input**: Feature specification from `specs/001-tasks-management/spec.md`
+**Input**: Feature specification from `docs/superpowers/specs/001-tasks-management/spec.md`
 
 ## Summary
 
@@ -33,7 +33,7 @@ ATM is a local-first, agent-native tasks management CLI/TUI. The primary require
 
 **Scale/Scope**: Thousands of tasks per project, tens of projects, tens of actors. Modest scale by design (YAGNI).
 
-## Constitution Check
+## Superpowers Design Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
@@ -52,14 +52,14 @@ No violations. No complexity tracking entries needed.
 ### Documentation (this feature)
 
 ```text
-specs/001-tasks-management/
+docs/superpowers/specs/001-tasks-management/
 ├── plan.md              # this file
 ├── research.md          # Phase 0: technical decisions and rationale
 ├── data-model.md        # Phase 1: entities, fields, invariants (incl. Guide)
 ├── quickstart.md        # Phase 1: runnable validation scenarios
 ├── contracts/
 │   └── cli.md           # Phase 1: CLI command schema (the versioned API)
-└── tasks.md             # Phase 2 (/speckit.tasks output, created next)
+└── tasks.md             # Phase 2 (Superpowers task planning output, created next)
 ```
 
 ### Source Code (repository root)
@@ -126,4 +126,4 @@ The TUI is a first-class management surface, not a coordinator-only view. It exp
 
 ## Complexity Tracking
 
-> None. Constitution Check passed with no violations. The Guide entity (v1.1.0) is a new field on the Project record, not a new top-level store; its freshness/coverage checks reuse the task `updated_at` already recorded on every mutation (research R11), so it adds no new mutation path and no new locking surface.
+> None. Superpowers Design Check passed with no violations. The Guide entity (v1.1.0) is a new field on the Project record, not a new top-level store; its freshness/coverage checks reuse the task `updated_at` already recorded on every mutation (research R11), so it adds no new mutation path and no new locking surface.

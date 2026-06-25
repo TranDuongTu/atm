@@ -20,11 +20,11 @@ $ATM_HOME/                                  # default: ~/.config/atm
   actors.json               # known actor ids (agents + humans), declared lazily on first use
 ```
 
-**Rationale**: JSON is plain text, diffs cleanly, and is the lingua franca for agents and CLI tooling. One-file-per-task keeps writes localized (only the touched task file is rewritten), which makes concurrent edits and reviewable diffs straightforward. Embedding todos/followups/discussions/history inside the task record avoids a separate entity store for v1 and matches the YAGNI principle. The machine-global location (spec FR-001, constitution III) makes a project independent of any single repo: a project may span multiple repos, and copying `$ATM_HOME` to another machine reproduces the same state (detachability). SQLite was considered (below) and rejected for v1.
+**Rationale**: JSON is plain text, diffs cleanly, and is the lingua franca for agents and CLI tooling. One-file-per-task keeps writes localized (only the touched task file is rewritten), which makes concurrent edits and reviewable diffs straightforward. Embedding todos/followups/discussions/history inside the task record avoids a separate entity store for v1 and matches the YAGNI principle. The machine-global location (spec FR-001, design principle III) makes a project independent of any single repo: a project may span multiple repos, and copying `$ATM_HOME` to another machine reproduces the same state (detachability). SQLite was considered (below) and rejected for v1.
 
 **Alternatives considered**:
-- **Per-repo `.atm/` directory (the original v1.0 design)**: rejected because a project is NOT 1:1 with a repo and may span multiple repos; a per-repo store would force a project to be split across directories and break the single-counter invariant. The constitution (v1.1.0) explicitly mandates the machine-global location.
-- **SQLite**: single-file DB with real query power and concurrent writes; rejected for v1 because it is binary (poor diff/review), overkill for the modest scale target (thousands of tasks), and violates the "text storage that version-controls well" constitution constraint. Can be revisited if scale forces it.
+- **Per-repo `.atm/` directory (the original v1.0 design)**: rejected because a project is NOT 1:1 with a repo and may span multiple repos; a per-repo store would force a project to be split across directories and break the single-counter invariant. The design principles (v1.1.0) explicitly mandates the machine-global location.
+- **SQLite**: single-file DB with real query power and concurrent writes; rejected for v1 because it is binary (poor diff/review), overkill for the modest scale target (thousands of tasks), and violates the "text storage that version-controls well" design principles constraint. Can be revisited if scale forces it.
 - **YAML**: more human-readable but indentation-sensitive and slower to parse; JSON's strictness is a feature for agent-produced data. YAML is available as an output *format* for humans without being the storage format.
 - **One big JSON file per project**: simpler but every write rewrites the whole project; coarse and diff-noisy. File-per-task wins.
 - **Directory-per-task**: over-engineered for v1; a single JSON file per task is enough.
@@ -33,7 +33,7 @@ $ATM_HOME/                                  # default: ~/.config/atm
 
 **Decision**: Advisory file locking via `flock`-equivalent (on darwin/linux, `flock(2)` via `golang.org/x/sys/unix`; a Windows `LockFileEx` shim is out of scope for v1). Every store mutation takes an exclusive lock on the project's lock file (`$ATM_HOME/projects/<CODE>.lock`) for the duration of the read-modify-write. The "next + claim" sequence is a single locked operation: under the project lock, find the next claimable task, mark it claimed, write it, release. Two concurrent claimants therefore never both succeed on the same task; the second sees the updated store and is pointed to the next task or an empty result.
 
-**Rationale**: The constitution demands deterministic, atomic claims (SC-002). File-level locking is the simplest mechanism that works for a local-trust, few-writer system. A single global lock would serialize all projects needlessly; a per-project lock is the right granularity.
+**Rationale**: The design principles demands deterministic, atomic claims (SC-002). File-level locking is the simplest mechanism that works for a local-trust, few-writer system. A single global lock would serialize all projects needlessly; a per-project lock is the right granularity.
 
 **Alternatives considered**:
 - **Optimistic concurrency (version stamps)**: agents would retry on conflict; adds complexity and non-determinism. Rejected.
@@ -66,12 +66,12 @@ $ATM_HOME/                                  # default: ~/.config/atm
 
 **Decision**: Go + Bubble Tea (`github.com/charmbracelet/bubbletea`) for the TUI, as the user requested. The architecture is a single binary with three layers: (1) a `store` Go package that owns the on-disk format, locking, and all read/write logic; (2) a `cli` layer (using `cobra`) that exposes every operation as a subcommand with JSON and human output; (3) a `tui` layer (Bubble Tea) that calls into the `store` package (or a thin `app` service layer above it) to render interactive views. There is no separate HTTP API server in v1: the "API" the spec refers to is the `store` Go package plus the CLI surface. Agents integrate by shelling out to the CLI (JSON mode) — which is how agents naturally consume tools.
 
-**Rationale**: A local-first, agent-native tool's most natural API is the CLI itself (stdin/stdout JSON). Running a long-lived HTTP server per workspace would fight the local-first principle and complicate agent usage. The `store` package is the stable, versioned API for in-process clients (the TUI); the CLI is the stable API for out-of-process clients (agents). This satisfies the constitution's "API-first, every operation reachable via a command" without dragging in a server runtime.
+**Rationale**: A local-first, agent-native tool's most natural API is the CLI itself (stdin/stdout JSON). Running a long-lived HTTP server per workspace would fight the local-first principle and complicate agent usage. The `store` package is the stable, versioned API for in-process clients (the TUI); the CLI is the stable API for out-of-process clients (agents). This satisfies the Superpowers workflow's "API-first, every operation reachable via a command" without dragging in a server runtime.
 
 **Alternatives considered**:
 - **HTTP/JSON API server (localhost)**: more conventional "API-first", but adds lifecycle complexity (port management, startup, shutdown) for little agent benefit over shelling out. Rejected for v1; can be layered on later behind the same `store` package if needed.
 - **gRPC**: even heavier; rejected.
-- **TUI-only (no CLI)**: violates the constitution (every operation must be a command) and blocks agent use. Rejected.
+- **TUI-only (no CLI)**: violates design principles (every operation must be a command) and blocks agent use. Rejected.
 - **Non-Bubble-Tea TUI (tview, gocui)**: user explicitly preferred Bubble Tea. Rejected.
 
 ## R6. Links and context discovery
@@ -100,7 +100,7 @@ $ATM_HOME/                                  # default: ~/.config/atm
 
 **Decision**: All list/query output is sorted by a stable key (task ID lexicographically by project then numeric value; ties broken by created timestamp) and rendered deterministically (map keys sorted before serialization). `--output json` produces stable, pretty-printed JSON with sorted object keys. This makes snapshot testing feasible and agent runs reproducible (SC-002a).
 
-**Rationale**: Constitution principle IV and SC-002a. Go's default map iteration order is randomized, so explicit sorting is required everywhere maps are serialized.
+**Rationale**: design principle IV and SC-002a. Go's default map iteration order is randomized, so explicit sorting is required everywhere maps are serialized.
 
 **Alternatives considered**:
 - **Insertion-order output**: requires an order field on every entity and complicates queries that filter then sort. Rejected; a stable sort key is simpler and good enough.
@@ -140,7 +140,7 @@ $ATM_HOME/                                  # default: ~/.config/atm
 
 **Decision**: Store resolution order: (1) `--store <path>` global flag if set; (2) `ATM_HOME` env var if set; (3) `~/.config/atm` default. There is NO walk-up-from-CWD search: the store is machine-global, not per-repo, so CWD is irrelevant. `atm init` creates/verifies an empty store at the resolved path and is idempotent. All commands resolve the store the same way before running.
 
-**Rationale**: Constitution v1.1.0 principle III mandates the machine-global location and that a project is not 1:1 with a repo. A walk-up search would silently pick a per-repo store and re-introduce the very coupling the amendment removed. A single, explicit resolution rule (flag > env > default) is simpler, deterministic, and detachable.
+**Rationale**: Design principles v1.1.0 principle III mandates the machine-global location and that a project is not 1:1 with a repo. A walk-up search would silently pick a per-repo store and re-introduce the very coupling the amendment removed. A single, explicit resolution rule (flag > env > default) is simpler, deterministic, and detachable.
 
 **Alternatives considered**:
 - **Walk-up `.atm/` search then default**: rejected for v1.1.0 — it reintroduces per-repo coupling and makes the active store depend on CWD, which hurts reproducibility (SC-002a) and detachability.
