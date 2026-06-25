@@ -166,6 +166,58 @@ func TestWorkspace_RendersPersistentLeftPanes(t *testing.T) {
 	}
 }
 
+func TestWorkspace_LeftColumnUsesWiderMinimum(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(100, 30)
+	if m.leftWidth != 30 {
+		t.Fatalf("expected 30-column left pane at 100 columns, got %d", m.leftWidth)
+	}
+	m.SetSize(80, 30)
+	if m.leftWidth < 28 {
+		t.Fatalf("expected wider minimum left pane, got %d", m.leftWidth)
+	}
+}
+
+func TestWorkspace_RightColumnAllPanesAreFullHeightBordered(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	s, _ := store.Open(root)
+	if _, err := s.CreateTask("ATM", "Sample task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(100, 34)
+	for _, tc := range []struct {
+		key   string
+		title string
+	}{
+		{"2", "Task Details"},
+		{"3", "Summary"},
+		{"4", "Help"},
+	} {
+		mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tc.key)})
+		m = mod.(*Model)
+		right := m.renderRightColumn()
+		if !strings.Contains(right, tc.title) {
+			t.Fatalf("right column for key %s missing bordered title %q:\n%s", tc.key, tc.title, right)
+		}
+		if len(strings.Split(right, "\n")) != m.contentHeight {
+			t.Fatalf("right column for key %s should span content height %d, got %d\n%s", tc.key, m.contentHeight, len(strings.Split(right, "\n")), right)
+		}
+		if !strings.Contains(right, "╭") || !strings.Contains(right, "╯") {
+			t.Fatalf("right column for key %s should be bordered:\n%s", tc.key, right)
+		}
+	}
+}
+
 func TestWorkspace_HeaderOmitsTopNavigationLabels(t *testing.T) {
 	root := setupTempStore(t)
 	seedProject(t, root, "human:alice")

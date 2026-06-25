@@ -160,8 +160,8 @@ func (m *Model) SetSize(w, h int) {
 		contentW = 20
 	}
 	leftW := contentW * 30 / 100
-	if leftW < 24 {
-		leftW = 24
+	if leftW < 28 {
+		leftW = 28
 	}
 	if leftW > 44 {
 		leftW = 44
@@ -715,13 +715,13 @@ func (m *Model) renderLeftHelp() string {
 func (m *Model) renderRightColumn() string {
 	switch m.focused {
 	case paneProjects:
-		return m.projects.rightView()
+		return limitBlockHeight(m.projects.rightView(), m.contentHeight)
 	case paneTasks:
-		return m.tasks.rightView()
+		return m.renderPane("Task Details", m.tasks.rightView(), m.rightWidth, m.contentHeight, true)
 	case paneSummary:
-		return m.dash.view()
+		return m.renderPane("Summary", m.dash.view(), m.rightWidth, m.contentHeight, true)
 	case paneHelp:
-		return m.help.view()
+		return m.renderPane("Help", m.help.view(), m.rightWidth, m.contentHeight, true)
 	}
 	return ""
 }
