@@ -311,6 +311,29 @@ func TestWorkspace_TaskRightColumnIncludesActorClaimsContext(t *testing.T) {
 	}
 }
 
+func TestWorkspace_TabEraKeysDoNotExposeActors(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	m = mod.(*Model)
+	if got := m.focusedPaneName(); got != "Projects" {
+		t.Fatalf("key 5 should not change focus, got %s", got)
+	}
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = mod.(*Model)
+	if got := m.focusedPaneName(); got != "Projects" {
+		t.Fatalf("tab should not cycle panes, got %s", got)
+	}
+	view := m.View()
+	if strings.Contains(view, "[4] Actors") || strings.Contains(view, "4 Actors") {
+		t.Fatalf("actors primary navigation should be absent:\n%s", view)
+	}
+}
+
 func TestModel_Quit(t *testing.T) {
 	root := setupTempStore(t)
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
@@ -351,7 +374,7 @@ func TestStartup_InitFlow(t *testing.T) {
 	}
 }
 
-func TestDashboardModel_Renders(t *testing.T) {
+func TestSummaryModel_Renders(t *testing.T) {
 	root := setupTempStore(t)
 	seedProject(t, root, "human:alice")
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
@@ -361,8 +384,8 @@ func TestDashboardModel_Renders(t *testing.T) {
 	m.SetSize(100, 30)
 	m.dash.refresh()
 	view := m.dash.view()
-	if !strings.Contains(view, "REVIEW QUEUE") || !strings.Contains(view, "OPEN FOLLOWUPS") || !strings.Contains(view, "GUIDE STATUS") {
-		t.Errorf("dashboard missing sections:\n%s", view)
+	if !strings.Contains(view, "SUMMARY scope: all") || !strings.Contains(view, "REVIEW QUEUE") || !strings.Contains(view, "OPEN FOLLOWUPS") || !strings.Contains(view, "GUIDE HEALTH") {
+		t.Errorf("summary missing sections:\n%s", view)
 	}
 }
 

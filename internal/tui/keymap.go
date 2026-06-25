@@ -1,13 +1,6 @@
 package tui
 
 type keymap struct {
-	switchTab1    string
-	switchTab2    string
-	switchTab3    string
-	switchTab4    string
-	switchTab5    string
-	tabNext       string
-	tabPrev       string
 	refresh       string
 	quit          string
 	help          string
@@ -59,13 +52,6 @@ type keymap struct {
 
 func defaultKeymap() keymap {
 	return keymap{
-		switchTab1:    "1",
-		switchTab2:    "2",
-		switchTab3:    "3",
-		switchTab4:    "4",
-		switchTab5:    "5",
-		tabNext:       "tab",
-		tabPrev:       "shift+tab",
 		refresh:       "r",
 		quit:          "q",
 		help:          "?",
