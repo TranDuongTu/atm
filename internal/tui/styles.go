@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 var (
 	topStyle = lipgloss.NewStyle().
@@ -10,6 +14,14 @@ var (
 	contentStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("245"))
+
+	paneStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("245"))
+
+	activePaneStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("39"))
 
 	bottomStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -84,6 +96,27 @@ func box(style lipgloss.Style, w int, inner string) string {
 		innerW = 1
 	}
 	return style.Render(padBlock(inner, innerW))
+}
+
+func titledBox(style lipgloss.Style, w int, title, inner string) string {
+	innerW := w - 2 // border left + right
+	if innerW < 1 {
+		innerW = 1
+	}
+	rendered := style.Render(padBlock(inner, innerW))
+	lines := strings.Split(rendered, "\n")
+	if len(lines) == 0 {
+		return rendered
+	}
+	runes := []rune(lines[0])
+	label := []rune(" " + title + " ")
+	if len(runes) > len(label)+2 {
+		for i, r := range label {
+			runes[i+1] = r
+		}
+		lines[0] = string(runes)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func padBlock(s string, w int) string {

@@ -143,7 +143,7 @@ func storeExists(s *store.Store) bool {
 func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	// Reserve space for top (header+nav) and bottom (footer) bordered
+	// Reserve space for top (header) and bottom (footer) bordered
 	// panes plus their surrounding borders. Each bordered pane occupies
 	// (1 top border + content rows + 1 bottom border) lines.
 	topH := topPaneHeight(m.width)
@@ -179,9 +179,9 @@ func (m *Model) SetSize(w, h int) {
 }
 
 // topPaneHeight is the outer height (including borders) of the top pane for
-// the current width. The header is three logical lines (title, location,
-// navigation); with a rounded border that yields 1 + 3 + 1 = 5 lines.
-func topPaneHeight(w int) int { return 5 }
+// the current width. The header is two logical lines (title, location); with a
+// rounded border that yields 1 + 2 + 1 = 4 lines.
+func topPaneHeight(w int) int { return 4 }
 
 // bottomPaneHeight is the outer height (including borders) of the bottom pane.
 // The footer (status bar) is two logical lines (key menu + status line) ->
@@ -495,7 +495,7 @@ func (m *Model) View() string {
 
 	// Fullscreen stack: title bar (header), content, status bar.
 	top := box(topStyle, w, m.renderHeader())
-	content := box(contentStyle, w, m.renderContent())
+	content := m.renderContent()
 	bottom := box(bottomStyle, w, m.renderFooter())
 
 	// Stretch content so the layout fills the terminal; lipgloss.Place then
@@ -614,8 +614,7 @@ func (m *Model) renderHeader() string {
 		scope = m.projectScope
 	}
 	loc := locationStyle.Render(fmt.Sprintf(" scope: %s  actor: %s  store: %s  r refresh  q quit ", scope, m.actorString(), m.store.StorePath()))
-	nav := m.renderWorkspaceNav()
-	// Stack the three lines, each center-aligned across the full width.
+	// Stack the two lines, each center-aligned across the full width.
 	innerW := m.width - 2
 	if innerW < 1 {
 		innerW = 1
@@ -623,7 +622,6 @@ func (m *Model) renderHeader() string {
 	return lipgloss.JoinVertical(lipgloss.Center,
 		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title),
 		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, loc),
-		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, nav),
 	)
 }
 
@@ -634,19 +632,6 @@ func (m *Model) actorString() string {
 	return m.actor
 }
 
-func (m *Model) renderWorkspaceNav() string {
-	tabs := []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"}
-	var parts []string
-	for i, t := range tabs {
-		if workspacePane(i) == m.focused {
-			parts = append(parts, activeTabStyle.Render(t))
-		} else {
-			parts = append(parts, inactiveTabStyle.Render(t))
-		}
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
-}
-
 func (m *Model) renderContent() string {
 	left := lipgloss.NewStyle().Width(m.leftWidth).Render(m.renderLeftColumn())
 	right := lipgloss.NewStyle().Width(m.rightWidth).Render(m.renderRightColumn())
@@ -654,20 +639,16 @@ func (m *Model) renderContent() string {
 }
 
 func (m *Model) renderLeftColumn() string {
-	var b strings.Builder
-	m.renderLeftProjects(&b)
-	m.renderLeftTasks(&b)
-	m.renderLeftSummary(&b)
-	m.renderLeftHelp(&b)
-	return b.String()
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.renderPane("[1] - Projects", m.renderLeftProjects(), m.leftWidth, m.focused == paneProjects),
+		m.renderPane("[2] - Tasks", m.renderLeftTasks(), m.leftWidth, m.focused == paneTasks),
+		m.renderPane("[3] - Summary", m.renderLeftSummary(), m.leftWidth, m.focused == paneSummary),
+		m.renderPane("[4] - Help", m.renderLeftHelp(), m.leftWidth, m.focused == paneHelp),
+	)
 }
 
-func (m *Model) renderLeftProjects(b *strings.Builder) {
-	marker := " "
-	if m.focused == paneProjects {
-		marker = ">"
-	}
-	b.WriteString(marker + " [1] Projects\n")
+func (m *Model) renderLeftProjects() string {
+	var b strings.Builder
 	for i, pr := range m.projects.filtered() {
 		if i >= 4 {
 			break
@@ -682,15 +663,11 @@ func (m *Model) renderLeftProjects(b *strings.Builder) {
 		}
 		b.WriteString(fmt.Sprintf("  %s%s %-12s\n", cursor, scope, pr.Code))
 	}
-	b.WriteString("\n")
+	return b.String()
 }
 
-func (m *Model) renderLeftTasks(b *strings.Builder) {
-	marker := " "
-	if m.focused == paneTasks {
-		marker = ">"
-	}
-	b.WriteString(marker + " [2] Tasks\n")
+func (m *Model) renderLeftTasks() string {
+	var b strings.Builder
 	for i, tk := range m.tasks.filtered() {
 		if i >= 5 {
 			break
@@ -705,14 +682,11 @@ func (m *Model) renderLeftTasks(b *strings.Builder) {
 		}
 		b.WriteString(fmt.Sprintf("  %s %-10s %s\n", cursor, tk.ID, title))
 	}
-	b.WriteString("\n")
+	return b.String()
 }
 
-func (m *Model) renderLeftSummary(b *strings.Builder) {
-	marker := " "
-	if m.focused == paneSummary {
-		marker = ">"
-	}
+func (m *Model) renderLeftSummary() string {
+	var b strings.Builder
 	filters := store.QueryFilters{Project: m.projectScope}
 	tasks := m.store.ListTasks(filters)
 	review := 0
@@ -725,17 +699,12 @@ func (m *Model) renderLeftSummary(b *strings.Builder) {
 	if m.projectScope != "" {
 		scope = m.projectScope
 	}
-	b.WriteString(marker + " [3] Summary\n")
-	b.WriteString(fmt.Sprintf("    %s: open %d review %d\n\n", scope, len(tasks), review))
+	b.WriteString(fmt.Sprintf("%s: open %d review %d\n", scope, len(tasks), review))
+	return b.String()
 }
 
-func (m *Model) renderLeftHelp(b *strings.Builder) {
-	marker := " "
-	if m.focused == paneHelp {
-		marker = ">"
-	}
-	b.WriteString(marker + " [4] Help\n")
-	b.WriteString("    keys, forms, parity\n")
+func (m *Model) renderLeftHelp() string {
+	return "keys, forms, parity\n"
 }
 
 func (m *Model) renderRightColumn() string {
@@ -750,6 +719,14 @@ func (m *Model) renderRightColumn() string {
 		return m.help.view()
 	}
 	return ""
+}
+
+func (m *Model) renderPane(title, body string, width int, active bool) string {
+	style := paneStyle
+	if active {
+		style = activePaneStyle
+	}
+	return titledBox(style, width, title, body)
 }
 
 func (m *Model) renderFooter() string {

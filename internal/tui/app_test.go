@@ -103,12 +103,12 @@ func TestWorkspace_DefaultFocusAndNoActorsTab(t *testing.T) {
 		t.Fatalf("expected default focus Projects, got %s", m.focusedPaneName())
 	}
 	view := m.View()
-	for _, label := range []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"} {
+	for _, label := range []string{"[1] - Projects", "[2] - Tasks", "[3] - Summary", "[4] - Help"} {
 		if !strings.Contains(view, label) {
-			t.Errorf("expected workspace label %q in view", label)
+			t.Errorf("expected pane border title %q in view", label)
 		}
 	}
-	if strings.Contains(view, "[4] Actors") || strings.Contains(view, "4 Actors") || strings.Contains(view, "5 Help") {
+	if strings.Contains(view, "[1] Projects") || strings.Contains(view, "[2] Tasks") || strings.Contains(view, "[4] Actors") || strings.Contains(view, "4 Actors") || strings.Contains(view, "5 Help") {
 		t.Fatalf("actors/tab-era navigation should be absent:\n%s", view)
 	}
 	if !strings.Contains(view, "actor: human:alice") {
@@ -155,9 +155,48 @@ func TestWorkspace_RendersPersistentLeftPanes(t *testing.T) {
 	}
 	m.SetSize(120, 32)
 	view := m.View()
-	for _, label := range []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"} {
-		if strings.Count(view, label) < 2 {
-			t.Fatalf("expected persistent left pane label %q in body and header:\n%s", label, view)
+	for _, label := range []string{"[1] - Projects", "[2] - Tasks", "[3] - Summary", "[4] - Help"} {
+		if strings.Count(view, label) != 1 {
+			t.Fatalf("expected one bordered pane title %q in body only:\n%s", label, view)
+		}
+	}
+	if count := strings.Count(view, "╭"); count < 8 {
+		t.Fatalf("expected stacked pane borders, got %d top-left corners:\n%s", count, view)
+	}
+}
+
+func TestWorkspace_HeaderOmitsTopNavigationLabels(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	view := m.renderHeader()
+	for _, label := range []string{"[1]", "[2]", "[3]", "[4]", "[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"} {
+		if strings.Contains(view, label) {
+			t.Fatalf("header should not contain top nav label %q:\n%s", label, view)
+		}
+	}
+}
+
+func TestWorkspace_ProjectsRightColumnUsesStackedPanesWithKeyMenus(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(120, 34)
+	view := m.projects.rightView()
+	for _, label := range []string{"Project Details", "Labels", "Repos", "Guide", "Advanced"} {
+		if !strings.Contains(view, label) {
+			t.Fatalf("expected right stacked pane %q:\n%s", label, view)
+		}
+	}
+	for _, menu := range []string{"keys: [N] name [T] type", "keys: [L] add [l] remove", "keys: [R] add [r] remove"} {
+		if !strings.Contains(view, menu) {
+			t.Fatalf("expected per-pane key menu %q:\n%s", menu, view)
 		}
 	}
 }
@@ -279,8 +318,8 @@ func TestWorkspace_ProjectsRightColumnSectionsNavigateWithLeftRight(t *testing.T
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
-	view := m.View()
-	for _, label := range []string{"Facts", "Labels", "Repos", "Guide", "Advanced"} {
+	view := m.projects.rightView()
+	for _, label := range []string{"Project Details", "Labels", "Repos", "Guide", "Advanced"} {
 		if !strings.Contains(view, label) {
 			t.Fatalf("expected project section %q:\n%s", label, view)
 		}

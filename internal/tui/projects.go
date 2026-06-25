@@ -6,6 +6,7 @@ import (
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type projectsModel struct {
@@ -172,7 +173,7 @@ func (p *projectsModel) updateList(key string) (tea.Model, tea.Cmd) {
 	return p.app, nil
 }
 
-var projectRightSections = []string{"Facts", "Labels", "Repos", "Guide", "Advanced"}
+var projectRightSections = []string{"Project Details", "Labels", "Repos", "Guide", "Advanced"}
 
 func (p *projectsModel) rightView() string {
 	list := p.filtered()
@@ -183,27 +184,27 @@ func (p *projectsModel) rightView() string {
 			selected = detail
 		}
 	}
-	var b strings.Builder
-	b.WriteString("PROJECT DETAIL\n")
-	for i, section := range projectRightSections {
-		marker := " "
-		if i == p.paneCursor {
-			marker = ">"
-		}
-		b.WriteString(fmt.Sprintf("%s %s", marker, section))
-		if i < len(projectRightSections)-1 {
-			b.WriteString("  ")
-		}
-	}
-	b.WriteString("\n\n")
 	if selected == nil {
-		b.WriteString("No project selected.\n")
-		return b.String()
+		return p.app.renderPane("Project Details", "No project selected.\n", p.width, p.paneCursor == 0)
 	}
-	b.WriteString(fmt.Sprintf("Facts\n  code: %s\n  name: %s\n  type axis: %s\n  created: %s\n  updated: %s\n\n",
+	return lipgloss.JoinVertical(lipgloss.Left,
+		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, p.paneCursor == 0),
+		p.app.renderPane("Labels", p.labelsBody(selected), p.width, p.paneCursor == 1),
+		p.app.renderPane("Repos", p.reposBody(selected), p.width, p.paneCursor == 2),
+		p.app.renderPane("Guide", p.guideBody(selected), p.width, p.paneCursor == 3),
+		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, p.paneCursor == 4),
+	)
+}
+
+func (p *projectsModel) projectDetailsBody(selected *store.Project) string {
+	return fmt.Sprintf("code: %s\nname: %s\ntype axis: %s\ncreated: %s\nupdated: %s\n\nkeys: [N] name [T] type [e] edit\n",
 		selected.Code, selected.Name, selected.TypeAxis,
 		selected.CreatedAt.Format("2006-01-02 15:04"),
-		selected.UpdatedAt.Format("2006-01-02 15:04")))
+		selected.UpdatedAt.Format("2006-01-02 15:04"))
+}
+
+func (p *projectsModel) labelsBody(selected *store.Project) string {
+	var b strings.Builder
 	b.WriteString("Labels\n")
 	if len(selected.Labels) == 0 {
 		b.WriteString("  none\n")
@@ -211,14 +212,24 @@ func (p *projectsModel) rightView() string {
 	for _, l := range selected.Labels {
 		b.WriteString(fmt.Sprintf("  %s  %s\n", l.Name, l.Description))
 	}
-	b.WriteString("\nRepos\n")
+	b.WriteString("\nkeys: [L] add [l] remove\n")
+	return b.String()
+}
+
+func (p *projectsModel) reposBody(selected *store.Project) string {
+	var b strings.Builder
 	if len(selected.RepoPaths) == 0 {
 		b.WriteString("  none\n")
 	}
 	for _, r := range selected.RepoPaths {
 		b.WriteString("  " + r + "\n")
 	}
-	b.WriteString("\nGuide\n")
+	b.WriteString("\nkeys: [R] add [r] remove\n")
+	return b.String()
+}
+
+func (p *projectsModel) guideBody(selected *store.Project) string {
+	var b strings.Builder
 	if selected.Guide == nil || len(selected.Guide.Sections) == 0 {
 		b.WriteString("  none\n")
 	} else {
@@ -226,8 +237,12 @@ func (p *projectsModel) rightView() string {
 			b.WriteString("  " + section.Name + "\n")
 		}
 	}
-	b.WriteString("\nAdvanced\n  remove project is guarded by zero-task store constraints\n")
+	b.WriteString("\nkeys: [S] section [g] ref [F] freshness\n")
 	return b.String()
+}
+
+func (p *projectsModel) advancedBody(selected *store.Project) string {
+	return "remove project is guarded by zero-task store constraints\n\nkeys: [x] remove\n"
 }
 
 func (p *projectsModel) updateDetail(key string) (tea.Model, tea.Cmd) {
