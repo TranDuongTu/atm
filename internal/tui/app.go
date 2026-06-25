@@ -741,9 +741,9 @@ func (m *Model) renderLeftHelp(b *strings.Builder) {
 func (m *Model) renderRightColumn() string {
 	switch m.focused {
 	case paneProjects:
-		return m.projects.view()
+		return m.projects.rightView()
 	case paneTasks:
-		return m.tasks.view()
+		return m.tasks.rightView()
 	case paneSummary:
 		return m.dash.view()
 	case paneHelp:

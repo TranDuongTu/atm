@@ -436,6 +436,50 @@ func (t *tasksModel) view() string {
 	return t.renderList()
 }
 
+func (t *tasksModel) rightView() string {
+	if t.mode == taskDetailMode && t.detail != nil {
+		return t.renderDetailWithActorContext(t.detail.Task)
+	}
+	list := t.filtered()
+	var selected *store.Task
+	if t.cursor >= 0 && t.cursor < len(list) {
+		selected = list[t.cursor]
+	}
+	return t.renderTaskSummaryWithActorContext(selected)
+}
+
+func (t *tasksModel) renderDetailWithActorContext(tk *store.Task) string {
+	var b strings.Builder
+	b.WriteString(t.renderDetail())
+	b.WriteString("\n\n")
+	b.WriteString(t.actorClaimsContext(tk))
+	return b.String()
+}
+
+func (t *tasksModel) renderTaskSummaryWithActorContext(tk *store.Task) string {
+	var b strings.Builder
+	b.WriteString("TASK DETAIL\n")
+	if tk == nil {
+		b.WriteString("No task selected.\n\n")
+		b.WriteString(t.actorClaimsContext(nil))
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("%s  %s\n", tk.ID, tk.Title))
+	b.WriteString(fmt.Sprintf("project: %s\nstatus: %s\nlabels: %s\n\n", tk.ProjectCode, tk.Status, strings.Join(tk.Labels, ", ")))
+	b.WriteString("Actions\n  [c] claim  [u] unclaim  [s] status  [e] edit  [b] labels\n\n")
+	b.WriteString("Dependencies and timeline\n  Press Enter to open full task context.\n\n")
+	b.WriteString(t.actorClaimsContext(tk))
+	return b.String()
+}
+
+func (t *tasksModel) actorClaimsContext(tk *store.Task) string {
+	claimant := "none"
+	if tk != nil && tk.Claim != nil {
+		claimant = tk.Claim.Actor
+	}
+	return fmt.Sprintf("Actor / claims\ncurrent actor: %s\nclaimant: %s\nassignee: none", t.app.actorString(), claimant)
+}
+
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
 	b.WriteString("TASKS")

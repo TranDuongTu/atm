@@ -41,50 +41,53 @@ func (h *helpModel) buildLines() {
 	rows := [][2]string{
 		{"atm init", "Startup flow (no-store prompt) -> [I]"},
 		{"atm store path", "Header -> store indicator"},
-		{"atm project create", "Tab 2 -> [a]"},
-		{"atm project list", "Tab 2 (list)"},
-		{"atm project show", "Tab 2 -> Enter"},
-		{"atm project set-type-axis", "Tab 2 -> [T]"},
-		{"atm project set-name", "Tab 2 -> [N]"},
-		{"atm project label add/remove/list", "Tab 2 -> [L]/[l]"},
-		{"atm project repo add/remove", "Tab 2 -> [R]/[r]"},
-		{"atm project guide show", "Tab 2 -> Guide pane"},
-		{"atm project guide section add/rename/remove/move", "Tab 2 -> [S]/[s]/[X]/[M]"},
-		{"atm project guide ref add/remove/move", "Tab 2 -> [g]/[d]/[m]"},
-		{"atm project guide set-freshness", "Tab 2 -> [F]"},
-		{"atm project guide status", "Tab 1 GUIDE STATUS (or Tab 2 -> [D])"},
-		{"atm task create", "Tab 3 -> [a]"},
-		{"atm task show [--with-context]", "Tab 3 -> Enter"},
-		{"atm task list", "Tab 3 (list + filters)"},
-		{"atm task set-status", "Tab 3 detail -> [s]"},
-		{"atm task set-title / set-description", "Tab 3 detail -> [e]"},
-		{"atm task label add/remove", "Tab 3 detail -> [b]"},
-		{"atm task next [--claim]", "Tab 3 -> [n] / [c]"},
-		{"atm task claim / unclaim", "Tab 3 -> [c] / [u]"},
-		{"atm task link add/remove/list", "Tab 3 detail -> [L]"},
-		{"atm task todo add / toggle", "Tab 3 detail -> [t] / Space"},
-		{"atm task followup add / resolve", "Tab 3 detail -> [o] / [O]"},
-		{"atm task discussion add", "Tab 3 detail -> [d]"},
-		{"atm task timeline", "Tab 3 detail -> TIMELINE section"},
-		{"atm review request / approve / reject", "Tab 1 -> [v] / [a] / [r] (or Tab 3)"},
-		{"atm review queue / followups", "Tab 1"},
-		{"atm review dashboard", "Tab 1"},
-		{"atm actor list / show", "Tab 4 -> Enter"},
+		{"atm project create", "Projects -> [a]"},
+		{"atm project list", "Projects left pane"},
+		{"atm project show", "Projects right column"},
+		{"atm project set-type-axis", "Projects -> [T]"},
+		{"atm project set-name", "Projects -> [N]"},
+		{"atm project label add/remove/list", "Projects -> [L]/[l]"},
+		{"atm project repo add/remove", "Projects -> [R]/[r]"},
+		{"atm project guide show", "Projects right column -> Guide"},
+		{"atm project guide section add/rename/remove/move", "Projects guide actions -> [S]/[s]/[X]/[M]"},
+		{"atm project guide ref add/remove/move", "Projects guide actions -> [g]/[d]/[m]"},
+		{"atm project guide set-freshness", "Projects guide actions -> [F]"},
+		{"atm project guide status", "Summary when scoped to project"},
+		{"atm task create", "Tasks -> [a]"},
+		{"atm task show [--with-context]", "Tasks -> Enter"},
+		{"atm task list", "Tasks left pane + filters"},
+		{"atm task set-status", "Tasks detail -> [s]"},
+		{"atm task set-title / set-description", "Tasks detail -> [e]"},
+		{"atm task label add/remove", "Tasks detail -> [b]"},
+		{"atm task next [--claim]", "Tasks -> [n] / [c]"},
+		{"atm task claim / unclaim", "Tasks -> [c] / [u]"},
+		{"atm task link add/remove/list", "Tasks detail -> [L]"},
+		{"atm task todo add / toggle", "Tasks detail -> [t] / Space"},
+		{"atm task followup add / resolve", "Tasks detail -> [o] / [O]"},
+		{"atm task discussion add", "Tasks detail -> [d]"},
+		{"atm task timeline", "Tasks detail -> TIMELINE section"},
+		{"atm review request / approve / reject", "Summary -> [a] / [r] or Tasks -> [v]"},
+		{"atm review queue / followups", "Summary"},
+		{"atm review dashboard", "Summary"},
+		{"atm actor list / show", "Tasks -> Actor / claims context"},
 	}
 	for _, r := range rows {
 		h.lines = append(h.lines, fmt.Sprintf("%-36s %s", r[0], r[1]))
 	}
 	h.lines = append(h.lines, "")
 	h.lines = append(h.lines, "Global keymap:")
-	h.lines = append(h.lines, "  1-5 / Tab/Shift+Tab  switch tabs")
+	h.lines = append(h.lines, "  1-4                  focus left panes")
 	h.lines = append(h.lines, "  r                    refresh current view")
 	h.lines = append(h.lines, "  /                    inline filter")
 	h.lines = append(h.lines, "  :                    command palette")
-	h.lines = append(h.lines, "  ?                    help (this tab)")
+	h.lines = append(h.lines, "  ?                    focus Help")
 	h.lines = append(h.lines, "  q                    quit")
 	h.lines = append(h.lines, "  Esc                  cancel input / close overlay")
 	h.lines = append(h.lines, "  j/k or Up/Down       move list cursor")
 	h.lines = append(h.lines, "  g/G                  top/bottom of list")
+	h.lines = append(h.lines, "  Space                toggle project scope in Projects")
+	h.lines = append(h.lines, "  Left/Right           move project right-column sections")
+	h.lines = append(h.lines, "  Actors               shown in task Actor / claims context")
 	h.clampOffset()
 }
 

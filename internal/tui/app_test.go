@@ -272,6 +272,45 @@ func TestWorkspace_SummaryDefaultsAllAndScopesToProject(t *testing.T) {
 	}
 }
 
+func TestWorkspace_ProjectsRightColumnSectionsNavigateWithLeftRight(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	view := m.View()
+	for _, label := range []string{"Facts", "Labels", "Repos", "Guide", "Advanced"} {
+		if !strings.Contains(view, label) {
+			t.Fatalf("expected project section %q:\n%s", label, view)
+		}
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = mod.(*Model)
+	if m.projects.paneCursor != 1 {
+		t.Fatalf("expected paneCursor 1, got %d", m.projects.paneCursor)
+	}
+}
+
+func TestWorkspace_TaskRightColumnIncludesActorClaimsContext(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	s, _ := store.Open(root)
+	if _, err := s.CreateTask("ATM", "Sample task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	m = mod.(*Model)
+	view := m.View()
+	if !strings.Contains(view, "Actor / claims") || !strings.Contains(view, "current actor: human:alice") {
+		t.Fatalf("task right column missing actor context:\n%s", view)
+	}
+}
+
 func TestModel_Quit(t *testing.T) {
 	root := setupTempStore(t)
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})

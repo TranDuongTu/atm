@@ -97,6 +97,14 @@ func (p *projectsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (p *projectsModel) updateList(key string) (tea.Model, tea.Cmd) {
 	list := p.filtered()
 	switch key {
+	case "right":
+		if p.paneCursor < len(projectRightSections)-1 {
+			p.paneCursor++
+		}
+	case "left":
+		if p.paneCursor > 0 {
+			p.paneCursor--
+		}
 	case "j", "down":
 		if p.cursor < len(list)-1 {
 			p.cursor++
@@ -162,6 +170,64 @@ func (p *projectsModel) updateList(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return p.app, nil
+}
+
+var projectRightSections = []string{"Facts", "Labels", "Repos", "Guide", "Advanced"}
+
+func (p *projectsModel) rightView() string {
+	list := p.filtered()
+	var selected *store.Project
+	if p.cursor >= 0 && p.cursor < len(list) {
+		selected = list[p.cursor]
+		if detail, err := p.app.store.GetProject(selected.Code); err == nil {
+			selected = detail
+		}
+	}
+	var b strings.Builder
+	b.WriteString("PROJECT DETAIL\n")
+	for i, section := range projectRightSections {
+		marker := " "
+		if i == p.paneCursor {
+			marker = ">"
+		}
+		b.WriteString(fmt.Sprintf("%s %s", marker, section))
+		if i < len(projectRightSections)-1 {
+			b.WriteString("  ")
+		}
+	}
+	b.WriteString("\n\n")
+	if selected == nil {
+		b.WriteString("No project selected.\n")
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("Facts\n  code: %s\n  name: %s\n  type axis: %s\n  created: %s\n  updated: %s\n\n",
+		selected.Code, selected.Name, selected.TypeAxis,
+		selected.CreatedAt.Format("2006-01-02 15:04"),
+		selected.UpdatedAt.Format("2006-01-02 15:04")))
+	b.WriteString("Labels\n")
+	if len(selected.Labels) == 0 {
+		b.WriteString("  none\n")
+	}
+	for _, l := range selected.Labels {
+		b.WriteString(fmt.Sprintf("  %s  %s\n", l.Name, l.Description))
+	}
+	b.WriteString("\nRepos\n")
+	if len(selected.RepoPaths) == 0 {
+		b.WriteString("  none\n")
+	}
+	for _, r := range selected.RepoPaths {
+		b.WriteString("  " + r + "\n")
+	}
+	b.WriteString("\nGuide\n")
+	if selected.Guide == nil || len(selected.Guide.Sections) == 0 {
+		b.WriteString("  none\n")
+	} else {
+		for _, section := range selected.Guide.Sections {
+			b.WriteString("  " + section.Name + "\n")
+		}
+	}
+	b.WriteString("\nAdvanced\n  remove project is guarded by zero-task store constraints\n")
+	return b.String()
 }
 
 func (p *projectsModel) updateDetail(key string) (tea.Model, tea.Cmd) {
