@@ -8,6 +8,7 @@ import (
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func setupTempStore(t *testing.T) string {
@@ -197,6 +198,66 @@ func TestWorkspace_ProjectsRightColumnUsesStackedPanesWithKeyMenus(t *testing.T)
 	for _, menu := range []string{"keys: [N] name [T] type", "keys: [L] add [l] remove", "keys: [R] add [r] remove"} {
 		if !strings.Contains(view, menu) {
 			t.Fatalf("expected per-pane key menu %q:\n%s", menu, view)
+		}
+	}
+}
+
+func TestWorkspace_ViewDoesNotRenderContentUnderFooter(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(100, 24)
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) > m.height {
+		t.Fatalf("view should not exceed terminal height %d, got %d", m.height, len(lines))
+	}
+	footerStart := m.height - bottomPaneHeight(m.width)
+	for i, line := range lines[:footerStart] {
+		if strings.Contains(line, "actor: human:alice | store:") {
+			t.Fatalf("footer rendered inside content at line %d:\n%s", i, view)
+		}
+	}
+}
+
+func TestWorkspace_LeftPaneStackExtendsToFooter(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(100, 40)
+	for _, key := range []string{"1", "2"} {
+		mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		m = mod.(*Model)
+		view := m.View()
+		lines := strings.Split(view, "\n")
+		lastContentLine := topPaneHeight(m.width) + m.contentHeight - 1
+		if lastContentLine >= len(lines) {
+			t.Fatalf("content line %d outside view with %d lines", lastContentLine, len(lines))
+		}
+		line := lines[lastContentLine]
+		if !strings.Contains(line, "╯") {
+			t.Fatalf("left pane stack should end immediately above footer after key %s; line %d was %q\n%s", key, lastContentLine, line, view)
+		}
+	}
+}
+
+func TestTitledBoxDoesNotCorruptANSISequences(t *testing.T) {
+	got := titledBox(activePaneStyle, 36, "[1] - Projects", "body\n")
+	if strings.Contains(got, "\x1b [") || strings.Contains(got, "\x1b ") {
+		t.Fatalf("title insertion corrupted ANSI escape sequence:\n%q", got)
+	}
+	if !strings.Contains(got, "[1] - Projects") {
+		t.Fatalf("missing title:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if lipgloss.Width(line) != 36 {
+			t.Fatalf("line width = %d, want 36 for %q\nfull:\n%s", lipgloss.Width(line), line, got)
 		}
 	}
 }

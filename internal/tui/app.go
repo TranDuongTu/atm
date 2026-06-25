@@ -29,16 +29,17 @@ const (
 )
 
 type Model struct {
-	store        *store.Store
-	storeSet     bool
-	actor        string
-	width        int
-	height       int
-	leftWidth    int
-	rightWidth   int
-	focused      workspacePane
-	km           keymap
-	projectScope string
+	store         *store.Store
+	storeSet      bool
+	actor         string
+	width         int
+	height        int
+	contentHeight int
+	leftWidth     int
+	rightWidth    int
+	focused       workspacePane
+	km            keymap
+	projectScope  string
 
 	dash     *dashboardModel
 	projects *projectsModel
@@ -111,6 +112,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
 	m.help = newHelpModel(m)
+	m.SetSize(m.width, m.height)
 
 	storeExists := storeExists(s)
 	m.startup.promptInit = !storeExists
@@ -152,6 +154,7 @@ func (m *Model) SetSize(w, h int) {
 	if contentH < 2 {
 		contentH = 2
 	}
+	m.contentHeight = contentH
 	contentW := w
 	if contentW < 20 {
 		contentW = 20
@@ -634,16 +637,18 @@ func (m *Model) actorString() string {
 
 func (m *Model) renderContent() string {
 	left := lipgloss.NewStyle().Width(m.leftWidth).Render(m.renderLeftColumn())
-	right := lipgloss.NewStyle().Width(m.rightWidth).Render(m.renderRightColumn())
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	right := lipgloss.NewStyle().Width(m.rightWidth).Render(limitBlockHeight(m.renderRightColumn(), m.contentHeight))
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	return limitBlockHeight(content, m.contentHeight)
 }
 
 func (m *Model) renderLeftColumn() string {
+	heights := splitHeights(m.contentHeight, 4)
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.renderPane("[1] - Projects", m.renderLeftProjects(), m.leftWidth, m.focused == paneProjects),
-		m.renderPane("[2] - Tasks", m.renderLeftTasks(), m.leftWidth, m.focused == paneTasks),
-		m.renderPane("[3] - Summary", m.renderLeftSummary(), m.leftWidth, m.focused == paneSummary),
-		m.renderPane("[4] - Help", m.renderLeftHelp(), m.leftWidth, m.focused == paneHelp),
+		m.renderPane("[1] - Projects", m.renderLeftProjects(), m.leftWidth, heights[0], m.focused == paneProjects),
+		m.renderPane("[2] - Tasks", m.renderLeftTasks(), m.leftWidth, heights[1], m.focused == paneTasks),
+		m.renderPane("[3] - Summary", m.renderLeftSummary(), m.leftWidth, heights[2], m.focused == paneSummary),
+		m.renderPane("[4] - Help", m.renderLeftHelp(), m.leftWidth, heights[3], m.focused == paneHelp),
 	)
 }
 
@@ -721,12 +726,42 @@ func (m *Model) renderRightColumn() string {
 	return ""
 }
 
-func (m *Model) renderPane(title, body string, width int, active bool) string {
+func (m *Model) renderPane(title, body string, width int, height int, active bool) string {
 	style := paneStyle
 	if active {
 		style = activePaneStyle
 	}
-	return titledBox(style, width, title, body)
+	return titledBoxHeight(style, width, title, body, height)
+}
+
+func splitHeights(total, n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	heights := make([]int, n)
+	base := total / n
+	rem := total % n
+	for i := range heights {
+		heights[i] = base
+		if i < rem {
+			heights[i]++
+		}
+		if heights[i] < 3 {
+			heights[i] = 3
+		}
+	}
+	return heights
+}
+
+func limitBlockHeight(s string, h int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) renderFooter() string {

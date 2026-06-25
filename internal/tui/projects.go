@@ -185,14 +185,14 @@ func (p *projectsModel) rightView() string {
 		}
 	}
 	if selected == nil {
-		return p.app.renderPane("Project Details", "No project selected.\n", p.width, p.paneCursor == 0)
+		return p.app.renderPane("Project Details", "No project selected.\n", p.width, 0, p.paneCursor == 0)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
-		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, p.paneCursor == 0),
-		p.app.renderPane("Labels", p.labelsBody(selected), p.width, p.paneCursor == 1),
-		p.app.renderPane("Repos", p.reposBody(selected), p.width, p.paneCursor == 2),
-		p.app.renderPane("Guide", p.guideBody(selected), p.width, p.paneCursor == 3),
-		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, p.paneCursor == 4),
+		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, 0, p.paneCursor == 0),
+		p.app.renderPane("Labels", p.labelsBody(selected), p.width, 0, p.paneCursor == 1),
+		p.app.renderPane("Repos", p.reposBody(selected), p.width, 0, p.paneCursor == 2),
+		p.app.renderPane("Guide", p.guideBody(selected), p.width, 0, p.paneCursor == 3),
+		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, 0, p.paneCursor == 4),
 	)
 }
 

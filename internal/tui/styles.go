@@ -16,12 +16,10 @@ var (
 			BorderForeground(lipgloss.Color("245"))
 
 	paneStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("245"))
+			Foreground(lipgloss.Color("245"))
 
 	activePaneStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39"))
+			Foreground(lipgloss.Color("39"))
 
 	bottomStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -99,23 +97,53 @@ func box(style lipgloss.Style, w int, inner string) string {
 }
 
 func titledBox(style lipgloss.Style, w int, title, inner string) string {
+	return titledBoxHeight(style, w, title, inner, 0)
+}
+
+func titledBoxHeight(style lipgloss.Style, w int, title, inner string, height int) string {
 	innerW := w - 2 // border left + right
 	if innerW < 1 {
 		innerW = 1
 	}
-	rendered := style.Render(padBlock(inner, innerW))
-	lines := strings.Split(rendered, "\n")
-	if len(lines) == 0 {
-		return rendered
+	if height > 0 && height < 3 {
+		height = 3
 	}
-	runes := []rune(lines[0])
-	label := []rune(" " + title + " ")
-	if len(runes) > len(label)+2 {
-		for i, r := range label {
-			runes[i+1] = r
+	bodyLines := strings.Split(strings.TrimRight(inner, "\n"), "\n")
+	if len(bodyLines) == 1 && bodyLines[0] == "" {
+		bodyLines = []string{""}
+	}
+	innerH := len(bodyLines)
+	if height > 0 {
+		innerH = height - 2
+	}
+	if innerH < 1 {
+		innerH = 1
+	}
+	if len(bodyLines) > innerH {
+		bodyLines = bodyLines[:innerH]
+	}
+	for len(bodyLines) < innerH {
+		bodyLines = append(bodyLines, "")
+	}
+
+	label := " " + title + " "
+	topFill := innerW
+	if lw := lipgloss.Width(label); lw < topFill {
+		label += strings.Repeat("─", topFill-lw)
+	} else {
+		label = fitLine(label, topFill)
+	}
+	top := style.Render("╭" + label + "╮")
+	bottom := style.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	lines := []string{top}
+	for _, line := range bodyLines {
+		fit := fitLine(line, innerW)
+		if lw := lipgloss.Width(fit); lw < innerW {
+			fit += spaces(innerW - lw)
 		}
-		lines[0] = string(runes)
+		lines = append(lines, style.Render("│")+fit+style.Render("│"))
 	}
+	lines = append(lines, bottom)
 	return strings.Join(lines, "\n")
 }
 
@@ -147,4 +175,21 @@ func spaces(n int) string {
 		b[i] = ' '
 	}
 	return string(b)
+}
+
+func fitLine(s string, w int) string {
+	if w <= 0 || lipgloss.Width(s) <= w {
+		return s
+	}
+	var out strings.Builder
+	used := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			break
+		}
+		out.WriteRune(r)
+		used += rw
+	}
+	return out.String()
 }
