@@ -189,6 +189,53 @@ func TestWorkspace_MovementOnlyAffectsFocusedPane(t *testing.T) {
 	}
 }
 
+func TestWorkspace_ProjectScopeTogglesWithSpace(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = mod.(*Model)
+	if m.projectScope != "ATM" {
+		t.Fatalf("expected scope ATM, got %q", m.projectScope)
+	}
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = mod.(*Model)
+	if m.projectScope != "" {
+		t.Fatalf("expected cleared scope, got %q", m.projectScope)
+	}
+}
+
+func TestWorkspace_TasksDefaultAllProjectsAndFilterWhenScoped(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	s, _ := store.Open(root)
+	_, err := s.CreateProject("DEMO", "Demo", "type", []store.Label{{Name: "type:impl"}}, nil, "human:alice")
+	if err != nil {
+		t.Fatalf("create DEMO: %v", err)
+	}
+	if _, err := s.CreateTask("ATM", "ATM task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create ATM task: %v", err)
+	}
+	if _, err := s.CreateTask("DEMO", "Demo task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create DEMO task: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	if len(m.tasks.tasks) != 2 {
+		t.Fatalf("expected all tasks by default, got %d", len(m.tasks.tasks))
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = mod.(*Model)
+	if len(m.tasks.tasks) != 1 || m.tasks.tasks[0].ProjectCode != "ATM" {
+		t.Fatalf("expected scoped ATM task, got %#v", m.tasks.tasks)
+	}
+}
+
 func TestModel_Quit(t *testing.T) {
 	root := setupTempStore(t)
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})

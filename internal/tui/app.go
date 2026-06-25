@@ -334,6 +334,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "4":
 		m.focused = paneHelp
 		return m, nil
+	case " ":
+		if m.focused == paneProjects {
+			if code, ok := m.projects.selectedCode(); ok {
+				if m.projectScope == code {
+					m.projectScope = ""
+					m.showToast("scope: all")
+				} else {
+					m.projectScope = code
+					m.showToast("scope: " + code)
+				}
+				m.refreshAll()
+			}
+			return m, nil
+		}
 	}
 
 	return m.dispatchPane(msg)

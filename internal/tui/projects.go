@@ -78,6 +78,14 @@ func (p *projectsModel) filtered() []*store.Project {
 	return out
 }
 
+func (p *projectsModel) selectedCode() (string, bool) {
+	list := p.filtered()
+	if p.cursor < 0 || p.cursor >= len(list) {
+		return "", false
+	}
+	return list[p.cursor].Code, true
+}
+
 func (p *projectsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	key := msg.(tea.KeyMsg).String()
 	if p.mode == projList {

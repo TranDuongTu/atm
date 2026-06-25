@@ -46,7 +46,9 @@ func (t *tasksModel) refresh() {
 	if !t.app.storeSet {
 		return
 	}
-	t.tasks = t.app.store.ListTasks(t.filters)
+	filters := t.filters
+	filters.Project = t.app.projectScope
+	t.tasks = t.app.store.ListTasks(filters)
 	if t.cursor >= len(t.tasks) {
 		t.cursor = max0(len(t.tasks) - 1)
 	}
@@ -442,6 +444,9 @@ func (t *tasksModel) renderList() string {
 	}
 	if t.filters.Project != "" {
 		b.WriteString("  project: " + t.filters.Project)
+	}
+	if t.app.projectScope != "" {
+		b.WriteString("  scope: " + t.app.projectScope)
 	}
 	if t.filters.Status != "" {
 		b.WriteString("  status: " + t.filters.Status)
