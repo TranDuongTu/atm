@@ -138,7 +138,7 @@ func (d *dashboardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		e, ok := d.selected()
 		if ok && e.taskID != "" {
 			d.app.tasks.openTaskByID(e.taskID)
-			d.app.tab = tabTasks
+			d.app.focused = paneTasks
 		}
 	case d.app.km.dashboardA:
 		e, ok := d.selected()
@@ -202,7 +202,7 @@ func (d *dashboardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case d.app.km.dashboardE:
-		d.app.tab = tabProjects
+		d.app.focused = paneProjects
 		d.app.showToast("jump to Projects -> Guide")
 	}
 	return d.app, nil
@@ -222,9 +222,9 @@ func (d *dashboardModel) view() string {
 		}
 		projects := d.app.store.ListProjects()
 		if len(projects) == 0 {
-			return "  No projects. Create one in the Projects tab (press 2)."
+			return "  No projects. Create one in Projects (press 1)."
 		}
-		return "  Dashboard empty for " + projects[0].Code + ". See Projects (2) and Tasks (3) tabs."
+		return "  Summary empty for " + projects[0].Code + ". See Projects (1) and Tasks (2)."
 	}
 	var b strings.Builder
 	code := d.dash.Project

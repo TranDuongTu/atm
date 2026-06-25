@@ -52,8 +52,8 @@ func TestNewModel_ExistingStore(t *testing.T) {
 	if m.startup.promptActor {
 		t.Fatal("promptActor should be false when actor set")
 	}
-	if m.tab != tabDashboard {
-		t.Fatalf("expected default tab %d, got %d", tabDashboard, m.tab)
+	if got := m.focusedPaneName(); got != "Projects" {
+		t.Fatalf("expected default focus Projects, got %s", got)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestNewModel_MissingActor_PromptsActor(t *testing.T) {
 	}
 }
 
-func TestModel_View_RendersTabs(t *testing.T) {
+func TestWorkspace_DefaultFocusAndNoActorsTab(t *testing.T) {
 	root := setupTempStore(t)
 	seedProject(t, root, "human:alice")
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
@@ -99,11 +99,17 @@ func TestModel_View_RendersTabs(t *testing.T) {
 		t.Fatalf("NewModel: %v", err)
 	}
 	m.SetSize(100, 30)
+	if m.focusedPaneName() != "Projects" {
+		t.Fatalf("expected default focus Projects, got %s", m.focusedPaneName())
+	}
 	view := m.View()
-	for _, label := range []string{"1 Dashboard", "2 Projects", "3 Tasks", "4 Actors", "5 Help"} {
+	for _, label := range []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"} {
 		if !strings.Contains(view, label) {
-			t.Errorf("expected tab label %q in view", label)
+			t.Errorf("expected workspace label %q in view", label)
 		}
+	}
+	if strings.Contains(view, "[4] Actors") || strings.Contains(view, "4 Actors") || strings.Contains(view, "5 Help") {
+		t.Fatalf("actors/tab-era navigation should be absent:\n%s", view)
 	}
 	if !strings.Contains(view, "actor: human:alice") {
 		t.Errorf("expected actor in header")
@@ -113,7 +119,7 @@ func TestModel_View_RendersTabs(t *testing.T) {
 	}
 }
 
-func TestModel_TabSwitching(t *testing.T) {
+func TestWorkspace_NumberKeysFocusPanes(t *testing.T) {
 	root := setupTempStore(t)
 	seedProject(t, root, "human:alice")
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
@@ -124,31 +130,19 @@ func TestModel_TabSwitching(t *testing.T) {
 
 	cases := []struct {
 		key  string
-		want int
+		want string
 	}{
-		{"2", tabProjects},
-		{"3", tabTasks},
-		{"4", tabActors},
-		{"5", tabHelp},
-		{"1", tabDashboard},
+		{"2", "Tasks"},
+		{"3", "Summary"},
+		{"4", "Help"},
+		{"1", "Projects"},
 	}
 	for _, c := range cases {
 		mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
 		m = mod.(*Model)
-		if m.tab != c.want {
-			t.Errorf("after key %q: expected tab %d, got %d", c.key, c.want, m.tab)
+		if got := m.focusedPaneName(); got != c.want {
+			t.Errorf("after key %q: expected focus %s, got %s", c.key, c.want, got)
 		}
-	}
-
-	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = mod.(*Model)
-	if m.tab != tabProjects {
-		t.Errorf("after tab: expected tab %d, got %d", tabProjects, m.tab)
-	}
-	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	m = mod.(*Model)
-	if m.tab != tabDashboard {
-		t.Errorf("after shift+tab: expected tab %d, got %d", tabDashboard, m.tab)
 	}
 }
 
@@ -239,21 +233,6 @@ func TestTasksModel_RendersList(t *testing.T) {
 	view := m.tasks.view()
 	if !strings.Contains(view, "TASKS") || !strings.Contains(view, "ATM-0001") {
 		t.Errorf("tasks list missing content:\n%s", view)
-	}
-}
-
-func TestActorsModel_RendersList(t *testing.T) {
-	root := setupTempStore(t)
-	seedProject(t, root, "human:alice")
-	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
-	if err != nil {
-		t.Fatalf("NewModel: %v", err)
-	}
-	m.SetSize(100, 30)
-	m.actors.refresh()
-	view := m.actors.view()
-	if !strings.Contains(view, "ACTORS") || !strings.Contains(view, "human:alice") {
-		t.Errorf("actors list missing content:\n%s", view)
 	}
 }
 

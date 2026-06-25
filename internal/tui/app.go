@@ -10,12 +10,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type workspacePane int
+
 const (
-	tabDashboard = 0
-	tabProjects  = 1
-	tabTasks     = 2
-	tabActors    = 3
-	tabHelp      = 4
+	paneProjects workspacePane = iota
+	paneTasks
+	paneSummary
+	paneHelp
 )
 
 type focusMode int
@@ -28,18 +29,18 @@ const (
 )
 
 type Model struct {
-	store    *store.Store
-	storeSet bool
-	actor    string
-	width    int
-	height   int
-	tab      int
-	km       keymap
+	store        *store.Store
+	storeSet     bool
+	actor        string
+	width        int
+	height       int
+	focused      workspacePane
+	km           keymap
+	projectScope string
 
 	dash     *dashboardModel
 	projects *projectsModel
 	tasks    *tasksModel
-	actors   *actorsModel
 	help     *helpModel
 
 	filter   filterState
@@ -107,7 +108,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dash = newDashboardModel(m)
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
-	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 
 	storeExists := storeExists(s)
@@ -141,7 +141,7 @@ func storeExists(s *store.Store) bool {
 func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	// Reserve space for top (header+tabbar) and bottom (footer) bordered
+	// Reserve space for top (header+nav) and bottom (footer) bordered
 	// panes plus their surrounding borders. Each bordered pane occupies
 	// (1 top border + content rows + 1 bottom border) lines.
 	topH := topPaneHeight(m.width)
@@ -157,13 +157,12 @@ func (m *Model) SetSize(w, h int) {
 	m.dash.setSize(contentW, contentH)
 	m.projects.setSize(contentW, contentH)
 	m.tasks.setSize(contentW, contentH)
-	m.actors.setSize(contentW, contentH)
 	m.help.setSize(contentW, contentH)
 }
 
 // topPaneHeight is the outer height (including borders) of the top pane for
 // the current width. The header is three logical lines (title, location,
-// tabs); with a rounded border that yields 1 + 3 + 1 = 5 lines.
+// navigation); with a rounded border that yields 1 + 3 + 1 = 5 lines.
 func topPaneHeight(w int) int { return 5 }
 
 // bottomPaneHeight is the outer height (including borders) of the bottom pane.
@@ -175,8 +174,26 @@ func (m *Model) refreshAll() {
 	m.dash.refresh()
 	m.projects.refresh()
 	m.tasks.refresh()
-	m.actors.refresh()
 	m.help.refresh()
+}
+
+func (m *Model) focusedPaneName() string {
+	switch m.focused {
+	case paneProjects:
+		return "Projects"
+	case paneTasks:
+		return "Tasks"
+	case paneSummary:
+		return "Summary"
+	case paneHelp:
+		return "Help"
+	default:
+		return "Projects"
+	}
+}
+
+func (m *Model) selectedProjectCode() string {
+	return m.projectScope
 }
 
 func (m *Model) showToast(msg string) {
@@ -271,7 +288,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showToast("refreshed")
 		return m, nil
 	case m.km.help:
-		m.tab = tabHelp
+		m.focused = paneHelp
 		return m, nil
 	case m.km.palette:
 		m.showToast("command palette: not yet implemented")
@@ -281,36 +298,27 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter.value = ""
 		return m, nil
 	case m.km.escape:
-		// Clear any status message; otherwise let the active tab handle
+		// Clear any status message; otherwise let the active pane handle
 		// Esc (e.g. exit a project/task detail view).
 		if m.toast.msg != "" {
 			m.hideToast()
 			return m, nil
 		}
 	case "1":
-		m.tab = tabDashboard
+		m.focused = paneProjects
 		return m, nil
 	case "2":
-		m.tab = tabProjects
+		m.focused = paneTasks
 		return m, nil
 	case "3":
-		m.tab = tabTasks
+		m.focused = paneSummary
 		return m, nil
 	case "4":
-		m.tab = tabActors
-		return m, nil
-	case "5":
-		m.tab = tabHelp
-		return m, nil
-	case "tab":
-		m.tab = (m.tab + 1) % 5
-		return m, nil
-	case "shift+tab":
-		m.tab = (m.tab + 4) % 5
+		m.focused = paneHelp
 		return m, nil
 	}
 
-	return m.dispatchTab(msg)
+	return m.dispatchPane(msg)
 }
 
 func (m *Model) handleStartup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -412,29 +420,25 @@ func (m *Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) applyFilter(v string) {
-	switch m.tab {
-	case tabDashboard:
-		m.dash.setFilter(v)
-	case tabProjects:
+	switch m.focused {
+	case paneProjects:
 		m.projects.setFilter(v)
-	case tabTasks:
+	case paneTasks:
 		m.tasks.setFilter(v)
-	case tabActors:
-		m.actors.setFilter(v)
+	case paneSummary:
+		m.dash.setFilter(v)
 	}
 }
 
-func (m *Model) dispatchTab(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch m.tab {
-	case tabDashboard:
-		return m.dash.update(msg)
-	case tabProjects:
+func (m *Model) dispatchPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.focused {
+	case paneProjects:
 		return m.projects.update(msg)
-	case tabTasks:
+	case paneTasks:
 		return m.tasks.update(msg)
-	case tabActors:
-		return m.actors.update(msg)
-	case tabHelp:
+	case paneSummary:
+		return m.dash.update(msg)
+	case paneHelp:
 		return m.help.update(msg)
 	}
 	return m, nil
@@ -573,8 +577,12 @@ func (m *Model) renderStartupActor() string {
 
 func (m *Model) renderHeader() string {
 	title := titleStyle.Render(" Agents Tasks Management - ATM ")
-	loc := locationStyle.Render(fmt.Sprintf(" %s  actor: %s ", m.store.StorePath(), m.actorString()))
-	tabs := m.renderTabBar()
+	scope := "all"
+	if m.projectScope != "" {
+		scope = m.projectScope
+	}
+	loc := locationStyle.Render(fmt.Sprintf(" scope: %s  actor: %s  store: %s  r refresh  q quit ", scope, m.actorString(), m.store.StorePath()))
+	nav := m.renderWorkspaceNav()
 	// Stack the three lines, each center-aligned across the full width.
 	innerW := m.width - 2
 	if innerW < 1 {
@@ -583,7 +591,7 @@ func (m *Model) renderHeader() string {
 	return lipgloss.JoinVertical(lipgloss.Center,
 		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title),
 		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, loc),
-		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, tabs),
+		lipgloss.PlaceHorizontal(innerW, lipgloss.Center, nav),
 	)
 }
 
@@ -594,11 +602,11 @@ func (m *Model) actorString() string {
 	return m.actor
 }
 
-func (m *Model) renderTabBar() string {
-	tabs := []string{"1 Dashboard", "2 Projects", "3 Tasks", "4 Actors", "5 Help"}
+func (m *Model) renderWorkspaceNav() string {
+	tabs := []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"}
 	var parts []string
 	for i, t := range tabs {
-		if i == m.tab {
+		if workspacePane(i) == m.focused {
 			parts = append(parts, activeTabStyle.Render(t))
 		} else {
 			parts = append(parts, inactiveTabStyle.Render(t))
@@ -608,16 +616,14 @@ func (m *Model) renderTabBar() string {
 }
 
 func (m *Model) renderContent() string {
-	switch m.tab {
-	case tabDashboard:
-		return m.dash.view()
-	case tabProjects:
+	switch m.focused {
+	case paneProjects:
 		return m.projects.view()
-	case tabTasks:
+	case paneTasks:
 		return m.tasks.view()
-	case tabActors:
-		return m.actors.view()
-	case tabHelp:
+	case paneSummary:
+		return m.dash.view()
+	case paneHelp:
 		return m.help.view()
 	}
 	return ""
@@ -650,16 +656,14 @@ func (m *Model) renderFooter() string {
 }
 
 func (m *Model) footerHint() string {
-	switch m.tab {
-	case tabDashboard:
-		return "a:approve r:reject R:resolve"
-	case tabProjects:
+	switch m.focused {
+	case paneProjects:
 		return "a:add e:edit Enter:open L/l:labels T:type R/r:repos"
-	case tabTasks:
+	case paneTasks:
 		return "a:add Enter:open n:next c:claim u:unclaim s:status"
-	case tabActors:
-		return "Enter:show"
-	case tabHelp:
+	case paneSummary:
+		return "a:approve r:reject R:resolve"
+	case paneHelp:
 		return "scroll: j/k"
 	}
 	return ""
