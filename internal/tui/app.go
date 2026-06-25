@@ -34,6 +34,8 @@ type Model struct {
 	actor        string
 	width        int
 	height       int
+	leftWidth    int
+	rightWidth   int
 	focused      workspacePane
 	km           keymap
 	projectScope string
@@ -154,10 +156,26 @@ func (m *Model) SetSize(w, h int) {
 	if contentW < 20 {
 		contentW = 20
 	}
-	m.dash.setSize(contentW, contentH)
-	m.projects.setSize(contentW, contentH)
-	m.tasks.setSize(contentW, contentH)
-	m.help.setSize(contentW, contentH)
+	leftW := contentW * 30 / 100
+	if leftW < 24 {
+		leftW = 24
+	}
+	if leftW > 44 {
+		leftW = 44
+	}
+	if leftW > contentW-20 {
+		leftW = contentW / 2
+	}
+	rightW := contentW - leftW
+	if rightW < 20 {
+		rightW = 20
+	}
+	m.leftWidth = leftW
+	m.rightWidth = rightW
+	m.dash.setSize(rightW, contentH)
+	m.projects.setSize(rightW, contentH)
+	m.tasks.setSize(rightW, contentH)
+	m.help.setSize(rightW, contentH)
 }
 
 // topPaneHeight is the outer height (including borders) of the top pane for
@@ -616,6 +634,97 @@ func (m *Model) renderWorkspaceNav() string {
 }
 
 func (m *Model) renderContent() string {
+	left := lipgloss.NewStyle().Width(m.leftWidth).Render(m.renderLeftColumn())
+	right := lipgloss.NewStyle().Width(m.rightWidth).Render(m.renderRightColumn())
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+}
+
+func (m *Model) renderLeftColumn() string {
+	var b strings.Builder
+	m.renderLeftProjects(&b)
+	m.renderLeftTasks(&b)
+	m.renderLeftSummary(&b)
+	m.renderLeftHelp(&b)
+	return b.String()
+}
+
+func (m *Model) renderLeftProjects(b *strings.Builder) {
+	marker := " "
+	if m.focused == paneProjects {
+		marker = ">"
+	}
+	b.WriteString(marker + " [1] Projects\n")
+	for i, pr := range m.projects.filtered() {
+		if i >= 4 {
+			break
+		}
+		cursor := " "
+		if m.focused == paneProjects && i == m.projects.cursor {
+			cursor = ">"
+		}
+		scope := " "
+		if m.projectScope == pr.Code {
+			scope = "*"
+		}
+		b.WriteString(fmt.Sprintf("  %s%s %-12s\n", cursor, scope, pr.Code))
+	}
+	b.WriteString("\n")
+}
+
+func (m *Model) renderLeftTasks(b *strings.Builder) {
+	marker := " "
+	if m.focused == paneTasks {
+		marker = ">"
+	}
+	b.WriteString(marker + " [2] Tasks\n")
+	for i, tk := range m.tasks.filtered() {
+		if i >= 5 {
+			break
+		}
+		cursor := " "
+		if m.focused == paneTasks && i == m.tasks.cursor {
+			cursor = ">"
+		}
+		title := tk.Title
+		if len(title) > 18 {
+			title = title[:18]
+		}
+		b.WriteString(fmt.Sprintf("  %s %-10s %s\n", cursor, tk.ID, title))
+	}
+	b.WriteString("\n")
+}
+
+func (m *Model) renderLeftSummary(b *strings.Builder) {
+	marker := " "
+	if m.focused == paneSummary {
+		marker = ">"
+	}
+	filters := store.QueryFilters{Project: m.projectScope}
+	tasks := m.store.ListTasks(filters)
+	review := 0
+	for _, tk := range tasks {
+		if tk.Status == "review" {
+			review++
+		}
+	}
+	scope := "all projects"
+	if m.projectScope != "" {
+		scope = m.projectScope
+	}
+	b.WriteString(marker + " [3] Summary\n")
+	b.WriteString(fmt.Sprintf("    %s: open %d review %d\n\n", scope, len(tasks), review))
+}
+
+func (m *Model) renderLeftHelp(b *strings.Builder) {
+	marker := " "
+	if m.focused == paneHelp {
+		marker = ">"
+	}
+	b.WriteString(marker + " [4] Help\n")
+	b.WriteString("    keys, forms, parity\n")
+}
+
+func (m *Model) renderRightColumn() string {
 	switch m.focused {
 	case paneProjects:
 		return m.projects.view()

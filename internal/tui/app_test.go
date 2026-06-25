@@ -146,6 +146,49 @@ func TestWorkspace_NumberKeysFocusPanes(t *testing.T) {
 	}
 }
 
+func TestWorkspace_RendersPersistentLeftPanes(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.SetSize(120, 32)
+	view := m.View()
+	for _, label := range []string{"[1] Projects", "[2] Tasks", "[3] Summary", "[4] Help"} {
+		if strings.Count(view, label) < 2 {
+			t.Fatalf("expected persistent left pane label %q in body and header:\n%s", label, view)
+		}
+	}
+}
+
+func TestWorkspace_MovementOnlyAffectsFocusedPane(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	s, _ := store.Open(root)
+	if _, err := s.CreateTask("ATM", "ATM task 1", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create task 1: %v", err)
+	}
+	if _, err := s.CreateTask("ATM", "ATM task 2", "", []string{"type:bug"}, "human:alice"); err != nil {
+		t.Fatalf("create task 2: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	projectCursor := m.projects.cursor
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	m = mod.(*Model)
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = mod.(*Model)
+	if m.projects.cursor != projectCursor {
+		t.Fatalf("projects cursor changed while Tasks focused")
+	}
+	if m.tasks.cursor != 1 {
+		t.Fatalf("expected tasks cursor 1, got %d", m.tasks.cursor)
+	}
+}
+
 func TestModel_Quit(t *testing.T) {
 	root := setupTempStore(t)
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
