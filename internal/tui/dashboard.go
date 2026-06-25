@@ -61,13 +61,11 @@ func (d *dashboardModel) refresh() {
 	if !d.app.storeSet {
 		return
 	}
-	projects := d.app.store.ListProjects()
-	code := ""
-	if len(projects) > 0 {
-		code = projects[0].Code
-	}
+	code := d.app.projectScope
 	if code == "" {
 		d.dash = nil
+		d.rebuildList()
+		d.fresh = true
 		return
 	}
 	res, err := d.app.store.Dashboard(code)
@@ -216,15 +214,17 @@ func (d *dashboardModel) selected() (dashEntry, bool) {
 }
 
 func (d *dashboardModel) view() string {
+	if !d.app.storeSet {
+		return "  No store. Press [I] to init."
+	}
+	if len(d.app.store.ListProjects()) == 0 {
+		return "  No projects. Create one in Projects (press 1)."
+	}
+	if d.app.projectScope == "" {
+		return d.renderAggregate()
+	}
 	if d.dash == nil {
-		if !d.app.storeSet {
-			return "  No store. Press [I] to init."
-		}
-		projects := d.app.store.ListProjects()
-		if len(projects) == 0 {
-			return "  No projects. Create one in Projects (press 1)."
-		}
-		return "  Summary empty for " + projects[0].Code + ". See Projects (1) and Tasks (2)."
+		return "  Summary empty for " + d.app.projectScope + ". See Projects (1) and Tasks (2)."
 	}
 	var b strings.Builder
 	code := d.dash.Project
@@ -288,6 +288,36 @@ func (d *dashboardModel) view() string {
 		b.WriteString("  (no guide)\n")
 	}
 	return b.String()
+}
+
+func (d *dashboardModel) renderAggregate() string {
+	tasks := d.app.store.ListTasks(store.QueryFilters{})
+	counts := countStatuses(tasks)
+	openFollowups := 0
+	for _, tk := range tasks {
+		for _, f := range tk.Followups {
+			if f.Status == "open" {
+				openFollowups++
+			}
+		}
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("SUMMARY scope: all   %d task(s)\n", len(tasks)))
+	b.WriteString(fmt.Sprintf("open:%d  in-progress:%d  review:%d  done:%d  blocked:%d  cancelled:%d\n",
+		counts["open"], counts["in-progress"], counts["review"], counts["done"], counts["blocked"], counts["cancelled"]))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("REVIEW QUEUE  %d task(s) awaiting\n", counts["review"]))
+	b.WriteString(fmt.Sprintf("OPEN FOLLOWUPS  %d open\n", openFollowups))
+	b.WriteString("GUIDE HEALTH  select a project for detailed guide freshness\n")
+	return b.String()
+}
+
+func countStatuses(tasks []*store.Task) map[string]int {
+	counts := map[string]int{}
+	for _, t := range tasks {
+		counts[t.Status]++
+	}
+	return counts
 }
 
 func countReview(d *store.DashboardResult) int {

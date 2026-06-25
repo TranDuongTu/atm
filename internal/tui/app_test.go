@@ -236,6 +236,42 @@ func TestWorkspace_TasksDefaultAllProjectsAndFilterWhenScoped(t *testing.T) {
 	}
 }
 
+func TestWorkspace_SummaryDefaultsAllAndScopesToProject(t *testing.T) {
+	root := setupTempStore(t)
+	seedProject(t, root, "human:alice")
+	s, _ := store.Open(root)
+	_, err := s.CreateProject("DEMO", "Demo", "type", []store.Label{{Name: "type:impl"}}, nil, "human:alice")
+	if err != nil {
+		t.Fatalf("create DEMO: %v", err)
+	}
+	if _, err := s.CreateTask("ATM", "ATM task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create ATM task: %v", err)
+	}
+	if _, err := s.CreateTask("DEMO", "Demo task", "", []string{"type:impl"}, "human:alice"); err != nil {
+		t.Fatalf("create DEMO task: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mod, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = mod.(*Model)
+	view := m.View()
+	if !strings.Contains(view, "scope: all") || !strings.Contains(view, "2 task(s)") {
+		t.Fatalf("expected all-project summary:\n%s", view)
+	}
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m = mod.(*Model)
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = mod.(*Model)
+	mod, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = mod.(*Model)
+	view = m.View()
+	if !strings.Contains(view, "scope: ATM") || !strings.Contains(view, "1 task(s)") {
+		t.Fatalf("expected scoped summary:\n%s", view)
+	}
+}
+
 func TestModel_Quit(t *testing.T) {
 	root := setupTempStore(t)
 	m, err := NewModel(NewModelOpts{StorePath: root, Actor: "human:alice"})
