@@ -47,13 +47,15 @@ Anything agent-specific — skills, commands, subagents, prompts, permission rul
 
 <!-- SUPERPOWERS START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at docs/superpowers/specs/001-tasks-management/plan.md (Tasks Management System). Key facts:
+shell commands, and other important information, read the current spec
+at docs/superpowers/specs/001-tasks-management/spec.md (Tasks Management System, v2.0.0). Key facts:
 - Language: Go 1.22+; single binary `atm` (CLI + Bubble Tea TUI).
 - Layers: internal/store (stable in-process API), internal/cli (stable out-of-process API via cobra), internal/tui (thin client over store).
-- Storage: machine-global text files under `$ATM_HOME` (default ~/.config/atm; one file per task JSON; per-project file locking; no DB; detachable by directory copy). A project is NOT 1:1 with a repo.
-- Guide: each project has an optional Guide (the always-read agent-context harness); `next`/`show --with-context` return it alongside per-task label-matched convention docs.
-- TUI: `atm tui` is a first-class management surface that mirrors every CLI op (FR-002); see docs/superpowers/specs/001-tasks-management/tui-mockups.md + contracts/tui.md.
-- Spec/design artifacts: docs/superpowers/specs/001-tasks-management/{spec,plan,research,data-model,quickstart,tui-mockups}.md + contracts/{cli,tui}.md.
+- Storage: machine-global text files under `$ATM_HOME` (default ~/.config/atm; one file per task JSON; global labels.json + actors.json; per-project file locking; no DB; detachable by directory copy). A project is NOT 1:1 with a repo.
+- Labels: global, hierarchical, project-prefixed (`<CODE>:<namespace>:<value>` or `<CODE>:<tag>`), open namespaces (no whitelist, no type-axis). Status is a label axis (`<CODE>:status:<state>`), not a dedicated field; no state machine.
+- Project create: minimal — only `--code` (`^[A-Z]{3,6}$`) and `--name`. Labels/repos added later.
+- Guide: each project has an optional Guide (the always-read agent-context harness); `next`/`show --with-context` return it alongside per-task label-matched convention docs (ranked by matched-label-count desc, then ID asc).
+- TUI: `atm tui` is a first-class management surface that mirrors every CLI op (FR-002); see contracts/tui.md. Tasks tab `G` groups by any namespace on demand.
+- Spec/design artifacts: docs/superpowers/specs/001-tasks-management/{spec,plan,research,data-model,quickstart}.md + contracts/{cli,tui}.md.
 - Verify: `make verify` (or `make build && make test`) before declaring done.
 <!-- SUPERPOWERS END -->
