@@ -319,6 +319,58 @@ func TestWorkspace_LeftPaneStackExtendsToFooter(t *testing.T) {
 	}
 }
 
+func TestPlaceSafe_PreservesBaseOnBothSidesOfOverlay(t *testing.T) {
+	// A wide base line with distinct left/right markers. The overlay is a
+	// narrow centered popup; the dashboard must remain visible on both sides.
+	w, h := 40, 5
+	base := strings.Repeat("L", 10) + strings.Repeat(".", 20) + strings.Repeat("R", 10)
+	row := base
+	for i := 1; i < h; i++ {
+		base += "\n" + row
+	}
+	overlay := "title\n----\nline1\nline2"
+	out := placeSafe(base, overlay, w, h, lipgloss.Center, lipgloss.Center)
+
+	lines := strings.Split(out, "\n")
+	if len(lines) != h {
+		t.Fatalf("expected %d lines, got %d:\n%s", h, len(lines), out)
+	}
+
+	// Every composited row must still be w cells wide.
+	for i, l := range lines {
+		if lw := lipgloss.Width(l); lw != w {
+			t.Errorf("row %d width=%d want %d (overlay should not erase whole rows):\n%s", i, lw, w, out)
+		}
+	}
+
+	// The overlay is centered horizontally; its width is 5, so it occupies
+	// columns 17..21 (x=(40-5)/2=17). A 1-cell margin is cleared on each side,
+	// so columns 16 and 22 are blanked. The left edge columns 0..15 must still
+	// contain base 'L' characters and the right edge columns 23..39 must still
+	// contain 'R' characters on rows touched by the overlay (rows 0..3).
+	for i, l := range lines {
+		if i < 0 || i > 3 {
+			continue
+		}
+		leftPart := splitAtCellSafe(t, l, 16)
+		if !strings.Contains(leftPart, "L") {
+			t.Errorf("row %d: left base content erased under overlay:\n%s", i, out)
+		}
+		// right part starts at column 23 (after the 1-cell margin)
+		rightPart := splitFromCell(l, 23)
+		if !strings.Contains(rightPart, "R") {
+			t.Errorf("row %d: right base content erased under overlay:\n%s", i, out)
+		}
+	}
+}
+
+// splitAtCellSafe returns the prefix of s up to col printable cells for tests.
+func splitAtCellSafe(t *testing.T, s string, col int) string {
+	t.Helper()
+	prefix, _ := splitAtCell(s, col)
+	return prefix
+}
+
 func TestTitledBoxDoesNotCorruptANSISequences(t *testing.T) {
 	got := titledBox(activePaneStyle, 36, "[1] - Projects", "body\n")
 	if strings.Contains(got, "\x1b [") || strings.Contains(got, "\x1b ") {
@@ -606,6 +658,19 @@ func TestHelpModel_RendersParityTable(t *testing.T) {
 	view := m.help.view()
 	if !strings.Contains(view, "CLI / TUI parity") || !strings.Contains(view, "atm task create") {
 		t.Errorf("help missing parity table:\n%s", view)
+	}
+}
+
+func TestForm_SpaceKey(t *testing.T) {
+	// tea delivers space as KeySpace, not KeyRunes; the form must still
+	// append a space to the active field.
+	f := NewForm("test", []formField{{Label: "name", Required: true}})
+	f.SetWidth(60)
+	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+	f, _ = f.Update(tea.KeyMsg{Type: tea.KeySpace})
+	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("world")})
+	if f.Fields[0].Value != "hello world" {
+		t.Fatalf("expected %q, got %q", "hello world", f.Fields[0].Value)
 	}
 }
 

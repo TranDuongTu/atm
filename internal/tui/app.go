@@ -8,6 +8,7 @@ import (
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/ansi"
 )
 
 type workspacePane int
@@ -518,11 +519,14 @@ func (m *Model) View() string {
 	return out
 }
 
-// placeSafe composites `overlay` onto `base` at the given position. Each
-// overlay line is placed onto its target row using lipgloss.PlaceHorizontal
-// (ANSI-safe), so styled content is never split mid-sequence. Base rows that
-// are entirely covered by the overlay are replaced; partially covered rows
-// keep their non-overlapping edges.
+// placeSafe composites `overlay` onto `base` at the given position. The overlay
+// is spliced into its target rows over the column range [x, x+olWidth); the
+// base content on either side of that range is preserved, so a compact popup
+// floats over the dashboard instead of erasing whole rows. A 1-cell blank
+// margin is cleared on each side of the overlay so the dashboard's border
+// lines do not run directly into the overlay's borders (which would otherwise
+// produce a "flipped" corner look). ANSI escape sequences in the base are
+// never split mid-sequence.
 func placeSafe(base, overlay string, w, h int, hPos, vPos lipgloss.Position) string {
 	olHeight := strings.Count(overlay, "\n") + 1
 	olWidth := maxLineWidth(overlay)
@@ -547,6 +551,21 @@ func placeSafe(base, overlay string, w, h int, hPos, vPos lipgloss.Position) str
 	if y < 0 {
 		y = 0
 	}
+	if x+olWidth > w {
+		olWidth = w - x
+	}
+
+	// Clear a 1-cell margin on each side of the overlay so dashboard borders
+	// don't collide with the overlay's borders.
+	margin := 1
+	clearStart := x - margin
+	if clearStart < 0 {
+		clearStart = 0
+	}
+	clearEnd := x + olWidth + margin
+	if clearEnd > w {
+		clearEnd = w
+	}
 
 	baseLines := strings.Split(base, "\n")
 	for len(baseLines) < h {
@@ -562,12 +581,102 @@ func placeSafe(base, overlay string, w, h int, hPos, vPos lipgloss.Position) str
 		if yy < 0 || yy >= len(baseLines) {
 			continue
 		}
-		// Build the overlay row inside a w-wide line: left pad + overlay + right pad.
-		// lipgloss.PlaceHorizontal handles the styling safely and pads with spaces.
-		placed := lipgloss.PlaceHorizontal(w, hPos, ol)
-		baseLines[yy] = placed
+		baseRow := baseLines[yy]
+
+		// Pad/truncate the overlay line to exactly olWidth cells so it occupies
+		// a known column range. lipgloss.PlaceHorizontal is ANSI-safe.
+		olPlaced := lipgloss.PlaceHorizontal(olWidth, lipgloss.Left, ol)
+
+		// Left base up to the clear margin start.
+		left, leftW := splitAtCell(baseRow, clearStart)
+		// Right base after the clear margin end.
+		rightSuffix := splitFromCell(baseRow, clearEnd)
+
+		// Build the middle segment: [gap spaces][overlay][gap spaces] spanning
+		// [clearStart, clearEnd) so the margin cells are blank.
+		midW := clearEnd - clearStart
+		leadingGap := x - clearStart
+		trailingGap := midW - leadingGap - olWidth
+		if trailingGap < 0 {
+			trailingGap = 0
+		}
+		mid := strings.Repeat(" ", leadingGap) + olPlaced + strings.Repeat(" ", trailingGap)
+
+		// If the base was narrower than clearStart, pad the left gap.
+		if leftW < clearStart {
+			left += strings.Repeat(" ", clearStart-leftW)
+		}
+		baseLines[yy] = left + mid + rightSuffix
 	}
 	return strings.Join(baseLines, "\n")
+}
+
+// splitAtCell returns the prefix of `s` (preserving any ANSI styling) up to
+// `col` printable cells, plus the printable cell width of that prefix. If `s`
+// is narrower than `col`, the whole string is returned.
+func splitAtCell(s string, col int) (string, int) {
+	if col <= 0 {
+		return "", 0
+	}
+	var out strings.Builder
+	used := 0
+	var pendingESC bool // true once we've seen ESC; captures CSI/OSC/etc.
+	for _, r := range s {
+		if pendingESC {
+			out.WriteRune(r)
+			if isANSITerminator(r) {
+				pendingESC = false
+			}
+			continue
+		}
+		if r == 0x1b { // ESC starts an escape sequence
+			out.WriteRune(r)
+			pendingESC = true
+			continue
+		}
+		rw := ansi.PrintableRuneWidth(string(r))
+		if used+rw > col {
+			break
+		}
+		out.WriteRune(r)
+		used += rw
+	}
+	return out.String(), used
+}
+
+// splitFromCell returns the byte suffix of `s` starting at printable cell `col`.
+// ANSI escape sequences that begin before `col` but are still open at the cut
+// are not carried over; sequences beginning at or after `col` are preserved.
+func splitFromCell(s string, col int) string {
+	if col <= 0 {
+		return s
+	}
+	used := 0
+	var pendingESC bool
+	for i, r := range s {
+		if pendingESC {
+			if isANSITerminator(r) {
+				pendingESC = false
+			}
+			continue
+		}
+		if r == 0x1b {
+			pendingESC = true
+			continue
+		}
+		rw := ansi.PrintableRuneWidth(string(r))
+		if used+rw > col {
+			return s[i:]
+		}
+		used += rw
+	}
+	return ""
+}
+
+// isANSITerminator reports whether r terminates an ANSI escape sequence (the
+// final byte of a CSI/OSC sequence). Used to walk past styled spans safely.
+func isANSITerminator(r rune) bool {
+	return r >= 0x40 && r <= 0x7e
 }
 
 func maxLineWidth(s string) int {
@@ -806,7 +915,20 @@ func (m *Model) footerHint() string {
 
 func (m *Model) renderOverlayBox() string {
 	var b strings.Builder
-	w := m.width - 6
+	// Size the popup to its content (like the form dialog) instead of spanning
+	// the whole terminal, so the underlying dashboard shows through on the sides.
+	w := 30
+	for _, l := range m.overlay.lines {
+		if lw := lipgloss.Width(l); lw > w {
+			w = lw
+		}
+	}
+	if tw := lipgloss.Width(m.overlay.title) + 2; tw > w {
+		w = tw
+	}
+	if w > m.width-6 {
+		w = m.width - 6
+	}
 	if w < 30 {
 		w = 30
 	}

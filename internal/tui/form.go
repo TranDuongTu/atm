@@ -122,6 +122,12 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 			f.Err = ""
 		}
 		return f, nil
+	case " ": // tea delivers space as KeySpace, not KeyRunes
+		if f.zone == focusFields {
+			f.Fields[f.cursor].Value += " "
+			f.Err = ""
+		}
+		return f, nil
 	default:
 		if f.zone == focusFields && m.Type == tea.KeyRunes {
 			f.Fields[f.cursor].Value += string(m.Runes)
@@ -183,16 +189,13 @@ func (f *Form) View() string {
 	for i, fld := range f.Fields {
 		active := f.zone == focusFields && i == f.cursor
 		label := fieldLabelStyle.Render(fld.Label + ":")
-		cursor := " "
+		// Render the typed value plain, and only the trailing cursor cell with
+		// an underline so the input text itself is not underlined.
+		val := fieldValueStyle.Render(fld.Value)
 		if active {
-			cursor = "▌"
+			val += fieldValueStyle.Underline(true).Render(" ")
 		}
-		val := fld.Value + cursor
-		valStyle := fieldValueStyle
-		if active {
-			valStyle = fieldValueStyle.Underline(true)
-		}
-		row := fmt.Sprintf("%s %s", label, valStyle.Render(val))
+		row := fmt.Sprintf("%s %s", label, val)
 		b.WriteString(row)
 		b.WriteString("\n")
 		if fld.Hint != "" {
