@@ -388,7 +388,13 @@ func (p *projectsModel) openSetNameForm() {
 	p.m.formPayload = pr.Code
 }
 
-var labelSuffixRe = regexp.MustCompile(`^(:[a-z0-9][a-z0-9-]*){1,2}$`)
+// labelSuffixRe validates the suffix the user types in the label add/remove
+// forms. The fixed "<CODE>:" prefix is prepended by the form submit handler
+// (doLabelAdd/doLabelRemove build full = code + ":" + suffix), so the suffix
+// itself is "<namespace>:<value>" or "<tag>" with NO leading colon. The mockup
+// spec's full-label regex is ^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$; removing
+// the leading "<CODE>:" yields this suffix regex.
+var labelSuffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
 
 func (p *projectsModel) openLabelAddForm() {
 	pr := p.detail.project
