@@ -1,0 +1,21 @@
+{
+  "projects": [
+    {
+      "code": "ATM",
+      "created_at": "TIMESTAMP",
+      "created_by": "claude",
+      "history": [
+        {
+          "action": "created",
+          "actor": "claude",
+          "at": "TIMESTAMP",
+          "id": "h1"
+        }
+      ],
+      "name": "Agent Tasks Management",
+      "next_task_n": 3,
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
+    }
+  ]
+}

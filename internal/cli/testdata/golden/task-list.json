@@ -1,0 +1,47 @@
+{
+  "tasks": [
+    {
+      "created_at": "TIMESTAMP",
+      "created_by": "claude",
+      "description": "",
+      "history": [
+        {
+          "action": "created",
+          "actor": "claude",
+          "at": "TIMESTAMP",
+          "id": "h1"
+        }
+      ],
+      "id": "ATM-0001",
+      "labels": [
+        "ATM:status:open",
+        "ATM:type:bug"
+      ],
+      "project_code": "ATM",
+      "title": "Fix label reconciliation",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
+    },
+    {
+      "created_at": "TIMESTAMP",
+      "created_by": "claude",
+      "description": "",
+      "history": [
+        {
+          "action": "created",
+          "actor": "claude",
+          "at": "TIMESTAMP",
+          "id": "h1"
+        }
+      ],
+      "id": "ATM-0002",
+      "labels": [
+        "ATM:context:start-here"
+      ],
+      "project_code": "ATM",
+      "title": "Seed index tasks",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
+    }
+  ]
+}

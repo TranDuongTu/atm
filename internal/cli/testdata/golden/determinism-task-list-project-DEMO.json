@@ -1,0 +1,25 @@
+{
+  "tasks": [
+    {
+      "created_at": "TIMESTAMP",
+      "created_by": "claude",
+      "description": "",
+      "history": [
+        {
+          "action": "created",
+          "actor": "claude",
+          "at": "TIMESTAMP",
+          "id": "h1"
+        }
+      ],
+      "id": "DEMO-0001",
+      "labels": [
+        "DEMO:status:open"
+      ],
+      "project_code": "DEMO",
+      "title": "Demo task",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
+    }
+  ]
+}

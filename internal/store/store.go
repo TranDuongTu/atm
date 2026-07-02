@@ -26,7 +26,7 @@ var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 func ValidateProjectCode(code string) error {
 	if !projectCodeRe.MatchString(code) {
-		return fmt.Errorf("invalid project code %q (want ^[A-Z]{3,6}$)", code)
+		return fmt.Errorf("%w: invalid project code %q (want ^[A-Z]{3,6}$)", ErrUsage, code)
 	}
 	return nil
 }

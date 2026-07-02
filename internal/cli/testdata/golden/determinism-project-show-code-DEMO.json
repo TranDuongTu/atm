@@ -1,0 +1,25 @@
+{
+  "project": {
+    "code": "DEMO",
+    "created_at": "TIMESTAMP",
+    "created_by": "claude",
+    "history": [
+      {
+        "action": "created",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h1"
+      },
+      {
+        "action": "name-changed",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h2"
+      }
+    ],
+    "name": "Demo Project",
+    "next_task_n": 2,
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
+  }
+}

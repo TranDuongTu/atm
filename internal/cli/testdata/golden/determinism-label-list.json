@@ -1,0 +1,24 @@
+{
+  "labels": [
+    {
+      "description": "",
+      "name": "ATM:context:start-here"
+    },
+    {
+      "description": "",
+      "name": "ATM:status:open"
+    },
+    {
+      "description": "Bug fix",
+      "name": "ATM:type:bug"
+    },
+    {
+      "description": "",
+      "name": "ATM:type:epic"
+    },
+    {
+      "description": "",
+      "name": "DEMO:status:open"
+    }
+  ]
+}
