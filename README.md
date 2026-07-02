@@ -49,7 +49,7 @@ The `atm` binary is the stable, versioned out-of-process API for agents, and
 the surface the TUI wraps. Output format is selected globally with
 `--output json|text` (default `text`); JSON output is deterministic (sorted
 keys, stable whitespace, RFC 3339 UTC timestamps). All mutating commands accept
-`--actor <id>` (free-form; e.g. `claude`, `alice`, `agent:foo`) or read
+`--actor <id>` (free-form; e.g. `claude`, `alice`) or read
 `ATM_ACTOR`. Errors go to stderr with a non-zero exit code and a stable
 `{"error":{"code":"...","message":"..."}}` envelope in JSON mode.
 
@@ -153,7 +153,7 @@ tasks and work tasks):
 
 | Namespace             | Examples                          | Purpose                                                          |
 |-----------------------|-----------------------------------|------------------------------------------------------------------|
-| `status:`             | open, todo, in-progress, done, blocked, review | workflow states — labels only, no state machine        |
+| `status:`             | open, todo, in-progress, done, blocked | workflow states — labels only, no state machine        |
 | `type:`               | bug, feature, task, chore         | task categorization                                              |
 | `priority:`           | high, medium, low                 | optional prioritization                                          |
 | `repo:<name>`         | `ATM:repo:atm`                    | index task whose description says where to find the repo and what it means — the repo→project binding, expressed in the label substrate |
