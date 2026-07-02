@@ -178,7 +178,65 @@ steering — but both surfaces carry full management capability. History is an
 command exists to edit or delete history; this holds for human and agent
 mutations alike.
 
-## CLI surface
+### 7. Onboarding & conventions (advisory, not enforced)
+
+v2's vision is that workflow lives outside the system — in agent prompts and
+human habits, not in the store. But a fresh agent landing in a project needs a
+deterministic entry point, and a fresh project needs its labels seeded.
+**Onboarding is the act of seeding index tasks and seed labels; the conventions
+below tell humans and agents how to do that using only the label substrate.**
+No bootstrap command, no reserved labels, no repo-side files, no store-side
+repo paths. The conventions are **documented, not code-reserved**: the system
+treats `ATM:context:start-here` identically to `ATM:type:bug`.
+
+The `atm conventions` command (and the TUI Help tab) prints the conventions as
+the agent's first-contact reference. It documents:
+
+**Suggested seed namespaces** a fresh project should populate:
+
+| Namespace | Examples | Purpose |
+|-----------|----------|---------|
+| `status:` | `open`, `todo`, `in-progress`, `done`, `blocked`, `review` | workflow states — labels only, no state machine |
+| `type:` | `bug`, `feature`, `task`, `chore` | task categorization |
+| `priority:` | `high`, `medium`, `low` | optional prioritization |
+| `repo:<name>` | `ATM:repo:atm` | **index task** whose description says where to find the repo and what it means — this is the repo→project binding, expressed in the label substrate |
+| `doc:<name>` | `ATM:doc:architecture` | index task pointing at a doc/resource and how to use it |
+| `context:always-read` | `ATM:context:always-read` | pointer to the always-read context markdown (replaces the deleted v1 Project Guide) |
+| `context:start-here` | `ATM:context:start-here` | **the single entry-point task** a fresh agent queries first; its description is the "read this first" pointer (to a context.md, a steering note, or a list of where to look) |
+| `claimed-by:<agent>` | `ATM:claimed-by:claude` | who's working on what — replaces v1 Claim; last-writer-wins, no conflict detection |
+| `blocks:<ID>`, `related:<ID>` | `ATM:blocks:ATM-0002` | task relationships via labels (replaces v1 Links) |
+
+**First-time human sequence:** `atm tui` (auto-inits the store) → create the
+project (`[a]dd` in the Projects tab) → create a few seed index tasks
+(`start-here`, `repo:<name>`, `doc:<name>`, `context:always-read`) and initial
+work tasks, labeling as you go. The act of seeding these tasks populates the
+`status`/`type`/`repo`/`doc`/`context` namespaces organically — there is no
+separate bootstrap step.
+
+**Agent first-contact sequence:**
+1. `atm conventions` — read the guide.
+2. `task list --project <CODE> --label <CODE>:context:start-here` — get the
+   entry-point pointer and follow it.
+3. `task list --project <CODE> --label <CODE>:repo:*` / `:doc:*` / `:context:*`
+   — discover index tasks for repos, docs, and always-read context.
+4. `task list --project <CODE> --label <CODE>:status:open` — get open work.
+
+A fresh agent that does not yet know the project's namespaces runs the
+`start-here` query first (one deterministic label) and follows whatever the
+start-here task's description points at.
+
+**Plugins/skills:** ATM ships only the doc + the `conventions` command. Plugins
+or agent skills may wrap the first-contact sequence; ATM itself has no plugin
+mechanism in v2.
+
+This single convention folds three earlier-identified onboarding gaps into one
+documentation answer:
+- **Repo→project binding** — `repo:<name>` index tasks in the label substrate.
+- **Always-read context anchor** — `context:always-read` index task pointing at
+  the markdown; `context:start-here` as the deterministic entry point.
+- **Cold-start label vacuum** — onboarding *is* seeding the index and work
+  tasks, which populates the namespaces. No empty-project problem.
+
 
 Global flags (carried from v1): `--store <path>` (overrides `ATM_HOME`),
 `--output json|text` (default text; JSON is deterministic — sorted keys, stable
@@ -191,6 +249,7 @@ generic; 2 usage; 3 not-found; 4 conflict. Errors go to stderr with a stable
 # Store
 atm init [--store <path>]                       # idempotent; creates projects/ + touches labels.json
 atm store path                                 # print resolved store path
+atm conventions [--output json|text]           # print onboarding guide + suggested label namespaces
 
 # Projects
 atm project create  --code <CODE> --name <NAME> [--actor <id>]
@@ -229,7 +288,19 @@ Without `--facets`, flat list sorted by project-then-numeric ID.
 then natural width). It auto-registers any supplied labels in `labels.json`. It
 does **not** auto-assign any status label (no intrinsic knowledge).
 
-`atm tui [--store <path>] [--actor <id>]` is the TUI entrypoint.
+`atm tui [--store <path>] [--actor <id>]` is the TUI entrypoint. If the
+resolved store directory is absent on launch, `tui` auto-initializes it
+(equivalent to `atm init`: creates `projects/` + touches `labels.json`) and
+continues, so a first-time human can start with one command. If the store
+exists but is empty of projects, `tui` launches normally (the Projects tab
+shows the empty state). `atm init` remains for explicit/scripted use.
+
+`atm conventions` is a read-only command that prints the onboarding guide and
+suggested label-namespace conventions as text (and JSON via `--output json`).
+It is the agent's first ATM call on contact with a project. Stable, versioned
+with the binary; also rendered in the TUI Help tab. See **Onboarding &
+conventions** below for what it documents. Conventions are advisory only —
+nothing in the store validates or special-cases the documented namespaces.
 
 **Removed command groups** (deleted entirely): `task set-status`, `task next`,
 `task claim`, `task unclaim`, `task link`, `task todo`, `task followup`,
@@ -549,9 +620,10 @@ their `$ATM_HOME` or point `--store` at a new empty dir.
 
 - Agent-side label-creation heuristics, richer cross-project label queries.
 - A future "workflow declaration" layer (per-project terminal labels / default
-  new-task labels) — explicitly deferred; v2 ships without it. If users want
-  workflow, they drive it via label filters in their agent prompts/habits for
-  now.
+  new-task labels) — explicitly deferred; v2 ships without it. The Onboarding &
+  conventions section (Section 7) documents *advisory* seed namespaces instead;
+  no mechanism enforces them. If users want workflow, they drive it via label
+  filters in their agent prompts/habits for now.
 - Task comments / discussions as a narrative *human+agent* channel (separate
   from the immutable machine-generated History). Deferred; the current Task
   shape and append-only History model are compatible with a future
