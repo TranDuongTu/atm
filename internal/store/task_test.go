@@ -34,6 +34,18 @@ func TestCreateTaskAssignsNextId(t *testing.T) {
 	}
 }
 
+func TestTaskLabelAddAutoRegisters(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	if err := s.TaskLabelAdd(tk.ID, "ATM:type:bug", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LabelShow("ATM:type:bug"); err != nil {
+		t.Fatalf("TaskLabelAdd did not auto-register label: %v", err)
+	}
+}
+
 func TestTaskLabelAddDedupSorted(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")

@@ -110,15 +110,34 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 	if err := s.labelProjectExists(label); err != nil {
 		return err
 	}
-	return s.mutateTask(id, actor, "label-added", func(t *Task, now time.Time) {
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	code, _, ok := ParseTaskID(id)
+	if !ok {
+		return fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+	}
+	return s.WithLock(code, func() error {
+		t, err := s.GetTask(id)
+		if err != nil {
+			return err
+		}
 		for _, l := range t.Labels {
 			if l == label {
-				return
+				return nil
 			}
 		}
 		t.Labels = append(t.Labels, label)
 		sort.Strings(t.Labels)
-	}, map[string]any{"label": label})
+		if err := s.autoRegisterLabels([]string{label}); err != nil {
+			return err
+		}
+		now := Now()
+		t.UpdatedAt = now
+		t.UpdatedBy = actor
+		t.appendHistoryAt("label-added", actor, now, map[string]any{"label": label})
+		return WriteJSON(s.taskPath(id), t)
+	})
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
