@@ -22,29 +22,20 @@ func Now() time.Time {
 	return time.Now().UTC()
 }
 
-var actorIDRe = regexp.MustCompile(`^(agent|human):[A-Za-z0-9._-]+$`)
-
-func ValidateActorID(id string) error {
-	if !actorIDRe.MatchString(id) {
-		return fmt.Errorf("invalid actor id %q (want 'agent:<id>' or 'human:<id>')", id)
-	}
-	return nil
-}
-
-var projectCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9-]{1,15}$`)
+var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 func ValidateProjectCode(code string) error {
 	if !projectCodeRe.MatchString(code) {
-		return fmt.Errorf("invalid project code %q (want ^[A-Z][A-Z0-9-]{1,15}$)", code)
+		return fmt.Errorf("invalid project code %q (want ^[A-Z]{3,6}$)", code)
 	}
 	return nil
 }
 
-var labelRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
+var labelRe = regexp.MustCompile(`^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`)
 
 func ValidateLabelName(name string) error {
 	if !labelRe.MatchString(name) {
-		return fmt.Errorf("invalid label %q", name)
+		return fmt.Errorf("invalid label %q (want ^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$)", name)
 	}
 	return nil
 }
@@ -82,10 +73,9 @@ func SortTaskIDs(ids []string) {
 }
 
 var (
-	ErrNotFound  = errors.New("not found")
-	ErrConflict  = errors.New("conflict")
-	ErrUsage     = errors.New("usage")
-	ErrStaleLink = errors.New("stale link")
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("conflict")
+	ErrUsage    = errors.New("usage")
 )
 
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
@@ -135,15 +125,15 @@ func (s *Store) Init(storePath string) error {
 	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
 		return err
 	}
-	return s.touchActors()
+	return s.touchLabels()
 }
 
-func (s *Store) touchActors() error {
-	p := s.actorsPath()
+func (s *Store) touchLabels() error {
+	p := s.labelsPath()
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
-	return WriteJSON(p, actorsFile{Actors: []Actor{}})
+	return WriteJSON(p, labelsFile{Labels: []Label{}})
 }
 
 func (s *Store) StorePath() string { return s.Root }
@@ -165,7 +155,7 @@ func (s *Store) taskPath(id string) string {
 	}
 	return filepath.Join(s.tasksDir(code), id+".json")
 }
-func (s *Store) actorsPath() string { return filepath.Join(s.Root, "actors.json") }
+func (s *Store) labelsPath() string { return filepath.Join(s.Root, "labels.json") }
 func (s *Store) lockPath(code string) string {
 	return filepath.Join(s.projectsDir(), code+".lock")
 }
