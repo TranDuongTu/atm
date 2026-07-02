@@ -85,6 +85,9 @@ func newLabelListCmd(st *cliState) *cobra.Command {
 		Use:   "list",
 		Short: "List labels (optionally filtered by project and/or namespace)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if namespace != "" && project == "" {
+				return fmt.Errorf("%w: --namespace requires --project", ErrUsage)
+			}
 			s, err := st.openStore()
 			if err != nil {
 				return err
