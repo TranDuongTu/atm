@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"atm/internal/store"
@@ -68,6 +69,13 @@ type taskRow struct {
 type taskGroup struct {
 	label string
 	rows  []taskRow
+	// subgroups holds nested facets for multi-wildcard filters (depth =
+	// number of wildcards). Empty for the single-wildcard flat path and for
+	// the deepest level. A task appears in every sub-group whose key it
+	// carries (multi-membership preserved). Tasks in this group that match
+	// no deeper wildcard land in a sub-`(no matching labels)` bucket (label
+	// == "").
+	subgroups  []taskGroup
 	// collapsed controls group-header expand/collapse.
 	collapsed bool
 }
@@ -111,7 +119,18 @@ func (t *tasksModel) refresh() {
 			for _, tk := range g.Tasks {
 				rows = append(rows, t.toRow(tk))
 			}
-			t.groups = append(t.groups, taskGroup{label: g.Label, rows: rows})
+			tg := taskGroup{label: g.Label, rows: rows}
+			// For multi-wildcard filters, nest: each deeper wildcard
+			// defines sub-groups within this group. The store returns a
+			// flat bucket per concrete label (union across all wildcards);
+			// the nesting is a presentation concern handled here.
+			if len(wildcards) >= 2 {
+				tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+				// Leaf rows live only at the deepest level; clear the
+				// top-level rows so they aren't double-rendered.
+				tg.rows = nil
+			}
+			t.groups = append(t.groups, tg)
 		}
 		for _, tk := range others {
 			t.others = append(t.others, t.toRow(tk))
@@ -191,6 +210,87 @@ func wildcardTokens(labels []string) []string {
 		}
 	}
 	return out
+}
+
+// buildNestedGroups buckets `tasks` by the concrete labels they carry that
+// match the given wildcards, recursing for each remaining wildcard. This is
+// the TUI-side nesting pass that turns the store's flat per-concrete-label
+// groups into the nested facet tree (mockup Screen 7, two-wildcard case).
+//
+// Multi-membership: a task appears in every sub-group whose key it carries.
+// Tasks matching no label for the current wildcard land in a sub-
+// `(no matching labels)` bucket (label == ""), consistent with the top-level
+// pattern. At the deepest level (no remaining wildcards), the caller already
+// holds the leaf rows; this helper only recurses while wildcards remain.
+func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup {
+	if len(wildcards) == 0 {
+		return nil
+	}
+	w := wildcards[0]
+	// Bucket tasks by each concrete label they carry matching w, preserving
+	// discovery order then alphabetical (store.GroupTasks already sorts;
+	// we sort here for determinism independent of input order).
+	buckets := map[string][]*store.Task{}
+	var keys []string
+	matched := map[*store.Task]bool{}
+	for _, t := range tasks {
+		for _, l := range t.Labels {
+			if labelMatchesWildcardTUI(l, w) {
+				if _, exists := buckets[l]; !exists {
+					keys = append(keys, l)
+				}
+				buckets[l] = append(buckets[l], t)
+				matched[t] = true
+			}
+		}
+	}
+	sort.Strings(keys)
+	// (no matching labels) sub-bucket: tasks matching no label for w.
+	var noneMatched []*store.Task
+	for _, t := range tasks {
+		if !matched[t] {
+			noneMatched = append(noneMatched, t)
+		}
+	}
+	var groups []taskGroup
+	for _, k := range keys {
+		rows := make([]taskRow, 0, len(buckets[k]))
+		for _, tk := range buckets[k] {
+			rows = append(rows, toRow(tk))
+		}
+		g := taskGroup{label: k}
+		if len(wildcards) >= 2 {
+			g.subgroups = buildNestedGroups(buckets[k], wildcards[1:], toRow)
+			// Leaf rows live only at the deepest level.
+			g.rows = nil
+		} else {
+			g.rows = rows
+		}
+		groups = append(groups, g)
+	}
+	// Sub-`(no matching labels)` bucket, rendered last within this level.
+	if len(noneMatched) > 0 {
+		rows := make([]taskRow, 0, len(noneMatched))
+		for _, tk := range noneMatched {
+			rows = append(rows, toRow(tk))
+		}
+		g := taskGroup{label: ""} // "" == (no matching labels)
+		if len(wildcards) >= 2 {
+			g.subgroups = buildNestedGroups(noneMatched, wildcards[1:], toRow)
+		} else {
+			g.rows = rows
+		}
+		groups = append(groups, g)
+	}
+	return groups
+}
+
+// labelMatchesWildcardTUI reports whether label matches the wildcard (e.g.
+// "ATM:status:open" matches "ATM:status:*"). Mirrors store.labelMatchesWildcard
+// without exposing the unexported helper.
+func labelMatchesWildcardTUI(label, wildcard string) bool {
+	prefix := strings.TrimSuffix(wildcard, "*")
+	return strings.HasPrefix(label, prefix)
 }
 
 func (t *tasksModel) clampCursor() {
@@ -283,6 +383,12 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		t.openCreateForm()
 	case "enter":
 		if t.hasWildcard() {
+			// Enter is context-sensitive: toggle a header, or open detail
+			// on a leaf row (spec Screen 7). The (no matching labels)
+			// header is not collapsible but its rows are openable.
+			if r, ok := t.rowAtCursor(); ok {
+				return t.openDetail(r.id)
+			}
 			return t.toggleGroupAtCursor()
 		}
 		return t.openDetailAtCursor()
@@ -360,16 +466,32 @@ func (t *tasksModel) flatLineCount() int {
 	if t.hasWildcard() {
 		n := 0
 		for _, g := range t.groups {
-			n++ // header
-			if !g.collapsed {
-				n += len(g.rows)
-			}
+			n += groupLineCount(g)
 		}
 		n++ // (no matching labels) header
 		n += len(t.others)
 		return n
 	}
 	return len(t.rows)
+}
+
+// groupLineCount returns the logical lines contributed by one group and its
+// (possibly nested) sub-groups: 1 for the header, plus its leaf rows or the
+// recursive count of expanded sub-groups. A collapsed group contributes only
+// its header.
+func groupLineCount(g taskGroup) int {
+	n := 1 // header
+	if g.collapsed {
+		return n
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			n += groupLineCount(sg)
+		}
+	} else {
+		n += len(g.rows)
+	}
+	return n
 }
 
 func (t *tasksModel) openDetailAtCursor() tea.Cmd {
@@ -381,23 +503,105 @@ func (t *tasksModel) openDetailAtCursor() tea.Cmd {
 	return nil
 }
 
+// rowAtCursor returns the leaf row the cursor currently sits on in the
+// grouped view, or (zero, false) if the cursor is on a group/bucket header
+// (or out of range). Used to make `Enter` context-sensitive per the spec.
+func (t *tasksModel) rowAtCursor() (taskRow, bool) {
+	if !t.hasWildcard() {
+		return taskRow{}, false
+	}
+	idx := 0
+	for _, g := range t.groups {
+		if r, ok, next := rowInGroup(g, idx, t.cursor); ok {
+			return r, true
+		} else {
+			idx = next
+		}
+	}
+	// (no matching labels) bucket: header then rows.
+	if idx == t.cursor {
+		return taskRow{}, false
+	}
+	idx++
+	// rows in the top-level (no matching labels) bucket are not nested.
+	if t.cursor >= idx && t.cursor < idx+len(t.others) {
+		return t.others[t.cursor-idx], true
+	}
+	return taskRow{}, false
+}
+
+// rowInGroup walks one group's flattened lines looking for a leaf row at the
+// flattened index `cursor` (relative to `start`). Returns (row, true, _) when
+// the cursor sits on a leaf row; (zero, false, next) otherwise, where next is
+// the flattened index after this group's contribution.
+func rowInGroup(g taskGroup, start, cursor int) (row taskRow, ok bool, next int) {
+	idx := start
+	if idx == cursor {
+		return taskRow{}, false, idx // header, not a row
+	}
+	idx++ // header
+	if g.collapsed {
+		return taskRow{}, false, idx
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			if r, ok, next := rowInGroup(sg, idx, cursor); ok {
+				return r, true, next
+			} else {
+				idx = next
+			}
+		}
+	} else {
+		if cursor >= idx && cursor < idx+len(g.rows) {
+			return g.rows[cursor-idx], true, idx + len(g.rows)
+		}
+		idx += len(g.rows)
+	}
+	return taskRow{}, false, idx
+}
+
 func (t *tasksModel) toggleGroupAtCursor() tea.Cmd {
 	if !t.hasWildcard() {
 		return nil
 	}
 	idx := 0
 	for gi := range t.groups {
-		if idx == t.cursor {
-			t.groups[gi].collapsed = !t.groups[gi].collapsed
+		if done, next := toggleInGroup(&t.groups[gi], idx, t.cursor); done {
 			return nil
-		}
-		idx++ // header
-		if !t.groups[gi].collapsed {
-			idx += len(t.groups[gi].rows)
+		} else {
+			idx = next
 		}
 	}
 	// (no matching labels) header is not collapsible.
 	return nil
+}
+
+// toggleInGroup walks one group (and its nested sub-groups) looking for the
+// header at the flattened index `cursor` (relative to `start`). If found it
+// toggles collapse and returns (true, _). Otherwise it returns (false, nextIdx)
+// where nextIdx is the flattened index after this group's contribution.
+func toggleInGroup(g *taskGroup, start, cursor int) (done bool, next int) {
+	idx := start
+	if idx == cursor {
+		g.collapsed = !g.collapsed
+		return true, idx
+	}
+	idx++ // header
+	if g.collapsed {
+		return false, idx
+	}
+	if len(g.subgroups) > 0 {
+		for i := range g.subgroups {
+			if done, next := toggleInGroup(&g.subgroups[i], idx, cursor); done {
+				return true, next
+			} else {
+				idx = next
+			}
+		}
+	} else {
+		idx += len(g.rows)
+	}
+	return false, idx
 }
 
 func (t *tasksModel) openDetail(id string) tea.Cmd {
@@ -571,31 +775,11 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	}
 	idx := 0
 	for _, g := range t.groups {
-		marker := "▾"
-		if g.collapsed {
-			marker = "▸"
-		}
-		header := groupHeaderStyle.Render(fmt.Sprintf("%s %s (%d)", marker, g.label, len(g.rows)))
-		if idx == t.cursor {
-			header = rowCursorStyle.Render(header)
-		}
-		b.WriteString(header)
-		b.WriteString("\n")
-		idx++
-		if !g.collapsed {
-			for _, r := range g.rows {
-				// Grouped rows omit the LABELS column (group header is the axis).
-				line := fmt.Sprintf("  %-10s %-50s %10s", r.id, truncateRunes(r.title, 50), r.updated)
-				if idx == t.cursor {
-					line = " " + rowCursorStyle.Render(strings.TrimPrefix(line, " "))
-				}
-				b.WriteString(line)
-				b.WriteString("\n")
-				idx++
-			}
-		}
+		idx = t.renderGroup(b, g, 0, idx)
 	}
-	// (no matching labels) bucket — always rendered, last.
+	// (no matching labels) bucket — always rendered, last. Stays flat (no
+	// nesting): these tasks matched no wildcard, so there is nothing to
+	// sub-bucket them by.
 	header := groupHeaderStyle.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
 	if idx == t.cursor {
 		header = rowCursorStyle.Render(header)
@@ -616,6 +800,67 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		b.WriteString("\n")
 		idx++
 	}
+}
+
+// renderGroup renders one group (header + its leaf rows or its expanded
+// sub-groups) at the given indentation depth, returning the next flattened
+// line index after this group's contribution. `depth` is the nesting level
+// (0 = top); each level indents rows by two spaces. The header count is the
+// total leaf tasks under this group. A label of "" denotes the per-level
+// `(no matching labels)` sub-bucket.
+func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int) int {
+	marker := "▾"
+	if g.collapsed {
+		marker = "▸"
+	}
+	count := groupLeafCount(g)
+	name := g.label
+	if name == "" {
+		name = "(no matching labels)"
+	}
+	indent := strings.Repeat("  ", depth)
+	header := groupHeaderStyle.Render(fmt.Sprintf("%s%s %s (%d)", indent, marker, name, count))
+	if idx == t.cursor {
+		header = rowCursorStyle.Render(header)
+	}
+	b.WriteString(header)
+	b.WriteString("\n")
+	idx++
+	if g.collapsed {
+		return idx
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			idx = t.renderGroup(b, sg, depth+1, idx)
+		}
+	} else {
+		rowIndent := strings.Repeat("  ", depth+1)
+		for _, r := range g.rows {
+			// Grouped rows omit the LABELS column (group header is the axis).
+			line := fmt.Sprintf("%s%-10s %-50s %10s", rowIndent, r.id, truncateRunes(r.title, 50), r.updated)
+			if idx == t.cursor {
+				line = rowCursorStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+			idx++
+		}
+	}
+	return idx
+}
+
+// groupLeafCount returns the total leaf rows reachable from a group, summing
+// across nested sub-groups (expanded or not — collapse hides rows from the
+// view but the header count still reflects the true bucket size).
+func groupLeafCount(g taskGroup) int {
+	if len(g.subgroups) > 0 {
+		n := 0
+		for _, sg := range g.subgroups {
+			n += groupLeafCount(sg)
+		}
+		return n
+	}
+	return len(g.rows)
 }
 
 func (t *tasksModel) renderDetailView() string {

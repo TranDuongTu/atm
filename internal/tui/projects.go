@@ -151,7 +151,7 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		p.openLabelRemoveForm()
-	case "h":
+	case "H":
 		p.detail.historyOn = !p.detail.historyOn
 		p.renderDetail()
 	case "x":
