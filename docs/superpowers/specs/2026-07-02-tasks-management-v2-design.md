@@ -135,24 +135,48 @@ writes it automatically. With Discussions gone, History is the only narrative
 record on a task. `actor` is a free-form string (Section 4). The `appendHistoryAt`
 helper carries over from v1.
 
-### 6. TUI group-by-namespace mode
+### 6. Filter-driven faceting (no intrinsic workflow knowledge)
 
-The TUI Tasks tab gains a `G` key that opens a picker of namespaces discovered
-from the current project's labels (`store.Namespaces(code)`). Selecting a
-namespace regroups the task list under each value
-(`store.GroupTasksByNamespace`). Existing label filters apply before grouping. A
-sentinel group holds tasks with no label in the selected namespace. Selecting
-"none" restores the flat list. Group headers are collapsible. `G` is uppercase
-to distinguish from the existing `g` (top-of-list).
+The TUI Tasks tab has **no grouping toggle and no namespace picker.** The
+filter syntax doubles as the view-mode selector, and grouping is automatic
+whenever the filter contains wildcard tokens. This realizes the "any namespace
+is a management axis on demand" vision without dedicated per-axis screens, a
+pre-declared axis list, or a modal — the user invents namespaces by adding
+labels, and the TUI facets them on demand via the filter line.
+
+**Filter tokens** (space-separated, AND-joined across tokens):
+- **Exact** (`ATM`, `ATM:status:open`, `ATM:type:bug`) — restrict the visible
+  set. `ATM` matches the task's `ProjectCode`; a full label name matches tasks
+  carrying that label.
+- **Wildcard** (suffix-only at a namespace boundary: `ATM:*` for whole-project
+  faceting, `ATM:status:*` for one namespace) — does **not** restrict; it
+  declares a facet dimension. Multiple wildcards declare multiple facets. No
+  infix/prefix wildcards.
+
+**View mode is implicit in the filter:**
+- **No wildcard** in filter → flat paged list, sorted per the current sort mode.
+- **≥1 wildcard** → grouped view. Groups are the concrete labels matched by
+  each wildcard that appear on ≥1 in-scope task. A task appears in **every**
+  group whose key it carries (multi-membership preserved — a task with both
+  `ATM:status:open` and `ATM:status:done` shows in both, surfacing
+  inconsistencies for cleanup). A single shared `(no matching labels)` bucket
+  holds in-scope tasks that match no wildcard (covers unlabeled tasks and
+  tasks missing every faceted namespace — the view for finding and correcting
+  under-labeled tasks).
 
 The TUI Projects tab labels pane renders the project's labels (global registry
 filtered by `<CODE>:` prefix) grouped by namespace (sorted alphabetically;
-unnamespaced tags under a `tags:` heading). Add/remove/describe actions operate
-on full label names; grouping is presentational.
+unnamespaced tags under a `tags:` heading), each label shown with its current
+task usage count (`name (N tasks)`) to support the human's label-reconciliation
+workflow. Add/remove/describe actions operate on full label names; grouping is
+presentational.
 
-This realizes the "any namespace is a management axis on demand" vision without
-dedicated per-axis screens or a pre-declared axis list. The user invents
-namespaces by adding labels; the TUI discovers them.
+The TUI and CLI are both first-class management surfaces; the typical actor on
+the CLI is an AI agent, the typical actor on the TUI is a human consulting and
+steering — but both surfaces carry full management capability. History is an
+**immutable system invariant**: every mutation appends a `HistoryEntry` and no
+command exists to edit or delete history; this holds for human and agent
+mutations alike.
 
 ## CLI surface
 
@@ -183,7 +207,7 @@ atm label show   --name <NAME>
 
 # Tasks
 atm task create  --project <CODE> --title <TITLE> [--description <DESC>] [--label <L>]... [--actor <id>]
-atm task list    [--project <CODE>] [--label <L>]... [--group-by <NS>]
+atm task list    [--project <CODE>] [--label <L>]... [--facets]
 atm task show    --id <ID>
 atm task set-title       --id <ID> --title <TITLE> [--actor <id>]
 atm task set-description --id <ID> --description <DESC> [--actor <id>]
@@ -192,10 +216,14 @@ atm task label remove --id <ID> --label <L> [--actor <id>]
 atm task remove       --id <ID> [--actor <id>]
 ```
 
-`task list --group-by <NS>` mirrors the TUI `G` mode: when set, output is
-grouped by the namespace's values (sentinel group for tasks missing that
-namespace). JSON shape: `{"groups":[{"value":"bug","tasks":[...]},{"value":"","tasks":[...]}]}`.
-Without `--group-by`, flat list sorted by project-then-numeric ID.
+`task list --facets` mirrors the TUI grouped view: `--label` accepts full label
+names **and suffix-only wildcards** (`ATM:status:*`, `ATM:*`). Non-wildcard
+`--label` tokens restrict the set; wildcard tokens facet it. With `--facets`,
+output is grouped by every concrete label matched by any wildcard `--label`
+token (multi-membership; a sentinel group key `""` holds tasks matching no
+wildcard). JSON shape:
+`{"groups":[{"label":"ATM:status:open","tasks":[...]},{"label":"","tasks":[...]}]}`.
+Without `--facets`, flat list sorted by project-then-numeric ID.
 
 `task create` assigns the next id `<CODE>-<N>` (4-digit zero-padded up to 9999,
 then natural width). It auto-registers any supplied labels in `labels.json`. It
@@ -320,7 +348,9 @@ moves to the new label regex. `lock.go` and `json.go` carry over unchanged.
 - `LabelShow(name) (Label, error)` — returns the label + description, or
   `ErrNotFound`.
 - `Namespaces(code string) []string` — distinct namespaces among `<CODE>:`-prefixed
-  labels in the registry, sorted. Drives the TUI `G` picker.
+  labels in the registry, sorted. Used by the TUI Projects tab labels pane and
+  available for advisory display; the Tasks tab faceting is wildcard-driven and
+  does not require this.
 
 **Task ops** (`task.go`):
 - `CreateTask(projectCode, title, description string, labels []string, actor string) (*Task, error)`
@@ -343,16 +373,30 @@ moves to the new label regex. `lock.go` and `json.go` carry over unchanged.
 ```go
 type QueryFilters struct {
     Project string
-    Labels  []string   // AND-intersect; full label names
+    Labels  []string   // AND-intersect; full label names; may include
+                       // suffix-only wildcards (e.g. "ATM:status:*", "ATM:*")
+                       // which declare facets and do NOT restrict the set.
 }
 ```
 
-- `ListTasks(filters QueryFilters) []*Task` — drops `Status`/`Assignee`/
-  `Claimant` filters (all gone). Sorts by project-then-numeric ID.
-- `GroupTasksByNamespace(code, ns string) map[string][]*Task` — groups a
-  project's tasks by the value they carry in namespace `ns`. Tasks with no label
-  in that namespace land in the sentinel key `""`. Used by `task list --group-by`
-  and the TUI `G` mode.
+- `ListTasks(filters QueryFilters) []*Task` — applies only the *restricting*
+  tokens (exact labels + project); wildcard tokens are ignored for scoping.
+  Sorts by project-then-numeric ID (the store's canonical order; the TUI/CLI
+  sort mode is applied by the caller on the returned slice).
+- `GroupTasks(filters QueryFilters) (groups []LabelGroup, others []*Task)` —
+  groups the in-scope set (restricted by exact tokens) by every concrete label
+  matched by any wildcard token that appears on ≥1 in-scope task. A task lands
+  in every group whose key it carries (multi-membership). `others` holds
+  in-scope tasks matching no wildcard. Empty wildcard matches → `others` is the
+  whole in-scope set. Used by `task list --facets` and the TUI grouped view.
+  Replaces v1's `GroupTasksByNamespace`.
+
+```go
+type LabelGroup struct {
+    Label string   // concrete label name, e.g. "ATM:status:open"
+    Tasks []*Task
+}
+```
 
 **Concurrency**: `labels.json` is global; mutations take the relevant project's
 lock (the `<CODE>:` prefix ties a label to a project). Reads are lock-free
@@ -365,15 +409,21 @@ tolerated race, same as v1's `actors.json` approach.
 `DiscussionAdd`, `TimelineList`, `ShowWithContext` (+ `matchingConventions`),
 `SetTypeAxis`, all `Guide*` methods, `RepoAdd`/`RepoRemove`, the entire
 `actor.go` (`Register`/`ListActors`/`ShowActor`), `ValidateActorID`,
-`allowedTransitions`, `typeAxisScore`, and all Link methods (`LinkAdd`/
-`LinkRemove`/`LinkList`).
+`allowedTransitions`, `typeAxisScore`, all Link methods (`LinkAdd`/
+`LinkRemove`/`LinkList`), and `GroupTasksByNamespace` (replaced by
+`GroupTasks`).
 
 ## TUI surface
 
 The TUI keeps the existing Bubble Tea shell (`app.go`, `keymap.go`, `styles.go`,
 `form.go`, `help.go`, `components/`) and the three-tab structure: **Projects**,
 **Tasks**, **Help**. (The v1 Dashboard tab is gone — it was review+followups+
-guide.)
+guide.) The TUI and CLI are both first-class management surfaces; the typical
+actor on the CLI is an AI agent, the typical actor on the TUI is a human
+consulting and steering — but both surfaces carry full management capability.
+History is an **immutable system invariant**: every mutation appends a
+`HistoryEntry` and no command exists to edit or delete history; this holds for
+human and agent mutations alike.
 
 **Removed from TUI**: `dashboard.go`, `actors.go`, `guide.go`; all claim keys
 (`[c]`, `[u]`), the status overlay (`[s]`, `showStatusOverlay`,
@@ -381,30 +431,60 @@ guide.)
 todo/followup/discussion/link keys (`[t]`, `[o]`, `[O]`, `[d]`, `[L]`,
 Space-toggle); `[T] set type-axis`, `[R]/[r] repo`, all guide section/ref keys
 (`[S]/[s]/[X]/[M]/[g]/[m]/[d]/[F]`); the "MATCHING CONVENTIONS", "TIMELINE", and
-"LINKS" sections of the task detail render.
+"LINKS" sections of the task detail render; the `G` group-by-namespace picker
+(grouping is now automatic from filter wildcards — see Section 6).
 
 **Projects tab** (`projects.go`, rewritten):
 - List columns: `CODE  NAME  TASKS  LABELS  UPDATED` (drops GUIDE). Keys:
   `[a]dd`, `Enter/[e]` detail, `[x] remove` (zero-task guard).
 - Detail view is a single pane (no multi-pane right column — repos/guide/
   advanced are gone). Renders project facts + labels grouped by namespace
-  (unnamespaced tags under `tags:`). Keys: `[N]` set name, `[L]` add label
-  (form: name + description), `[l]` remove label (form: name; toast shows
-  `retained_usage`), `[x]` remove project.
+  (unnamespaced tags under `tags:`), **each label shown with its current task
+  usage count** (`name (N tasks)`) to support the human's label-reconciliation
+  workflow. Keys: `[N]` set name, `[L]` add label (form: name + description),
+  `[l]` remove label (form: name; toast shows `retained_usage`), `[x]` remove
+  project.
 
 **Tasks tab** (`tasks.go`, rewritten):
-- List columns: `ID  TITLE  LABELS` (drops STATUS and CLAIMANT). Filter line
-  keeps `project:` and adds `label:`. Keys in list mode: `j/k/g/G` nav, `Enter`
-  open detail, `[a]dd` new task, `/` filter. `[n]ext`/`[c]laim`/`[u]nclaim` gone.
-- `G` group-by-namespace mode: overlay picker lists
-  `store.Namespaces(code)` + a "none (flat)" option. Selecting a namespace
-  regroups the list under each value; existing label filters apply before
-  grouping; sentinel group for tasks missing the namespace; group headers
-  collapsible; "none" restores flat.
-- Detail view (simplified): task facts + `HISTORY` section (machine-generated
-  log). Keys: `[e]` edit title, `[b]` add label, `[B]` remove label, `[x]`
-  remove task (confirm overlay). No `[s]`/`[c]`/`[u]`/`[L]`/`[t]`/`[o]`/`[O]`/
-  `[d]`/`[v]`/Space.
+- A persistent one-line header over the list always shows the current view
+  state: `PROJECT: <code>  FILTER: <tokens>  SORT: <mode>`. The filter syntax
+  doubles as the view-mode selector (see Section 6); there is no separate
+  grouping toggle or picker.
+- **Filter tokens** (space-separated, AND-joined):
+  - **Exact** (`ATM`, `ATM:status:open`, `ATM:type:bug`) — restrict the visible
+    set. `ATM` matches the task's `ProjectCode`; a full label name matches
+    tasks carrying that label.
+  - **Wildcard** (suffix-only at a namespace boundary: `ATM:*` for whole-
+    project faceting, `ATM:status:*` for one namespace) — does **not**
+    restrict; it declares a facet dimension. Multiple wildcards declare
+    multiple facets. No infix/prefix wildcards.
+- **View mode is implicit in the filter:**
+  - **No wildcard** in filter → flat paged list, sorted per the current sort
+    mode.
+  - **≥1 wildcard** → grouped view. Groups are the concrete labels matched by
+    each wildcard that appear on ≥1 in-scope task. A task appears in **every**
+    group whose key it carries (multi-membership preserved — a task with both
+    `ATM:status:open` and `ATM:status:done` shows in both, surfacing
+    inconsistencies for cleanup). A single shared `(no matching labels)`
+    bucket holds in-scope tasks that match no wildcard (covers unlabeled tasks
+    and tasks missing every faceted namespace — the view for finding and
+    correcting under-labeled tasks).
+- **Sort** (`s` cycles): `updated-desc` (default — supports the human's
+  "browse recent agent activity" consult mode) → `updated-asc` → `id-asc`.
+- List columns: `ID  TITLE  LABELS  UPDATED` (drops STATUS and CLAIMANT).
+  LABELS shows full label names; UPDATED is a relative timestamp.
+- Keys in list mode: `j/k/g` nav (`g` top-of-list), `Enter` open detail,
+  `[a]dd` new task, `/` edit FILTER inline, `s` cycle sort, group headers
+  collapsible. `[n]ext`/`[c]laim`/`[u]nclaim` gone; `G` group-by-namespace
+  picker gone (grouping is automatic from filter wildcards).
+- Empty states: no tasks → `no tasks`; wildcard filter yielding no concrete
+  labels to group → `(no matching labels)` only, header note `no labels match
+  wildcard — add labels to tasks`.
+
+**Detail view** (simplified): task facts + `HISTORY` section (machine-generated,
+immutable log). Keys: `[e]` edit title, `[b]` add label, `[B]` remove label,
+`[x]` remove task (confirm overlay). No `[s]`/`[c]`/`[u]`/`[L]`/`[t]`/`[o]`/
+`[O]`/`[d]`/`[v]`/Space.
 
 **Help tab** (`help.go`, rewritten): CLI/TUI parity table + global keymap,
 shrunk to the v2 surface.
@@ -426,18 +506,23 @@ integration framework.
 duplicates; label auto-registration on `CreateTask`/`TaskLabelAdd`;
 `LabelRemove` soft-removes (drops entry, counts retained usage, refuses new
 assignment); `LabelList` filters; `Namespaces` returns distinct sorted
-namespaces; `ListTasks` AND-intersects labels; `GroupTasksByNamespace` buckets
-by value with sentinel; `RemoveProject` zero-task guard; label regex enforces
-project-prefix match; determinism (sorted JSON, stable ordering).
+namespaces; `ListTasks` AND-intersects exact labels and ignores wildcard tokens
+for scoping; `GroupTasks` buckets by concrete labels matched by wildcards with
+multi-membership, `others` holds tasks matching no wildcard; `RemoveProject`
+zero-task guard; label regex enforces project-prefix match; determinism (sorted
+JSON, stable ordering).
 
 **CLI tests**: each command has text-mode and json-mode cases via the existing
-`emit`/golden pattern; `--group-by` output shape (groups array) gets a golden
-file; error exit codes (2/3/4) covered.
+`emit`/golden pattern; `--facets` output shape (groups array with `label` keys
++ sentinel `""` group) gets a golden file; wildcard `--label` tokens accepted
+(`ATM:status:*`, `ATM:*`); error exit codes (2/3/4) covered.
 
 **TUI tests**: tab switching; project create form; task create form; label add
-form; the `G` overlay picker (open, select namespace, regroup, select "none"
-restores flat); remove-task confirm overlay; view snapshot assertions on the
-simplified detail render.
+form; filter-driven grouping (enter `ATM:status:*` → grouped view with
+multi-membership; enter `ATM` exact → flat list; `(no matching labels)` bucket
+for unlabeled tasks); sort cycling (`s` → updated-desc/updated-asc/id-asc);
+remove-task confirm overlay; view snapshot assertions on the simplified detail
+render.
 
 **Verification gate**: `make verify` (runs `make build && make test`) remains
 the gate per AGENTS.md. No new make targets. `.golangci.yml` carries over
@@ -467,4 +552,8 @@ their `$ATM_HOME` or point `--store` at a new empty dir.
   new-task labels) — explicitly deferred; v2 ships without it. If users want
   workflow, they drive it via label filters in their agent prompts/habits for
   now.
+- Task comments / discussions as a narrative *human+agent* channel (separate
+  from the immutable machine-generated History). Deferred; the current Task
+  shape and append-only History model are compatible with a future
+  `DiscussionAdd`-style append, so no data-model change would be required.
 - Migration tooling from v1.
