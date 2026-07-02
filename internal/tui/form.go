@@ -9,10 +9,11 @@ import (
 )
 
 type formField struct {
-	Label    string
-	Value    string
-	Required bool
-	Hint     string
+	Label     string
+	Value     string
+	Required  bool
+	Hint      string
+	Validator func(field, value string) error
 }
 
 type formFocus int
@@ -171,6 +172,35 @@ func (f *Form) validate() string {
 		if fld.Required && fld.Value == "" {
 			return fmt.Sprintf("%s is required", fld.Label)
 		}
+		if fld.Validator != nil {
+			if err := fld.Validator(fld.Label, fld.Value); err != nil {
+				return err.Error()
+			}
+		}
+	}
+	return ""
+}
+
+// valid reports whether the form's current values pass all required and
+// per-field validator checks. Submit is disabled (button inactive) while
+// invalid.
+func (f *Form) valid() bool { return f.validate() == "" }
+
+// fieldError returns the live error message for the field at idx, or "" if
+// the field's current value is valid (or has no validator). Required-empty
+// is suppressed here so an untouched field does not flash red; only a
+// non-empty value that fails its validator is shown live.
+func (f *Form) fieldError(idx int) string {
+	fld := f.Fields[idx]
+	if fld.Validator == nil {
+		return ""
+	}
+	if fld.Value == "" {
+		// Required-empty is handled at submit, not live.
+		return ""
+	}
+	if err := fld.Validator(fld.Label, fld.Value); err != nil {
+		return err.Error()
 	}
 	return ""
 }
@@ -202,6 +232,11 @@ func (f *Form) View() string {
 			b.WriteString(fieldHintStyle.Render("  " + fld.Hint))
 			b.WriteString("\n")
 		}
+		if errMsg := f.fieldError(i); errMsg != "" {
+			errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+			b.WriteString(errStyle.Render("  ✗ " + errMsg))
+			b.WriteString("\n")
+		}
 		b.WriteString("\n")
 	}
 
@@ -216,7 +251,7 @@ func (f *Form) View() string {
 	cancelActive := f.zone == focusButtons && f.btnIdx == 1
 	submit := buttonInactiveStyle.Render("[ Submit ]")
 	cancel := buttonInactiveStyle.Render("[ Cancel ]")
-	if submitActive {
+	if submitActive && f.valid() {
 		submit = buttonActiveStyle.Render("[ Submit ]")
 	}
 	if cancelActive {

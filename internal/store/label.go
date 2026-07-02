@@ -230,3 +230,23 @@ func (s *Store) countTasksWithLabelGlobally(label string) (int, error) {
 	}
 	return count, nil
 }
+
+// LabelUsage counts tasks in the given project carrying the label. Exported
+// for the TUI's project-detail reconciliation surface (Screen 4: "(N tasks)"
+// suffix per label).
+func (s *Store) LabelUsage(projectCode, label string) (int, error) {
+	count := 0
+	for _, id := range s.listTaskIDs(projectCode) {
+		t, err := s.GetTask(id)
+		if err != nil {
+			continue
+		}
+		for _, l := range t.Labels {
+			if l == label {
+				count++
+				break
+			}
+		}
+	}
+	return count, nil
+}
