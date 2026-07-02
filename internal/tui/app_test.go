@@ -748,3 +748,120 @@ func TestHelpTabReadOnly(t *testing.T) {
 		t.Errorf("store changed from Help tab: projects = %+v", ps)
 	}
 }
+
+// TestHelpTabKeymap verifies the Help tab's Section 2 (Global keymap) is
+// rendered with its heading and the keymap summary table content (mockup
+// Screen 10, Section 2). Covers the third spec target "global keymap" that
+// TestHelpTabParityTable (§1) and TestHelpTabConventions (§3) do not assert.
+func TestHelpTabKeymap(t *testing.T) {
+	m := newTestModel(t)
+	update(t, m, "3")
+	content := strings.Join(m.help.lines, "\n")
+	mustContain(t, content, "Global keymap")
+	// A stable binding row from the keymap table — [a] add project/task.
+	mustContain(t, content, "[a]")
+	// The table header should be present too.
+	mustContain(t, content, "Key")
+	mustContain(t, content, "Detail")
+}
+
+// --- Step 8: task detail [d] description edit + [x] remove confirm ---
+
+// TestTaskDetailDescriptionEdit verifies the [d] key on a task detail opens
+// the description-edit form, a typed edit persists to the store, and the
+// updated description renders in the detail view (mockup Screen 8, [d]).
+func TestTaskDetailDescriptionEdit(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	// Seed a task with a known description via the store directly.
+	tk, err := m.store.CreateTask("ATM", "Wire [d] description edit", "initial desc", nil, "claude")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	m.refreshAll()
+	// Select project, switch to Tasks, open detail at cursor row 0.
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "enter")
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("expected task detail view, got %v", m.tasks.view)
+	}
+	// The initial description renders.
+	mustContain(t, m.View(), "initial desc")
+
+	// Press [d] to open the description-edit form.
+	update(t, m, "d")
+	if m.form == nil || !m.form.Active {
+		t.Fatalf("[d] did not open an active form")
+	}
+	mustContain(t, m.form.Title, "Edit description")
+	// The form pre-fills the existing description.
+	if got := m.form.Fields[0].Value; got != "initial desc" {
+		t.Errorf("description form prefill = %q, want %q", got, "initial desc")
+	}
+
+	// Clear the field and type a new description, then submit (Enter on the
+	// last field submits directly per form.Update).
+	for range "initial desc" {
+		update(t, m, "backspace")
+	}
+	for _, r := range "edited description persists" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+	if m.form != nil {
+		t.Fatalf("form should be closed after submit")
+	}
+
+	// Detail view should now render the new description.
+	v := m.View()
+	mustContain(t, v, "edited description persists")
+	// And it should persist in the store.
+	stored, err := m.store.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if stored.Description != "edited description persists" {
+		t.Errorf("stored description = %q, want %q", stored.Description, "edited description persists")
+	}
+}
+
+// TestTaskDetailRemoveConfirm verifies the [x] key on a task detail opens a
+// confirm overlay, confirming removes the task from the store and returns
+// the view to the list (mockup Screen 8, [x]).
+func TestTaskDetailRemoveConfirm(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	tk := seedTask(t, m, "ATM", "Doomed task")
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "enter")
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("expected task detail view, got %v", m.tasks.view)
+	}
+
+	// Press [x] — a confirm overlay should appear.
+	update(t, m, "x")
+	if m.confirm != confirmRemoveTask {
+		t.Fatalf("[x] did not open remove confirm (confirm=%v)", m.confirm)
+	}
+	v := m.View()
+	mustContain(t, v, "Remove task")
+	mustContain(t, v, "confirm")
+
+	// Confirm with Enter (handleConfirmKey accepts enter/y).
+	update(t, m, "enter")
+	if m.confirm != confirmNone {
+		t.Errorf("confirm should be cleared after yes, got %v", m.confirm)
+	}
+	// View returns to the list.
+	if m.tasks.view != tViewList {
+		t.Errorf("expected list view after remove, got %v", m.tasks.view)
+	}
+	// The detail overlay should no longer render the task.
+	mustNotContain(t, m.View(), "Doomed task")
+	// And the task is gone from the store.
+	if _, err := m.store.GetTask(tk.ID); !store.IsNotFound(err) {
+		t.Errorf("GetTask after remove: err=%v, want ErrNotFound", err)
+	}
+}
