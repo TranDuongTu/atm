@@ -39,6 +39,7 @@ var keymapRows = []keyEntry{
 	{"b/B", "-", "-", "-", "-", "add/remove label (task)"},
 	{"N", "set name (project detail)", "-", "-", "-", "-"},
 	{"H", "toggle history (project detail)", "-", "-", "-", "-"},
+	{"T", "cycle theme", "cycle theme", "cycle theme", "cycle theme", "cycle theme"},
 	{"?", "toggle keymap overlay", "toggle keymap overlay", "toggle keymap overlay", "-", "toggle keymap overlay"},
 	{"q / ctrl+c", "quit", "quit", "quit", "quit", "quit"},
 	{"PgDn/Space", "-", "next page", "next page", "next page", "scroll down"},

@@ -169,6 +169,11 @@ func (m *Model) actorOr() string {
 	return m.actor
 }
 
+func (m *Model) cycleTheme() {
+	m.themeName = nextThemeName(m.themeName)
+	m.styles = buildStyles(m.themeName)
+}
+
 // canMutate reports whether mutating keys are active. Always true in v2: the
 // actor defaults to "default" when the TUI is launched without --actor, so
 // there is no actor-gated dead state. Kept as a stable predicate for callers.
@@ -201,6 +206,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 
 	// Keymap overlay (?) toggles anywhere and consumes the key.
 	if m.keymapOverlayOn {
+		if k.String() == "T" {
+			m.cycleTheme()
+			return nil
+		}
 		if k.String() == "?" || k.String() == "esc" {
 			m.keymapOverlayOn = false
 		}
@@ -209,12 +218,20 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 
 	// Confirm overlay consumes all keys until resolved.
 	if m.confirm != confirmNone {
+		if k.String() == "T" {
+			m.cycleTheme()
+			return nil
+		}
 		return m.handleConfirmKey(k)
 	}
 
 	// Form overlay consumes all keys until closed.
 	if m.form != nil && m.form.Active {
 		return m.handleFormKey(k)
+	}
+
+	if m.focused == paneTasks && m.tasks.filterEditing {
+		return m.tasks.handleKey(k)
 	}
 
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
@@ -240,6 +257,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "?":
 		m.keymapOverlayOn = true
+		return nil
+	case "T":
+		m.cycleTheme()
 		return nil
 	}
 
@@ -436,6 +456,7 @@ func (m *Model) renderStatusLine() string {
 	if m.projectScope != "" {
 		parts = append(parts, statusLabelStyle.Render("SELECTED: ")+statusStyle.Render(m.projectScope))
 	}
+	parts = append(parts, statusLabelStyle.Render("theme: ")+statusStyle.Render(string(m.themeName)))
 	hint := m.statusHint()
 	parts = append(parts, keyMenuStyle.Render(hint))
 	actor := "actor: " + m.actorOr()

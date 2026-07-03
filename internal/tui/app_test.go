@@ -183,6 +183,73 @@ func TestNextThemeNameWraps(t *testing.T) {
 	}
 }
 
+func TestThemeCycleKeyUpdatesThemeAndStatus(t *testing.T) {
+	m := newTestModel(t)
+	mustContain(t, m.renderStatusLine(), "theme: atm-dark")
+	update(t, m, "T")
+	if m.themeName != themeGraphite {
+		t.Fatalf("after T: themeName = %q want %q", m.themeName, themeGraphite)
+	}
+	mustContain(t, m.renderStatusLine(), "theme: graphite")
+}
+
+func TestThemeCyclePreservesNavigationState(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "open task", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "/")
+	for _, r := range "ATM:status:open" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+	update(t, m, "enter")
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("setup: expected task detail")
+	}
+	update(t, m, "T")
+	if m.focused != paneTasks {
+		t.Errorf("focused = %v want paneTasks", m.focused)
+	}
+	if m.projectScope != "ATM" {
+		t.Errorf("projectScope = %q want ATM", m.projectScope)
+	}
+	if m.tasks.filter != "ATM:status:open" {
+		t.Errorf("filter = %q want ATM:status:open", m.tasks.filter)
+	}
+	if m.tasks.view != tViewDetail {
+		t.Errorf("tasks.view = %v want tViewDetail", m.tasks.view)
+	}
+}
+
+func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
+	m := newTestModel(t)
+	update(t, m, "a")
+	update(t, m, "T")
+	if m.themeName != themeATMDark {
+		t.Fatalf("themeName changed in form input: %q", m.themeName)
+	}
+	if got := m.form.Fields[0].Value; got != "T" {
+		t.Fatalf("form field value = %q want T", got)
+	}
+}
+
+func TestThemeCyclesInsideKeymapOverlay(t *testing.T) {
+	m := newTestModel(t)
+	update(t, m, "?")
+	if !m.keymapOverlayOn {
+		t.Fatalf("setup: keymap overlay should be open")
+	}
+	update(t, m, "T")
+	if m.themeName != themeGraphite {
+		t.Fatalf("themeName = %q want %q", m.themeName, themeGraphite)
+	}
+	if !m.keymapOverlayOn {
+		t.Fatalf("theme cycling should not close keymap overlay")
+	}
+}
+
 // TestQuitBinding verifies `q` quits the app when no overlay/form/confirm is
 // active (ctrl+c also quits; both set quitting=true and return tea.Quit).
 func TestQuitBinding(t *testing.T) {
@@ -748,6 +815,8 @@ func TestHelpTabKeymap(t *testing.T) {
 	// The table header should be present too.
 	mustContain(t, content, "Key")
 	mustContain(t, content, "Detail")
+	mustContain(t, content, "T")
+	mustContain(t, content, "cycle theme")
 }
 
 // --- Step 8: task detail [d] description edit + [x] remove confirm ---
