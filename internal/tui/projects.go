@@ -11,9 +11,9 @@ import (
 
 // projectsModel owns the Projects tab state: list, detail, cursor, selection.
 type projectsModel struct {
-	m     *Model
-	list  []projRow
-	view  pView
+	m      *Model
+	list   []projRow
+	view   pView
 	cursor int
 	detail detailState
 
@@ -34,14 +34,14 @@ type projRow struct {
 	tasks    int
 	labels   int
 	updated  string // relative
-	updatedT int64   // unix for sort (unused; store pre-sorts by code)
+	updatedT int64  // unix for sort (unused; store pre-sorts by code)
 }
 
 type detailState struct {
-	code     string
-	project  *store.Project
-	lines    []string // rendered detail lines (for scroll)
-	offset   int
+	code      string
+	project   *store.Project
+	lines     []string // rendered detail lines (for scroll)
+	offset    int
 	historyOn bool
 }
 
@@ -132,10 +132,6 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		p.detail.offset = 0
 	case "n":
 		p.openSetNameForm()
-	case "L":
-		p.openLabelAddForm()
-	case "l":
-		p.openLabelRemoveForm()
 	case "H":
 		p.detail.historyOn = !p.detail.historyOn
 		p.renderDetail()
@@ -185,43 +181,6 @@ func (p *projectsModel) renderDetail() {
 	fmt.Fprintf(&b, "created   %s   by %s\n", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)
 	fmt.Fprintf(&b, "updated   %s   by %s\n", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)
 	b.WriteString("\n")
-
-	// LABELS grouped by namespace with usage counts.
-	b.WriteString("LABELS\n")
-	b.WriteString(sepLine("─", 78, p.m.width, 2))
-	b.WriteString("\n")
-	ls := p.m.store.LabelList(pr.Code, "")
-	namespaces := p.m.store.Namespaces(pr.Code)
-	// Group: namespaced first (alphabetical), then unnamespaced tags.
-	byNS := map[string][]store.Label{}
-	var tags []store.Label
-	for _, l := range ls {
-		rest := strings.TrimPrefix(l.Name, pr.Code+":")
-		parts := strings.SplitN(rest, ":", 2)
-		if len(parts) == 2 {
-			byNS[parts[0]] = append(byNS[parts[0]], l)
-		} else {
-			tags = append(tags, l)
-		}
-	}
-	for _, ns := range namespaces {
-		fmt.Fprintf(&b, "%s:\n", ns)
-		for _, l := range byNS[ns] {
-			count, _ := p.m.store.LabelUsage(pr.Code, l.Name)
-			fmt.Fprintf(&b, "   %-45s (%d %s)\n", l.Name, count, pluralTasks(count))
-			if l.Description != "" {
-				fmt.Fprintf(&b, "       %s\n", l.Description)
-			}
-		}
-		b.WriteString("\n")
-	}
-	if len(tags) > 0 {
-		b.WriteString("tags:\n")
-		for _, l := range tags {
-			count, _ := p.m.store.LabelUsage(pr.Code, l.Name)
-			fmt.Fprintf(&b, "   %-45s (%d %s)\n", l.Name, count, pluralTasks(count))
-		}
-	}
 
 	if p.detail.historyOn {
 		b.WriteString("\n")
@@ -329,7 +288,7 @@ func (p *projectsModel) statusHint() string {
 		}
 		return "[a]dd [s]elect [Enter]detail [x]remove [?]keys"
 	case pViewDetail:
-		return "[N]name [L]add label [l]remove label [H]history [x]remove [Esc]back"
+		return "[N]name [H]history [x]remove [Esc]back"
 	}
 	return "[?]keys"
 }
@@ -368,63 +327,6 @@ func (p *projectsModel) openSetNameForm() {
 	f := NewForm("Set project name", fields)
 	p.m.form = f
 	p.m.formKind = formProjectSetName
-	p.m.formPayload = pr.Code
-}
-
-// labelSuffixRe validates the suffix the user types in the label add/remove
-// forms. The fixed "<CODE>:" prefix is prepended by the form submit handler
-// (doLabelAdd/doLabelRemove build full = code + ":" + suffix), so the suffix
-// itself is "<namespace>:<value>" or "<tag>" with NO leading colon. The mockup
-// spec's full-label regex is ^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$; removing
-// the leading "<CODE>:" yields this suffix regex.
-var labelSuffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
-
-func (p *projectsModel) openLabelAddForm() {
-	pr := p.detail.project
-	if pr == nil {
-		return
-	}
-	validator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		if !labelSuffixRe.MatchString(value) {
-			return fmt.Errorf("use <namespace>:<value> or <tag>, e.g. status:open")
-		}
-		return nil
-	}
-	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>, e.g. status:open", Validator: validator},
-		{Label: "desc", Required: false, Hint: "optional; preserved if already set"},
-	}
-	f := NewForm(fmt.Sprintf("Add label  %s:", pr.Code), fields)
-	f.Title = fmt.Sprintf("Add label  %s:", pr.Code)
-	p.m.form = f
-	p.m.formKind = formLabelAdd
-	p.m.formPayload = pr.Code
-}
-
-func (p *projectsModel) openLabelRemoveForm() {
-	pr := p.detail.project
-	if pr == nil {
-		return
-	}
-	validator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		if !labelSuffixRe.MatchString(value) {
-			return fmt.Errorf("use <namespace>:<value> or <tag>")
-		}
-		return nil
-	}
-	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
-	}
-	f := NewForm(fmt.Sprintf("Remove label  %s:", pr.Code), fields)
-	f.Title = fmt.Sprintf("Remove label  %s:", pr.Code)
-	p.m.form = f
-	p.m.formKind = formLabelRemove
 	p.m.formPayload = pr.Code
 }
 
@@ -467,35 +369,6 @@ func (m *Model) doProjectSetName(vals map[string]string) tea.Cmd {
 		m.showToast("error: " + err.Error())
 		return nil
 	}
-	m.refreshAll()
-	m.projects.openDetail(code)
-	return nil
-}
-
-func (m *Model) doLabelAdd(vals map[string]string) tea.Cmd {
-	code := m.formPayload
-	suffix := vals["name"]
-	full := code + ":" + suffix
-	desc := vals["desc"]
-	if err := m.store.LabelAdd(full, desc, m.actor); err != nil {
-		m.showToast("error: " + err.Error())
-		return nil
-	}
-	m.refreshAll()
-	m.projects.openDetail(code)
-	return nil
-}
-
-func (m *Model) doLabelRemove(vals map[string]string) tea.Cmd {
-	code := m.formPayload
-	suffix := vals["name"]
-	full := code + ":" + suffix
-	res, err := m.store.LabelRemove(full, m.actor)
-	if err != nil {
-		m.showToast("error: " + err.Error())
-		return nil
-	}
-	m.showToast(fmt.Sprintf("removed label %s (retained usage: %d)", full, res.RetainedUsage))
 	m.refreshAll()
 	m.projects.openDetail(code)
 	return nil
@@ -556,13 +429,6 @@ func metaJSON(m map[string]any) string {
 	}
 	b.WriteString("}")
 	return b.String()
-}
-
-func pluralTasks(n int) string {
-	if n == 1 {
-		return "task"
-	}
-	return "tasks"
 }
 
 // padToHeight right-pads the string with blank lines so it fills `h` lines.

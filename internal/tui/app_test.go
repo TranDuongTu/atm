@@ -343,39 +343,30 @@ func TestProjectsListCursorVsSelectionIndependent(t *testing.T) {
 	mustContain(t, m.View(), "SELECTED: ATM")
 }
 
-// TestProjectDetailLabelsGrouped verifies the project detail (mockup Screen 4)
-// renders facts and labels grouped by namespace with (N tasks) counts; tags
-// last.
-func TestProjectDetailLabelsGrouped(t *testing.T) {
+// TestProjectDetailNoLabelsSection verifies the project detail no longer
+// renders a LABELS section (label management moved to the Labels tab).
+func TestProjectDetailNoLabelsSection(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	// Seed labels across namespaces + a tag.
-	seedLabel(t, m, "ATM:status:open", "open work")
-	seedLabel(t, m, "ATM:status:done", "finished")
-	seedLabel(t, m, "ATM:type:bug", "defect")
-	seedLabel(t, m, "ATM:hot", "hot tag")
-	// Seed tasks that carry these labels so usage counts are non-zero.
-	seedTask(t, m, "ATM", "task one", "ATM:status:open", "ATM:type:bug")
-	seedTask(t, m, "ATM", "task two", "ATM:status:done")
-	// Open detail of ATM (cursor on ATM at row 0).
-	update(t, m, "enter")
+	seedLabel(t, m, "ATM:custom:x", "custom")
+	update(t, m, "enter") // open ATM detail (cursor on ATM)
 	v := m.View()
 	mustContain(t, v, "PROJECT")
-	mustContain(t, v, "code      ATM")
-	mustContain(t, v, "name      Acme Task Manager")
-	mustContain(t, v, "LABELS")
-	// Namespace headings.
-	mustContain(t, v, "status:")
-	mustContain(t, v, "type:")
-	// Tags heading last.
-	mustContain(t, v, "tags:")
-	// Usage counts.
-	mustContain(t, v, "ATM:status:open")
-	mustContain(t, v, "ATM:status:done")
-	mustContain(t, v, "(1 task)")
-	mustContain(t, v, "ATM:type:bug")
-	mustContain(t, v, "ATM:hot")
+	mustNotContain(t, v, "LABELS")
+	// The labels count fact line stays.
+	mustContain(t, v, "labels")
+}
+
+// TestProjectDetailLabelKeysNoOp verifies L and l do nothing in project detail.
+func TestProjectDetailLabelKeysNoOp(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "enter")
+	update(t, m, "L")
+	update(t, m, "l")
+	if m.form != nil {
+		t.Errorf("L/l opened a form in project detail (should be a no-op)")
+	}
 }
 
 // TestProjectDetailHistoryToggle verifies the UPPERCASE [H] binding toggles
@@ -402,100 +393,7 @@ func TestProjectDetailHistoryToggle(t *testing.T) {
 	}
 }
 
-// --- Step 4: label add/remove forms ---
-
-// TestLabelAddFormValidation verifies the suffix regex rejects bad input and
-// the ATM: prefix is fixed (form title reflects it).
-func TestLabelAddFormValidation(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "enter") // open detail
-	update(t, m, "L")      // open label add form
-	if m.form == nil {
-		t.Fatalf("label add form not open")
-	}
-	// Title should reflect the fixed ATM: prefix.
-	mustContain(t, m.form.Title, "ATM:")
-	// Type a bad suffix (uppercase, not allowed by regex).
-	for _, r := range "STATUS" {
-		update(t, m, string(r))
-	}
-	errMsg := m.form.fieldError(0)
-	if errMsg == "" {
-		t.Errorf("uppercase suffix should fail validation")
-	}
-}
-
-// TestLabelAddFormUpsert verifies that a non-empty description updates an
-// existing label, and an empty description preserves the existing one.
-func TestLabelAddFormUpsert(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(200, 70)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedLabel(t, m, "ATM:status:open", "original desc")
-	// Re-add the same label with a new description -> description updates.
-	update(t, m, "enter") // open ATM detail (cursor on ATM)
-	update(t, m, "L")      // label add form
-	for _, r := range "status:open" {
-		update(t, m, string(r))
-	}
-	update(t, m, "tab") // move to desc field
-	for _, r := range "updated desc" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
-	// Re-open detail and check the description updated.
-	m.projects.openDetail("ATM")
-	v := m.View()
-	mustContain(t, v, "updated desc")
-	mustNotContain(t, v, "original desc")
-	// Now re-add with empty description -> preserves "updated desc".
-	if m.projects.view != pViewDetail {
-		t.Fatalf("expected detail view, got %v", m.projects.view)
-	}
-	update(t, m, "esc") // back to list
-	update(t, m, "enter")
-	update(t, m, "L")
-	for _, r := range "status:open" {
-		update(t, m, string(r))
-	}
-	// desc field left empty; tab to it (last field) then enter to submit.
-	update(t, m, "tab")
-	update(t, m, "enter")
-	m.projects.openDetail("ATM")
-	v = m.View()
-	mustContain(t, v, "updated desc")
-}
-
-// TestLabelRemoveFormRetainedUsage verifies that removing a label yields a
-// toast reporting retained_usage (mockup Screen 5).
-func TestLabelRemoveFormRetainedUsage(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedLabel(t, m, "ATM:status:open", "")
-	// A task carries the label, so retained_usage > 0 after remove.
-	seedTask(t, m, "ATM", "task one", "ATM:status:open")
-	// Open detail, remove label form.
-	update(t, m, "enter")
-	update(t, m, "l") // lowercase l: remove label form
-	if m.form == nil {
-		t.Fatalf("label remove form not open")
-	}
-	for _, r := range "status:open" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
-	if m.toastMsg == "" {
-		t.Fatalf("no toast after label remove")
-	}
-	if !strings.Contains(m.toastMsg, "retained usage") {
-		t.Errorf("toast = %q, want 'retained usage'", m.toastMsg)
-	}
-	// The label is gone from the registry now.
-	if _, err := m.store.LabelShow("ATM:status:open"); err == nil {
-		t.Errorf("label ATM:status:open still in registry after remove")
-	}
-}
+// --- Step 4: label add/remove forms (moved to Labels tab in Task 8) ---
 
 // --- Step 5: tasks flat + grouped ---
 
@@ -505,8 +403,8 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "task one", "ATM:status:open")
-	update(t, m, "s")     // select ATM
-	update(t, m, "2")     // switch to Tasks tab
+	update(t, m, "s") // select ATM
+	update(t, m, "2") // switch to Tasks tab
 	v := m.View()
 	mustContain(t, v, "PROJECT: ATM")
 	mustContain(t, v, "FILTER: (none)")
