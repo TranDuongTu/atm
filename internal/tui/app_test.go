@@ -161,6 +161,28 @@ func TestTabBarShowsNumbers(t *testing.T) {
 	}
 }
 
+func TestDefaultTheme(t *testing.T) {
+	m := newTestModel(t)
+	if m.themeName != themeATMDark {
+		t.Fatalf("themeName = %q want %q", m.themeName, themeATMDark)
+	}
+	if string(m.themeName) != "atm-dark" {
+		t.Fatalf("themeName string = %q want atm-dark", m.themeName)
+	}
+}
+
+func TestNextThemeNameWraps(t *testing.T) {
+	order := []ThemeName{themeATMDark, themeGraphite, themeLight, themeMono, themeATMDark}
+	for i := 0; i < len(order)-1; i++ {
+		if got := nextThemeName(order[i]); got != order[i+1] {
+			t.Fatalf("nextThemeName(%q) = %q want %q", order[i], got, order[i+1])
+		}
+	}
+	if got := nextThemeName(ThemeName("unknown")); got != themeATMDark {
+		t.Fatalf("nextThemeName(unknown) = %q want %q", got, themeATMDark)
+	}
+}
+
 // TestQuitBinding verifies `q` quits the app when no overlay/form/confirm is
 // active (ctrl+c also quits; both set quitting=true and return tea.Quit).
 func TestQuitBinding(t *testing.T) {

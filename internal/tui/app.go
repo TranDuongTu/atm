@@ -56,6 +56,9 @@ type Model struct {
 	actor    string
 	km       keymap
 
+	themeName ThemeName
+	styles    Styles
+
 	width, height   int
 	contentHeight   int
 	focused         workspacePane
@@ -105,13 +108,16 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	if actor == "" {
 		actor = "default"
 	}
+	themeName := defaultThemeName()
 	m := &Model{
-		store:    s,
-		storeSet: true,
-		km:       defaultKeymap(),
-		width:    100,
-		height:   30,
-		actor:    actor,
+		store:     s,
+		storeSet:  true,
+		km:        defaultKeymap(),
+		width:     100,
+		height:    30,
+		actor:     actor,
+		themeName: themeName,
+		styles:    buildStyles(themeName),
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
