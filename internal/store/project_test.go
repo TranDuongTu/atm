@@ -77,6 +77,27 @@ func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
 	}
 }
 
+func TestCreateProjectSeedsLabels(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	ls := s.LabelList("ATM", "")
+	if len(ls) != 17 {
+		t.Fatalf("after CreateProject, ATM has %d labels, want 17 (seeded defaults)", len(ls))
+	}
+	// Every seeded label has a non-empty description.
+	for _, l := range ls {
+		if l.Description == "" {
+			t.Errorf("seeded label %q has empty description", l.Name)
+		}
+	}
+	// Spot-check a known seed label is present.
+	if _, err := s.LabelShow("ATM:context:agent"); err != nil {
+		t.Errorf("ATM:context:agent missing after seed: %v", err)
+	}
+}
+
 func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")

@@ -18,7 +18,7 @@ func seedDeterminismStore(h *goldenHarness) {
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
 		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "claude")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
-		"--label", "ATM:context:start-here", "--actor", "claude")
+		"--label", "ATM:context:agent", "--actor", "claude")
 	h.run("task", "create", "--store", sp, "--project", "DEMO", "--title", "Demo task",
 		"--label", "DEMO:status:open", "--actor", "claude")
 	h.run("project", "set-name", "--store", sp, "--code", "DEMO", "--name", "Demo Project", "--actor", "claude")

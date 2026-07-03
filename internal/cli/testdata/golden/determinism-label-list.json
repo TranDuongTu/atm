@@ -1,24 +1,144 @@
 {
   "labels": [
     {
-      "description": "",
-      "name": "ATM:context:start-here"
+      "description": "agent direction when navigating the project; read these to understand how to work in this project",
+      "name": "ATM:context:agent"
     },
     {
-      "description": "",
+      "description": "the labeled task contains documentation about the project",
+      "name": "ATM:context:documentation"
+    },
+    {
+      "description": "something on this task should be reviewed, updated, or altered",
+      "name": "ATM:context:fixit"
+    },
+    {
+      "description": "the labeled task contains a pointer to a code repository",
+      "name": "ATM:context:repository"
+    },
+    {
+      "description": "optional prioritization: high",
+      "name": "ATM:priority:high"
+    },
+    {
+      "description": "optional prioritization: low",
+      "name": "ATM:priority:low"
+    },
+    {
+      "description": "optional prioritization: medium",
+      "name": "ATM:priority:medium"
+    },
+    {
+      "description": "workflow state: blocked; task cannot proceed pending something else",
+      "name": "ATM:status:blocked"
+    },
+    {
+      "description": "workflow state: done; task is complete",
+      "name": "ATM:status:done"
+    },
+    {
+      "description": "workflow state: in-progress; someone is actively working on this",
+      "name": "ATM:status:in-progress"
+    },
+    {
+      "description": "workflow state: open; task is not started or is being considered",
       "name": "ATM:status:open"
+    },
+    {
+      "description": "workflow state: review; task is awaiting review/approval",
+      "name": "ATM:status:review"
+    },
+    {
+      "description": "workflow state: todo; task is queued for work",
+      "name": "ATM:status:todo"
     },
     {
       "description": "Bug fix",
       "name": "ATM:type:bug"
     },
     {
+      "description": "task categorization: chore; maintenance, refactoring, tooling",
+      "name": "ATM:type:chore"
+    },
+    {
       "description": "",
       "name": "ATM:type:epic"
     },
     {
-      "description": "",
+      "description": "task categorization: feature; new functionality to add",
+      "name": "ATM:type:feature"
+    },
+    {
+      "description": "task categorization: task; general work item",
+      "name": "ATM:type:task"
+    },
+    {
+      "description": "agent direction when navigating the project; read these to understand how to work in this project",
+      "name": "DEMO:context:agent"
+    },
+    {
+      "description": "the labeled task contains documentation about the project",
+      "name": "DEMO:context:documentation"
+    },
+    {
+      "description": "something on this task should be reviewed, updated, or altered",
+      "name": "DEMO:context:fixit"
+    },
+    {
+      "description": "the labeled task contains a pointer to a code repository",
+      "name": "DEMO:context:repository"
+    },
+    {
+      "description": "optional prioritization: high",
+      "name": "DEMO:priority:high"
+    },
+    {
+      "description": "optional prioritization: low",
+      "name": "DEMO:priority:low"
+    },
+    {
+      "description": "optional prioritization: medium",
+      "name": "DEMO:priority:medium"
+    },
+    {
+      "description": "workflow state: blocked; task cannot proceed pending something else",
+      "name": "DEMO:status:blocked"
+    },
+    {
+      "description": "workflow state: done; task is complete",
+      "name": "DEMO:status:done"
+    },
+    {
+      "description": "workflow state: in-progress; someone is actively working on this",
+      "name": "DEMO:status:in-progress"
+    },
+    {
+      "description": "workflow state: open; task is not started or is being considered",
       "name": "DEMO:status:open"
+    },
+    {
+      "description": "workflow state: review; task is awaiting review/approval",
+      "name": "DEMO:status:review"
+    },
+    {
+      "description": "workflow state: todo; task is queued for work",
+      "name": "DEMO:status:todo"
+    },
+    {
+      "description": "task categorization: bug; a defect to fix",
+      "name": "DEMO:type:bug"
+    },
+    {
+      "description": "task categorization: chore; maintenance, refactoring, tooling",
+      "name": "DEMO:type:chore"
+    },
+    {
+      "description": "task categorization: feature; new functionality to add",
+      "name": "DEMO:type:feature"
+    },
+    {
+      "description": "task categorization: task; general work item",
+      "name": "DEMO:type:task"
     }
   ]
 }

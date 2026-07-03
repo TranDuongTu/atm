@@ -13,7 +13,7 @@
     ],
     "id": "ATM-0002",
     "labels": [
-      "ATM:context:start-here"
+      "ATM:context:agent"
     ],
     "project_code": "ATM",
     "title": "Seed index tasks",

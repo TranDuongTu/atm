@@ -98,7 +98,7 @@ func (h *goldenHarness) seedScenario1() {
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
 		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "claude")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
-		"--label", "ATM:context:start-here", "--actor", "claude")
+		"--label", "ATM:context:agent", "--actor", "claude")
 	h.reset()
 }
 

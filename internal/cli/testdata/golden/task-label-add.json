@@ -22,7 +22,7 @@
     ],
     "id": "ATM-0002",
     "labels": [
-      "ATM:context:start-here",
+      "ATM:context:agent",
       "ATM:status:open"
     ],
     "project_code": "ATM",

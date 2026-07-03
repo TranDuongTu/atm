@@ -348,6 +348,7 @@ func TestProjectsListCursorVsSelectionIndependent(t *testing.T) {
 // last.
 func TestProjectDetailLabelsGrouped(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	// Seed labels across namespaces + a tag.
 	seedLabel(t, m, "ATM:status:open", "open work")
@@ -381,6 +382,7 @@ func TestProjectDetailLabelsGrouped(t *testing.T) {
 // the HISTORY section in the project detail (mockup Screen 4; Task 5 fix).
 func TestProjectDetailHistoryToggle(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "enter")
 	v := m.View()
@@ -428,6 +430,7 @@ func TestLabelAddFormValidation(t *testing.T) {
 // existing label, and an empty description preserves the existing one.
 func TestLabelAddFormUpsert(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedLabel(t, m, "ATM:status:open", "original desc")
 	// Re-add the same label with a new description -> description updates.
