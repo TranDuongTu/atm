@@ -24,6 +24,13 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 	update(t, m, "s") // select ATM
 	update(t, m, "3") // Labels tab
 	v := m.View()
+	body := m.labels.View()
+	if strings.HasPrefix(body, "Labels\n") {
+		t.Fatalf("labels body repeats tab title\n--- body ---\n%s", body)
+	}
+	mustContain(t, body, "─ Overview ─")
+	mustContain(t, v, "total labels: 17")
+	mustContain(t, v, "─ Namespaces ─")
 	// Namespace headings for seeded namespaces.
 	mustContain(t, v, "context:")
 	mustContain(t, v, "status:")
@@ -31,6 +38,34 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 	mustContain(t, v, "priority:")
 	// A seeded label's description is rendered.
 	mustContain(t, v, "workflow state: open")
+}
+
+func TestLabelsTabCallsOutMissingDescriptions(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedLabel(t, m, "ATM:patch:urgent", "")
+	update(t, m, "s")
+	update(t, m, "3")
+	v := m.View()
+	mustContain(t, v, "ATM:patch:urgent")
+	mustContain(t, v, "needs description")
+}
+
+func TestLabelDetailDashboardSections(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	update(t, m, "enter")
+	v := m.View()
+	mustContain(t, v, "Label ")
+	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "usage")
+	mustContain(t, v, "description")
+	mustContain(t, v, "─ Actions ─")
+	mustContain(t, v, "[d] describe")
+	mustContain(t, v, "[l] remove")
+	mustContain(t, v, "[Esc] back")
 }
 
 func TestLabelsTabAddLabel(t *testing.T) {

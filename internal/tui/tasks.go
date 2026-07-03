@@ -93,7 +93,7 @@ func newTasksModel(m *Model) tasksModel {
 
 func (t *tasksModel) SetSize(w, h int) {
 	_ = w
-	t.pageSize = h - 4 // header(1) + col-header(1) + separator(1) + footer(1)
+	t.pageSize = (h - 6) / 2 // dashboard header + two-line rows + footer
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}
@@ -609,48 +609,56 @@ func (t *tasksModel) renderDetail() {
 	if tk == nil {
 		return
 	}
-	b.WriteString("TASK\n")
+	fmt.Fprintf(&b, "Task %s\n", tk.ID)
 	b.WriteString(sepLine("─", 78, t.m.width, 2))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "id           %s\n", tk.ID)
-	fmt.Fprintf(&b, "project      %s\n", tk.ProjectCode)
-	fmt.Fprintf(&b, "title        %s                            [e] edit\n", tk.Title)
+	b.WriteString(t.m.styles.Muted.Render(tk.Title))
+	b.WriteString("\n\n")
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Facts"))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("id      %s", tk.ID)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("project %s", tk.ProjectCode)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("title   %s", tk.Title)))
 	if tk.Description == "" {
-		b.WriteString("description  (none)                                    [d] edit\n")
+		b.WriteString(dashboardLine(t.m.width, "description (none)"))
+		b.WriteString("\n")
 	} else {
 		for i, line := range strings.Split(tk.Description, "\n") {
 			if i == 0 {
-				fmt.Fprintf(&b, "description  %s                            [d] edit\n", line)
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("description %s", line)))
 			} else {
-				fmt.Fprintf(&b, "             %s\n", line)
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("            %s", line)))
 			}
 		}
 	}
-	fmt.Fprintf(&b, "created      %s   by %s\n", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)
-	fmt.Fprintf(&b, "updated      %s   by %s\n", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("created %s   by %s", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("updated %s   by %s", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
 	b.WriteString("\n")
 
-	b.WriteString("LABELS\n")
-	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Labels"))
 	b.WriteString("\n")
 	if len(tk.Labels) == 0 {
-		b.WriteString(" (no labels)\n")
+		b.WriteString(dashboardLine(t.m.width, " (no labels)"))
+		b.WriteString("\n")
 	} else {
 		chips := renderLabelChips(t.m.styles, tk.Labels, t.m.width-2)
-		b.WriteString(" " + chips + "\n")
+		b.WriteString(dashboardLine(t.m.width, " "+chips))
+		b.WriteString("\n")
 	}
-	b.WriteString("                                      [b] add label   [B] remove label\n")
 	b.WriteString("\n")
 
-	b.WriteString("HISTORY\n")
-	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "History"))
 	b.WriteString("\n")
 	for _, h := range tk.History {
-		fmt.Fprintf(&b, " %-3s %s   %s     %s\n", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)
+		fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
 		if len(h.Meta) > 0 {
-			fmt.Fprintf(&b, "      meta: %s\n", metaJSON(h.Meta))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
 		}
 	}
+	b.WriteString("\n")
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Actions"))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(t.m.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [x] remove   [Esc] back")))
 	t.detail.lines = strings.Split(b.String(), "\n")
 	t.clampDetail()
 }
@@ -700,7 +708,10 @@ func (t *tasksModel) headerLine() string {
 
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString(t.m.styles.HeaderLine.Render(t.headerLine()))
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Overview"))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(t.m.width, t.m.styles.HeaderLine.Render(t.headerLine())))
+	b.WriteString("\n")
 	b.WriteString("\n")
 
 	if t.m.projectScope == "" {
@@ -740,32 +751,34 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		})
 		return
 	}
-	// Column header.
-	b.WriteString(t.m.styles.HeaderLabel.Render(fmt.Sprintf(" %-10s %-40s %-30s %10s", "ID", "TITLE", "LABELS", "UPDATED")))
-	b.WriteString("\n")
-	b.WriteString(sepLine("─", 78, t.m.width, 2))
-	b.WriteString("\n")
 	// Page window.
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
 		labels := "-"
 		if len(r.labels) > 0 {
-			labels = truncateRunes(strings.Join(r.labels, " "), 30)
+			labels = strings.Join(r.labels, " ")
 		}
-		line := fmt.Sprintf(" %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
+		titleW := t.m.width - 4
+		if titleW < 20 {
+			titleW = 20
+		}
+		line := " " + truncateRunes(r.title, titleW)
+		meta := fmt.Sprintf("   id %s   labels %s   updated %s", r.id, truncateRunes(labels, 42), r.updated)
 		if i == t.cursor {
-			line = " " + t.m.styles.RowCursor.Render(line)
-		} else {
-			line = " " + line
+			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
-		b.WriteString(line)
+		b.WriteString(dashboardLine(t.m.width, line))
+		b.WriteString("\n")
+		b.WriteString(dashboardLine(t.m.width, t.m.styles.Muted.Render(meta)))
 		b.WriteString("\n")
 	}
 	b.WriteString(fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows)))
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
+	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Groups"))
+	b.WriteString("\n")
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
 		b.WriteString(centerLinesBoth([]string{
@@ -784,19 +797,26 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	if idx == t.cursor {
 		header = t.m.styles.RowCursor.Render(header)
 	}
-	b.WriteString(header)
+	b.WriteString(dashboardLine(t.m.width, header))
 	b.WriteString("\n")
 	idx++
 	for _, r := range t.others {
 		labels := "(no labels)"
 		if len(r.labels) > 0 {
-			labels = truncateRunes(strings.Join(r.labels, " "), 30)
+			labels = strings.Join(r.labels, " ")
 		}
-		line := fmt.Sprintf("  %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
+		titleW := t.m.width - 6
+		if titleW < 20 {
+			titleW = 20
+		}
+		if titleW > 32 {
+			titleW = 32
+		}
+		line := fmt.Sprintf("  %s   id %s   labels %s   updated %s", truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
 		if idx == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
-		b.WriteString(line)
+		b.WriteString(dashboardLine(t.m.width, line))
 		b.WriteString("\n")
 		idx++
 	}
@@ -823,7 +843,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 	if idx == t.cursor {
 		header = t.m.styles.RowCursor.Render(header)
 	}
-	b.WriteString(header)
+	b.WriteString(dashboardLine(t.m.width, header))
 	b.WriteString("\n")
 	idx++
 	if g.collapsed {
@@ -836,12 +856,22 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 	} else {
 		rowIndent := strings.Repeat("  ", depth+1)
 		for _, r := range g.rows {
-			// Grouped rows omit the LABELS column (group header is the axis).
-			line := fmt.Sprintf("%s%-10s %-50s %10s", rowIndent, r.id, truncateRunes(r.title, 50), r.updated)
+			labels := "(no labels)"
+			if len(r.labels) > 0 {
+				labels = strings.Join(r.labels, " ")
+			}
+			titleW := t.m.width - 6 - len(rowIndent)
+			if titleW < 20 {
+				titleW = 20
+			}
+			if titleW > 32 {
+				titleW = 32
+			}
+			line := fmt.Sprintf("%s%s   id %s   labels %s   updated %s", rowIndent, truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
 			if idx == t.cursor {
 				line = t.m.styles.RowCursor.Render(line)
 			}
-			b.WriteString(line)
+			b.WriteString(dashboardLine(t.m.width, line))
 			b.WriteString("\n")
 			idx++
 		}

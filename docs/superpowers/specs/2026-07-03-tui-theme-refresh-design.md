@@ -4,6 +4,11 @@
 **Scope:** Runtime-only TUI visual refresh and theme switching for the v2
 Bubble Tea application.
 
+**Superseded requirement note:** The follow-on dashboard layout refinement
+spec (`2026-07-03-tui-dashboard-layout-refinement-design.md`) changes the
+theme set after user review: `atm-dark` is removed, `graphite` is the default,
+and the cycle order is `graphite -> light -> mono`.
+
 ## Driver
 
 The v2 TUI already has the right product shape: Projects, Tasks, Labels, and

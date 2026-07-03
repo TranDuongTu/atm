@@ -262,6 +262,12 @@ func (l *labelsModel) renderList() string {
 	if len(l.rows) == 0 {
 		return padToHeight("no labels", l.m.contentHeight)
 	}
+	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Overview"))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
+	b.WriteString("\n")
+	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Namespaces"))
+	b.WriteString("\n")
 	// Group by namespace.
 	byNS := map[string][]labelRow{}
 	var tags []labelRow
@@ -280,37 +286,41 @@ func (l *labelsModel) renderList() string {
 		}
 	}
 	sort.Strings(nsOrder)
-	b.WriteString(l.m.styles.HeaderLabel.Render(fmt.Sprintf(" %-30s %8s  %s", "LABEL", "USAGE", "DESCRIPTION")))
-	b.WriteString("\n")
-	b.WriteString(sepLine("─", 78, l.m.width, 2))
-	b.WriteString("\n")
 	rowIdx := 0
 	for _, ns := range nsOrder {
-		b.WriteString(l.m.styles.NamespaceHeader.Render(ns + ":"))
+		b.WriteString(dashboardLine(l.m.width, l.m.styles.NamespaceHeader.Render(ns+":")))
 		b.WriteString("\n")
 		for _, r := range byNS[ns] {
-			line := fmt.Sprintf(" %-30s %5d %s  %s", r.full, r.usage, pluralTasks(r.usage), r.description)
+			desc := r.description
+			if desc == "" {
+				desc = l.m.styles.Warning.Render("needs description")
+			}
+			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
 			if rowIdx == l.cursor {
 				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 			} else {
 				line = " " + line
 			}
-			b.WriteString(line)
+			b.WriteString(dashboardLine(l.m.width, line))
 			b.WriteString("\n")
 			rowIdx++
 		}
 	}
 	if len(tags) > 0 {
-		b.WriteString(l.m.styles.NamespaceHeader.Render("tags:"))
+		b.WriteString(dashboardLine(l.m.width, l.m.styles.NamespaceHeader.Render("tags:")))
 		b.WriteString("\n")
 		for _, r := range tags {
-			line := fmt.Sprintf(" %-30s %5d %s  %s", r.full, r.usage, pluralTasks(r.usage), r.description)
+			desc := r.description
+			if desc == "" {
+				desc = l.m.styles.Warning.Render("needs description")
+			}
+			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
 			if rowIdx == l.cursor {
 				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 			} else {
 				line = " " + line
 			}
-			b.WriteString(line)
+			b.WriteString(dashboardLine(l.m.width, line))
 			b.WriteString("\n")
 			rowIdx++
 		}
@@ -321,14 +331,22 @@ func (l *labelsModel) renderList() string {
 func (l *labelsModel) renderDetail() string {
 	r := l.detail.row
 	var b strings.Builder
-	b.WriteString("LABEL\n")
+	fmt.Fprintf(&b, "Label %s\n", r.full)
 	b.WriteString(sepLine("─", 78, l.m.width, 2))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "name        %s\n", r.full)
-	fmt.Fprintf(&b, "usage       %d %s\n", r.usage, pluralTasks(r.usage))
-	fmt.Fprintf(&b, "description %s\n", r.description)
+	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Facts"))
 	b.WriteString("\n")
-	b.WriteString(l.m.styles.KeyMenuDim.Render("[d]esc  [l]remove  [Esc]back"))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("name        %s", r.full)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("usage       %d %s", r.usage, pluralTasks(r.usage))))
+	desc := r.description
+	if desc == "" {
+		desc = l.m.styles.Warning.Render("needs description")
+	}
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("description %s", desc)))
+	b.WriteString("\n")
+	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Actions"))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(l.m.width, l.m.styles.KeyMenuDim.Render("[d] describe   [l] remove   [Esc] back")))
 	return padToHeight(b.String(), l.m.contentHeight)
 }
 

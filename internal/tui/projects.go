@@ -172,26 +172,33 @@ func (p *projectsModel) renderDetail() {
 	if pr == nil {
 		return
 	}
-	b.WriteString("PROJECT\n")
+	fmt.Fprintf(&b, "Project %s\n", pr.Code)
 	b.WriteString(sepLine("─", 78, p.m.width, 2))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "code      %s\n", pr.Code)
-	fmt.Fprintf(&b, "name      %s                                  [N] set name\n", pr.Name)
-	fmt.Fprintf(&b, "tasks     %d\n", len(listTaskIDs(p.m.store, pr.Code)))
-	fmt.Fprintf(&b, "labels    %d\n", len(p.m.store.LabelList(pr.Code, "")))
-	fmt.Fprintf(&b, "created   %s   by %s\n", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)
-	fmt.Fprintf(&b, "updated   %s   by %s\n", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)
+	fmt.Fprintf(&b, "%s\n", p.m.styles.Muted.Render(pr.Name))
+	b.WriteString("\n")
+	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Facts"))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("code      %s", pr.Code)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("name      %s", pr.Name)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("tasks     %d", len(listTaskIDs(p.m.store, pr.Code)))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("labels    %d", len(p.m.store.LabelList(pr.Code, "")))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("created   %s   by %s", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("updated   %s   by %s", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
+	b.WriteString("\n")
+	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Actions"))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(p.m.width, p.m.styles.KeyMenuDim.Render("[N] set name   [H] history   [x] remove   [Esc] back")))
 	b.WriteString("\n")
 
 	if p.detail.historyOn {
 		b.WriteString("\n")
-		b.WriteString("HISTORY\n")
-		b.WriteString(sepLine("─", 78, p.m.width, 2))
+		b.WriteString(sectionDivider(p.m.styles, p.m.width, "History"))
 		b.WriteString("\n")
 		for _, h := range pr.History {
-			fmt.Fprintf(&b, " %-3s %s   %s     %s\n", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)
+			fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
 			if len(h.Meta) > 0 {
-				fmt.Fprintf(&b, "      meta: %s\n", metaJSON(h.Meta))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
 			}
 		}
 	}
@@ -228,10 +235,17 @@ func (p *projectsModel) renderList() string {
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
-	// Header.
-	b.WriteString(p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED")))
+	selected := p.m.projectScope
+	if selected == "" {
+		selected = "none"
+	}
+	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Overview"))
 	b.WriteString("\n")
-	b.WriteString(sepLine("─", 78, p.m.width, 2))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(p.m.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(p.m.width, repeat("─", dashboardContentWidth(p.m.width))))
 	b.WriteString("\n")
 	for i, r := range p.list {
 		var gutter string
@@ -247,7 +261,7 @@ func (p *projectsModel) renderList() string {
 		} else {
 			line = gutter + " " + line
 		}
-		b.WriteString(line)
+		b.WriteString(dashboardLine(p.m.width, line))
 		b.WriteString("\n")
 	}
 	return padToHeight(b.String(), p.m.contentHeight)

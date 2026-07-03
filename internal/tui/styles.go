@@ -271,6 +271,65 @@ func renderLabelChips(styles Styles, labels []string, width int) string {
 	return line
 }
 
+func dashboardContentWidth(width int) int {
+	if width < 1 {
+		return 1
+	}
+	contentW := width - 4
+	if contentW < 1 {
+		contentW = width
+	}
+	if contentW > 96 {
+		contentW = 96
+	}
+	return contentW
+}
+
+func dashboardLeftPad(width int) int {
+	contentW := dashboardContentWidth(width)
+	if width <= contentW {
+		return 0
+	}
+	return (width - contentW) / 2
+}
+
+func dashboardLine(width int, line string) string {
+	contentW := dashboardContentWidth(width)
+	prefix := spaces(dashboardLeftPad(width))
+	if line == "" {
+		return ""
+	}
+	return prefix + fitLine(line, contentW)
+}
+
+func dashboardBlock(width int, block string) string {
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		lines[i] = dashboardLine(width, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sectionDivider(styles Styles, width int, title string) string {
+	contentW := dashboardContentWidth(width)
+	label := " " + title + " "
+	labelW := lipgloss.Width(label)
+	prefix := spaces(dashboardLeftPad(width))
+	if labelW >= contentW {
+		return prefix + styles.HeaderLabel.Render(fitLine(label, contentW))
+	}
+	fill := contentW - labelW
+	left := fill / 2
+	right := fill - left
+	if left < 1 {
+		left = 1
+	}
+	if right < 1 {
+		right = 1
+	}
+	return prefix + styles.HeaderLabel.Render(repeat("─", left)+label+repeat("─", right))
+}
+
 // relTime renders a human-readable relative timestamp from t to now.
 func relTime(t time.Time, now time.Time) string {
 	d := now.Sub(t)

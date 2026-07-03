@@ -5,13 +5,12 @@ import "github.com/charmbracelet/lipgloss"
 type ThemeName string
 
 const (
-	themeATMDark  ThemeName = "atm-dark"
 	themeGraphite ThemeName = "graphite"
 	themeLight    ThemeName = "light"
 	themeMono     ThemeName = "mono"
 )
 
-var themeOrder = []ThemeName{themeATMDark, themeGraphite, themeLight, themeMono}
+var themeOrder = []ThemeName{themeGraphite, themeLight, themeMono}
 
 type Theme struct {
 	Text       lipgloss.Color
@@ -62,7 +61,7 @@ type Styles struct {
 	HelpTable       lipgloss.Style
 }
 
-func defaultThemeName() ThemeName { return themeATMDark }
+func defaultThemeName() ThemeName { return themeGraphite }
 
 func nextThemeName(current ThemeName) ThemeName {
 	for i, name := range themeOrder {
@@ -82,7 +81,7 @@ func themeByName(name ThemeName) Theme {
 	case themeMono:
 		return Theme{Text: "255", Muted: "250", Subtle: "240", Surface: "0", Border: "255", Accent: "255", AccentText: "0", Warning: "255", Error: "255", Success: "255"}
 	default:
-		return Theme{Text: "255", Muted: "245", Subtle: "240", Surface: "0", Border: "39", Accent: "39", AccentText: "0", Warning: "214", Error: "203", Success: "42"}
+		return themeByName(defaultThemeName())
 	}
 }
 

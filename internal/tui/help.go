@@ -24,29 +24,55 @@ func (h *helpModel) SetSize(w, hh int) {
 
 func (h *helpModel) refresh() {
 	var b strings.Builder
-	b.WriteString("ATM Help\n")
-	b.WriteString(sepLine("─", 78, h.m.width, 2))
+	b.WriteString(sectionDivider(h.m.styles, h.m.width, "CLI / TUI Parity"))
+	b.WriteString("\n")
+	b.WriteString(dashboardBlock(h.m.width, parityTable))
 	b.WriteString("\n\n")
 
-	b.WriteString("Section 1 — CLI / TUI parity\n")
-	b.WriteString(sepLine("─", 78, h.m.width, 2))
+	b.WriteString(sectionDivider(h.m.styles, h.m.width, "Global Keymap"))
 	b.WriteString("\n")
-	b.WriteString(parityTable)
+	b.WriteString(dashboardBlock(h.m.width, keymapTable()))
 	b.WriteString("\n\n")
 
-	b.WriteString("Section 2 — Global keymap\n")
-	b.WriteString(sepLine("─", 78, h.m.width, 2))
+	b.WriteString(sectionDivider(h.m.styles, h.m.width, "Conventions"))
 	b.WriteString("\n")
-	b.WriteString(keymapTable())
-	b.WriteString("\n\n")
-
-	b.WriteString("Section 3 — Conventions (advisory)\n")
-	b.WriteString(sepLine("─", 78, h.m.width, 2))
-	b.WriteString("\n")
-	b.WriteString(conventionsTextTUI)
+	b.WriteString(renderConventionsText(h.m.styles, h.m.width, conventionsTextTUI))
 
 	h.lines = strings.Split(b.String(), "\n")
 	h.clampOffset()
+}
+
+func renderConventionsText(styles Styles, width int, text string) string {
+	lines := strings.Split(text, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(sectionDivider(styles, width, strings.TrimPrefix(trimmed, "## ")))
+			b.WriteString("\n")
+			continue
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "- "):
+			b.WriteString(dashboardLine(width, styles.Muted.Render("  • "+strings.TrimPrefix(trimmed, "- "))))
+		case strings.HasPrefix(trimmed, "1.") ||
+			strings.HasPrefix(trimmed, "2.") ||
+			strings.HasPrefix(trimmed, "3.") ||
+			strings.HasPrefix(trimmed, "4.") ||
+			strings.HasPrefix(trimmed, "5.") ||
+			strings.HasPrefix(trimmed, "6."):
+			b.WriteString(dashboardLine(width, styles.KeyMenu.Render("  "+trimmed)))
+		default:
+			b.WriteString(dashboardLine(width, line))
+		}
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 func (h *helpModel) clampOffset() {
@@ -133,11 +159,26 @@ atm tui                                (you are here)`
 // keymapTable renders the global keymap summary as a fixed-width table.
 func keymapTable() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-12s %-22s %-24s %-22s %-10s %-26s\n", "Key", "Projects", "Tasks", "Labels", "Help", "Detail")
-	b.WriteString(strings.Repeat("-", min(100, 12+1+22+1+24+1+22+1+10+1+26)))
+	widths := []int{10, 17, 20, 18, 9, 17}
+	fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+		widths[0], "Key",
+		widths[1], "Projects",
+		widths[2], "Tasks",
+		widths[3], "Labels",
+		widths[4], "Help",
+		widths[5], "Detail",
+	)
+	b.WriteString(strings.Repeat("-", widths[0]+1+widths[1]+1+widths[2]+1+widths[3]+1+widths[4]+1+widths[5]))
 	b.WriteString("\n")
 	for _, r := range keymapRows {
-		fmt.Fprintf(&b, "%-12s %-22s %-24s %-22s %-10s %-26s\n", r.Key, r.Projects, r.Tasks, r.Labels, r.Help, r.Detail)
+		fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+			widths[0], truncateRunes(r.Key, widths[0]),
+			widths[1], truncateRunes(r.Projects, widths[1]),
+			widths[2], truncateRunes(r.Tasks, widths[2]),
+			widths[3], truncateRunes(r.Labels, widths[3]),
+			widths[4], truncateRunes(r.Help, widths[4]),
+			widths[5], truncateRunes(r.Detail, widths[5]),
+		)
 	}
 	return b.String()
 }

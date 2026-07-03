@@ -6,6 +6,7 @@ import (
 
 	"atm/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // --- test helpers ---
@@ -122,6 +123,22 @@ func mustNotContain(t *testing.T, view, sub string) {
 	}
 }
 
+func leadingSpaces(s string) int {
+	return len(s) - len(strings.TrimLeft(s, " "))
+}
+
+func TestSectionDividerCentersWiderColumn(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 30)
+	line := sectionDivider(m.styles, m.width, "Overview")
+	if got := leadingSpaces(line); got != 12 {
+		t.Fatalf("divider left padding = %d want 12\nline: %q", got, line)
+	}
+	if got := lipgloss.Width(strings.TrimLeft(line, " ")); got != 96 {
+		t.Fatalf("divider content width = %d want 96\nline: %q", got, line)
+	}
+}
+
 // --- Step 1: tab switching ---
 
 // TestTabSwitching verifies 1/2/3/4 switches the focused pane (mockup Screen
@@ -163,34 +180,34 @@ func TestTabBarShowsNumbers(t *testing.T) {
 
 func TestDefaultTheme(t *testing.T) {
 	m := newTestModel(t)
-	if m.themeName != themeATMDark {
-		t.Fatalf("themeName = %q want %q", m.themeName, themeATMDark)
+	if m.themeName != themeGraphite {
+		t.Fatalf("themeName = %q want %q", m.themeName, themeGraphite)
 	}
-	if string(m.themeName) != "atm-dark" {
-		t.Fatalf("themeName string = %q want atm-dark", m.themeName)
+	if string(m.themeName) != "graphite" {
+		t.Fatalf("themeName string = %q want graphite", m.themeName)
 	}
 }
 
 func TestNextThemeNameWraps(t *testing.T) {
-	order := []ThemeName{themeATMDark, themeGraphite, themeLight, themeMono, themeATMDark}
+	order := []ThemeName{themeGraphite, themeLight, themeMono, themeGraphite}
 	for i := 0; i < len(order)-1; i++ {
 		if got := nextThemeName(order[i]); got != order[i+1] {
 			t.Fatalf("nextThemeName(%q) = %q want %q", order[i], got, order[i+1])
 		}
 	}
-	if got := nextThemeName(ThemeName("unknown")); got != themeATMDark {
-		t.Fatalf("nextThemeName(unknown) = %q want %q", got, themeATMDark)
+	if got := nextThemeName(ThemeName("unknown")); got != themeGraphite {
+		t.Fatalf("nextThemeName(unknown) = %q want %q", got, themeGraphite)
 	}
 }
 
 func TestThemeCycleKeyUpdatesThemeAndStatus(t *testing.T) {
 	m := newTestModel(t)
-	mustContain(t, m.renderStatusLine(), "theme: atm-dark")
-	update(t, m, "T")
-	if m.themeName != themeGraphite {
-		t.Fatalf("after T: themeName = %q want %q", m.themeName, themeGraphite)
-	}
 	mustContain(t, m.renderStatusLine(), "theme: graphite")
+	update(t, m, "T")
+	if m.themeName != themeLight {
+		t.Fatalf("after T: themeName = %q want %q", m.themeName, themeLight)
+	}
+	mustContain(t, m.renderStatusLine(), "theme: light")
 }
 
 func TestThemeCyclePreservesNavigationState(t *testing.T) {
@@ -227,7 +244,7 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "a")
 	update(t, m, "T")
-	if m.themeName != themeATMDark {
+	if m.themeName != themeGraphite {
 		t.Fatalf("themeName changed in form input: %q", m.themeName)
 	}
 	if got := m.form.Fields[0].Value; got != "T" {
@@ -242,8 +259,8 @@ func TestThemeCyclesInsideKeymapOverlay(t *testing.T) {
 		t.Fatalf("setup: keymap overlay should be open")
 	}
 	update(t, m, "T")
-	if m.themeName != themeGraphite {
-		t.Fatalf("themeName = %q want %q", m.themeName, themeGraphite)
+	if m.themeName != themeLight {
+		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
 	if !m.keymapOverlayOn {
 		t.Fatalf("theme cycling should not close keymap overlay")
@@ -395,7 +412,8 @@ func TestOverlayPreservesUnderlyingScreen(t *testing.T) {
 	update(t, m, "a")
 	withOverlay := m.View()
 	mustContain(t, withOverlay, "New project")
-	mustContain(t, withOverlay, "Acme Task Manager")
+	mustContain(t, withOverlay, "Projects")
+	mustContain(t, withOverlay, "total projects: 1")
 }
 
 // --- Step 3: projects list + detail ---
@@ -412,9 +430,24 @@ func TestProjectsListEmpty(t *testing.T) {
 // and the selection gutter marker (mockup Screen 3).
 func TestProjectsListPopulated(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(120, 35)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedProject(t, m, "SCY", "Scylla")
 	v := m.View()
+	body := m.projects.View()
+	if strings.HasPrefix(body, "Projects\n") {
+		t.Fatalf("projects body repeats tab title\n--- body ---\n%s", body)
+	}
+	mustContain(t, body, "─ Overview ─")
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("projects body too short\n--- body ---\n%s", body)
+	}
+	if leadingSpaces(lines[1]) != leadingSpaces(lines[0]) {
+		t.Fatalf("summary should align with divider: divider=%q summary=%q", lines[0], lines[1])
+	}
+	mustContain(t, v, "total projects: 2")
+	mustContain(t, v, "selected: none")
 	for _, col := range []string{"CODE", "NAME", "TASKS", "LABELS", "UPDATED"} {
 		mustContain(t, v, col)
 	}
@@ -430,7 +463,24 @@ func TestProjectsListPopulated(t *testing.T) {
 	if m.projectScope != "ATM" {
 		t.Errorf("after s: projectScope = %q want ATM", m.projectScope)
 	}
-	mustContain(t, m.View(), "▸")
+	selected := m.View()
+	mustContain(t, selected, "selected: ATM")
+	mustContain(t, selected, "▸")
+}
+
+func TestProjectDetailDashboardSections(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "enter")
+	v := m.View()
+	mustContain(t, v, "Project ATM")
+	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "code")
+	mustContain(t, v, "tasks")
+	mustContain(t, v, "─ Actions ─")
+	mustContain(t, v, "[N] set name")
+	mustContain(t, v, "[H] history")
+	mustContain(t, v, "[x] remove")
 }
 
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is
@@ -465,7 +515,7 @@ func TestProjectDetailNoLabelsSection(t *testing.T) {
 	seedLabel(t, m, "ATM:custom:x", "custom")
 	update(t, m, "enter") // open ATM detail (cursor on ATM)
 	v := m.View()
-	mustContain(t, v, "PROJECT")
+	mustContain(t, v, "Project ATM")
 	mustNotContain(t, v, "LABELS")
 	// The labels count fact line stays.
 	mustContain(t, v, "labels")
@@ -499,7 +549,7 @@ func TestProjectDetailHistoryToggle(t *testing.T) {
 		t.Errorf("after H: detail.historyOn = false want true")
 	}
 	v = m.View()
-	mustContain(t, v, "HISTORY")
+	mustContain(t, v, "History")
 	// Press H again to toggle off.
 	update(t, m, "H")
 	if m.projects.detail.historyOn {
@@ -520,9 +570,17 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	update(t, m, "s") // select ATM
 	update(t, m, "2") // switch to Tasks tab
 	v := m.View()
+	body := m.tasks.View()
+	if strings.HasPrefix(body, "Tasks\n") {
+		t.Fatalf("tasks body repeats tab title\n--- body ---\n%s", body)
+	}
+	mustContain(t, body, "─ Overview ─")
 	mustContain(t, v, "PROJECT: ATM")
 	mustContain(t, v, "FILTER: (none)")
 	mustContain(t, v, "SORT: updated-desc")
+	mustContain(t, v, "task one")
+	mustContain(t, v, "id ATM-0001")
+	mustContain(t, v, "labels ATM:status:open")
 }
 
 // TestTasksFilterInlineEditing verifies / enters edit mode, typing and Enter
@@ -607,6 +665,7 @@ func TestTasksGroupedSingleWildcard(t *testing.T) {
 	}
 	update(t, m, "enter")
 	v := m.View()
+	mustContain(t, v, "Groups")
 	mustContain(t, v, "▾ ATM:status:done")
 	mustContain(t, v, "▾ ATM:status:open")
 	// (no matching labels) bucket last.
@@ -693,15 +752,19 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
 	v := m.View()
-	mustContain(t, v, "TASK")
-	mustContain(t, v, "id           ATM-0001")
-	mustContain(t, v, "project      ATM")
-	mustContain(t, v, "title        Fix label reconciliation")
-	mustContain(t, v, "LABELS")
+	mustContain(t, v, "Task ATM-0001")
+	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "id      ATM-0001")
+	mustContain(t, v, "project ATM")
+	mustContain(t, v, "title   Fix label reconciliation")
+	mustContain(t, v, "─ Labels ─")
 	mustContain(t, v, "ATM:status:in-progress")
 	mustContain(t, v, "ATM:type:bug")
 	mustContain(t, v, "ATM:priority:high")
-	mustContain(t, v, "HISTORY")
+	mustContain(t, v, "─ History ─")
+	mustContain(t, v, "─ Actions ─")
+	mustContain(t, v, "[e] edit title")
+	mustContain(t, v, "[b] add label")
 	mustContain(t, v, "created")
 	mustContain(t, v, "label-added")
 	// Chronological: "created" (h1) before "label-added" (h2).
@@ -786,12 +849,20 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 // Help tab (mockup Screen 10, Section 1).
 func TestHelpTabParityTable(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(120, 35)
 	update(t, m, "4")
 	v := m.View()
-	mustContain(t, v, "CLI / TUI parity")
+	mustContain(t, v, "─ CLI / TUI Parity ─")
 	mustContain(t, v, "atm project create")
 	mustContain(t, v, "atm task create")
 	mustContain(t, v, "atm conventions")
+	lines := strings.Split(m.help.View(), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("help view too short\n--- help ---\n%s", m.help.View())
+	}
+	if leadingSpaces(lines[1]) != leadingSpaces(lines[0]) {
+		t.Fatalf("help content should align with divider: divider=%q content=%q", lines[0], lines[1])
+	}
 }
 
 // TestHelpTabConventions verifies the conventions (advisory) section is
@@ -802,9 +873,11 @@ func TestHelpTabConventions(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "4")
 	content := strings.Join(m.help.lines, "\n")
-	mustContain(t, content, "Conventions")
+	mustContain(t, content, "─ Conventions ─")
 	mustContain(t, content, "advisory")
 	mustContain(t, content, "Suggested seed namespaces")
+	mustNotContain(t, content, "## Suggested seed namespaces")
+	mustNotContain(t, content, "## Agent code-of-conduct")
 }
 
 // TestHelpTabReadOnly verifies no mutating keys route to the store from the
@@ -842,7 +915,7 @@ func TestHelpTabKeymap(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "4")
 	content := strings.Join(m.help.lines, "\n")
-	mustContain(t, content, "Global keymap")
+	mustContain(t, content, "─ Global Keymap ─")
 	// A stable binding row from the keymap table — [a] add project/task.
 	mustContain(t, content, "[a]")
 	// The table header should be present too.
