@@ -2,15 +2,24 @@
   "conventions": {
     "advisory": "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
     "agent_first_contact_sequence": [
-      "atm conventions — read the guide",
-      "task list --project <CODE> --label <CODE>:context:start-here — get the entry-point pointer and follow it",
-      "task list --project <CODE> --label <CODE>:repo:* / :doc:* / :context:* — discover index tasks for repos, docs, and always-read context",
+      "atm conventions — read this guide, including the code-of-conduct",
+      "atm label list --project <CODE> — read every label's description first to understand the project's vocabulary before exploring tasks",
+      "task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
+      "task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
       "task list --project <CODE> --label <CODE>:status:open — get open work"
+    ],
+    "code_of_conduct": [
+      "Read before you write. Run atm label list --project <CODE> and read every label's description before introducing any new label.",
+      "Default setup is the baseline. Prefer seeded labels; do not reinvent them under new names.",
+      "Invent only when nothing fits. Agents are free to self-organize, but a human reviewing the Labels tab should understand why a new label exists.",
+      "State the intention in the label description. A label with no description is a flag for human review.",
+      "One label, one meaning. If intent diverges from an existing label's description, create a new label with a distinct name.",
+      "Humans reconcile. The Labels tab is the human's review surface for overlapping, contradictory, or undescribed labels."
     ],
     "first_time_human_sequence": [
       "atm tui (auto-inits the store)",
-      "create the project (Add in the Projects tab)",
-      "create seed index tasks (start-here, repo:<name>, doc:<name>, context:always-read) and initial work tasks, labeling as you go"
+      "create the project (Add in the Projects tab); project create auto-seeds the 17 default labels with descriptions",
+      "create seed index tasks (context:agent, context:repository, context:documentation) and initial work tasks, labeling as you go"
     ],
     "namespaces": [
       {
@@ -29,36 +38,116 @@
         "purpose": "optional prioritization"
       },
       {
+        "examples": "ATM:context:documentation",
+        "namespace": "context:documentation",
+        "purpose": "the labeled task contains documentation about the project"
+      },
+      {
+        "examples": "ATM:context:repository",
+        "namespace": "context:repository",
+        "purpose": "the labeled task contains a pointer to a code repository"
+      },
+      {
+        "examples": "ATM:context:agent",
+        "namespace": "context:agent",
+        "purpose": "agent direction when navigating the project"
+      },
+      {
+        "examples": "ATM:context:fixit",
+        "namespace": "context:fixit",
+        "purpose": "something on this task should be reviewed, updated, or altered"
+      },
+      {
         "examples": "ATM:repo:atm",
         "namespace": "repo:<name>",
-        "purpose": "index task whose description says where to find the repo — repo to project binding in the label substrate"
+        "purpose": "index task pointing at a repo — created on demand, not seeded"
       },
       {
         "examples": "ATM:doc:architecture",
         "namespace": "doc:<name>",
-        "purpose": "index task pointing at a doc/resource and how to use it"
-      },
-      {
-        "examples": "ATM:context:always-read",
-        "namespace": "context:always-read",
-        "purpose": "pointer to the always-read context markdown (replaces the deleted v1 Project Guide)"
-      },
-      {
-        "examples": "ATM:context:start-here",
-        "namespace": "context:start-here",
-        "purpose": "the single entry-point task a fresh agent queries first; its description is the read this first pointer"
+        "purpose": "index task pointing at a doc/resource — created on demand, not seeded"
       },
       {
         "examples": "ATM:claimed-by:claude",
         "namespace": "claimed-by:<agent>",
-        "purpose": "who's working on what — replaces v1 Claim; last-writer-wins, no conflict detection"
+        "purpose": "who's working on what — last-writer-wins, no conflict detection"
       },
       {
         "examples": "ATM:blocks:ATM-0002",
         "namespace": "blocks:<ID>, related:<ID>",
-        "purpose": "task relationships via labels (replaces v1 Links)"
+        "purpose": "task relationships via labels — created on demand, not seeded"
       }
     ],
-    "version": "v2.0"
+    "seeded_labels": [
+      {
+        "description": "workflow state: open; task is not started or is being considered",
+        "suffix": "status:open"
+      },
+      {
+        "description": "workflow state: todo; task is queued for work",
+        "suffix": "status:todo"
+      },
+      {
+        "description": "workflow state: in-progress; someone is actively working on this",
+        "suffix": "status:in-progress"
+      },
+      {
+        "description": "workflow state: done; task is complete",
+        "suffix": "status:done"
+      },
+      {
+        "description": "workflow state: blocked; task cannot proceed pending something else",
+        "suffix": "status:blocked"
+      },
+      {
+        "description": "workflow state: review; task is awaiting review/approval",
+        "suffix": "status:review"
+      },
+      {
+        "description": "task categorization: bug; a defect to fix",
+        "suffix": "type:bug"
+      },
+      {
+        "description": "task categorization: feature; new functionality to add",
+        "suffix": "type:feature"
+      },
+      {
+        "description": "task categorization: task; general work item",
+        "suffix": "type:task"
+      },
+      {
+        "description": "task categorization: chore; maintenance, refactoring, tooling",
+        "suffix": "type:chore"
+      },
+      {
+        "description": "optional prioritization: high",
+        "suffix": "priority:high"
+      },
+      {
+        "description": "optional prioritization: medium",
+        "suffix": "priority:medium"
+      },
+      {
+        "description": "optional prioritization: low",
+        "suffix": "priority:low"
+      },
+      {
+        "description": "the labeled task contains documentation about the project",
+        "suffix": "context:documentation"
+      },
+      {
+        "description": "the labeled task contains a pointer to a code repository",
+        "suffix": "context:repository"
+      },
+      {
+        "description": "agent direction when navigating the project; read these to understand how to work in this project",
+        "suffix": "context:agent"
+      },
+      {
+        "description": "something on this task should be reviewed, updated, or altered",
+        "suffix": "context:fixit"
+      }
+    ],
+    "version": "v2.1"
   }
 }
