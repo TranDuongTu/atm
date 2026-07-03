@@ -72,7 +72,7 @@ func (m *Model) doLabelAdd(vals map[string]string) tea.Cmd {
 	code := m.formPayload
 	suffix := vals["name"]
 	full := code + ":" + suffix
-	if err := m.store.LabelAdd(full, vals["desc"], m.actor); err != nil {
+	if err := m.store.LabelAdd(full, "", m.actor); err != nil {
 		m.showToast("error: " + err.Error())
 		return nil
 	}
