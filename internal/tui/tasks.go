@@ -928,7 +928,7 @@ func (t *tasksModel) openCreateForm() {
 		{Label: "description", Required: false, Hint: "optional; multi-line later"},
 		{Label: "labels", Required: false, Hint: "space-separated suffixes, e.g. 'status:open type:bug' (prefix auto-added)", Validator: labelsValidator},
 	}
-	f := NewForm("New task  " + t.m.projectScope + ":", fields)
+	f := NewForm("New task  "+t.m.projectScope+":", fields)
 	f.Title = "New task  " + t.m.projectScope + ":"
 	t.m.form = f
 	t.m.formKind = formTaskCreate

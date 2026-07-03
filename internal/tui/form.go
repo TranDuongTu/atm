@@ -24,16 +24,16 @@ const (
 )
 
 type Form struct {
-	Title   string
-	Fields  []formField
-	cursor  int // active field index
-	btnIdx  int // 0 = Submit, 1 = Cancel
-	zone    formFocus
-	Active  bool
-	Done    bool
-	Cancel  bool
-	Err     string
-	width   int
+	Title  string
+	Fields []formField
+	cursor int // active field index
+	btnIdx int // 0 = Submit, 1 = Cancel
+	zone   formFocus
+	Active bool
+	Done   bool
+	Cancel bool
+	Err    string
+	width  int
 }
 
 func NewForm(title string, fields []formField) *Form {

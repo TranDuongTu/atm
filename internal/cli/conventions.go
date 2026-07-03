@@ -137,10 +137,10 @@ func conventionsStructured() map[string]any {
 		seeded = append(seeded, map[string]string{"suffix": l.Suffix, "description": l.Description})
 	}
 	return map[string]any{
-		"version": conventionsVersion,
-		"namespaces": namespaces,
+		"version":         conventionsVersion,
+		"namespaces":      namespaces,
 		"code_of_conduct": codeOfConduct,
-		"seeded_labels": seeded,
+		"seeded_labels":   seeded,
 		"first_time_human_sequence": []string{
 			"atm tui (auto-inits the store)",
 			"create the project (Add in the Projects tab); project create auto-seeds the 17 default labels with descriptions",
