@@ -1,0 +1,23 @@
+{
+  "labels": [
+    "ATM:context:agent",
+    "ATM:context:documentation",
+    "ATM:context:fixit",
+    "ATM:context:repository",
+    "ATM:priority:high",
+    "ATM:priority:low",
+    "ATM:priority:medium",
+    "ATM:status:blocked",
+    "ATM:status:done",
+    "ATM:status:in-progress",
+    "ATM:status:open",
+    "ATM:status:review",
+    "ATM:status:todo",
+    "ATM:type:bug",
+    "ATM:type:chore",
+    "ATM:type:feature",
+    "ATM:type:task"
+  ],
+  "project": "ATM",
+  "seeded": 17
+}

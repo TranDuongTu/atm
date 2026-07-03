@@ -3,6 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"sort"
+
+	"atm/internal/seed"
 
 	"github.com/spf13/cobra"
 )
@@ -16,6 +19,7 @@ func newLabelCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newLabelRemoveCmd(st))
 	cmd.AddCommand(newLabelListCmd(st))
 	cmd.AddCommand(newLabelShowCmd(st))
+	cmd.AddCommand(newLabelSeedCmd(st))
 	return cmd
 }
 
@@ -128,5 +132,41 @@ func newLabelShowCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "label name")
 	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newLabelSeedCmd(st *cliState) *cobra.Command {
+	var project string
+	cmd := &cobra.Command{
+		Use:   "seed",
+		Short: "Apply the default seed labels to a project (idempotent)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.SeedLabels(project, actor); err != nil {
+				return err
+			}
+			names := make([]string, 0, len(seed.Labels))
+			for _, l := range seed.Labels {
+				names = append(names, project+":"+l.Suffix)
+			}
+			sort.Strings(names)
+			return st.emit(st.stdout(), map[string]any{
+				"project": project,
+				"seeded":  len(seed.Labels),
+				"labels":  names,
+			}, func() {
+				fmt.Fprintf(st.stdout(), "seeded %d labels into %s\n", len(seed.Labels), project)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code to seed")
+	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
