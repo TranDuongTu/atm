@@ -38,5 +38,5 @@ var keymapRows = []keyEntry{
 	{"H", "toggle history (project detail)", "-", "-", "-"},
 	{"?", "toggle keymap overlay", "toggle keymap overlay", "-", "toggle keymap overlay"},
 	{"PgDn/Space", "-", "next page", "next page", "scroll down"},
-	{"PgUp/b", "-", "prev page", "prev page", "-"},
+	{"PgUp", "-", "prev page", "prev page", "-"},
 }

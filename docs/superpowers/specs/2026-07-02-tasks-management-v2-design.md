@@ -279,9 +279,9 @@ atm task remove       --id <ID> [--actor <id>]
 names **and suffix-only wildcards** (`ATM:status:*`, `ATM:*`). Non-wildcard
 `--label` tokens restrict the set; wildcard tokens facet it. With `--facets`,
 output is grouped by every concrete label matched by any wildcard `--label`
-token (multi-membership; a sentinel group key `""` holds tasks matching no
-wildcard). JSON shape:
-`{"groups":[{"label":"ATM:status:open","tasks":[...]},{"label":"","tasks":[...]}]}`.
+token (multi-membership; tasks matching no wildcard are returned in a separate
+`others` array). JSON shape:
+`{"groups":[{"label":"ATM:status:open","tasks":[...]}],"others":[...]}`.
 Without `--facets`, flat list sorted by project-then-numeric ID.
 
 `task create` assigns the next id `<CODE>-<N>` (4-digit zero-padded up to 9999,
@@ -584,9 +584,9 @@ zero-task guard; label regex enforces project-prefix match; determinism (sorted
 JSON, stable ordering).
 
 **CLI tests**: each command has text-mode and json-mode cases via the existing
-`emit`/golden pattern; `--facets` output shape (groups array with `label` keys
-+ sentinel `""` group) gets a golden file; wildcard `--label` tokens accepted
-(`ATM:status:*`, `ATM:*`); error exit codes (2/3/4) covered.
+`emit`/golden pattern; `--facets` output shape (`groups` array with `label`
+keys + separate `others` array) gets a golden file; wildcard `--label` tokens
+accepted (`ATM:status:*`, `ATM:*`); error exit codes (2/3/4) covered.
 
 **TUI tests**: tab switching; project create form; task create form; label add
 form; filter-driven grouping (enter `ATM:status:*` → grouped view with

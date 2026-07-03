@@ -414,8 +414,8 @@ func (p *projectsModel) openLabelAddForm() {
 		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>, e.g. status:open", Validator: validator},
 		{Label: "desc", Required: false, Hint: "optional; preserved if already set"},
 	}
-	f := NewForm("Add label  ATM:", fields)
-	f.Title = "Add label  ATM:"
+	f := NewForm(fmt.Sprintf("Add label  %s:", pr.Code), fields)
+	f.Title = fmt.Sprintf("Add label  %s:", pr.Code)
 	p.m.form = f
 	p.m.formKind = formLabelAdd
 	p.m.formPayload = pr.Code
@@ -438,8 +438,8 @@ func (p *projectsModel) openLabelRemoveForm() {
 	fields := []formField{
 		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
 	}
-	f := NewForm("Remove label  ATM:", fields)
-	f.Title = "Remove label  ATM:"
+	f := NewForm(fmt.Sprintf("Remove label  %s:", pr.Code), fields)
+	f.Title = fmt.Sprintf("Remove label  %s:", pr.Code)
 	p.m.form = f
 	p.m.formKind = formLabelRemove
 	p.m.formPayload = pr.Code
