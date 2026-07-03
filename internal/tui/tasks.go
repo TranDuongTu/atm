@@ -10,22 +10,22 @@ import (
 )
 
 type tasksModel struct {
-	m     *Model
-	view  tView
+	m    *Model
+	view tView
 
 	// list state (flat + grouped)
-	rows      []taskRow
-	groups    []taskGroup
-	others    []taskRow
-	cursor    int
-	offset    int
-	pageSize  int
+	rows     []taskRow
+	groups   []taskGroup
+	others   []taskRow
+	cursor   int
+	offset   int
+	pageSize int
 
 	// filter / sort
-	filter     string
-	filterEdit string
+	filter        string
+	filterEdit    string
 	filterEditing bool
-	sortMode   sortMode
+	sortMode      sortMode
 
 	// detail
 	detail taskDetailState
@@ -75,16 +75,16 @@ type taskGroup struct {
 	// carries (multi-membership preserved). Tasks in this group that match
 	// no deeper wildcard land in a sub-`(no matching labels)` bucket (label
 	// == "").
-	subgroups  []taskGroup
+	subgroups []taskGroup
 	// collapsed controls group-header expand/collapse.
 	collapsed bool
 }
 
 type taskDetailState struct {
-	id      string
-	task    *store.Task
-	lines   []string
-	offset  int
+	id     string
+	task   *store.Task
+	lines  []string
+	offset int
 }
 
 func newTasksModel(m *Model) tasksModel {
@@ -912,11 +912,23 @@ func (t *tasksModel) statusHint() string {
 // --- form openers ---
 
 func (t *tasksModel) openCreateForm() {
+	labelsValidator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		for _, tok := range strings.Fields(value) {
+			if !labelSuffixRe.MatchString(tok) {
+				return fmt.Errorf("bad label %q: use <namespace>:<value> or <tag>", tok)
+			}
+		}
+		return nil
+	}
 	fields := []formField{
 		{Label: "title", Required: true, Hint: "task title"},
 		{Label: "description", Required: false, Hint: "optional; multi-line later"},
+		{Label: "labels", Required: false, Hint: "space-separated suffixes, e.g. 'status:open type:bug' (prefix auto-added)", Validator: labelsValidator},
 	}
-	f := NewForm("New task  "+t.m.projectScope+":", fields)
+	f := NewForm("New task  " + t.m.projectScope + ":", fields)
 	f.Title = "New task  " + t.m.projectScope + ":"
 	t.m.form = f
 	t.m.formKind = formTaskCreate
@@ -1006,7 +1018,11 @@ func (t *tasksModel) requestRemoveTask() tea.Cmd {
 func (m *Model) doTaskCreate(vals map[string]string) tea.Cmd {
 	title := vals["title"]
 	desc := vals["description"]
-	tk, err := m.store.CreateTask(m.projectScope, title, desc, nil, m.actor)
+	var labels []string
+	for _, tok := range strings.Fields(vals["labels"]) {
+		labels = append(labels, m.projectScope+":"+tok)
+	}
+	tk, err := m.store.CreateTask(m.projectScope, title, desc, labels, m.actor)
 	if err != nil {
 		m.showToast("error: " + err.Error())
 		return nil
