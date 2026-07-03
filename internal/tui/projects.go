@@ -110,14 +110,8 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.refresh()
 		}
 	case "a":
-		if !p.m.canMutate() {
-			return nil
-		}
 		p.openCreateForm()
 	case "x":
-		if !p.m.canMutate() {
-			return nil
-		}
 		if r, ok := p.selected(); ok {
 			return p.requestRemoveProject(r.code)
 		}
@@ -137,27 +131,15 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		p.detail.offset = 0
 	case "n":
-		if !p.m.canMutate() {
-			return nil
-		}
 		p.openSetNameForm()
 	case "L":
-		if !p.m.canMutate() {
-			return nil
-		}
 		p.openLabelAddForm()
 	case "l":
-		if !p.m.canMutate() {
-			return nil
-		}
 		p.openLabelRemoveForm()
 	case "H":
 		p.detail.historyOn = !p.detail.historyOn
 		p.renderDetail()
 	case "x":
-		if !p.m.canMutate() {
-			return nil
-		}
 		return p.requestRemoveProject(p.detail.code)
 	}
 	return nil
@@ -284,11 +266,7 @@ func (p *projectsModel) View() string {
 func (p *projectsModel) renderList() string {
 	var b strings.Builder
 	if len(p.list) == 0 {
-		empty := "no projects\n\npress [a] to add a project, then seed\nindex tasks (start-here, repo:, doc:)\nand label as you go"
-		b.WriteString(centerBlock(empty, p.m.width))
-		// pad to content height
-		out := b.String()
-		return padToHeight(out, p.m.contentHeight)
+		return p.renderEmpty()
 	}
 	// Header.
 	b.WriteString(headerLabelStyle.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED")))
@@ -315,6 +293,21 @@ func (p *projectsModel) renderList() string {
 	return padToHeight(b.String(), p.m.contentHeight)
 }
 
+// renderEmpty renders the empty-store landing (mockup Screen 1): a heading
+// and the first-run guidance, each line center-aligned within the dashboard
+// content area (so lines stay centered regardless of width, not wrapped).
+// The [a] action key is highlighted to draw the eye.
+func (p *projectsModel) renderEmpty() string {
+	lines := []string{
+		emptyHeadStyle.Render("no projects"),
+		"",
+		emptyTextStyle.Render(fmt.Sprintf("press %s to add a project, then seed", emptyKeyStyle.Render("[a]"))),
+		emptyDimStyle.Render("index tasks (start-here, repo:, doc:)"),
+		emptyDimStyle.Render("and label as you go"),
+	}
+	return padToHeight(centerLinesBoth(lines, p.m.width, p.m.contentHeight), p.m.contentHeight)
+}
+
 func (p *projectsModel) renderDetailView() string {
 	end := p.detail.offset + p.m.contentHeight
 	if end > len(p.detail.lines) {
@@ -325,7 +318,7 @@ func (p *projectsModel) renderDetailView() string {
 		b.WriteString(p.detail.lines[i])
 		b.WriteString("\n")
 	}
-	return b.String()
+	return padToHeight(b.String(), p.m.contentHeight)
 }
 
 func (p *projectsModel) statusHint() string {
@@ -358,16 +351,6 @@ func (p *projectsModel) openCreateForm() {
 	fields := []formField{
 		{Label: "code", Required: true, Hint: "3-6 uppercase letters, e.g. ATM", Validator: codeValidator},
 		{Label: "name", Required: true, Hint: "project display name"},
-	}
-	// If no actor set, add an actor field per mockup Screen 2.
-	if !p.m.canMutate() {
-		actorValidator := func(field, value string) error {
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("actor is required")
-			}
-			return nil
-		}
-		fields = append(fields, formField{Label: "actor", Required: true, Hint: "free-form id (e.g. claude)", Validator: actorValidator})
 	}
 	f := NewForm("New project", fields)
 	p.m.form = f
@@ -464,11 +447,7 @@ func (p *projectsModel) requestRemoveProject(code string) tea.Cmd {
 func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
 	code := vals["code"]
 	name := vals["name"]
-	actor := m.actor
-	if actor == "" {
-		actor = strings.TrimSpace(vals["actor"])
-	}
-	if _, err := m.store.CreateProject(code, name, actor); err != nil {
+	if _, err := m.store.CreateProject(code, name, m.actor); err != nil {
 		if store.IsConflict(err) {
 			m.showToast(fmt.Sprintf("4 conflict: code %s exists", code))
 		} else {

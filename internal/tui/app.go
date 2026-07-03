@@ -98,13 +98,17 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 			return nil, err
 		}
 	}
+	actor := opts.Actor
+	if actor == "" {
+		actor = "default"
+	}
 	m := &Model{
 		store:    s,
 		storeSet: true,
 		km:       defaultKeymap(),
 		width:    100,
 		height:   30,
-		actor:    opts.Actor,
+		actor:    actor,
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
@@ -147,17 +151,16 @@ func (m *Model) refreshAll() {
 	m.help.refresh()
 }
 
-// actorOr returns the actor string, or the placeholder used by the status line
-// when no actor is set.
+// actorOr returns the actor string for the status line. The actor is always
+// set (defaults to "default" when none was provided at launch).
 func (m *Model) actorOr() string {
-	if m.actor != "" {
-		return m.actor
-	}
-	return "set --actor to mutate"
+	return m.actor
 }
 
-// canMutate reports whether mutating keys are active (actor is set).
-func (m *Model) canMutate() bool { return m.actor != "" }
+// canMutate reports whether mutating keys are active. Always true in v2: the
+// actor defaults to "default" when the TUI is launched without --actor, so
+// there is no actor-gated dead state. Kept as a stable predicate for callers.
+func (m *Model) canMutate() bool { return true }
 
 // Init is the Bubble Tea Init command.
 func (m *Model) Init() tea.Cmd { return nil }
@@ -200,6 +203,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// Form overlay consumes all keys until closed.
 	if m.form != nil && m.form.Active {
 		return m.handleFormKey(k)
+	}
+
+	// `q` quits the app when no overlay/form/confirm is active (mirrors the
+	// common TUI convention; ctrl+c also quits anywhere).
+	if k.String() == "q" {
+		m.quitting = true
+		return tea.Quit
 	}
 
 	// Tab switching works in list/detail panes (not inside form/confirm).
@@ -353,7 +363,7 @@ func (m *Model) renderTabBar() string {
 	names := []string{"Projects", "Tasks", "Help"}
 	var parts []string
 	for i, n := range names {
-		label := "[ " + n + " ]"
+		label := fmt.Sprintf("%d  %s", i+1, n)
 		if workspacePane(i) == m.focused {
 			parts = append(parts, activeTabStyle.Render(label))
 		} else {

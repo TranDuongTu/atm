@@ -15,6 +15,13 @@ import (
 // keys are active in the tests.
 func newTestModel(t *testing.T) *Model {
 	t.Helper()
+	return newTestModelWithActor(t, "claude")
+}
+
+// newTestModelWithActor builds a Model with the given actor (empty string
+// simulates a first-run launch with no --actor / ATM_ACTOR).
+func newTestModelWithActor(t *testing.T, actor string) *Model {
+	t.Helper()
 	s, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -22,7 +29,7 @@ func newTestModel(t *testing.T) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "claude"})
+	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: actor})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
@@ -138,6 +145,35 @@ func TestTabSwitching(t *testing.T) {
 	}
 }
 
+// TestTabBarShowsNumbers verifies the tab bar renders numeric prefixes (1/2/3)
+// so the [1]/[2]/[3] switching keys are discoverable.
+func TestTabBarShowsNumbers(t *testing.T) {
+	m := newTestModel(t)
+	bar := m.renderTabBar()
+	for _, want := range []string{"1", "2", "3", "Projects", "Tasks", "Help"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("tab bar missing %q\nbar: %s", want, bar)
+		}
+	}
+}
+
+// TestQuitBinding verifies `q` quits the app when no overlay/form/confirm is
+// active (ctrl+c also quits; both set quitting=true and return tea.Quit).
+func TestQuitBinding(t *testing.T) {
+	m := newTestModel(t)
+	mm, cmd := m.Update(keyMsg("q"))
+	out, ok := mm.(*Model)
+	if !ok {
+		t.Fatalf("Update did not return *Model")
+	}
+	if !out.quitting {
+		t.Errorf("after q: quitting = false want true")
+	}
+	if cmd == nil {
+		t.Errorf("after q: cmd = nil want tea.Quit")
+	}
+}
+
 // --- Step 2: project create form ---
 
 // TestProjectCreateFormEmptySubmitDisabled verifies that an empty code field
@@ -223,6 +259,28 @@ func TestProjectCreateFormConflict(t *testing.T) {
 	update(t, m, "enter")
 	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "4 conflict: code ATM exists") {
 		t.Errorf("toast = %q, want 4 conflict: code ATM exists", m.toastMsg)
+	}
+}
+
+// TestProjectCreateFormNoActor verifies the first-run flow: launching the TUI
+// without --actor defaults the actor to "default", so [a] opens the create
+// form with no actor field (the form only collects code + name).
+func TestProjectCreateFormNoActor(t *testing.T) {
+	m := newTestModelWithActor(t, "")
+	if m.actor != "default" {
+		t.Fatalf("actor = %q want %q", m.actor, "default")
+	}
+	if !m.canMutate() {
+		t.Fatalf("canMutate = false want true (actor defaults to default)")
+	}
+	update(t, m, "a")
+	if m.form == nil || !m.form.Active {
+		t.Fatalf("pressing [a] did not open the create form")
+	}
+	for _, f := range m.form.Fields {
+		if f.Label == "actor" {
+			t.Errorf("create form should not collect an actor (actor defaults to default); got actor field")
+		}
 	}
 }
 

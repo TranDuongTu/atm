@@ -98,6 +98,15 @@ var (
 
 	// overlayBackdropStyle dims the underlying content when a form/overlay is open.
 	overlayBackdropStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	// Empty-state shared styles. emptyHeadStyle renders the bold white
+	// heading; emptyTextStyle renders the action line in bright white;
+	// emptyKeyStyle highlights the bracketed key (e.g. [a]) in cyan bold;
+	// emptyDimStyle renders secondary hint copy dimmed.
+	emptyHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	emptyTextStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+	emptyKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	emptyDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 // box renders `inner` inside a bordered block at least `w` columns wide (so
@@ -230,6 +239,62 @@ func centerBlock(s string, w int) string {
 		lines[i] = left + l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// centerBlockBoth centers `s` both horizontally and vertically within a box of
+// width w and height h (in lines). Used for empty-state copy that should sit
+// in the middle of the dashboard content area.
+func centerBlockBoth(s string, w, h int) string {
+	lines := strings.Split(s, "\n")
+	maxL := 0
+	for _, l := range lines {
+		if lw := lipgloss.Width(l); lw > maxL {
+			maxL = lw
+		}
+	}
+	leftPad := 0
+	if maxL < w {
+		leftPad = (w - maxL) / 2
+	}
+	topPad := 0
+	if n := len(lines); n < h {
+		topPad = (h - n) / 2
+	}
+	out := make([]string, 0, topPad+len(lines))
+	blank := spaces(w)
+	for i := 0; i < topPad; i++ {
+		out = append(out, blank)
+	}
+	left := spaces(leftPad)
+	for _, l := range lines {
+		out = append(out, left+l)
+	}
+	return strings.Join(out, "\n")
+}
+
+// centerLinesBoth centers each pre-rendered line both horizontally (via
+// lipgloss AlignCenter, so each line centers independently) and vertically
+// (top-padded to sit in the middle of an h-line box). Returns the block
+// without final height padding; callers pad to their content height so they
+// can account for any header lines they wrote first.
+func centerLinesBoth(lines []string, w, h int) string {
+	if w < 1 {
+		w = 1
+	}
+	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
+	topPad := 0
+	if n := len(lines); n < h {
+		topPad = (h - n) / 2
+	}
+	out := make([]string, 0, topPad+len(lines))
+	blank := spaces(w)
+	for i := 0; i < topPad; i++ {
+		out = append(out, blank)
+	}
+	for _, l := range lines {
+		out = append(out, center.Render(l))
+	}
+	return strings.Join(out, "\n")
 }
 
 // truncateRunes truncates s to at most w display columns, appending an

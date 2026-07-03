@@ -374,9 +374,6 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		t.sortMode = (t.sortMode + 1) % 3
 		t.refresh()
 	case "a":
-		if !t.m.canMutate() {
-			return nil
-		}
 		if t.m.projectScope == "" {
 			return nil
 		}
@@ -417,29 +414,14 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 			t.detail.offset = 0
 		}
 	case "e":
-		if !t.m.canMutate() {
-			return nil
-		}
 		t.openTitleForm()
 	case "d":
-		if !t.m.canMutate() {
-			return nil
-		}
 		t.openDescriptionForm()
 	case "b":
-		if !t.m.canMutate() {
-			return nil
-		}
 		t.openLabelAddForm()
 	case "B":
-		if !t.m.canMutate() {
-			return nil
-		}
 		t.openLabelRemoveForm()
 	case "x":
-		if !t.m.canMutate() {
-			return nil
-		}
 		return t.requestRemoveTask()
 	}
 	return nil
@@ -722,8 +704,11 @@ func (t *tasksModel) renderList() string {
 	b.WriteString("\n")
 
 	if t.m.projectScope == "" {
-		empty := "\nno project selected\n\npress [s] in the Projects tab to scope this view"
-		b.WriteString(centerBlock(empty, t.m.width))
+		t.renderEmptyState(&b, []string{
+			emptyHeadStyle.Render("no project selected"),
+			"",
+			emptyTextStyle.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", emptyKeyStyle.Render("[s]"))),
+		})
 		return padToHeight(b.String(), t.m.contentHeight)
 	}
 
@@ -735,11 +720,24 @@ func (t *tasksModel) renderList() string {
 	return padToHeight(b.String(), t.m.contentHeight)
 }
 
+// renderEmptyState appends a vertically+horizontally centered empty-state
+// block (each line center-aligned independently) into b. The block is
+// centered within contentHeight-1 to account for the header line already
+// written by the caller.
+func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
+	b.WriteString(centerLinesBoth(lines, t.m.width, t.m.contentHeight-1))
+}
+
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	if len(t.rows) == 0 {
-		empty := fmt.Sprintf("\nno tasks match this filter\n\nno task carries %s\n\n[/] to edit filter, or clear it to see all tasks",
-			strings.Join(t.parseFilter(), " and "))
-		b.WriteString(centerBlock(empty, t.m.width))
+		filter := strings.Join(t.parseFilter(), " and ")
+		t.renderEmptyState(b, []string{
+			emptyHeadStyle.Render("no tasks match this filter"),
+			"",
+			emptyDimStyle.Render(fmt.Sprintf("no task carries %s", filter)),
+			"",
+			emptyTextStyle.Render(fmt.Sprintf("%s to edit filter, or clear it to see all tasks", emptyKeyStyle.Render("[/]"))),
+		})
 		return
 	}
 	// Column header.
@@ -770,7 +768,9 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
-		b.WriteString(centerBlock("no labels match wildcard — add labels to tasks", t.m.width))
+		b.WriteString(centerLinesBoth([]string{
+			emptyHeadStyle.Render("no labels match wildcard — add labels to tasks"),
+		}, t.m.width, t.m.contentHeight-1))
 		b.WriteString("\n")
 	}
 	idx := 0
@@ -873,7 +873,7 @@ func (t *tasksModel) renderDetailView() string {
 		b.WriteString(t.detail.lines[i])
 		b.WriteString("\n")
 	}
-	return b.String()
+	return padToHeight(b.String(), t.m.contentHeight)
 }
 
 func (t *tasksModel) pageWindow(total int) (int, int) {
