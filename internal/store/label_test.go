@@ -94,3 +94,28 @@ func TestNamespacesDistinctSorted(t *testing.T) {
 		t.Fatalf("Namespaces = %v want %v", got, want)
 	}
 }
+
+func TestLabelSeedSetsDescriptionOnCreate(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	if err := s.LabelSeed("ATM:custom:x", "seed desc", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:custom:x")
+	if l.Description != "seed desc" {
+		t.Fatalf("description = %q want \"seed desc\"", l.Description)
+	}
+}
+
+func TestLabelSeedPreservesExistingDescription(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "claude")
+	if err := s.LabelSeed("ATM:type:bug", "seed default", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:type:bug")
+	if l.Description != "human edited" {
+		t.Fatalf("LabelSeed overwrote description: got %q want \"human edited\"", l.Description)
+	}
+}
