@@ -115,6 +115,59 @@ func TestBuildNestedGroupsThreeWildcards(t *testing.T) {
 	}
 }
 
+func containsLabelTUI(labels []string, want string) bool {
+	for _, l := range labels {
+		if l == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTaskCreateWithLabelsField(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s") // select ATM
+	update(t, m, "2") // Tasks tab
+	update(t, m, "a") // open create form
+	if m.form == nil {
+		t.Fatalf("create form not open")
+	}
+	// Verify the labels field exists.
+	found := false
+	for _, f := range m.form.Fields {
+		if f.Label == "labels" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("create form has no 'labels' field; fields = %+v", m.form.Fields)
+	}
+	// Type a title.
+	for _, r := range "Multi-label task" {
+		update(t, m, string(r))
+	}
+	update(t, m, "tab") // title -> description
+	// Skip description (leave empty), tab to labels.
+	update(t, m, "tab") // description -> labels
+	for _, r := range "status:open type:bug" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter") // submit (last field)
+	if m.form != nil {
+		t.Fatalf("form should be closed after submit")
+	}
+	// The task should exist with both labels.
+	ts := m.store.ListTasks(store.QueryFilters{Project: "ATM"})
+	if len(ts) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(ts))
+	}
+	tk := ts[0]
+	if !containsLabelTUI(tk.Labels, "ATM:status:open") || !containsLabelTUI(tk.Labels, "ATM:type:bug") {
+		t.Fatalf("task labels = %v, want ATM:status:open + ATM:type:bug", tk.Labels)
+	}
+}
+
 // TestGroupLeafCountNested verifies the header count sums across nested
 // sub-groups so a collapsed parent still reports its true bucket size.
 func TestGroupLeafCountNested(t *testing.T) {

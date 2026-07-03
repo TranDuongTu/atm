@@ -59,3 +59,60 @@ func newTestStore(t *testing.T) *Store {
 	}
 	return s
 }
+
+func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	// SeedLabels applies all 17 defaults (CreateProject seeding is wired in Task 3).
+	if err := s.SeedLabels("ATM", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	ls := s.LabelList("ATM", "")
+	if len(ls) != 17 {
+		t.Fatalf("SeedLabels left %d labels, want 17", len(ls))
+	}
+	l, _ := s.LabelShow("ATM:context:agent")
+	if l.Description == "" {
+		t.Error("ATM:context:agent has empty description after seed")
+	}
+}
+
+func TestCreateProjectSeedsLabels(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	ls := s.LabelList("ATM", "")
+	if len(ls) != 17 {
+		t.Fatalf("after CreateProject, ATM has %d labels, want 17 (seeded defaults)", len(ls))
+	}
+	// Every seeded label has a non-empty description.
+	for _, l := range ls {
+		if l.Description == "" {
+			t.Errorf("seeded label %q has empty description", l.Name)
+		}
+	}
+	// Spot-check a known seed label is present.
+	if _, err := s.LabelShow("ATM:context:agent"); err != nil {
+		t.Errorf("ATM:context:agent missing after seed: %v", err)
+	}
+}
+
+func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	// Edit one label's description (human curates).
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "claude")
+	if err := s.SeedLabels("ATM", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:type:bug")
+	if l.Description != "human edited" {
+		t.Fatalf("SeedLabels overwrote edited description: got %q want \"human edited\"", l.Description)
+	}
+	// The other 16 keep their seed descriptions.
+	l2, _ := s.LabelShow("ATM:status:open")
+	if l2.Description == "" {
+		t.Error("ATM:status:open lost its description after re-seed")
+	}
+}

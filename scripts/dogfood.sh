@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Bootstrap the ATM dogfooding project in the machine-global store (v2).
 #
-# Idempotent: re-running on an existing store is a no-op (skips the project,
-# seed labels, and tasks that already exist by title). Opt-in: NOT run by
-# `make verify`.
+# Idempotent: re-running on an existing store is a no-op (skips the project
+# and tasks that already exist by title; project create auto-seeds labels).
+# Opt-in: NOT run by `make verify`.
 #
 # Usage:
 #   scripts/dogfood.sh [path-to-atm-binary]
@@ -49,29 +49,15 @@ else
   echo "dogfood: project ATM already exists"
 fi
 
-# 3. seed labels (v2 labels are project-prefixed: <CODE>:<namespace>:<value>)
-#    label add is an upsert, so re-running is safe.
-seed_labels=(
-  "ATM:status:open"
-  "ATM:status:todo"
-  "ATM:status:in-progress"
-  "ATM:status:done"
-  "ATM:status:blocked"
-  "ATM:status:review"
-  "ATM:type:task"
-  "ATM:type:bug"
-  "ATM:type:feature"
-  "ATM:context:start-here"
-)
-for label in "${seed_labels[@]}"; do
-  echo "dogfood: seeding label $label"
-  run label add --name "$label" >/dev/null
-done
+# 3. labels are auto-seeded by project create (v2.1: 17 default labels with
+#    descriptions). To re-apply defaults after an upgrade, run:
+#      atm label seed --project ATM
+#    (idempotent; preserves edited descriptions).
 
 # 4. seed tasks (idempotent by title). v2 task create takes --label with the
 #    full project-prefixed label name; there is no status field, no claim.
 declare -a tasks=(
-  "Bootstrap v2 store|ATM:status:open,ATM:type:task,ATM:context:start-here"
+  "Bootstrap v2 store|ATM:status:open,ATM:type:task,ATM:context:agent"
   "Finish TUI parity with CLI|ATM:status:todo,ATM:type:task"
   "Document v2 conventions in README|ATM:status:todo,ATM:type:task"
   "Add cross-project label search|ATM:status:todo,ATM:type:feature"

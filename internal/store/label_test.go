@@ -71,26 +71,52 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	_, _ = s.CreateProject("SCY", "y", "claude")
-	_ = s.LabelAdd("ATM:type:bug", "", "claude")
-	_ = s.LabelAdd("ATM:status:open", "", "claude")
-	_ = s.LabelAdd("SCY:type:bug", "", "claude")
-	if got := len(s.LabelList("ATM", "")); got != 2 {
-		t.Fatalf("ATM labels = %d want 2", got)
+	_ = s.LabelAdd("ATM:custom:a", "", "claude")
+	_ = s.LabelAdd("ATM:custom:b", "", "claude")
+	_ = s.LabelAdd("SCY:custom:a", "", "claude")
+	// ATM has 17 seeded + 2 custom = 19.
+	if got := len(s.LabelList("ATM", "")); got != 19 {
+		t.Fatalf("ATM labels = %d want 19", got)
 	}
-	if got := len(s.LabelList("ATM", "status")); got != 1 {
-		t.Fatalf("ATM:status labels = %d want 1", got)
+	// Filter to the custom namespace.
+	if got := len(s.LabelList("ATM", "custom")); got != 2 {
+		t.Fatalf("ATM:custom labels = %d want 2", got)
 	}
 }
 
 func TestNamespacesDistinctSorted(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
-	_ = s.LabelAdd("ATM:status:open", "", "claude")
-	_ = s.LabelAdd("ATM:type:bug", "", "claude")
 	_ = s.LabelAdd("ATM:hot", "", "claude") // unnamespaced tag
+	_ = s.LabelAdd("ATM:custom:x", "", "claude")
 	got := s.Namespaces("ATM")
-	want := []string{"status", "type"}
-	if len(got) != 2 || got[0] != "status" || got[1] != "type" {
+	want := []string{"context", "custom", "priority", "status", "type"}
+	if len(got) != 5 || got[0] != "context" || got[4] != "type" {
 		t.Fatalf("Namespaces = %v want %v", got, want)
+	}
+}
+
+func TestLabelSeedSetsDescriptionOnCreate(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	if err := s.LabelSeed("ATM:custom:x", "seed desc", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:custom:x")
+	if l.Description != "seed desc" {
+		t.Fatalf("description = %q want \"seed desc\"", l.Description)
+	}
+}
+
+func TestLabelSeedPreservesExistingDescription(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "claude")
+	if err := s.LabelSeed("ATM:type:bug", "seed default", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:type:bug")
+	if l.Description != "human edited" {
+		t.Fatalf("LabelSeed overwrote description: got %q want \"human edited\"", l.Description)
 	}
 }

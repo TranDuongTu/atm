@@ -31,7 +31,7 @@ var (
 			Foreground(lipgloss.Color("245"))
 
 	statusLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).Bold(true)
+				Foreground(lipgloss.Color("39")).Bold(true)
 
 	// dialogStyle renders the create/edit dialog as a bordered overlay with
 	// no opaque background so the underlying content shows through.
@@ -104,9 +104,9 @@ var (
 	// emptyKeyStyle highlights the bracketed key (e.g. [a]) in cyan bold;
 	// emptyDimStyle renders secondary hint copy dimmed.
 	emptyHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
-	emptyTextStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	emptyKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	emptyDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	emptyTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+	emptyKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	emptyDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 // box renders `inner` inside a bordered block at least `w` columns wide (so

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"atm/internal/seed"
 )
 
 type labelsFile struct {
@@ -43,6 +45,52 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 		sort.SliceStable(lf.Labels, func(i, j int) bool { return lf.Labels[i].Name < lf.Labels[j].Name })
 		return s.writeLabels(lf)
 	})
+}
+
+// LabelSeed upserts a label but only sets the description when the label
+// is newly created. Existing labels keep their descriptions — this
+// preserves human edits when SeedLabels re-applies the default set. Used
+// by SeedLabels (project create + on-demand seed). Contrast with
+// LabelAdd, which overwrites the description when the new one is
+// non-empty and differs.
+func (s *Store) LabelSeed(name, description, actor string) error {
+	if err := ValidateLabelName(name); err != nil {
+		return err
+	}
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	if err := s.labelProjectExists(name); err != nil {
+		return err
+	}
+	return s.WithLock(labelProject(name), func() error {
+		lf, err := s.loadLabels()
+		if err != nil {
+			return err
+		}
+		for _, l := range lf.Labels {
+			if l.Name == name {
+				// Exists: preserve the existing description (no-op).
+				return nil
+			}
+		}
+		lf.Labels = append(lf.Labels, Label{Name: name, Description: description})
+		sort.SliceStable(lf.Labels, func(i, j int) bool { return lf.Labels[i].Name < lf.Labels[j].Name })
+		return s.writeLabels(lf)
+	})
+}
+
+// SeedLabels applies the default seed labels (internal/seed.Labels) to the
+// project. Idempotent — preserves existing descriptions (via LabelSeed).
+// Called by CreateProject and by the CLI/TUI on-demand seed path.
+func (s *Store) SeedLabels(code, actor string) error {
+	for _, l := range seed.Labels {
+		full := code + ":" + l.Suffix
+		if err := s.LabelSeed(full, l.Description, actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
