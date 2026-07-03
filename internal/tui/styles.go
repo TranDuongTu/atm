@@ -119,6 +119,29 @@ func fitLine(s string, w int) string {
 	return out.String()
 }
 
+func fitLineFrom(s string, start, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	var out strings.Builder
+	used := 0
+	pos := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if pos+rw <= start {
+			pos += rw
+			continue
+		}
+		if used+rw > width {
+			break
+		}
+		out.WriteRune(r)
+		used += rw
+		pos += rw
+	}
+	return out.String()
+}
+
 // centerBlock right-pads and left-pads the (possibly multi-line) string so it
 // is centered horizontally within width w.
 func centerBlock(s string, w int) string {

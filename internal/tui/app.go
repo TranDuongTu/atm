@@ -494,11 +494,63 @@ func shortenPath(p string, maxW int) string {
 // horizontal). The base is kept visible underneath (no opaque backdrop fill —
 // the form's own border frames it).
 func (m *Model) placeOverlay(base, overlay string) string {
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		overlay,
-		lipgloss.WithWhitespaceChars(" "),
-	)
+	return overlayLines(base, overlay, m.width, m.height)
+}
+
+func overlayLines(base, overlay string, width, height int) string {
+	baseLines := strings.Split(base, "\n")
+	for len(baseLines) < height {
+		baseLines = append(baseLines, spaces(width))
+	}
+	if len(baseLines) > height {
+		baseLines = baseLines[:height]
+	}
+
+	overlayLines := strings.Split(overlay, "\n")
+	overlayH := len(overlayLines)
+	overlayW := 0
+	for _, line := range overlayLines {
+		if w := lipgloss.Width(line); w > overlayW {
+			overlayW = w
+		}
+	}
+	x := (width - overlayW) / 2
+	if x < 0 {
+		x = 0
+	}
+	y := (height - overlayH) / 2
+	if y < 0 {
+		y = 0
+	}
+	for i, overlayLine := range overlayLines {
+		target := y + i
+		if target < 0 || target >= len(baseLines) {
+			continue
+		}
+		baseLines[target] = overlayLineAt(baseLines[target], overlayLine, x, width)
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func overlayLineAt(baseLine, overlayLine string, x, width int) string {
+	plainPrefix := fitLine(baseLine, x)
+	if lipgloss.Width(plainPrefix) < x {
+		plainPrefix += spaces(x - lipgloss.Width(plainPrefix))
+	}
+	remaining := width - x - lipgloss.Width(overlayLine)
+	if remaining < 0 {
+		remaining = 0
+	}
+	suffixStart := x + lipgloss.Width(overlayLine)
+	suffix := ""
+	if lipgloss.Width(baseLine) > suffixStart {
+		suffix = fitLineFrom(baseLine, suffixStart, remaining)
+	}
+	line := plainPrefix + overlayLine + suffix
+	if lipgloss.Width(line) < width {
+		line += spaces(width - lipgloss.Width(line))
+	}
+	return line
 }
 
 // placeToast puts the toast near the bottom, above the status line.

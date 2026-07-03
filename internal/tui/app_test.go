@@ -387,6 +387,17 @@ func TestProjectCreateFormNoActor(t *testing.T) {
 	}
 }
 
+func TestOverlayPreservesUnderlyingScreen(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	base := m.View()
+	mustContain(t, base, "Acme Task Manager")
+	update(t, m, "a")
+	withOverlay := m.View()
+	mustContain(t, withOverlay, "New project")
+	mustContain(t, withOverlay, "Acme Task Manager")
+}
+
 // --- Step 3: projects list + detail ---
 
 // TestProjectsListEmpty verifies the empty-store landing (mockup Screen 1).
