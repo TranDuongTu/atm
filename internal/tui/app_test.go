@@ -250,6 +250,16 @@ func TestThemeCyclesInsideKeymapOverlay(t *testing.T) {
 	}
 }
 
+func TestThemeChangesActiveTabStyle(t *testing.T) {
+	m := newTestModel(t)
+	before := m.styles.ActiveTab.GetBackground()
+	update(t, m, "T")
+	after := m.styles.ActiveTab.GetBackground()
+	if before == after {
+		t.Fatalf("active tab background did not change after theme cycle")
+	}
+}
+
 // TestQuitBinding verifies `q` quits the app when no overlay/form/confirm is
 // active (ctrl+c also quits; both set quitting=true and return tea.Quit).
 func TestQuitBinding(t *testing.T) {
@@ -692,6 +702,18 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	if addedIdx < createdIdx {
 		t.Errorf("history not chronological: label-added (%d) before created (%d)", addedIdx, createdIdx)
 	}
+}
+
+func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "chip task", "ATM:status:open", "ATM:type:bug")
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "enter")
+	v := m.View()
+	mustContain(t, v, " ATM:status:open ")
+	mustContain(t, v, " ATM:type:bug ")
 }
 
 // TestTasksEmptyStateNoProject verifies the no-project-selected prompt

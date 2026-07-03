@@ -388,7 +388,7 @@ func (m *Model) View() string {
 	// lipgloss Place. We re-render the body+chrome then place the overlay.
 	out := b.String()
 	if m.form != nil && m.form.Active {
-		out = m.placeOverlay(out, m.form.View())
+		out = m.placeOverlay(out, m.form.View(m.styles))
 	}
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
@@ -397,7 +397,7 @@ func (m *Model) View() string {
 		out = m.placeOverlay(out, m.renderKeymapOverlay())
 	}
 	if m.toastMsg != "" {
-		out = m.placeToast(out, toastStyle.Render(" "+m.toastMsg+" "))
+		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
 	}
 	return out
 }
@@ -408,9 +408,9 @@ func (m *Model) renderTabBar() string {
 	for i, n := range names {
 		label := fmt.Sprintf("%d  %s", i+1, n)
 		if workspacePane(i) == m.focused {
-			parts = append(parts, activeTabStyle.Render(label))
+			parts = append(parts, m.styles.ActiveTab.Render(label))
 		} else {
-			parts = append(parts, inactiveTabStyle.Render(label))
+			parts = append(parts, m.styles.InactiveTab.Render(label))
 		}
 	}
 	bar := strings.Join(parts, "  ")
@@ -452,13 +452,13 @@ func (m *Model) statusHint() string {
 
 func (m *Model) renderStatusLine() string {
 	var parts []string
-	parts = append(parts, statusLabelStyle.Render("STORE: ")+statusStyle.Render(shortenPath(m.store.StorePath(), 40)))
+	parts = append(parts, m.styles.StatusLabel.Render("STORE: ")+m.styles.Status.Render(shortenPath(m.store.StorePath(), 40)))
 	if m.projectScope != "" {
-		parts = append(parts, statusLabelStyle.Render("SELECTED: ")+statusStyle.Render(m.projectScope))
+		parts = append(parts, m.styles.StatusLabel.Render("SELECTED: ")+m.styles.Status.Render(m.projectScope))
 	}
-	parts = append(parts, statusLabelStyle.Render("theme: ")+statusStyle.Render(string(m.themeName)))
+	parts = append(parts, m.styles.StatusLabel.Render("theme: ")+m.styles.Status.Render(string(m.themeName)))
 	hint := m.statusHint()
-	parts = append(parts, keyMenuStyle.Render(hint))
+	parts = append(parts, m.styles.KeyMenu.Render(hint))
 	actor := "actor: " + m.actorOr()
 	// Right-align the actor segment.
 	left := strings.Join(parts, "  ")
@@ -472,7 +472,7 @@ func (m *Model) renderStatusLine() string {
 	if gap < 1 {
 		gap = 1
 	}
-	line := left + spaces(gap) + statusStyle.Render(actor)
+	line := left + spaces(gap) + m.styles.Status.Render(actor)
 	if lw := lipgloss.Width(line); lw < m.width {
 		line += spaces(m.width - lw)
 	}
@@ -513,20 +513,20 @@ func (m *Model) placeToast(base, toast string) string {
 // renderConfirm renders the destructive-action confirm overlay.
 func (m *Model) renderConfirm() string {
 	var b strings.Builder
-	b.WriteString(dialogTitleStyle.Render(m.confirmMsg))
+	b.WriteString(m.styles.DialogTitle.Render(m.confirmMsg))
 	b.WriteString("\n")
 	b.WriteString(repeat("-", min(len(m.confirmMsg)+2, m.width-4)))
 	b.WriteString("\n\n")
-	b.WriteString(amberStyle.Render(m.confirmArg))
+	b.WriteString(m.styles.Warning.Render(m.confirmArg))
 	b.WriteString("\n\n")
-	b.WriteString(keyMenuDimStyle.Render("[Enter] confirm   [Esc] cancel"))
-	return dialogStyle.Render(b.String())
+	b.WriteString(m.styles.KeyMenuDim.Render("[Enter] confirm   [Esc] cancel"))
+	return m.styles.Dialog.Render(b.String())
 }
 
 // renderKeymapOverlay renders a compact version of the global keymap.
 func (m *Model) renderKeymapOverlay() string {
 	var b strings.Builder
-	b.WriteString(dialogTitleStyle.Render("Keymap"))
+	b.WriteString(m.styles.DialogTitle.Render("Keymap"))
 	b.WriteString("\n")
 	b.WriteString(repeat("-", 10))
 	b.WriteString("\n\n")
@@ -534,8 +534,8 @@ func (m *Model) renderKeymapOverlay() string {
 		fmt.Fprintf(&b, "%-12s %s\n", r.Key, r.Projects)
 	}
 	b.WriteString("\n")
-	b.WriteString(keyMenuDimStyle.Render("[?] or [Esc] to close"))
-	return dialogStyle.Render(b.String())
+	b.WriteString(m.styles.KeyMenuDim.Render("[?] or [Esc] to close"))
+	return m.styles.Dialog.Render(b.String())
 }
 
 func min(a, b int) int {

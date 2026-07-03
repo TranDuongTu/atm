@@ -636,7 +636,7 @@ func (t *tasksModel) renderDetail() {
 	if len(tk.Labels) == 0 {
 		b.WriteString(" (no labels)\n")
 	} else {
-		chips := strings.Join(tk.Labels, "   ")
+		chips := renderLabelChips(t.m.styles, tk.Labels, t.m.width-2)
 		b.WriteString(" " + chips + "\n")
 	}
 	b.WriteString("                                      [b] add label   [B] remove label\n")
@@ -700,14 +700,14 @@ func (t *tasksModel) headerLine() string {
 
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString(headerLineStyle.Render(t.headerLine()))
+	b.WriteString(t.m.styles.HeaderLine.Render(t.headerLine()))
 	b.WriteString("\n")
 
 	if t.m.projectScope == "" {
 		t.renderEmptyState(&b, []string{
-			emptyHeadStyle.Render("no project selected"),
+			t.m.styles.EmptyHead.Render("no project selected"),
 			"",
-			emptyTextStyle.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", emptyKeyStyle.Render("[s]"))),
+			t.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", t.m.styles.EmptyKey.Render("[s]"))),
 		})
 		return padToHeight(b.String(), t.m.contentHeight)
 	}
@@ -732,16 +732,16 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	if len(t.rows) == 0 {
 		filter := strings.Join(t.parseFilter(), " and ")
 		t.renderEmptyState(b, []string{
-			emptyHeadStyle.Render("no tasks match this filter"),
+			t.m.styles.EmptyHead.Render("no tasks match this filter"),
 			"",
-			emptyDimStyle.Render(fmt.Sprintf("no task carries %s", filter)),
+			t.m.styles.EmptyDim.Render(fmt.Sprintf("no task carries %s", filter)),
 			"",
-			emptyTextStyle.Render(fmt.Sprintf("%s to edit filter, or clear it to see all tasks", emptyKeyStyle.Render("[/]"))),
+			t.m.styles.EmptyText.Render(fmt.Sprintf("%s to edit filter, or clear it to see all tasks", t.m.styles.EmptyKey.Render("[/]"))),
 		})
 		return
 	}
 	// Column header.
-	b.WriteString(headerLabelStyle.Render(fmt.Sprintf(" %-10s %-40s %-30s %10s", "ID", "TITLE", "LABELS", "UPDATED")))
+	b.WriteString(t.m.styles.HeaderLabel.Render(fmt.Sprintf(" %-10s %-40s %-30s %10s", "ID", "TITLE", "LABELS", "UPDATED")))
 	b.WriteString("\n")
 	b.WriteString(sepLine("─", 78, t.m.width, 2))
 	b.WriteString("\n")
@@ -755,7 +755,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		}
 		line := fmt.Sprintf(" %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
 		if i == t.cursor {
-			line = " " + rowCursorStyle.Render(line)
+			line = " " + t.m.styles.RowCursor.Render(line)
 		} else {
 			line = " " + line
 		}
@@ -769,7 +769,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
 		b.WriteString(centerLinesBoth([]string{
-			emptyHeadStyle.Render("no labels match wildcard — add labels to tasks"),
+			t.m.styles.EmptyHead.Render("no labels match wildcard — add labels to tasks"),
 		}, t.m.width, t.m.contentHeight-1))
 		b.WriteString("\n")
 	}
@@ -780,9 +780,9 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	// (no matching labels) bucket — always rendered, last. Stays flat (no
 	// nesting): these tasks matched no wildcard, so there is nothing to
 	// sub-bucket them by.
-	header := groupHeaderStyle.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
+	header := t.m.styles.GroupHeader.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
 	if idx == t.cursor {
-		header = rowCursorStyle.Render(header)
+		header = t.m.styles.RowCursor.Render(header)
 	}
 	b.WriteString(header)
 	b.WriteString("\n")
@@ -794,7 +794,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		}
 		line := fmt.Sprintf("  %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
 		if idx == t.cursor {
-			line = " " + rowCursorStyle.Render(strings.TrimPrefix(line, " "))
+			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -819,9 +819,9 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 		name = "(no matching labels)"
 	}
 	indent := strings.Repeat("  ", depth)
-	header := groupHeaderStyle.Render(fmt.Sprintf("%s%s %s (%d)", indent, marker, name, count))
+	header := t.m.styles.GroupHeader.Render(fmt.Sprintf("%s%s %s (%d)", indent, marker, name, count))
 	if idx == t.cursor {
-		header = rowCursorStyle.Render(header)
+		header = t.m.styles.RowCursor.Render(header)
 	}
 	b.WriteString(header)
 	b.WriteString("\n")
@@ -839,7 +839,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 			// Grouped rows omit the LABELS column (group header is the axis).
 			line := fmt.Sprintf("%s%-10s %-50s %10s", rowIndent, r.id, truncateRunes(r.title, 50), r.updated)
 			if idx == t.cursor {
-				line = rowCursorStyle.Render(line)
+				line = t.m.styles.RowCursor.Render(line)
 			}
 			b.WriteString(line)
 			b.WriteString("\n")

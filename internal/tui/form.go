@@ -205,12 +205,12 @@ func (f *Form) fieldError(idx int) string {
 	return ""
 }
 
-func (f *Form) View() string {
+func (f *Form) View(styles Styles) string {
 	var b strings.Builder
 	innerW := f.width
 
 	// Title bar.
-	b.WriteString(dialogTitleStyle.Render(f.Title))
+	b.WriteString(styles.DialogTitle.Render(f.Title))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("─", innerW))
 	b.WriteString("\n\n")
@@ -218,50 +218,48 @@ func (f *Form) View() string {
 	// Fields.
 	for i, fld := range f.Fields {
 		active := f.zone == focusFields && i == f.cursor
-		label := fieldLabelStyle.Render(fld.Label + ":")
+		label := styles.FieldLabel.Render(fld.Label + ":")
 		// Render the typed value plain, and only the trailing cursor cell with
 		// an underline so the input text itself is not underlined.
-		val := fieldValueStyle.Render(fld.Value)
+		val := styles.FieldValue.Render(fld.Value)
 		if active {
-			val += fieldValueStyle.Underline(true).Render(" ")
+			val += styles.FieldValue.Underline(true).Render(" ")
 		}
 		row := fmt.Sprintf("%s %s", label, val)
 		b.WriteString(row)
 		b.WriteString("\n")
 		if fld.Hint != "" {
-			b.WriteString(fieldHintStyle.Render("  " + fld.Hint))
+			b.WriteString(styles.FieldHint.Render("  " + fld.Hint))
 			b.WriteString("\n")
 		}
 		if errMsg := f.fieldError(i); errMsg != "" {
-			errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-			b.WriteString(errStyle.Render("  ✗ " + errMsg))
+			b.WriteString(styles.Error.Render("  x " + errMsg))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
 
 	if f.Err != "" {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-		b.WriteString(errStyle.Render("✗ " + f.Err))
+		b.WriteString(styles.Error.Render("x " + f.Err))
 		b.WriteString("\n\n")
 	}
 
 	// Action buttons row.
 	submitActive := f.zone == focusButtons && f.btnIdx == 0
 	cancelActive := f.zone == focusButtons && f.btnIdx == 1
-	submit := buttonInactiveStyle.Render("[ Submit ]")
-	cancel := buttonInactiveStyle.Render("[ Cancel ]")
+	submit := styles.ButtonInactive.Render("[ Submit ]")
+	cancel := styles.ButtonInactive.Render("[ Cancel ]")
 	if submitActive && f.valid() {
-		submit = buttonActiveStyle.Render("[ Submit ]")
+		submit = styles.ButtonActive.Render("[ Submit ]")
 	}
 	if cancelActive {
-		cancel = buttonActiveStyle.Render("[ Cancel ]")
+		cancel = styles.ButtonActive.Render("[ Cancel ]")
 	}
 	buttons := lipgloss.JoinHorizontal(lipgloss.Center, submit, "  ", cancel)
-	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("Tab/arrows to navigate  Enter to confirm  Esc to cancel")
+	hint := styles.KeyMenuDim.Render("Tab/arrows to navigate  Enter to confirm  Esc to cancel")
 	b.WriteString(buttons)
 	b.WriteString("\n")
 	b.WriteString(hint)
 
-	return dialogStyle.Render(b.String())
+	return styles.Dialog.Render(b.String())
 }

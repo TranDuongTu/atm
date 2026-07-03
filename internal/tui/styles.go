@@ -8,107 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	activeTabStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("39")).
-			Bold(true).
-			Padding(0, 1)
-
-	inactiveTabStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("245")).
-				Padding(0, 1)
-
-	// keyMenuStyle renders the contextual key hints in the bottom status bar.
-	keyMenuStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).Bold(true)
-
-	keyMenuDimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-
-	// statusStyle renders the bottom status line text (STORE/SELECTED/actor).
-	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-
-	statusLabelStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("39")).Bold(true)
-
-	// dialogStyle renders the create/edit dialog as a bordered overlay with
-	// no opaque background so the underlying content shows through.
-	dialogStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39")).
-			Padding(0, 1)
-
-	dialogTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Bold(true).
-				Padding(0, 1)
-
-	fieldLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
-			Bold(true)
-
-	fieldValueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF"))
-
-	fieldHintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).Italic(true)
-
-	buttonActiveStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("0")).
-				Background(lipgloss.Color("39")).
-				Bold(true).
-				Padding(0, 2)
-
-	buttonInactiveStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("245")).
-				Padding(0, 2)
-
-	// rowCursorStyle highlights the cursor row with inverse video.
-	rowCursorStyle = lipgloss.NewStyle().Reverse(true)
-
-	// gutterSelectStyle renders the selection gutter marker.
-	gutterSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-
-	// emptyStyle centers empty-state copy.
-	emptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-
-	// headerLabelStyle renders column header labels in the list views.
-	headerLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-
-	// headerLineStyle renders the persistent Tasks-tab header line.
-	headerLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-
-	// groupHeaderStyle renders the grouped-view facet header (▾ LABEL (N)).
-	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-
-	// amberStyle renders warnings (retained_usage, remove confirm).
-	amberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-
-	// toastStyle renders the transient toast message.
-	toastStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("203")).
-			Bold(true).
-			Padding(0, 1)
-
-	// helpTableStyle renders the parity table / keymap rows.
-	helpTableStyle = lipgloss.NewStyle()
-
-	// overlayBackdropStyle dims the underlying content when a form/overlay is open.
-	overlayBackdropStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-
-	// Empty-state shared styles. emptyHeadStyle renders the bold white
-	// heading; emptyTextStyle renders the action line in bright white;
-	// emptyKeyStyle highlights the bracketed key (e.g. [a]) in cyan bold;
-	// emptyDimStyle renders secondary hint copy dimmed.
-	emptyHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
-	emptyTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	emptyKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	emptyDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-)
-
 // box renders `inner` inside a bordered block at least `w` columns wide (so
 // short content is padded to span the terminal, while long content overflows
 // the border naturally instead of being wrapped/truncated). Each line of
@@ -332,6 +231,21 @@ func sepLine(rune_ string, cap, width, sub int) string {
 		n = 1
 	}
 	return repeat(rune_, n)
+}
+
+func renderLabelChips(styles Styles, labels []string, width int) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(labels))
+	for _, label := range labels {
+		parts = append(parts, styles.LabelChip.Render(" "+label+" "))
+	}
+	line := strings.Join(parts, " ")
+	if width > 0 && lipgloss.Width(line) > width {
+		return strings.Join(labels, "   ")
+	}
+	return line
 }
 
 // relTime renders a human-readable relative timestamp from t to now.

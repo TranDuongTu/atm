@@ -253,9 +253,9 @@ func (l *labelsModel) renderList() string {
 	var b strings.Builder
 	if l.m.projectScope == "" {
 		lines := []string{
-			emptyHeadStyle.Render("no project selected"),
+			l.m.styles.EmptyHead.Render("no project selected"),
 			"",
-			emptyTextStyle.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", emptyKeyStyle.Render("[s]"))),
+			l.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", l.m.styles.EmptyKey.Render("[s]"))),
 		}
 		return padToHeight(centerLinesBoth(lines, l.m.width, l.m.contentHeight), l.m.contentHeight)
 	}
@@ -280,17 +280,18 @@ func (l *labelsModel) renderList() string {
 		}
 	}
 	sort.Strings(nsOrder)
-	b.WriteString(headerLabelStyle.Render(fmt.Sprintf(" %-30s %8s  %s", "LABEL", "USAGE", "DESCRIPTION")))
+	b.WriteString(l.m.styles.HeaderLabel.Render(fmt.Sprintf(" %-30s %8s  %s", "LABEL", "USAGE", "DESCRIPTION")))
 	b.WriteString("\n")
 	b.WriteString(sepLine("─", 78, l.m.width, 2))
 	b.WriteString("\n")
 	rowIdx := 0
 	for _, ns := range nsOrder {
-		fmt.Fprintf(&b, "%s:\n", ns)
+		b.WriteString(l.m.styles.NamespaceHeader.Render(ns + ":"))
+		b.WriteString("\n")
 		for _, r := range byNS[ns] {
 			line := fmt.Sprintf(" %-30s %5d %s  %s", r.full, r.usage, pluralTasks(r.usage), r.description)
 			if rowIdx == l.cursor {
-				line = " " + rowCursorStyle.Render(strings.TrimPrefix(line, " "))
+				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 			} else {
 				line = " " + line
 			}
@@ -300,11 +301,12 @@ func (l *labelsModel) renderList() string {
 		}
 	}
 	if len(tags) > 0 {
-		b.WriteString("tags:\n")
+		b.WriteString(l.m.styles.NamespaceHeader.Render("tags:"))
+		b.WriteString("\n")
 		for _, r := range tags {
 			line := fmt.Sprintf(" %-30s %5d %s  %s", r.full, r.usage, pluralTasks(r.usage), r.description)
 			if rowIdx == l.cursor {
-				line = " " + rowCursorStyle.Render(strings.TrimPrefix(line, " "))
+				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 			} else {
 				line = " " + line
 			}
@@ -326,7 +328,7 @@ func (l *labelsModel) renderDetail() string {
 	fmt.Fprintf(&b, "usage       %d %s\n", r.usage, pluralTasks(r.usage))
 	fmt.Fprintf(&b, "description %s\n", r.description)
 	b.WriteString("\n")
-	b.WriteString(keyMenuDimStyle.Render("[d]esc  [l]remove  [Esc]back"))
+	b.WriteString(l.m.styles.KeyMenuDim.Render("[d]esc  [l]remove  [Esc]back"))
 	return padToHeight(b.String(), l.m.contentHeight)
 }
 

@@ -229,21 +229,21 @@ func (p *projectsModel) renderList() string {
 		return p.renderEmpty()
 	}
 	// Header.
-	b.WriteString(headerLabelStyle.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED")))
+	b.WriteString(p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED")))
 	b.WriteString("\n")
 	b.WriteString(sepLine("─", 78, p.m.width, 2))
 	b.WriteString("\n")
 	for i, r := range p.list {
 		var gutter string
 		if r.code == p.m.projectScope {
-			gutter = gutterSelectStyle.Render("▸")
+			gutter = p.m.styles.GutterSelect.Render("▸")
 		} else {
 			gutter = " "
 		}
 		// build cell line
 		line := fmt.Sprintf(" %-5s %-30s %6d %7d %10s", r.code, truncateRunes(r.name, 30), r.tasks, r.labels, r.updated)
 		if i == p.cursor {
-			line = gutter + " " + rowCursorStyle.Render(line)
+			line = gutter + " " + p.m.styles.RowCursor.Render(line)
 		} else {
 			line = gutter + " " + line
 		}
@@ -259,11 +259,11 @@ func (p *projectsModel) renderList() string {
 // The [a] action key is highlighted to draw the eye.
 func (p *projectsModel) renderEmpty() string {
 	lines := []string{
-		emptyHeadStyle.Render("no projects"),
+		p.m.styles.EmptyHead.Render("no projects"),
 		"",
-		emptyTextStyle.Render(fmt.Sprintf("press %s to add a project, then seed", emptyKeyStyle.Render("[a]"))),
-		emptyDimStyle.Render("index tasks (start-here, repo:, doc:)"),
-		emptyDimStyle.Render("and label as you go"),
+		p.m.styles.EmptyText.Render(fmt.Sprintf("press %s to add a project, then seed", p.m.styles.EmptyKey.Render("[a]"))),
+		p.m.styles.EmptyDim.Render("index tasks (start-here, repo:, doc:)"),
+		p.m.styles.EmptyDim.Render("and label as you go"),
 	}
 	return padToHeight(centerLinesBoth(lines, p.m.width, p.m.contentHeight), p.m.contentHeight)
 }
