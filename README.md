@@ -98,6 +98,7 @@ atm label add     --name <L> [--description <DESC>] [--actor <id>]   # upsert; a
 atm label remove  --name <L> [--actor <id>]                          # soft; reports retained_usage
 atm label list    [--project <CODE>] [--namespace <NS>]              # namespace requires --project
 atm label show    --name <L>
+atm label seed    --project <CODE> [--actor <id>]                    # (re)apply the 17 default labels; idempotent
 ```
 
 Label name regex: `^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`.
@@ -131,60 +132,106 @@ atm conventions          # print the onboarding guide + suggested seed namespace
 ```
 
 Conventions are **advisory only** — nothing in the store validates or
-special-cases the documented namespaces. The system treats `ATM:context:start-here`
+special-cases the documented namespaces. The system treats `ATM:context:agent`
 identically to `ATM:type:bug`. See the "Conventions" section below for the
 suggested seed namespaces.
 
 ## Conventions
 
 v2's vision is that workflow lives outside the system — in agent prompts and
-human habits, not in the store. A fresh agent landing in a project needs a
+human habits, not in the store. But a fresh agent landing in a project needs a
 deterministic entry point, and a fresh project needs its labels seeded.
 Onboarding is the act of seeding index tasks and seed labels; the conventions
 below tell humans and agents how to do that using only the label substrate.
+No bootstrap command, no reserved labels, no repo-side files, no store-side
+repo paths. The conventions are documented, not code-reserved: the system
+treats `ATM:context:agent` identically to `ATM:type:bug`.
 
 These conventions are **advisory** — `atm conventions` prints the same guide,
 but nothing in the store validates or special-cases these namespaces.
 
 ### Suggested seed namespaces
 
-A fresh project should populate these namespaces (via labels on seed index
-tasks and work tasks):
+A fresh project is auto-seeded with the 17 default labels below on
+`atm project create` (and re-applied idempotently by
+`atm label seed --project <CODE>` or the Labels tab `[S]` key). Templated
+namespaces (`repo:<name>`, `doc:<name>`, `claimed-by:<agent>`, `blocks:<ID>`,
+`related:<ID>`) are created on demand — they depend on project-specific values
+and are NOT seeded as concrete labels.
 
 | Namespace             | Examples                          | Purpose                                                          |
 |-----------------------|-----------------------------------|------------------------------------------------------------------|
-| `status:`             | open, todo, in-progress, done, blocked | workflow states — labels only, no state machine        |
+| `status:`             | open, todo, in-progress, done, blocked, review | workflow states — labels only, no state machine        |
 | `type:`               | bug, feature, task, chore         | task categorization                                              |
 | `priority:`           | high, medium, low                 | optional prioritization                                          |
-| `repo:<name>`         | `ATM:repo:atm`                    | index task whose description says where to find the repo and what it means — the repo→project binding, expressed in the label substrate |
-| `doc:<name>`          | `ATM:doc:architecture`            | index task pointing at a doc/resource and how to use it          |
-| `context:always-read` | `ATM:context:always-read`         | pointer to the always-read context markdown (replaces the deleted v1 Project Guide) |
-| `context:start-here`  | `ATM:context:start-here`          | the single entry-point task a fresh agent queries first; its description is the "read this first" pointer |
+| `context:documentation` | `ATM:context:documentation`     | the labeled task contains documentation about the project        |
+| `context:repository`  | `ATM:context:repository`          | the labeled task contains a pointer to a code repository         |
+| `context:agent`       | `ATM:context:agent`               | agent direction when navigating the project                     |
+| `context:fixit`       | `ATM:context:fixit`               | something on this task should be reviewed, updated, or altered   |
+| `repo:<name>`         | `ATM:repo:atm`                    | index task pointing at a repo — created on demand, not seeded   |
+| `doc:<name>`          | `ATM:doc:architecture`            | index task pointing at a doc/resource — created on demand, not seeded |
 | `claimed-by:<agent>`  | `ATM:claimed-by:claude`           | who's working on what — last-writer-wins, no conflict detection  |
-| `blocks:<ID>`         | `ATM:blocks:ATM-0002`             | task relationships via labels (replaces v1 Links)               |
-| `related:<ID>`        | `ATM:related:ATM-0003`            | non-blocking task relationships via labels                       |
+| `blocks:<ID>`, `related:<ID>` | `ATM:blocks:ATM-0002`     | task relationships via labels — created on demand, not seeded   |
+
+### Agent code-of-conduct (label hygiene)
+
+Agents working in an ATM project follow these rules to keep the label substrate
+legible for humans and other agents:
+
+1. **Read before you write.** Run `atm label list --project <CODE>` and read
+   every label's description before introducing any new label. The existing
+   labels are the project's vocabulary; reuse them whenever one fits your
+   intent.
+2. **Default setup is the baseline.** The seeded labels (status, type,
+   priority, context) cover the common cases. Prefer them. Do not reinvent
+   `status:open` as `state:open` or `wf:open`.
+3. **Invent only when nothing fits.** If no existing label captures your
+   intent, you may create a new one — agents are free to self-organize. But
+   before you do, ask yourself: would a human reviewing the Labels tab
+   understand why this label exists?
+4. **State the intention in the label description.** When you create a new
+   label, also call
+   `atm label add --name <CODE>:<ns>:<value> --description "<one sentence: why this label exists>"`.
+   The description is the intention record. A label with no description is a
+   flag for human review: "agent introduced this but didn't explain why."
+5. **One label, one meaning.** Don't use the same label string to mean
+   different things across tasks. If your intent diverges from an existing
+   label's description, create a new label with a distinct name and a
+   description that distinguishes it.
+6. **Humans reconcile.** The Labels tab is the human's review surface. If you
+   see labels that overlap, contradict, or lack descriptions, edit or remove
+   them there. Agents follow the rules above; humans curate.
 
 ### First-time human sequence
 
 1. `atm tui` (auto-inits the store)
-2. Create the project (Add in the Projects tab)
-3. Create a few seed index tasks (`start-here`, `repo:<name>`, `doc:<name>`,
-   `context:always-read`) and initial work tasks, labeling as you go. The act
-   of seeding these tasks populates the `status`/`type`/`repo`/`doc`/`context`
-   namespaces organically — there is no separate bootstrap step.
+2. Create the project (Add in the Projects tab). Project create auto-seeds the
+   17 default labels with descriptions, so the Labels tab is populated from
+   the start.
+3. Create seed index tasks (`context:agent`, `context:repository`,
+   `context:documentation`) and initial work tasks, labeling as you go. The
+   human curates labels in the Labels tab.
 
 ### Agent first-contact sequence
 
-1. `atm conventions` — read the guide.
-2. `atm task list --project <CODE> --label <CODE>:context:start-here` — get the
-   entry-point pointer and follow it.
-3. `atm task list --project <CODE> --label <CODE>:repo:*` / `:doc:*` /
-   `:context:*` — discover index tasks for repos, docs, and always-read context.
-4. `atm task list --project <CODE> --label <CODE>:status:open` — get open work.
+1. `atm conventions` — read this guide, including the code-of-conduct.
+2. `atm label list --project <CODE>` — read every label's description first to
+   understand the project's vocabulary before exploring tasks. Labels are the
+   project's language; knowing them makes every task query meaningful.
+3. `atm task list --project <CODE> --label <CODE>:context:agent` — get agent
+   directions for working in this project.
+4. `atm task list --project <CODE> --label <CODE>:context:repository` /
+   `:context:documentation` — discover repository pointers and documentation.
+5. `atm task list --project <CODE> --label <CODE>:status:open` — get open work.
 
 A fresh agent that does not yet know the project's namespaces runs the
-`start-here` query first (one deterministic label) and follows whatever the
-`start-here` task's description points at.
+label-list step first and follows the descriptions.
+
+### Re-seeding defaults
+
+`atm label seed --project <CODE>` or the Labels tab `[S]` key re-applies the
+default set idempotently — existing descriptions are preserved, and any new
+defaults introduced in a release are added.
 
 ## TUI
 
