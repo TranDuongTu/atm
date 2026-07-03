@@ -15,10 +15,11 @@ type workspacePane int
 const (
 	paneProjects workspacePane = iota
 	paneTasks
+	paneLabels
 	paneHelp
 )
 
-const numPanes = 3
+const numPanes = 4
 
 // formAction identifies what a form overlay is collecting.
 type formAction int
@@ -26,14 +27,15 @@ type formAction int
 const (
 	formNone formAction = iota
 	formProjectCreate
-	formLabelAdd       // project detail: add label (ATM: prefix fixed)
-	formLabelRemove    // project detail: remove label (name-only + warning)
+	formLabelAdd      // Labels tab / task detail: add label (ATM: prefix fixed)
+	formLabelRemove   // Labels tab: remove label (name-only + warning)
+	formLabelDescribe // Labels tab: set description (upsert)
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
 	formTaskLabelAdd    // task detail: add label
 	formTaskLabelRemove // task detail: remove label
-	formProjectSetName // project detail: set name
+	formProjectSetName  // project detail: set name
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -45,24 +47,25 @@ const (
 	confirmRemoveTask
 )
 
-// Model is the root Bubble Tea model for the v2 TUI: three tabs
-// (Projects/Tasks/Help) sharing a single content area with a tab bar and a
-// status line.
+// Model is the root Bubble Tea model for the v2 TUI: four tabs
+// (Projects/Tasks/Labels/Help) sharing a single content area with a tab bar
+// and a status line.
 type Model struct {
 	store    *store.Store
 	storeSet bool
 	actor    string
 	km       keymap
 
-	width, height    int
-	contentHeight    int
-	focused          workspacePane
-	projectScope     string // selection (mockup "Selection model")
-	quitting         bool
-	keymapOverlayOn  bool
+	width, height   int
+	contentHeight   int
+	focused         workspacePane
+	projectScope    string // selection (mockup "Selection model")
+	quitting        bool
+	keymapOverlayOn bool
 
 	projects projectsModel
 	tasks    tasksModel
+	labels   labelsModel
 	help     helpModel
 
 	form *Form
@@ -112,6 +115,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
+	m.labels = newLabelsModel(m)
 	m.help = newHelpModel(m)
 	m.SetSize(m.width, m.height)
 	m.refreshAll()
@@ -140,6 +144,7 @@ func (m *Model) SetSize(w, h int) {
 	}
 	m.projects.SetSize(contentW, m.contentHeight)
 	m.tasks.SetSize(contentW, m.contentHeight)
+	m.labels.SetSize(contentW, m.contentHeight)
 	m.help.SetSize(contentW, m.contentHeight)
 }
 
@@ -148,6 +153,7 @@ func (m *Model) SetSize(w, h int) {
 func (m *Model) refreshAll() {
 	m.projects.refresh()
 	m.tasks.refresh()
+	m.labels.refresh()
 	m.help.refresh()
 }
 
@@ -221,6 +227,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.focused = paneTasks
 		return nil
 	case "3":
+		m.focused = paneLabels
+		return nil
+	case "4":
 		m.focused = paneHelp
 		return nil
 	case "?":
@@ -244,6 +253,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 		}
+		if m.focused == paneLabels && m.labels.view == lViewDetail {
+			m.labels.view = lViewList
+			return nil
+		}
 		// No detail to leave: ignore.
 		return nil
 	}
@@ -253,6 +266,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.projects.handleKey(k)
 	case paneTasks:
 		return m.tasks.handleKey(k)
+	case paneLabels:
+		return m.labels.handleKey(k)
 	case paneHelp:
 		return m.help.handleKey(k)
 	}
@@ -304,6 +319,8 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doLabelAdd(vals)
 	case formLabelRemove:
 		return m.doLabelRemove(vals)
+	case formLabelDescribe:
+		return m.doLabelDescribe(vals)
 	case formTaskCreate:
 		return m.doTaskCreate(vals)
 	case formTaskSetTitle:
@@ -360,7 +377,7 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderTabBar() string {
-	names := []string{"Projects", "Tasks", "Help"}
+	names := []string{"Projects", "Tasks", "Labels", "Help"}
 	var parts []string
 	for i, n := range names {
 		label := fmt.Sprintf("%d  %s", i+1, n)
@@ -384,6 +401,8 @@ func (m *Model) renderBody() string {
 		return m.projects.View()
 	case paneTasks:
 		return m.tasks.View()
+	case paneLabels:
+		return m.labels.View()
 	case paneHelp:
 		return m.help.View()
 	}
@@ -397,8 +416,10 @@ func (m *Model) statusHint() string {
 		return m.projects.statusHint()
 	case paneTasks:
 		return m.tasks.statusHint()
+	case paneLabels:
+		return m.labels.statusHint()
 	case paneHelp:
-		return "[1/2/3]tabs [?]keys"
+		return "[1/2/3/4]tabs [?]keys"
 	}
 	return "[?]keys"
 }

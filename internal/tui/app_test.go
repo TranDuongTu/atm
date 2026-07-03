@@ -124,8 +124,8 @@ func mustNotContain(t *testing.T, view, sub string) {
 
 // --- Step 1: tab switching ---
 
-// TestTabSwitching verifies 1/2/3 switches the focused pane (mockup Screen
-// shared chrome: three tabs Projects/Tasks/Help).
+// TestTabSwitching verifies 1/2/3/4 switches the focused pane (mockup Screen
+// shared chrome: four tabs Projects/Tasks/Labels/Help).
 func TestTabSwitching(t *testing.T) {
 	m := newTestModel(t)
 	if m.focused != paneProjects {
@@ -136,8 +136,12 @@ func TestTabSwitching(t *testing.T) {
 		t.Fatalf("after 2: focus = %v want paneTasks", m.focused)
 	}
 	m = update(t, m, "3")
+	if m.focused != paneLabels {
+		t.Fatalf("after 3: focus = %v want paneLabels", m.focused)
+	}
+	m = update(t, m, "4")
 	if m.focused != paneHelp {
-		t.Fatalf("after 3: focus = %v want paneHelp", m.focused)
+		t.Fatalf("after 4: focus = %v want paneHelp", m.focused)
 	}
 	m = update(t, m, "1")
 	if m.focused != paneProjects {
@@ -145,12 +149,12 @@ func TestTabSwitching(t *testing.T) {
 	}
 }
 
-// TestTabBarShowsNumbers verifies the tab bar renders numeric prefixes (1/2/3)
-// so the [1]/[2]/[3] switching keys are discoverable.
+// TestTabBarShowsNumbers verifies the tab bar renders numeric prefixes (1/2/3/4)
+// so the [1]/[2]/[3]/[4] switching keys are discoverable.
 func TestTabBarShowsNumbers(t *testing.T) {
 	m := newTestModel(t)
 	bar := m.renderTabBar()
-	for _, want := range []string{"1", "2", "3", "Projects", "Tasks", "Help"} {
+	for _, want := range []string{"1", "2", "3", "4", "Projects", "Tasks", "Labels", "Help"} {
 		if !strings.Contains(bar, want) {
 			t.Errorf("tab bar missing %q\nbar: %s", want, bar)
 		}
@@ -660,7 +664,7 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 // Help tab (mockup Screen 10, Section 1).
 func TestHelpTabParityTable(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3")
+	update(t, m, "4")
 	v := m.View()
 	mustContain(t, v, "CLI / TUI parity")
 	mustContain(t, v, "atm project create")
@@ -674,7 +678,7 @@ func TestHelpTabParityTable(t *testing.T) {
 // rather than the scrolled viewport, since Section 3 is far down.
 func TestHelpTabConventions(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3")
+	update(t, m, "4")
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "Conventions")
 	mustContain(t, content, "advisory")
@@ -687,8 +691,8 @@ func TestHelpTabConventions(t *testing.T) {
 func TestHelpTabReadOnly(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "3")
-	for _, k := range []string{"a", "x", "L", "l", "N", "H", "s"} {
+	update(t, m, "4")
+	for _, k := range []string{"a", "x", "L", "l", "N", "H", "s", "S", "d"} {
 		update(t, m, k)
 	}
 	// No form should have opened; no confirm; no toast.
@@ -714,7 +718,7 @@ func TestHelpTabReadOnly(t *testing.T) {
 // TestHelpTabParityTable (§1) and TestHelpTabConventions (§3) do not assert.
 func TestHelpTabKeymap(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3")
+	update(t, m, "4")
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "Global keymap")
 	// A stable binding row from the keymap table — [a] add project/task.

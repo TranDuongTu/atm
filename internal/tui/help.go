@@ -8,8 +8,8 @@ import (
 )
 
 type helpModel struct {
-	m     *Model
-	lines []string
+	m      *Model
+	lines  []string
 	offset int
 }
 
@@ -112,12 +112,13 @@ atm project show --code               Projects tab  [Enter] detail
 atm project set-name --code --name    Projects detail  [N]
 atm project remove --code             Projects tab  [x]
 
-atm label add --name --desc           Projects detail  [L]
-atm label remove --name               Projects detail  [l]
-atm label list [--project] [--ns]     Projects detail  (labels section)
+atm label add --name --desc           Labels tab  [a]dd / [d]esc
+atm label remove --name               Labels tab  [l]
+atm label seed --project              Labels tab  [S]
+atm label list [--project] [--ns]     Labels tab  (list)
 atm label show --name                 — (CLI only)
 
-atm task create --project --title     Tasks tab  [a]dd
+atm task create --project --title [--label]   Tasks tab  [a]dd (labels field)
 atm task list [--project] [--label]   Tasks tab  (list; / for filter)
 atm task list --facets                Tasks tab  (wildcard filter -> grouped)
 atm task show --id                    Tasks tab  [Enter] detail
@@ -132,11 +133,11 @@ atm tui                                (you are here)`
 // keymapTable renders the global keymap summary as a fixed-width table.
 func keymapTable() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-12s %-30s %-22s %-10s %-26s\n", "Key", "Projects", "Tasks", "Help", "Detail")
-	b.WriteString(strings.Repeat("-", min(100, 0+12+1+30+1+22+1+10+1+26)))
+	fmt.Fprintf(&b, "%-12s %-22s %-24s %-22s %-10s %-26s\n", "Key", "Projects", "Tasks", "Labels", "Help", "Detail")
+	b.WriteString(strings.Repeat("-", min(100, 12+1+22+1+24+1+22+1+10+1+26)))
 	b.WriteString("\n")
 	for _, r := range keymapRows {
-		fmt.Fprintf(&b, "%-12s %-30s %-22s %-10s %-26s\n", r.Key, r.Projects, r.Tasks, r.Help, r.Detail)
+		fmt.Fprintf(&b, "%-12s %-22s %-24s %-22s %-10s %-26s\n", r.Key, r.Projects, r.Tasks, r.Labels, r.Help, r.Detail)
 	}
 	return b.String()
 }
@@ -145,7 +146,7 @@ func keymapTable() string {
 // here (rather than imported) to avoid a cli->tui dependency cycle; the spec
 // calls the TUI a "second render of the same reference" and this keeps the
 // content authoritative in one place per surface.
-var conventionsTextTUI = `Version: v2.0
+var conventionsTextTUI = `Version: v2.1
 
 v2's vision is that workflow lives outside the system — in agent prompts and
 human habits, not in the store. But a fresh agent landing in a project needs a
@@ -154,32 +155,89 @@ Onboarding is the act of seeding index tasks and seed labels; the conventions
 below tell humans and agents how to do that using only the label substrate.
 No bootstrap command, no reserved labels, no repo-side files, no store-side
 repo paths. The conventions are documented, not code-reserved: the system
-treats ATM:context:start-here identically to ATM:type:bug.
+treats ATM:context:agent identically to ATM:type:bug.
 
 ## Suggested seed namespaces
 
-  status:            open, todo, in-progress, done, blocked, review
-  type:              bug, feature, task, chore
-  priority:          high, medium, low
-  repo:<name>        ATM:repo:atm  (repo->project binding, label substrate)
-  doc:<name>         ATM:doc:architecture  (index task -> doc/resource)
-  context:always-read  pointer to always-read context markdown
-  context:start-here   the single entry-point task a fresh agent queries first
-  claimed-by:<agent>   who's working on what (replaces v1 Claim; last-writer-wins)
-  blocks:<ID>, related:<ID>   task relationships via labels (replaces v1 Links)
+A fresh project is auto-seeded with the 17 default labels below on atm project
+create (and re-applied idempotently by atm label seed --project <CODE> / the
+Labels tab [S] key). Templated namespaces (repo:<name>, doc:<name>,
+claimed-by:<agent>, blocks:<ID>, related:<ID>) are created on demand — they
+depend on project-specific values and are NOT seeded as concrete labels.
+
+  status:            open, todo, in-progress, done, blocked, review  (workflow states — labels only, no state machine)
+  type:              bug, feature, task, chore                       (task categorization)
+  priority:          high, medium, low                                (optional prioritization)
+  context:documentation  the labeled task contains documentation about the project
+  context:repository    the labeled task contains a pointer to a code repository
+  context:agent         ATM:context:agent — agent direction when navigating the project
+  context:fixit         ATM:context:fixit — something on this task should be reviewed, updated, or altered
+  repo:<name>           ATM:repo:atm — index task pointing at a repo (created on demand, not seeded)
+  doc:<name>            ATM:doc:architecture — index task pointing at a doc/resource (created on demand, not seeded)
+  claimed-by:<agent>    ATM:claimed-by:claude — who's working on what (last-writer-wins, no conflict detection)
+  blocks:<ID>, related:<ID>   ATM:blocks:ATM-0002 — task relationships via labels (created on demand, not seeded)
+
+## Agent code-of-conduct (label hygiene)
+
+Agents working in an ATM project follow these rules to keep the label substrate
+legible for humans and other agents:
+
+  1. Read before you write. Run atm label list --project <CODE> and read every
+     label's description before introducing any new label. The existing labels
+     are the project's vocabulary; reuse them whenever one fits your intent.
+  2. Default setup is the baseline. The seeded labels (status, type, priority,
+     context) cover the common cases. Prefer them. Do not reinvent status:open
+     as state:open or wf:open.
+  3. Invent only when nothing fits. If no existing label captures your intent,
+     you may create a new one — agents are free to self-organize. But before
+     you do, ask yourself: would a human reviewing the Labels tab understand
+     why this label exists?
+  4. State the intention in the label description. When you create a new label,
+     also call atm label add --name <CODE>:<ns>:<value> --description "<one
+     sentence: why this label exists>". The description is the intention record.
+     A label with no description is a flag for human review: "agent introduced
+     this but didn't explain why."
+  5. One label, one meaning. Don't use the same label string to mean different
+     things across tasks. If your intent diverges from an existing label's
+     description, create a new label with a distinct name and a description
+     that distinguishes it.
+  6. Humans reconcile. The Labels tab is the human's review surface. If you see
+     labels that overlap, contradict, or lack descriptions, edit or remove
+     them there. Agents follow the rules above; humans curate.
 
 ## First-time human sequence
 
   1. atm tui (auto-inits the store)
-  2. Create the project (Add in the Projects tab)
-  3. Create a few seed index tasks (start-here, repo:<name>, doc:<name>,
-     context:always-read) and initial work tasks, labeling as you go.
+  2. Create the project (Add in the Projects tab). Project create auto-seeds the
+     17 default labels with descriptions, so the Labels tab is populated from
+     the start.
+  3. Create seed index tasks (context:agent, context:repository,
+     context:documentation) and initial work tasks, labeling as you go. The
+     human curates labels in the Labels tab.
 
 ## Agent first-contact sequence
 
-  1. atm conventions — read the guide.
-  2. task list --project <CODE> --label <CODE>:context:start-here
-  3. task list --project <CODE> --label <CODE>:repo:* / :doc:* / :context:*
-  4. task list --project <CODE> --label <CODE>:status:open
+  1. atm conventions — read this guide, including the code-of-conduct.
+  2. atm label list --project <CODE> — read every label's description first to
+     understand the project's vocabulary before exploring tasks. Labels are
+     the project's language; knowing them makes every task query meaningful.
+  3. task list --project <CODE> --label <CODE>:context:agent — get agent
+     directions for working in this project.
+  4. task list --project <CODE> --label <CODE>:context:repository /
+     :context:documentation — discover repository pointers and documentation.
+  5. task list --project <CODE> --label <CODE>:status:open — get open work.
 
-(advisory — the system treats all namespaces identically)`
+  A fresh agent that does not yet know the project's namespaces runs the
+  label-list step first and follows the descriptions.
+
+## Notes
+
+  - Plugins/skills: ATM ships only the doc + the conventions command. Plugins
+    or agent skills may wrap the first-contact sequence; ATM itself has no
+    plugin mechanism.
+  - Re-seeding defaults: atm label seed --project <CODE> or the Labels tab [S]
+    key re-applies the default set idempotently — existing descriptions are
+    preserved, and any new defaults introduced in a release are added.
+
+Conventions are advisory only — nothing in the store validates or
+special-cases the documented namespaces.`

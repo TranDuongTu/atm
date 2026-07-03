@@ -108,6 +108,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		if r, ok := p.selected(); ok {
 			p.m.projectScope = r.code
 			p.m.tasks.refresh()
+			p.m.labels.refresh()
 		}
 	case "a":
 		p.openCreateForm()
