@@ -58,15 +58,15 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&st.flags.store, "store", "", "path to the store directory (overrides ATM_HOME)")
 	root.PersistentFlags().StringVar(&st.flags.output, "output", "", "output format: json|text (default text)")
-	root.PersistentFlags().StringVar(&st.flags.actor, "actor", "", "actor id (env ATM_ACTOR)")
+	root.PersistentFlags().StringVar(&st.flags.actor, "actor", "", "actor id (free-form; env ATM_ACTOR)")
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
 
 	root.AddCommand(newInitCmd(st))
 	root.AddCommand(newStoreCmd(st))
+	root.AddCommand(newConventionsCmd(st))
 	root.AddCommand(newProjectCmd(st))
+	root.AddCommand(newLabelCmd(st))
 	root.AddCommand(newTaskCmd(st))
-	root.AddCommand(newReviewCmd(st))
-	root.AddCommand(newActorCmd(st))
 	root.AddCommand(newTUICmd(st))
 	root.AddCommand(newVersionCmd(st))
 
@@ -97,7 +97,7 @@ func (s *cliState) resolveActor(required bool) (string, error) {
 		if required {
 			return "", fmt.Errorf("%w: --actor or ATM_ACTOR is required", ErrUsage)
 		}
-		return "human:anonymous", nil
+		return "anonymous", nil
 	}
 	return s.flags.actor, nil
 }
@@ -113,15 +113,10 @@ func newVersionCmd(st *cliState) *cobra.Command {
 }
 
 func newInitCmd(st *cliState) *cobra.Command {
-	var actor string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create an empty store",
+		Short: "Create an empty store (idempotent)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a := actor
-			if a == "" {
-				a = st.flags.actor
-			}
 			root := store.ResolveStorePath(st.flags.store)
 			s, err := store.Open(root)
 			if err != nil {
@@ -130,11 +125,6 @@ func newInitCmd(st *cliState) *cobra.Command {
 			if err := s.Init(""); err != nil {
 				return err
 			}
-			if a != "" {
-				if err := s.Register(a, ""); err != nil {
-					return err
-				}
-			}
 			if st.isJSON() {
 				return writeJSON(st.stdout(), map[string]any{"store": s.StorePath()})
 			}
@@ -142,7 +132,6 @@ func newInitCmd(st *cliState) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&actor, "actor", "", "actor id to register")
 	return cmd
 }
 

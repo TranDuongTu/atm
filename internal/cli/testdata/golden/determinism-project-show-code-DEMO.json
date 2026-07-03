@@ -2,24 +2,24 @@
   "project": {
     "code": "DEMO",
     "created_at": "TIMESTAMP",
-    "created_by": "human:alice",
-    "guide": null,
-    "guide_freshness_threshold": "",
-    "history": [],
-    "labels": [
+    "created_by": "claude",
+    "history": [
       {
-        "description": "Bug fix",
-        "name": "type:bug"
+        "action": "created",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h1"
       },
       {
-        "description": "",
-        "name": "type:impl"
+        "action": "name-changed",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h2"
       }
     ],
     "name": "Demo Project",
     "next_task_n": 2,
-    "repo_paths": [],
-    "type_axis": "type",
-    "updated_at": "TIMESTAMP"
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
   }
 }

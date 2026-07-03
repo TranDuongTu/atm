@@ -1,107 +1,42 @@
 package tui
 
-type keymap struct {
-	refresh       string
-	quit          string
-	help          string
-	palette       string
-	filter        string
-	up            string
-	down          string
-	top           string
-	bottom        string
-	enter         string
-	add           string
-	edit          string
-	remove        string
-	toggle        string
-	escape        string
-	dashboardA    string
-	dashboardR    string
-	dashboardBigR string
-	dashboardE    string
-	dashboardP    string
-	projectN      string
-	projectT      string
-	projectBigL   string
-	projectL      string
-	projectBigR   string
-	projectR      string
-	guideBigS     string
-	guideS        string
-	guideBigX     string
-	guideBigM     string
-	guideG        string
-	guideM        string
-	guideD        string
-	guideBigF     string
-	guideBigD     string
-	taskN         string
-	taskC         string
-	taskU         string
-	taskS         string
-	taskE         string
-	taskB         string
-	taskBigL      string
-	taskT         string
-	taskO         string
-	taskBigO      string
-	taskD         string
-	taskV         string
+// keymap centralizes the global key bindings (mockup spec: "Global keymap
+// summary"). Keys are matched as raw strings in handleKey; the strings here
+// document the binding surface and drive the Help tab's Section 2.
+//
+// Per-tab semantics for dual-purpose keys (s, Enter, Esc, j/k) are dispatched
+// by the active pane — this struct is the declarative reference.
+type keymap struct{}
+
+func defaultKeymap() keymap { return keymap{} }
+
+// keyEntry is one row of the global keymap reference table (Help Section 2).
+type keyEntry struct {
+	Key      string
+	Projects string
+	Tasks    string
+	Help     string
+	Detail   string
 }
 
-func defaultKeymap() keymap {
-	return keymap{
-		refresh:       "r",
-		quit:          "q",
-		help:          "?",
-		palette:       ":",
-		filter:        "/",
-		up:            "up",
-		down:          "down",
-		top:           "g",
-		bottom:        "G",
-		enter:         "enter",
-		add:           "a",
-		edit:          "e",
-		remove:        "x",
-		toggle:        " ",
-		escape:        "esc",
-		dashboardA:    "a",
-		dashboardR:    "r",
-		dashboardBigR: "R",
-		dashboardE:    "E",
-		dashboardP:    "P",
-		projectN:      "N",
-		projectT:      "T",
-		projectBigL:   "L",
-		projectL:      "l",
-		projectBigR:   "R",
-		projectR:      "r",
-		guideBigS:     "S",
-		guideS:        "s",
-		guideBigX:     "X",
-		guideBigM:     "M",
-		guideG:        "g",
-		guideM:        "m",
-		guideD:        "d",
-		guideBigF:     "F",
-		guideBigD:     "D",
-		taskN:         "n",
-		taskC:         "c",
-		taskU:         "u",
-		taskS:         "s",
-		taskE:         "e",
-		taskB:         "b",
-		taskBigL:      "L",
-		taskT:         "t",
-		taskO:         "o",
-		taskBigO:      "O",
-		taskD:         "d",
-		taskV:         "v",
-	}
-}
-
-func keyMatch(k keymap, msgKey string, field string) bool {
-	return msgKey == field
+// keymapRows is the verbatim Global keymap summary table from the mockup spec.
+var keymapRows = []keyEntry{
+	{"1/2/3", "switch tab", "switch tab", "switch tab", "switch tab"},
+	{"j/k", "move cursor", "move cursor", "scroll", "scroll"},
+	{"g", "top of list", "top of list", "top", "top"},
+	{"Enter", "open detail", "open detail / toggle group", "-", "confirm overlay"},
+	{"Esc", "back", "back / cancel filter", "-", "back / cancel overlay"},
+	{"/", "-", "edit filter", "-", "-"},
+	{"s", "select project", "cycle sort", "-", "-"},
+	{"a", "add project", "add task", "-", "-"},
+	{"x", "remove project (confirm)", "-", "-", "remove task (confirm)"},
+	{"e", "-", "-", "-", "edit title (task)"},
+	{"d", "-", "-", "-", "edit description (task)"},
+	{"b/B", "-", "-", "-", "add/remove label (task)"},
+	{"L/l", "add/remove label (project detail)", "-", "-", "-"},
+	{"N", "set name (project detail)", "-", "-", "-"},
+	{"H", "toggle history (project detail)", "-", "-", "-"},
+	{"?", "toggle keymap overlay", "toggle keymap overlay", "-", "toggle keymap overlay"},
+	{"PgDn/Space", "-", "next page", "next page", "scroll down"},
+	{"PgUp", "-", "prev page", "prev page", "-"},
 }

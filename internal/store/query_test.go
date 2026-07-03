@@ -2,77 +2,85 @@ package store
 
 import "testing"
 
-func TestListTasksFilters(t *testing.T) {
+func TestListTasksANDIntersectsExactLabels(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "", []Label{
-		{Name: "type:impl"}, {Name: "type:bug"}, {Name: "area:cli"}, {Name: "area:tui"},
-	}, nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t1", "", []string{"type:impl", "area:cli"}, "human:alice")
-	_, _ = s.CreateTask("ATM", "t2", "", []string{"type:bug", "area:tui"}, "human:alice")
-	_, _ = s.CreateTask("ATM", "t3", "", []string{"type:impl"}, "human:alice")
-	_ = s.SetStatus("ATM-0001", "in-progress", "human:alice")
-	_ = s.SetStatus("ATM-0001", "done", "human:alice")
-
-	all := s.ListTasks(QueryFilters{})
-	if len(all) != 3 {
-		t.Fatalf("all = %d want 3", len(all))
-	}
-
-	byStatus := s.ListTasks(QueryFilters{Status: "done"})
-	if len(byStatus) != 1 || byStatus[0].ID != "ATM-0001" {
-		t.Fatalf("status filter: got %v", byStatus)
-	}
-
-	byLabel := s.ListTasks(QueryFilters{Labels: []string{"type:impl"}})
-	if len(byLabel) != 2 {
-		t.Fatalf("label filter type:impl: got %d want 2", len(byLabel))
-	}
-
-	byLabelAnd := s.ListTasks(QueryFilters{Labels: []string{"type:impl", "area:cli"}})
-	if len(byLabelAnd) != 1 || byLabelAnd[0].ID != "ATM-0001" {
-		t.Fatalf("AND-intersect labels: got %v", byLabelAnd)
-	}
-
-	byProject := s.ListTasks(QueryFilters{Project: "ATM"})
-	if len(byProject) != 3 {
-		t.Fatalf("project filter: got %d want 3", len(byProject))
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateTask("ATM", "a", "", []string{"ATM:type:bug", "ATM:status:open"}, "claude")
+	_, _ = s.CreateTask("ATM", "b", "", []string{"ATM:type:bug"}, "claude")
+	got := s.ListTasks(QueryFilters{Project: "ATM", Labels: []string{"ATM:type:bug", "ATM:status:open"}})
+	if len(got) != 1 || got[0].Title != "a" {
+		t.Fatalf("got %v", got)
 	}
 }
 
-func TestListTasksSortedByID(t *testing.T) {
+func TestListTasksIgnoresWildcardTokensForScoping(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "", nil, nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t3", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t1", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t2", "", nil, "human:alice")
-	tasks := s.ListTasks(QueryFilters{})
-	if len(tasks) != 3 {
-		t.Fatalf("got %d want 3", len(tasks))
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, "claude")
+	_, _ = s.CreateTask("ATM", "b", "", []string{"ATM:status:done"}, "claude")
+	// ATM:status:* is a wildcard (facet) — must NOT restrict; all 2 tasks returned.
+	got := s.ListTasks(QueryFilters{Project: "ATM", Labels: []string{"ATM:status:*"}})
+	if len(got) != 2 {
+		t.Fatalf("wildcard must not restrict; got %d", len(got))
 	}
-	if tasks[0].ID != "ATM-0001" || tasks[1].ID != "ATM-0002" || tasks[2].ID != "ATM-0003" {
-		ids := []string{}
-		for _, t := range tasks {
-			ids = append(ids, t.ID)
+}
+
+func TestGroupTasksMultiMembership(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	t1, _ := s.CreateTask("ATM", "a", "", []string{"ATM:status:open", "ATM:status:done"}, "claude")
+	_, _ = s.CreateTask("ATM", "b", "", []string{"ATM:status:open"}, "claude")
+	_, _ = s.CreateTask("ATM", "c", "", nil, "claude")
+	groups, others := s.GroupTasks(QueryFilters{Project: "ATM", Labels: []string{"ATM:status:*"}})
+	// open group has 2 (t1 multi-members + b); done group has 1 (t1).
+	open := findGroup(t, groups, "ATM:status:open")
+	done := findGroup(t, groups, "ATM:status:done")
+	if len(open.Tasks) != 2 || len(done.Tasks) != 1 {
+		t.Fatalf("open=%d done=%d", len(open.Tasks), len(done.Tasks))
+	}
+	if !containsID(others, t1.ID) && !inGroup(open, t1.ID) {
+		// t1 carries a matching label so it's in groups, not others
+	}
+	if len(others) != 1 || others[0].Title != "c" {
+		t.Fatalf("others = %v want [c]", others)
+	}
+}
+
+func TestGroupTasksNoWildcardsReturnsAllInOthers(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateTask("ATM", "a", "", nil, "claude")
+	groups, others := s.GroupTasks(QueryFilters{Project: "ATM"})
+	if len(groups) != 0 || len(others) != 1 {
+		t.Fatalf("groups=%d others=%d", len(groups), len(others))
+	}
+}
+
+func findGroup(t *testing.T, groups []LabelGroup, name string) LabelGroup {
+	t.Helper()
+	for _, g := range groups {
+		if g.Label == name {
+			return g
 		}
-		t.Fatalf("order = %v want [ATM-0001 ATM-0002 ATM-0003]", ids)
 	}
+	t.Fatalf("group %q not found", name)
+	return LabelGroup{}
 }
 
-func TestListTasksClaimantFilter(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "", nil, nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t1", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t2", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t3", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t4", "", nil, "human:alice")
-	_, _ = s.CreateTask("ATM", "t5", "", nil, "human:alice")
-
-	t2, _ := s.GetTask("ATM-0002")
-	t2.Claim = &Claim{Actor: "agent:claude-1", At: Now()}
-	_ = WriteJSON(s.taskPath(t2.ID), t2)
-
-	byClaimant := s.ListTasks(QueryFilters{Claimant: "agent:claude-1"})
-	if len(byClaimant) != 1 || byClaimant[0].ID != "ATM-0002" {
-		t.Fatalf("claimant filter: got %v", byClaimant)
+func inGroup(g LabelGroup, id string) bool {
+	for _, tk := range g.Tasks {
+		if tk.ID == id {
+			return true
+		}
 	}
+	return false
+}
+
+func containsID(tasks []*Task, id string) bool {
+	for _, tk := range tasks {
+		if tk.ID == id {
+			return true
+		}
+	}
+	return false
 }

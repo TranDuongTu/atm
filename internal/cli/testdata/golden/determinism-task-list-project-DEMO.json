@@ -1,30 +1,25 @@
 {
   "tasks": [
     {
-      "claim": null,
       "created_at": "TIMESTAMP",
+      "created_by": "claude",
       "description": "",
-      "discussions": [],
-      "followups": [],
       "history": [
         {
           "action": "created",
-          "actor": "human:alice",
+          "actor": "claude",
           "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
+          "id": "h1"
         }
       ],
       "id": "DEMO-0001",
       "labels": [
-        "area:cli"
+        "DEMO:status:open"
       ],
-      "links": [],
       "project_code": "DEMO",
-      "status": "open",
-      "title": "Old task",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
+      "title": "Demo task",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
     }
   ]
 }

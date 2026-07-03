@@ -1,0 +1,12 @@
+{
+  "labels": [
+    {
+      "description": "Bug fix",
+      "name": "ATM:type:bug"
+    },
+    {
+      "description": "",
+      "name": "ATM:type:epic"
+    }
+  ]
+}

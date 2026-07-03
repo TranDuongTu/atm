@@ -1,0 +1,25 @@
+{
+  "project": {
+    "code": "ATM",
+    "created_at": "TIMESTAMP",
+    "created_by": "claude",
+    "history": [
+      {
+        "action": "created",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h1"
+      },
+      {
+        "action": "name-changed",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h2"
+      }
+    ],
+    "name": "Renamed Project",
+    "next_task_n": 3,
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
+  }
+}

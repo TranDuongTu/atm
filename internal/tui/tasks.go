@@ -2,638 +2,1068 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
-	"time"
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
 )
 
 type tasksModel struct {
-	app      *Model
-	tasks    []*store.Task
-	filters  store.QueryFilters
-	cursor   int
-	detail   *store.ShowWithContextResult
-	detailID string
-	mode     taskMode
-	width    int
-	height   int
-	filter   string
+	m     *Model
+	view  tView
+
+	// list state (flat + grouped)
+	rows      []taskRow
+	groups    []taskGroup
+	others    []taskRow
+	cursor    int
+	offset    int
+	pageSize  int
+
+	// filter / sort
+	filter     string
+	filterEdit string
+	filterEditing bool
+	sortMode   sortMode
+
+	// detail
+	detail taskDetailState
 }
 
-type taskMode int
+type tView int
 
 const (
-	taskListMode taskMode = iota
-	taskDetailMode
+	tViewList tView = iota
+	tViewDetail
 )
 
-func newTasksModel(app *Model) *tasksModel {
-	return &tasksModel{app: app}
+type sortMode int
+
+const (
+	sortUpdatedDesc sortMode = iota
+	sortUpdatedAsc
+	sortIDAsc
+)
+
+func (s sortMode) String() string {
+	switch s {
+	case sortUpdatedDesc:
+		return "updated-desc"
+	case sortUpdatedAsc:
+		return "updated-asc"
+	case sortIDAsc:
+		return "id-asc"
+	}
+	return "?"
 }
 
-func (t *tasksModel) setSize(w, h int) {
-	t.width = w
-	t.height = h
+type taskRow struct {
+	id      string
+	title   string
+	labels  []string
+	updated string
+	task    *store.Task
 }
 
-func (t *tasksModel) setFilter(v string) {
-	t.filter = v
+type taskGroup struct {
+	label string
+	rows  []taskRow
+	// subgroups holds nested facets for multi-wildcard filters (depth =
+	// number of wildcards). Empty for the single-wildcard flat path and for
+	// the deepest level. A task appears in every sub-group whose key it
+	// carries (multi-membership preserved). Tasks in this group that match
+	// no deeper wildcard land in a sub-`(no matching labels)` bucket (label
+	// == "").
+	subgroups  []taskGroup
+	// collapsed controls group-header expand/collapse.
+	collapsed bool
+}
+
+type taskDetailState struct {
+	id      string
+	task    *store.Task
+	lines   []string
+	offset  int
+}
+
+func newTasksModel(m *Model) tasksModel {
+	return tasksModel{m: m, sortMode: sortUpdatedDesc}
+}
+
+func (t *tasksModel) SetSize(w, h int) {
+	_ = w
+	t.pageSize = h - 4 // header(1) + col-header(1) + separator(1) + footer(1)
+	if t.pageSize < 1 {
+		t.pageSize = 1
+	}
 }
 
 func (t *tasksModel) refresh() {
-	if !t.app.storeSet {
+	t.rows = nil
+	t.groups = nil
+	t.others = nil
+	if t.m.projectScope == "" {
+		t.clampCursor()
 		return
 	}
-	filters := t.filters
-	filters.Project = t.app.projectScope
-	t.tasks = t.app.store.ListTasks(filters)
-	if t.cursor >= len(t.tasks) {
-		t.cursor = max0(len(t.tasks) - 1)
-	}
-	if t.detailID != "" {
-		res, err := t.app.store.ShowWithContext(t.detailID)
-		if err == nil {
-			t.detail = res
-		} else {
-			t.detail = nil
-			t.detailID = ""
+	filters := t.parseFilter()
+	ts := t.m.store.ListTasks(store.QueryFilters{Project: t.m.projectScope, Labels: filters})
+	ts = t.applySort(ts)
+	wildcards := wildcardTokens(filters)
+	if len(wildcards) > 0 {
+		// Grouped view.
+		groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: t.m.projectScope, Labels: filters})
+		for _, g := range groups {
+			rows := make([]taskRow, 0, len(g.Tasks))
+			for _, tk := range g.Tasks {
+				rows = append(rows, t.toRow(tk))
+			}
+			tg := taskGroup{label: g.Label, rows: rows}
+			// For multi-wildcard filters, nest: each deeper wildcard
+			// defines sub-groups within this group. The store returns a
+			// flat bucket per concrete label (union across all wildcards);
+			// the nesting is a presentation concern handled here.
+			if len(wildcards) >= 2 {
+				tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+				// Leaf rows live only at the deepest level; clear the
+				// top-level rows so they aren't double-rendered.
+				tg.rows = nil
+			}
+			t.groups = append(t.groups, tg)
+		}
+		for _, tk := range others {
+			t.others = append(t.others, t.toRow(tk))
+		}
+	} else {
+		for _, tk := range ts {
+			t.rows = append(t.rows, t.toRow(tk))
 		}
 	}
+	t.clampCursor()
 }
 
-func (t *tasksModel) openTaskByID(id string) {
-	res, err := t.app.store.ShowWithContext(id)
-	if err != nil {
-		t.app.showToast(fmt.Sprintf("3 not-found: %v", err))
-		return
+func (t *tasksModel) toRow(tk *store.Task) taskRow {
+	return taskRow{
+		id:      tk.ID,
+		title:   tk.Title,
+		labels:  tk.Labels,
+		updated: relTime(tk.UpdatedAt, store.Now()),
+		task:    tk,
 	}
-	t.detail = res
-	t.detailID = id
-	t.mode = taskDetailMode
 }
 
-func (t *tasksModel) filtered() []*store.Task {
-	if t.filter == "" {
-		return t.tasks
+func (t *tasksModel) applySort(ts []*store.Task) []*store.Task {
+	out := make([]*store.Task, len(ts))
+	copy(out, ts)
+	switch t.sortMode {
+	case sortUpdatedDesc:
+		// stable: most recent first
+		// Use insertion-stable by index after a manual compare.
+		for i := 1; i < len(out); i++ {
+			for j := i; j > 0; j-- {
+				if out[j].UpdatedAt.After(out[j-1].UpdatedAt) {
+					out[j], out[j-1] = out[j-1], out[j]
+				}
+			}
+		}
+	case sortUpdatedAsc:
+		for i := 1; i < len(out); i++ {
+			for j := i; j > 0; j-- {
+				if out[j].UpdatedAt.Before(out[j-1].UpdatedAt) {
+					out[j], out[j-1] = out[j-1], out[j]
+				}
+			}
+		}
+	case sortIDAsc:
+		// store already returns id-asc; no-op
 	}
-	lower := strings.ToLower(t.filter)
-	var out []*store.Task
-	for _, tk := range t.tasks {
-		if strings.Contains(strings.ToLower(tk.ID), lower) ||
-			strings.Contains(strings.ToLower(tk.Title), lower) ||
-			strings.Contains(strings.ToLower(tk.Status), lower) {
-			out = append(out, tk)
+	return out
+}
+
+// parseFilter splits the filter string on spaces; tokens ending `:*` are
+// wildcards (facets), others are exact restrictors.
+func (t *tasksModel) parseFilter() []string {
+	s := strings.TrimSpace(t.filter)
+	if s == "" {
+		return nil
+	}
+	return strings.Fields(s)
+}
+
+func (t *tasksModel) hasWildcard() bool {
+	for _, tok := range t.parseFilter() {
+		if isWildcardTUI(tok) {
+			return true
+		}
+	}
+	return false
+}
+
+func isWildcardTUI(l string) bool { return strings.HasSuffix(l, ":*") }
+
+func wildcardTokens(labels []string) []string {
+	var out []string
+	for _, l := range labels {
+		if isWildcardTUI(l) {
+			out = append(out, l)
 		}
 	}
 	return out
 }
 
-func (t *tasksModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key := msg.(tea.KeyMsg).String()
-	if t.mode == taskListMode {
-		return t.updateList(key)
+// buildNestedGroups buckets `tasks` by the concrete labels they carry that
+// match the given wildcards, recursing for each remaining wildcard. This is
+// the TUI-side nesting pass that turns the store's flat per-concrete-label
+// groups into the nested facet tree (mockup Screen 7, two-wildcard case).
+//
+// Multi-membership: a task appears in every sub-group whose key it carries.
+// Tasks matching no label for the current wildcard land in a sub-
+// `(no matching labels)` bucket (label == ""), consistent with the top-level
+// pattern. At the deepest level (no remaining wildcards), the caller already
+// holds the leaf rows; this helper only recurses while wildcards remain.
+func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup {
+	if len(wildcards) == 0 {
+		return nil
 	}
-	return t.updateDetail(key)
+	w := wildcards[0]
+	// Bucket tasks by each concrete label they carry matching w, preserving
+	// discovery order then alphabetical (store.GroupTasks already sorts;
+	// we sort here for determinism independent of input order).
+	buckets := map[string][]*store.Task{}
+	var keys []string
+	matched := map[*store.Task]bool{}
+	for _, t := range tasks {
+		for _, l := range t.Labels {
+			if labelMatchesWildcardTUI(l, w) {
+				if _, exists := buckets[l]; !exists {
+					keys = append(keys, l)
+				}
+				buckets[l] = append(buckets[l], t)
+				matched[t] = true
+			}
+		}
+	}
+	sort.Strings(keys)
+	// (no matching labels) sub-bucket: tasks matching no label for w.
+	var noneMatched []*store.Task
+	for _, t := range tasks {
+		if !matched[t] {
+			noneMatched = append(noneMatched, t)
+		}
+	}
+	var groups []taskGroup
+	for _, k := range keys {
+		rows := make([]taskRow, 0, len(buckets[k]))
+		for _, tk := range buckets[k] {
+			rows = append(rows, toRow(tk))
+		}
+		g := taskGroup{label: k}
+		if len(wildcards) >= 2 {
+			g.subgroups = buildNestedGroups(buckets[k], wildcards[1:], toRow)
+			// Leaf rows live only at the deepest level.
+			g.rows = nil
+		} else {
+			g.rows = rows
+		}
+		groups = append(groups, g)
+	}
+	// Sub-`(no matching labels)` bucket, rendered last within this level.
+	if len(noneMatched) > 0 {
+		rows := make([]taskRow, 0, len(noneMatched))
+		for _, tk := range noneMatched {
+			rows = append(rows, toRow(tk))
+		}
+		g := taskGroup{label: ""} // "" == (no matching labels)
+		if len(wildcards) >= 2 {
+			g.subgroups = buildNestedGroups(noneMatched, wildcards[1:], toRow)
+		} else {
+			g.rows = rows
+		}
+		groups = append(groups, g)
+	}
+	return groups
 }
 
-func (t *tasksModel) updateList(key string) (tea.Model, tea.Cmd) {
-	list := t.filtered()
-	switch key {
+// labelMatchesWildcardTUI reports whether label matches the wildcard (e.g.
+// "ATM:status:open" matches "ATM:status:*"). Mirrors store.labelMatchesWildcard
+// without exposing the unexported helper.
+func labelMatchesWildcardTUI(label, wildcard string) bool {
+	prefix := strings.TrimSuffix(wildcard, "*")
+	return strings.HasPrefix(label, prefix)
+}
+
+func (t *tasksModel) clampCursor() {
+	if t.cursor < 0 {
+		t.cursor = 0
+	}
+	// For grouped view, the cursor indexes into a flattened list of
+	// (group header, group rows, others header, others rows). We compute that
+	// lazily in render; clamp to total line count.
+	total := t.flatLineCount()
+	if t.cursor >= total {
+		t.cursor = total - 1
+	}
+	if t.cursor < 0 {
+		t.cursor = 0
+	}
+}
+
+func (t *tasksModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	// Filter editing takes priority (header is the input).
+	if t.filterEditing {
+		return t.handleFilterEditKey(k)
+	}
+	switch t.view {
+	case tViewList:
+		return t.handleListKey(k)
+	case tViewDetail:
+		return t.handleDetailKey(k)
+	}
+	return nil
+}
+
+func (t *tasksModel) handleFilterEditKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "enter":
+		t.filter = t.filterEdit
+		t.filterEditing = false
+		t.cursor = 0
+		t.refresh()
+		return nil
+	case "esc":
+		t.cancelFilterEdit()
+		return nil
+	case "backspace":
+		if len(t.filterEdit) > 0 {
+			t.filterEdit = t.filterEdit[:len(t.filterEdit)-1]
+		}
+		return nil
+	case " ":
+		t.filterEdit += " "
+		return nil
+	}
+	if k.Type == tea.KeyRunes {
+		t.filterEdit += string(k.Runes)
+	}
+	return nil
+}
+
+func (t *tasksModel) cancelFilterEdit() {
+	t.filterEditing = false
+	t.filterEdit = ""
+}
+
+func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
 	case "j", "down":
-		if t.cursor < len(list)-1 {
-			t.cursor++
-		}
+		t.cursorDown()
 	case "k", "up":
-		if t.cursor > 0 {
-			t.cursor--
-		}
+		t.cursorUp()
 	case "g":
 		t.cursor = 0
-	case "G":
-		if len(list) > 0 {
-			t.cursor = len(list) - 1
+		t.offset = 0
+	case "/":
+		if t.m.projectScope == "" {
+			return nil
 		}
-	case "enter":
-		if t.cursor < len(list) {
-			t.openTaskByID(list[t.cursor].ID)
-		}
-	case t.app.km.add:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		projects := t.app.store.ListProjects()
-		defaultProject := ""
-		if len(projects) > 0 {
-			defaultProject = projects[0].Code
-		}
-		f := NewForm("New task", []formField{
-			{Label: "project", Required: true, Value: defaultProject},
-			{Label: "title", Required: true},
-			{Label: "description"},
-			{Label: "labels", Hint: "comma-separated"},
-		})
-		p_app_openTaskCreate(t.app, f)
-	case t.app.km.taskN:
-		projects := t.app.store.ListProjects()
-		if len(projects) == 0 {
-			t.app.showToast("no projects")
-			return t.app, nil
-		}
-		code := projects[0].Code
-		next, _, err := t.app.store.Next(code, false, "")
-		if err != nil {
-			t.app.showToast(fmt.Sprintf("error: %v", err))
-			return t.app, nil
-		}
-		if next == nil {
-			t.app.showToast("no claimable task in " + code)
-		} else {
-			t.app.showToast("next: " + next.ID + " " + next.Title)
-			t.filters.Project = code
-			t.refresh()
-			for i, tk := range t.tasks {
-				if tk.ID == next.ID {
-					t.cursor = i
-					break
-				}
-			}
-		}
-	case t.app.km.taskC:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		if t.cursor < len(list) {
-			id := list[t.cursor].ID
-			_, err := t.app.store.Claim(id, t.app.actor)
-			if err != nil {
-				t.app.showToast(fmt.Sprintf("4 conflict: %v", err))
-			} else {
-				t.app.showToast("claimed " + id)
-				t.refresh()
-			}
-		}
-	case t.app.km.taskU:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		if t.cursor < len(list) {
-			id := list[t.cursor].ID
-			_, err := t.app.store.Unclaim(id, t.app.actor)
-			if err != nil {
-				t.app.showToast(fmt.Sprintf("error: %v", err))
-			} else {
-				t.app.showToast("unclaimed " + id)
-				t.refresh()
-			}
-		}
-	}
-	return t.app, nil
-}
-
-func (t *tasksModel) updateDetail(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "back":
-		t.mode = taskListMode
-		t.detail = nil
-		t.detailID = ""
+		t.filterEditing = true
+		t.filterEdit = t.filter
+	case "s":
+		// cycle sort
+		t.sortMode = (t.sortMode + 1) % 3
 		t.refresh()
-	case t.app.km.taskS:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
+	case "a":
+		if !t.m.canMutate() {
+			return nil
 		}
-		if t.detail != nil && t.detail.Task != nil {
-			t.showStatusOverlay(t.detail.Task.Status)
+		if t.m.projectScope == "" {
+			return nil
 		}
-	case t.app.km.taskE:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		if t.detail != nil && t.detail.Task != nil {
-			f := NewForm("Edit title", []formField{{Label: "title", Required: true, Value: t.detail.Task.Title}})
-			id := t.detail.Task.ID
-			t.app.openForm("set-title", f, func(fm *Form) tea.Cmd {
-				vals := fm.Values()
-				err := t.app.store.SetTitle(id, vals["title"], t.app.actor)
-				return func() tea.Msg {
-					if err != nil {
-						return errMsg{err}
-					}
-					t.refresh()
-					return refreshMsg{}
-				}
-			})
-		}
-	case t.app.km.taskB:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		f := NewForm("Add task label", []formField{{Label: "label", Required: true}})
-		id := t.detailID
-		t.app.openForm("task-label-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := t.app.store.TaskLabelAdd(id, vals["label"], t.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
+		t.openCreateForm()
+	case "enter":
+		if t.hasWildcard() {
+			// Enter is context-sensitive: toggle a header, or open detail
+			// on a leaf row (spec Screen 7). The (no matching labels)
+			// header is not collapsible but its rows are openable.
+			if r, ok := t.rowAtCursor(); ok {
+				return t.openDetail(r.id)
 			}
-		})
-	case t.app.km.taskBigL:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
+			return t.toggleGroupAtCursor()
 		}
-		f := NewForm("Add link", []formField{
-			{Label: "type", Required: true, Hint: "blocks|related-to|implements|documents"},
-			{Label: "target", Required: true, Hint: "task id"},
-		})
-		id := t.detailID
-		t.app.openForm("link-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := t.app.store.LinkAdd(id, vals["type"], vals["target"], t.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
-			}
-		})
-	case t.app.km.taskT:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		f := NewForm("Add todo", []formField{{Label: "text", Required: true}})
-		id := t.detailID
-		t.app.openForm("todo-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			_, err := t.app.store.TodoAdd(id, vals["text"], t.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
-			}
-		})
-	case t.app.km.taskO:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		f := NewForm("Add followup", []formField{
-			{Label: "text", Required: true},
-			{Label: "assignee", Hint: "optional"},
-			{Label: "due", Hint: "RFC3339, optional"},
-		})
-		id := t.detailID
-		t.app.openForm("followup-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			var due *time.Time
-			if vals["due"] != "" {
-				if d, err := time.Parse(time.RFC3339, vals["due"]); err == nil {
-					due = &d
-				}
-			}
-			_, err := t.app.store.FollowupAdd(id, vals["text"], vals["assignee"], t.app.actor, due)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
-			}
-		})
-	case t.app.km.taskBigO:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		f := NewForm("Resolve followup", []formField{{Label: "followup", Required: true, Hint: "e.g. f1"}})
-		id := t.detailID
-		t.app.openForm("followup-resolve", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			_, err := t.app.store.FollowupResolve(id, vals["followup"], t.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
-			}
-		})
-	case t.app.km.taskD:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		f := NewForm("Add discussion", []formField{{Label: "text", Required: true}})
-		id := t.detailID
-		t.app.openForm("discussion-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			_, err := t.app.store.DiscussionAdd(id, vals["text"], t.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				t.refresh()
-				return refreshMsg{}
-			}
-		})
-	case t.app.km.taskV:
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		id := t.detailID
-		err := t.app.store.RequestReview(id, t.app.actor)
-		if err != nil {
-			t.app.showToast(fmt.Sprintf("4 conflict: %v", err))
-		} else {
-			t.app.showToast("review requested")
-			t.refresh()
-		}
-	case " ":
-		if !t.app.requireActor() {
-			t.app.showToast("set actor first")
-			return t.app, nil
-		}
-		if t.detail != nil && t.detail.Task != nil {
-			for i, todo := range t.detail.Task.Todos {
-				if !todo.Done {
-					_, err := t.app.store.TodoToggle(t.detail.Task.ID, todo.ID, t.app.actor)
-					if err == nil {
-						t.app.showToast("toggled " + todo.ID)
-						t.refresh()
-					}
-					_ = i
-					break
-				}
-			}
-		}
+		return t.openDetailAtCursor()
 	}
-	return t.app, nil
+	return nil
 }
 
-func (t *tasksModel) showStatusOverlay(current string) {
-	allowed, ok := allowedTransitionsPub()[current]
-	if !ok {
-		t.app.showToast("no transitions from " + current)
+func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "j", "down":
+		t.detail.offset++
+		t.clampDetail()
+	case "k", "up":
+		if t.detail.offset > 0 {
+			t.detail.offset--
+		}
+	case "g":
+		t.detail.offset = 0
+	case "pgdown", " ":
+		t.detail.offset += t.m.contentHeight / 2
+		t.clampDetail()
+	case "pgup":
+		if t.detail.offset > t.m.contentHeight/2 {
+			t.detail.offset -= t.m.contentHeight / 2
+		} else {
+			t.detail.offset = 0
+		}
+	case "e":
+		if !t.m.canMutate() {
+			return nil
+		}
+		t.openTitleForm()
+	case "d":
+		if !t.m.canMutate() {
+			return nil
+		}
+		t.openDescriptionForm()
+	case "b":
+		if !t.m.canMutate() {
+			return nil
+		}
+		t.openLabelAddForm()
+	case "B":
+		if !t.m.canMutate() {
+			return nil
+		}
+		t.openLabelRemoveForm()
+	case "x":
+		if !t.m.canMutate() {
+			return nil
+		}
+		return t.requestRemoveTask()
+	}
+	return nil
+}
+
+// --- cursor navigation ---
+
+func (t *tasksModel) cursorDown() {
+	total := t.flatLineCount()
+	if t.cursor < total-1 {
+		t.cursor++
+	}
+}
+
+func (t *tasksModel) cursorUp() {
+	if t.cursor > 0 {
+		t.cursor--
+	}
+}
+
+// flatLineCount returns the number of logical lines (headers + rows) the
+// list view presents — used for cursor bounds and paging.
+func (t *tasksModel) flatLineCount() int {
+	if t.hasWildcard() {
+		n := 0
+		for _, g := range t.groups {
+			n += groupLineCount(g)
+		}
+		n++ // (no matching labels) header
+		n += len(t.others)
+		return n
+	}
+	return len(t.rows)
+}
+
+// groupLineCount returns the logical lines contributed by one group and its
+// (possibly nested) sub-groups: 1 for the header, plus its leaf rows or the
+// recursive count of expanded sub-groups. A collapsed group contributes only
+// its header.
+func groupLineCount(g taskGroup) int {
+	n := 1 // header
+	if g.collapsed {
+		return n
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			n += groupLineCount(sg)
+		}
+	} else {
+		n += len(g.rows)
+	}
+	return n
+}
+
+func (t *tasksModel) openDetailAtCursor() tea.Cmd {
+	if !t.hasWildcard() {
+		if t.cursor >= 0 && t.cursor < len(t.rows) {
+			return t.openDetail(t.rows[t.cursor].id)
+		}
+	}
+	return nil
+}
+
+// rowAtCursor returns the leaf row the cursor currently sits on in the
+// grouped view, or (zero, false) if the cursor is on a group/bucket header
+// (or out of range). Used to make `Enter` context-sensitive per the spec.
+func (t *tasksModel) rowAtCursor() (taskRow, bool) {
+	if !t.hasWildcard() {
+		return taskRow{}, false
+	}
+	idx := 0
+	for _, g := range t.groups {
+		if r, ok, next := rowInGroup(g, idx, t.cursor); ok {
+			return r, true
+		} else {
+			idx = next
+		}
+	}
+	// (no matching labels) bucket: header then rows.
+	if idx == t.cursor {
+		return taskRow{}, false
+	}
+	idx++
+	// rows in the top-level (no matching labels) bucket are not nested.
+	if t.cursor >= idx && t.cursor < idx+len(t.others) {
+		return t.others[t.cursor-idx], true
+	}
+	return taskRow{}, false
+}
+
+// rowInGroup walks one group's flattened lines looking for a leaf row at the
+// flattened index `cursor` (relative to `start`). Returns (row, true, _) when
+// the cursor sits on a leaf row; (zero, false, next) otherwise, where next is
+// the flattened index after this group's contribution.
+func rowInGroup(g taskGroup, start, cursor int) (row taskRow, ok bool, next int) {
+	idx := start
+	if idx == cursor {
+		return taskRow{}, false, idx // header, not a row
+	}
+	idx++ // header
+	if g.collapsed {
+		return taskRow{}, false, idx
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			if r, ok, next := rowInGroup(sg, idx, cursor); ok {
+				return r, true, next
+			} else {
+				idx = next
+			}
+		}
+	} else {
+		if cursor >= idx && cursor < idx+len(g.rows) {
+			return g.rows[cursor-idx], true, idx + len(g.rows)
+		}
+		idx += len(g.rows)
+	}
+	return taskRow{}, false, idx
+}
+
+func (t *tasksModel) toggleGroupAtCursor() tea.Cmd {
+	if !t.hasWildcard() {
+		return nil
+	}
+	idx := 0
+	for gi := range t.groups {
+		if done, next := toggleInGroup(&t.groups[gi], idx, t.cursor); done {
+			return nil
+		} else {
+			idx = next
+		}
+	}
+	// (no matching labels) header is not collapsible.
+	return nil
+}
+
+// toggleInGroup walks one group (and its nested sub-groups) looking for the
+// header at the flattened index `cursor` (relative to `start`). If found it
+// toggles collapse and returns (true, _). Otherwise it returns (false, nextIdx)
+// where nextIdx is the flattened index after this group's contribution.
+func toggleInGroup(g *taskGroup, start, cursor int) (done bool, next int) {
+	idx := start
+	if idx == cursor {
+		g.collapsed = !g.collapsed
+		return true, idx
+	}
+	idx++ // header
+	if g.collapsed {
+		return false, idx
+	}
+	if len(g.subgroups) > 0 {
+		for i := range g.subgroups {
+			if done, next := toggleInGroup(&g.subgroups[i], idx, cursor); done {
+				return true, next
+			} else {
+				idx = next
+			}
+		}
+	} else {
+		idx += len(g.rows)
+	}
+	return false, idx
+}
+
+func (t *tasksModel) openDetail(id string) tea.Cmd {
+	tk, err := t.m.store.GetTask(id)
+	if err != nil {
+		t.m.showToast("error: " + err.Error())
+		return nil
+	}
+	t.detail = taskDetailState{id: id, task: tk}
+	t.view = tViewDetail
+	t.renderDetail()
+	return nil
+}
+
+func (t *tasksModel) backToList() {
+	t.view = tViewList
+	t.detail = taskDetailState{}
+}
+
+func (t *tasksModel) renderDetail() {
+	var b strings.Builder
+	tk := t.detail.task
+	if tk == nil {
 		return
 	}
-	var lines []string
-	lines = append(lines, fmt.Sprintf("current: %s", current))
-	for _, s := range allStatuses() {
-		if allowed[s] {
-			lines = append(lines, fmt.Sprintf("  [%s] %s", statusKey(s), s))
-		} else {
-			lines = append(lines, fmt.Sprintf("  [ ] %s  (invalid transition)", s))
+	b.WriteString("TASK\n")
+	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "id           %s\n", tk.ID)
+	fmt.Fprintf(&b, "project      %s\n", tk.ProjectCode)
+	fmt.Fprintf(&b, "title        %s                            [e] edit\n", tk.Title)
+	if tk.Description == "" {
+		b.WriteString("description  (none)                                    [d] edit\n")
+	} else {
+		for i, line := range strings.Split(tk.Description, "\n") {
+			if i == 0 {
+				fmt.Fprintf(&b, "description  %s                            [d] edit\n", line)
+			} else {
+				fmt.Fprintf(&b, "             %s\n", line)
+			}
 		}
 	}
-	lines = append(lines, "Press the key to set status; Esc to cancel.")
-	t.app.overlay.title = "Set status"
-	t.app.overlay.lines = lines
-	t.app.overlay.visible = true
-}
+	fmt.Fprintf(&b, "created      %s   by %s\n", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)
+	fmt.Fprintf(&b, "updated      %s   by %s\n", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)
+	b.WriteString("\n")
 
-func statusKey(s string) string {
-	switch s {
-	case "open":
-		return "o"
-	case "in-progress":
-		return "i"
-	case "blocked":
-		return "b"
-	case "review":
-		return "v"
-	case "done":
-		return "d"
-	case "cancelled":
-		return "c"
+	b.WriteString("LABELS\n")
+	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString("\n")
+	if len(tk.Labels) == 0 {
+		b.WriteString(" (no labels)\n")
+	} else {
+		chips := strings.Join(tk.Labels, "   ")
+		b.WriteString(" " + chips + "\n")
 	}
-	return s
-}
+	b.WriteString("                                      [b] add label   [B] remove label\n")
+	b.WriteString("\n")
 
-func allStatuses() []string {
-	return []string{"open", "in-progress", "blocked", "review", "done", "cancelled"}
-}
-
-func (t *tasksModel) view() string {
-	if t.mode == taskDetailMode && t.detail != nil {
-		return t.renderDetail()
+	b.WriteString("HISTORY\n")
+	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString("\n")
+	for _, h := range tk.History {
+		fmt.Fprintf(&b, " %-3s %s   %s     %s\n", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)
+		if len(h.Meta) > 0 {
+			fmt.Fprintf(&b, "      meta: %s\n", metaJSON(h.Meta))
+		}
 	}
-	return t.renderList()
+	t.detail.lines = strings.Split(b.String(), "\n")
+	t.clampDetail()
 }
 
-func (t *tasksModel) rightView() string {
-	if t.mode == taskDetailMode && t.detail != nil {
-		return t.renderDetailWithActorContext(t.detail.Task)
+func (t *tasksModel) clampDetail() {
+	maxOff := len(t.detail.lines) - t.m.contentHeight
+	if maxOff < 0 {
+		maxOff = 0
 	}
-	list := t.filtered()
-	var selected *store.Task
-	if t.cursor >= 0 && t.cursor < len(list) {
-		selected = list[t.cursor]
+	if t.detail.offset > maxOff {
+		t.detail.offset = maxOff
 	}
-	return t.renderTaskSummaryWithActorContext(selected)
+	if t.detail.offset < 0 {
+		t.detail.offset = 0
+	}
 }
 
-func (t *tasksModel) renderDetailWithActorContext(tk *store.Task) string {
-	var b strings.Builder
-	b.WriteString(t.renderDetail())
-	b.WriteString("\n\n")
-	b.WriteString(t.actorClaimsContext(tk))
-	return b.String()
+// --- view ---
+
+func (t *tasksModel) View() string {
+	switch t.view {
+	case tViewList:
+		return t.renderList()
+	case tViewDetail:
+		return t.renderDetailView()
+	}
+	return ""
 }
 
-func (t *tasksModel) renderTaskSummaryWithActorContext(tk *store.Task) string {
-	var b strings.Builder
-	b.WriteString("TASK DETAIL\n")
-	if tk == nil {
-		b.WriteString("No task selected.\n\n")
-		b.WriteString(t.actorClaimsContext(nil))
-		return b.String()
+func (t *tasksModel) headerLine() string {
+	proj := t.m.projectScope
+	if proj == "" {
+		proj = "(none)"
 	}
-	b.WriteString(fmt.Sprintf("%s  %s\n", tk.ID, tk.Title))
-	b.WriteString(fmt.Sprintf("project: %s\nstatus: %s\nlabels: %s\n\n", tk.ProjectCode, tk.Status, strings.Join(tk.Labels, ", ")))
-	b.WriteString("Actions\n  [c] claim  [u] unclaim  [s] status  [e] edit  [b] labels\n\n")
-	b.WriteString("Dependencies and timeline\n  Press Enter to open full task context.\n\n")
-	b.WriteString(t.actorClaimsContext(tk))
-	return b.String()
-}
-
-func (t *tasksModel) actorClaimsContext(tk *store.Task) string {
-	claimant := "none"
-	if tk != nil && tk.Claim != nil {
-		claimant = tk.Claim.Actor
+	filt := t.filter
+	if t.filterEditing {
+		filt = t.filterEdit + "_"
 	}
-	return fmt.Sprintf("Actor / claims\ncurrent actor: %s\nclaimant: %s\nassignee: none", t.app.actorString(), claimant)
+	if filt == "" {
+		filt = "(none)"
+	}
+	if t.filterEditing && t.filterEdit == "" {
+		filt = "_"
+	}
+	return fmt.Sprintf("PROJECT: %s    FILTER: %s    SORT: %s", proj, filt, t.sortMode)
 }
 
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString("TASKS")
-	if t.filter != "" {
-		b.WriteString("  filter: " + t.filter)
-	}
-	if t.filters.Project != "" {
-		b.WriteString("  project: " + t.filters.Project)
-	}
-	if t.app.projectScope != "" {
-		b.WriteString("  scope: " + t.app.projectScope)
-	}
-	if t.filters.Status != "" {
-		b.WriteString("  status: " + t.filters.Status)
-	}
+	b.WriteString(headerLineStyle.Render(t.headerLine()))
 	b.WriteString("\n")
-	b.WriteString("  ID            TITLE                          STATUS     CLAIMANT          LABELS\n")
-	list := t.filtered()
-	for i, tk := range list {
-		cursor := " "
+
+	if t.m.projectScope == "" {
+		empty := "\nno project selected\n\npress [s] in the Projects tab to scope this view"
+		b.WriteString(centerBlock(empty, t.m.width))
+		return padToHeight(b.String(), t.m.contentHeight)
+	}
+
+	if t.hasWildcard() {
+		t.renderGroupedList(&b)
+	} else {
+		t.renderFlatList(&b)
+	}
+	return padToHeight(b.String(), t.m.contentHeight)
+}
+
+func (t *tasksModel) renderFlatList(b *strings.Builder) {
+	if len(t.rows) == 0 {
+		empty := fmt.Sprintf("\nno tasks match this filter\n\nno task carries %s\n\n[/] to edit filter, or clear it to see all tasks",
+			strings.Join(t.parseFilter(), " and "))
+		b.WriteString(centerBlock(empty, t.m.width))
+		return
+	}
+	// Column header.
+	b.WriteString(headerLabelStyle.Render(fmt.Sprintf(" %-10s %-40s %-30s %10s", "ID", "TITLE", "LABELS", "UPDATED")))
+	b.WriteString("\n")
+	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString("\n")
+	// Page window.
+	start, end := t.pageWindow(len(t.rows))
+	for i := start; i < end; i++ {
+		r := t.rows[i]
+		labels := "-"
+		if len(r.labels) > 0 {
+			labels = truncateRunes(strings.Join(r.labels, " "), 30)
+		}
+		line := fmt.Sprintf(" %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
 		if i == t.cursor {
-			cursor = ">"
+			line = " " + rowCursorStyle.Render(line)
+		} else {
+			line = " " + line
 		}
-		claimant := "(none)"
-		if tk.Claim != nil {
-			claimant = tk.Claim.Actor
-		}
-		title := tk.Title
-		if len(title) > 30 {
-			title = title[:30]
-		}
-		b.WriteString(fmt.Sprintf("%s %-13s %-30s %-9s %-16s  %s\n",
-			cursor, tk.ID, title, tk.Status, claimant, strings.Join(tk.Labels, ",")))
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
-	b.WriteString("\n  [a]dd  Enter open  [n]ext  [c]laim  [u]nclaim  [/]filter")
-	return b.String()
+	b.WriteString(fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows)))
 }
 
-func (t *tasksModel) renderDetail() string {
-	res := t.detail
-	tk := res.Task
+func (t *tasksModel) renderGroupedList(b *strings.Builder) {
+	// Check the wildcard-yields-no-labels state.
+	if len(t.groups) == 0 {
+		b.WriteString(centerBlock("no labels match wildcard — add labels to tasks", t.m.width))
+		b.WriteString("\n")
+	}
+	idx := 0
+	for _, g := range t.groups {
+		idx = t.renderGroup(b, g, 0, idx)
+	}
+	// (no matching labels) bucket — always rendered, last. Stays flat (no
+	// nesting): these tasks matched no wildcard, so there is nothing to
+	// sub-bucket them by.
+	header := groupHeaderStyle.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
+	if idx == t.cursor {
+		header = rowCursorStyle.Render(header)
+	}
+	b.WriteString(header)
+	b.WriteString("\n")
+	idx++
+	for _, r := range t.others {
+		labels := "(no labels)"
+		if len(r.labels) > 0 {
+			labels = truncateRunes(strings.Join(r.labels, " "), 30)
+		}
+		line := fmt.Sprintf("  %-10s %-40s %-30s %10s", r.id, truncateRunes(r.title, 40), labels, r.updated)
+		if idx == t.cursor {
+			line = " " + rowCursorStyle.Render(strings.TrimPrefix(line, " "))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+		idx++
+	}
+}
+
+// renderGroup renders one group (header + its leaf rows or its expanded
+// sub-groups) at the given indentation depth, returning the next flattened
+// line index after this group's contribution. `depth` is the nesting level
+// (0 = top); each level indents rows by two spaces. The header count is the
+// total leaf tasks under this group. A label of "" denotes the per-level
+// `(no matching labels)` sub-bucket.
+func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int) int {
+	marker := "▾"
+	if g.collapsed {
+		marker = "▸"
+	}
+	count := groupLeafCount(g)
+	name := g.label
+	if name == "" {
+		name = "(no matching labels)"
+	}
+	indent := strings.Repeat("  ", depth)
+	header := groupHeaderStyle.Render(fmt.Sprintf("%s%s %s (%d)", indent, marker, name, count))
+	if idx == t.cursor {
+		header = rowCursorStyle.Render(header)
+	}
+	b.WriteString(header)
+	b.WriteString("\n")
+	idx++
+	if g.collapsed {
+		return idx
+	}
+	if len(g.subgroups) > 0 {
+		for _, sg := range g.subgroups {
+			idx = t.renderGroup(b, sg, depth+1, idx)
+		}
+	} else {
+		rowIndent := strings.Repeat("  ", depth+1)
+		for _, r := range g.rows {
+			// Grouped rows omit the LABELS column (group header is the axis).
+			line := fmt.Sprintf("%s%-10s %-50s %10s", rowIndent, r.id, truncateRunes(r.title, 50), r.updated)
+			if idx == t.cursor {
+				line = rowCursorStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+			idx++
+		}
+	}
+	return idx
+}
+
+// groupLeafCount returns the total leaf rows reachable from a group, summing
+// across nested sub-groups (expanded or not — collapse hides rows from the
+// view but the header count still reflects the true bucket size).
+func groupLeafCount(g taskGroup) int {
+	if len(g.subgroups) > 0 {
+		n := 0
+		for _, sg := range g.subgroups {
+			n += groupLeafCount(sg)
+		}
+		return n
+	}
+	return len(g.rows)
+}
+
+func (t *tasksModel) renderDetailView() string {
+	end := t.detail.offset + t.m.contentHeight
+	if end > len(t.detail.lines) {
+		end = len(t.detail.lines)
+	}
 	var b strings.Builder
-	claim := "(none)"
-	if tk.Claim != nil {
-		claim = tk.Claim.Actor
+	for i := t.detail.offset; i < end; i++ {
+		b.WriteString(t.detail.lines[i])
+		b.WriteString("\n")
 	}
-	b.WriteString(fmt.Sprintf("%s  %s\n", tk.ID, tk.Title))
-	b.WriteString(fmt.Sprintf("status: %s   claim: %s\n", tk.Status, claim))
-	b.WriteString("labels: " + strings.Join(tk.Labels, ", ") + "\n")
-	b.WriteString(fmt.Sprintf("created: %s   updated: %s\n", tk.CreatedAt.Format("2006-01-02 15:04"), tk.UpdatedAt.Format("2006-01-02 15:04")))
-	if tk.Description != "" {
-		b.WriteString("description:\n")
-		for _, line := range strings.Split(tk.Description, "\n") {
-			b.WriteString("  " + line + "\n")
-		}
-	}
-	if res.Context.Guide != nil {
-		b.WriteString("\nPROJECT GUIDE (always-read)\n")
-		for _, sec := range res.Context.Guide.Sections {
-			b.WriteString("  " + sec.Name + ":\n")
-			for _, r := range sec.Refs {
-				state := guideRefState(t.app.store, tk.ProjectCode, r)
-				b.WriteString(fmt.Sprintf("    [%s] %s  [%s]\n", r.Kind, r.Target, state))
-			}
-		}
-	}
-	if len(res.Context.LinksOut) > 0 || len(res.Context.LinksIn) > 0 {
-		b.WriteString("\nLINKS\n")
-		for _, e := range res.Context.LinksOut {
-			marker := "OK"
-			if isStaleTarget(t.app.store, e.Link.Target) {
-				marker = "STALE"
-			}
-			b.WriteString(fmt.Sprintf("  out  %-12s %s  [%s]\n", e.Link.Type, e.Link.Target, marker))
-		}
-		for _, e := range res.Context.LinksIn {
-			b.WriteString(fmt.Sprintf("  in   %-12s %s\n", e.Link.Type, e.Link.Target))
-		}
-	}
-	if len(res.Context.Conventions) > 0 {
-		b.WriteString("\nMATCHING CONVENTIONS\n")
-		for _, c := range res.Context.Conventions {
-			b.WriteString(fmt.Sprintf("  %s  %s   matched: %s\n", c.ID, c.Title, strings.Join(c.MatchedLabels, ",")))
-		}
-	}
-	b.WriteString("\nTIMELINE\n")
-	for _, e := range res.Context.Timeline {
-		line := fmt.Sprintf("  %s  %-10s  %s", e.At.Format("2006-01-02 15:04"), e.Kind, e.ID)
-		switch e.Kind {
-		case "todo":
-			if todo, ok := e.Data.(store.Todo); ok {
-				mark := "[ ]"
-				if todo.Done {
-					mark = "[x]"
-				}
-				line += "  " + mark + " " + todo.Text + "  " + todo.Author
-			}
-		case "followup":
-			if fu, ok := e.Data.(store.Followup); ok {
-				line += "  " + fu.Text + "  " + fu.Status
-			}
-		case "discussion":
-			if d, ok := e.Data.(store.DiscussionEntry); ok {
-				line += "  " + d.Text + "  " + d.Author
-			}
-		case "history":
-			if h, ok := e.Data.(store.HistoryEntry); ok {
-				line += "  " + h.Action + " by " + h.Actor
-			}
-		}
-		b.WriteString(line + "\n")
-	}
-	b.WriteString("\n[t]odo Space:toggle [o]followup [O]resolve [d]isc [s]tatus [e]dit [b]label [L]link [v]review")
 	return b.String()
 }
 
-func isStaleTarget(s *store.Store, id string) bool {
-	_, err := s.GetTask(id)
-	return err != nil
-}
-
-func guideRefState(s *store.Store, code string, r store.GuideRef) string {
-	if r.Kind == "task" {
-		_, err := s.GetTask(r.Target)
-		if err != nil {
-			return "MISS"
-		}
-		return "OK"
+func (t *tasksModel) pageWindow(total int) (int, int) {
+	start := 0
+	// keep cursor in view
+	if t.cursor >= start+t.pageSize {
+		start = t.cursor - t.pageSize + 1
 	}
-	return "OK"
-}
-
-func p_app_openTaskCreate(app *Model, f *Form) {
-	app.openForm("task-create", f, func(fm *Form) tea.Cmd {
-		vals := fm.Values()
-		labels := parseCSV(vals["labels"])
-		_, err := app.store.CreateTask(vals["project"], vals["title"], vals["description"], labels, app.actor)
-		return func() tea.Msg {
-			if err != nil {
-				return errMsg{err}
-			}
-			app.tasks.refresh()
-			return refreshMsg{}
-		}
-	})
-}
-
-func allowedTransitionsPub() map[string]map[string]bool {
-	return map[string]map[string]bool{
-		"open":        {"in-progress": true, "blocked": true, "cancelled": true, "review": true},
-		"in-progress": {"review": true, "done": true, "open": true},
-		"blocked":     {"open": true, "in-progress": true, "cancelled": true},
-		"review":      {"done": true, "in-progress": true, "open": true},
-		"done":        {"open": true},
-		"cancelled":   {"open": true},
+	if t.cursor < start {
+		start = t.cursor
 	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + t.pageSize
+	if end > total {
+		end = total
+	}
+	return start, end
+}
+
+func (t *tasksModel) statusHint() string {
+	if t.m.projectScope == "" {
+		return "[?]keys"
+	}
+	if t.view == tViewDetail {
+		return "[e]title [d]desc [b]add label [B]remove label [x]remove [Esc]back"
+	}
+	hint := "[/]filter [s]sort [a]dd [Enter]detail [?]keys"
+	if t.filterEditing {
+		hint = "[Enter]apply [Esc]cancel"
+	}
+	return hint
+}
+
+// --- form openers ---
+
+func (t *tasksModel) openCreateForm() {
+	fields := []formField{
+		{Label: "title", Required: true, Hint: "task title"},
+		{Label: "description", Required: false, Hint: "optional; multi-line later"},
+	}
+	f := NewForm("New task  "+t.m.projectScope+":", fields)
+	f.Title = "New task  " + t.m.projectScope + ":"
+	t.m.form = f
+	t.m.formKind = formTaskCreate
+}
+
+func (t *tasksModel) openTitleForm() {
+	tk := t.detail.task
+	if tk == nil {
+		return
+	}
+	fields := []formField{
+		{Label: "title", Required: true, Value: tk.Title, Hint: "new task title"},
+	}
+	f := NewForm("Edit title", fields)
+	t.m.form = f
+	t.m.formKind = formTaskSetTitle
+}
+
+func (t *tasksModel) openDescriptionForm() {
+	tk := t.detail.task
+	if tk == nil {
+		return
+	}
+	fields := []formField{
+		{Label: "description", Required: false, Value: tk.Description, Hint: "new description (empty clears)"},
+	}
+	f := NewForm("Edit description", fields)
+	t.m.form = f
+	t.m.formKind = formTaskSetDescription
+}
+
+func (t *tasksModel) openLabelAddForm() {
+	tk := t.detail.task
+	if tk == nil {
+		return
+	}
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>, e.g. status:open")
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+	}
+	f := NewForm("Add label  "+t.m.projectScope+":", fields)
+	f.Title = "Add label  " + t.m.projectScope + ":"
+	t.m.form = f
+	t.m.formKind = formTaskLabelAdd
+}
+
+func (t *tasksModel) openLabelRemoveForm() {
+	tk := t.detail.task
+	if tk == nil {
+		return
+	}
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>")
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+	}
+	f := NewForm("Remove label  "+t.m.projectScope+":", fields)
+	f.Title = "Remove label  " + t.m.projectScope + ":"
+	t.m.form = f
+	t.m.formKind = formTaskLabelRemove
+}
+
+func (t *tasksModel) requestRemoveTask() tea.Cmd {
+	t.m.confirm = confirmRemoveTask
+	t.m.confirmMsg = fmt.Sprintf("Remove task %s?", t.detail.id)
+	t.m.confirmArg = "History is lost. Registry labels are unaffected."
+	return nil
+}
+
+// --- mutations ---
+
+func (m *Model) doTaskCreate(vals map[string]string) tea.Cmd {
+	title := vals["title"]
+	desc := vals["description"]
+	tk, err := m.store.CreateTask(m.projectScope, title, desc, nil, m.actor)
+	if err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	if tk != nil {
+		m.tasks.openDetail(tk.ID)
+	}
+	return nil
+}
+
+func (m *Model) doTaskSetTitle(vals map[string]string) tea.Cmd {
+	id := m.tasks.detail.id
+	title := vals["title"]
+	if err := m.store.SetTitle(id, title, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.tasks.openDetail(id)
+	return nil
+}
+
+func (m *Model) doTaskSetDescription(vals map[string]string) tea.Cmd {
+	id := m.tasks.detail.id
+	desc := vals["description"]
+	if err := m.store.SetDescription(id, desc, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.tasks.openDetail(id)
+	return nil
+}
+
+func (m *Model) doTaskLabelAdd(vals map[string]string) tea.Cmd {
+	id := m.tasks.detail.id
+	suffix := vals["name"]
+	full := m.projectScope + ":" + suffix
+	if err := m.store.TaskLabelAdd(id, full, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.tasks.openDetail(id)
+	return nil
+}
+
+func (m *Model) doTaskLabelRemove(vals map[string]string) tea.Cmd {
+	id := m.tasks.detail.id
+	suffix := vals["name"]
+	full := m.projectScope + ":" + suffix
+	if err := m.store.TaskLabelRemove(id, full, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.tasks.openDetail(id)
+	return nil
 }

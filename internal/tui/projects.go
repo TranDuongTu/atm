@@ -2,112 +2,96 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
+// projectsModel owns the Projects tab state: list, detail, cursor, selection.
 type projectsModel struct {
-	app        *Model
-	projects   []*store.Project
-	cursor     int
-	detail     *store.Project
-	mode       projMode
-	width      int
-	height     int
-	filter     string
-	paneCursor int
+	m     *Model
+	list  []projRow
+	view  pView
+	cursor int
+	detail detailState
+
+	// history toggle on project detail.
+	showHistory bool
 }
 
-type projMode int
+type pView int
 
 const (
-	projList projMode = iota
-	projDetail
+	pViewList pView = iota
+	pViewDetail
 )
 
-func newProjectsModel(app *Model) *projectsModel {
-	return &projectsModel{app: app}
+type projRow struct {
+	code     string
+	name     string
+	tasks    int
+	labels   int
+	updated  string // relative
+	updatedT int64   // unix for sort (unused; store pre-sorts by code)
 }
 
-func (p *projectsModel) setSize(w, h int) {
-	p.width = w
-	p.height = h
+type detailState struct {
+	code     string
+	project  *store.Project
+	lines    []string // rendered detail lines (for scroll)
+	offset   int
+	historyOn bool
 }
 
-func (p *projectsModel) setFilter(v string) {
-	p.filter = v
+func newProjectsModel(m *Model) projectsModel {
+	return projectsModel{m: m}
+}
+
+func (p *projectsModel) SetSize(w, h int) {
+	_ = w
+	// detail scroll height
+	p.detail.offset = 0
 }
 
 func (p *projectsModel) refresh() {
-	if !p.app.storeSet {
-		return
+	ps := p.m.store.ListProjects()
+	p.list = make([]projRow, 0, len(ps))
+	for _, pr := range ps {
+		tasks := len(listTaskIDs(p.m.store, pr.Code))
+		labels := len(p.m.store.LabelList(pr.Code, ""))
+		p.list = append(p.list, projRow{
+			code:    pr.Code,
+			name:    pr.Name,
+			tasks:   tasks,
+			labels:  labels,
+			updated: relTime(pr.UpdatedAt, store.Now()),
+		})
 	}
-	p.projects = p.app.store.ListProjects()
-	if p.cursor >= len(p.projects) {
-		p.cursor = max0(len(p.projects) - 1)
+	// store pre-sorts by code-asc; keep that (fixed sort per mockup).
+	if p.cursor >= len(p.list) && len(p.list) > 0 {
+		p.cursor = len(p.list) - 1
 	}
-	if p.detail != nil {
-		d, err := p.app.store.GetProject(p.detail.Code)
-		if err == nil {
-			p.detail = d
-		}
+	if p.cursor < 0 {
+		p.cursor = 0
 	}
 }
 
-func max0(i int) int {
-	if i < 0 {
-		return 0
+func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	switch p.view {
+	case pViewList:
+		return p.handleListKey(k)
+	case pViewDetail:
+		return p.handleDetailKey(k)
 	}
-	return i
+	return nil
 }
 
-func (p *projectsModel) filtered() []*store.Project {
-	if p.filter == "" {
-		return p.projects
-	}
-	lower := strings.ToLower(p.filter)
-	var out []*store.Project
-	for _, pr := range p.projects {
-		if strings.Contains(strings.ToLower(pr.Code), lower) ||
-			strings.Contains(strings.ToLower(pr.Name), lower) {
-			out = append(out, pr)
-		}
-	}
-	return out
-}
-
-func (p *projectsModel) selectedCode() (string, bool) {
-	list := p.filtered()
-	if p.cursor < 0 || p.cursor >= len(list) {
-		return "", false
-	}
-	return list[p.cursor].Code, true
-}
-
-func (p *projectsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key := msg.(tea.KeyMsg).String()
-	if p.mode == projList {
-		return p.updateList(key)
-	}
-	return p.updateDetail(key)
-}
-
-func (p *projectsModel) updateList(key string) (tea.Model, tea.Cmd) {
-	list := p.filtered()
-	switch key {
-	case "right":
-		if p.paneCursor < len(projectRightSections)-1 {
-			p.paneCursor++
-		}
-	case "left":
-		if p.paneCursor > 0 {
-			p.paneCursor--
-		}
+func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
 	case "j", "down":
-		if p.cursor < len(list)-1 {
+		if p.cursor < len(p.list)-1 {
 			p.cursor++
 		}
 	case "k", "up":
@@ -116,563 +100,511 @@ func (p *projectsModel) updateList(key string) (tea.Model, tea.Cmd) {
 		}
 	case "g":
 		p.cursor = 0
-	case "G":
-		if len(list) > 0 {
-			p.cursor = len(list) - 1
+	case "enter", "e":
+		if r, ok := p.selected(); ok {
+			p.openDetail(r.code)
 		}
-	case "enter", p.app.km.edit, "e":
-		if p.cursor < len(list) {
-			d, err := p.app.store.GetProject(list[p.cursor].Code)
-			if err != nil {
-				p.app.showToast(fmt.Sprintf("error: %v", err))
-				return p.app, nil
-			}
-			p.detail = d
-			p.mode = projDetail
+	case "s":
+		if r, ok := p.selected(); ok {
+			p.m.projectScope = r.code
+			p.m.tasks.refresh()
 		}
-	case p.app.km.add:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
+	case "a":
+		if !p.m.canMutate() {
+			return nil
 		}
-		f := NewForm("New project", []formField{
-			{Label: "code", Required: true, Hint: "^[A-Z][A-Z0-9-]{1,15}$; unique"},
-			{Label: "name", Required: true},
-			{Label: "type-axis"},
-			{Label: "labels", Hint: "comma-separated"},
-			{Label: "repos", Hint: "comma-separated paths"},
-		})
-		p.app.openForm("project-create", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			labels := parseCSVLabels(vals["labels"])
-			repos := parseCSV(vals["repos"])
-			_, err := p.app.store.CreateProject(vals["code"], vals["name"], vals["type-axis"], labels, repos, p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.remove:
-		if p.cursor < len(list) {
-			code := list[p.cursor].Code
-			tasks := p.app.store.ListTasks(store.QueryFilters{Project: code})
-			if len(tasks) > 0 {
-				p.app.showToast(fmt.Sprintf("4 conflict: project has %d tasks", len(tasks)))
-				return p.app, nil
-			}
-			p.app.showOverlay("Remove project "+code, []string{
-				"Project removal is not yet supported by the store.",
-				"TODO: store.Project.Remove not implemented.",
-				"Press Esc to close.",
-			})
+		p.openCreateForm()
+	case "x":
+		if !p.m.canMutate() {
+			return nil
+		}
+		if r, ok := p.selected(); ok {
+			return p.requestRemoveProject(r.code)
 		}
 	}
-	return p.app, nil
+	return nil
 }
 
-var projectRightSections = []string{"Project Details", "Labels", "Repos", "Guide", "Advanced"}
-
-func (p *projectsModel) rightView() string {
-	list := p.filtered()
-	var selected *store.Project
-	if p.cursor >= 0 && p.cursor < len(list) {
-		selected = list[p.cursor]
-		if detail, err := p.app.store.GetProject(selected.Code); err == nil {
-			selected = detail
+func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "j", "down":
+		p.detail.offset++
+		p.clampDetail()
+	case "k", "up":
+		if p.detail.offset > 0 {
+			p.detail.offset--
 		}
+	case "g":
+		p.detail.offset = 0
+	case "n":
+		if !p.m.canMutate() {
+			return nil
+		}
+		p.openSetNameForm()
+	case "L":
+		if !p.m.canMutate() {
+			return nil
+		}
+		p.openLabelAddForm()
+	case "l":
+		if !p.m.canMutate() {
+			return nil
+		}
+		p.openLabelRemoveForm()
+	case "H":
+		p.detail.historyOn = !p.detail.historyOn
+		p.renderDetail()
+	case "x":
+		if !p.m.canMutate() {
+			return nil
+		}
+		return p.requestRemoveProject(p.detail.code)
 	}
-	if selected == nil {
-		return p.app.renderPane("Project Details", "No project selected.\n", p.width, p.app.contentHeight, p.paneCursor == 0)
-	}
-	heights := splitHeights(p.app.contentHeight, len(projectRightSections))
-	return lipgloss.JoinVertical(lipgloss.Left,
-		p.app.renderPane("Project Details", p.projectDetailsBody(selected), p.width, heights[0], p.paneCursor == 0),
-		p.app.renderPane("Labels", p.labelsBody(selected), p.width, heights[1], p.paneCursor == 1),
-		p.app.renderPane("Repos", p.reposBody(selected), p.width, heights[2], p.paneCursor == 2),
-		p.app.renderPane("Guide", p.guideBody(selected), p.width, heights[3], p.paneCursor == 3),
-		p.app.renderPane("Advanced", p.advancedBody(selected), p.width, heights[4], p.paneCursor == 4),
-	)
+	return nil
 }
 
-func (p *projectsModel) projectDetailsBody(selected *store.Project) string {
-	return fmt.Sprintf("keys: [N] name [T] type [e] edit\ncode: %s\nname: %s\ntype axis: %s\ncreated: %s\nupdated: %s\n",
-		selected.Code, selected.Name, selected.TypeAxis,
-		selected.CreatedAt.Format("2006-01-02 15:04"),
-		selected.UpdatedAt.Format("2006-01-02 15:04"))
+func (p *projectsModel) selected() (projRow, bool) {
+	if p.cursor < 0 || p.cursor >= len(p.list) {
+		return projRow{}, false
+	}
+	return p.list[p.cursor], true
 }
 
-func (p *projectsModel) labelsBody(selected *store.Project) string {
+func (p *projectsModel) openDetail(code string) {
+	pr, err := p.m.store.GetProject(code)
+	if err != nil {
+		p.m.showToast("error: " + err.Error())
+		return
+	}
+	p.detail = detailState{code: code, project: pr, historyOn: false}
+	p.view = pViewDetail
+	p.renderDetail()
+}
+
+func (p *projectsModel) backToList() {
+	p.view = pViewList
+	p.detail = detailState{}
+}
+
+// renderDetail (re)builds the scrollable lines for the project detail view.
+func (p *projectsModel) renderDetail() {
 	var b strings.Builder
-	b.WriteString("keys: [L] add [l] remove\n")
-	b.WriteString("Labels\n")
-	if len(selected.Labels) == 0 {
-		b.WriteString("  none\n")
+	pr := p.detail.project
+	if pr == nil {
+		return
 	}
-	for _, l := range selected.Labels {
-		b.WriteString(fmt.Sprintf("  %s  %s\n", l.Name, l.Description))
+	b.WriteString("PROJECT\n")
+	b.WriteString(sepLine("─", 78, p.m.width, 2))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "code      %s\n", pr.Code)
+	fmt.Fprintf(&b, "name      %s                                  [N] set name\n", pr.Name)
+	fmt.Fprintf(&b, "tasks     %d\n", len(listTaskIDs(p.m.store, pr.Code)))
+	fmt.Fprintf(&b, "labels    %d\n", len(p.m.store.LabelList(pr.Code, "")))
+	fmt.Fprintf(&b, "created   %s   by %s\n", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)
+	fmt.Fprintf(&b, "updated   %s   by %s\n", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)
+	b.WriteString("\n")
+
+	// LABELS grouped by namespace with usage counts.
+	b.WriteString("LABELS\n")
+	b.WriteString(sepLine("─", 78, p.m.width, 2))
+	b.WriteString("\n")
+	ls := p.m.store.LabelList(pr.Code, "")
+	namespaces := p.m.store.Namespaces(pr.Code)
+	// Group: namespaced first (alphabetical), then unnamespaced tags.
+	byNS := map[string][]store.Label{}
+	var tags []store.Label
+	for _, l := range ls {
+		rest := strings.TrimPrefix(l.Name, pr.Code+":")
+		parts := strings.SplitN(rest, ":", 2)
+		if len(parts) == 2 {
+			byNS[parts[0]] = append(byNS[parts[0]], l)
+		} else {
+			tags = append(tags, l)
+		}
 	}
-	return b.String()
+	for _, ns := range namespaces {
+		fmt.Fprintf(&b, "%s:\n", ns)
+		for _, l := range byNS[ns] {
+			count, _ := p.m.store.LabelUsage(pr.Code, l.Name)
+			fmt.Fprintf(&b, "   %-45s (%d %s)\n", l.Name, count, pluralTasks(count))
+			if l.Description != "" {
+				fmt.Fprintf(&b, "       %s\n", l.Description)
+			}
+		}
+		b.WriteString("\n")
+	}
+	if len(tags) > 0 {
+		b.WriteString("tags:\n")
+		for _, l := range tags {
+			count, _ := p.m.store.LabelUsage(pr.Code, l.Name)
+			fmt.Fprintf(&b, "   %-45s (%d %s)\n", l.Name, count, pluralTasks(count))
+		}
+	}
+
+	if p.detail.historyOn {
+		b.WriteString("\n")
+		b.WriteString("HISTORY\n")
+		b.WriteString(sepLine("─", 78, p.m.width, 2))
+		b.WriteString("\n")
+		for _, h := range pr.History {
+			fmt.Fprintf(&b, " %-3s %s   %s     %s\n", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)
+			if len(h.Meta) > 0 {
+				fmt.Fprintf(&b, "      meta: %s\n", metaJSON(h.Meta))
+			}
+		}
+	}
+
+	p.detail.lines = strings.Split(b.String(), "\n")
+	p.clampDetail()
 }
 
-func (p *projectsModel) reposBody(selected *store.Project) string {
-	var b strings.Builder
-	b.WriteString("keys: [R] add [r] remove\n")
-	if len(selected.RepoPaths) == 0 {
-		b.WriteString("  none\n")
+func (p *projectsModel) clampDetail() {
+	maxOff := len(p.detail.lines) - p.m.contentHeight
+	if maxOff < 0 {
+		maxOff = 0
 	}
-	for _, r := range selected.RepoPaths {
-		b.WriteString("  " + r + "\n")
+	if p.detail.offset > maxOff {
+		p.detail.offset = maxOff
 	}
-	return b.String()
+	if p.detail.offset < 0 {
+		p.detail.offset = 0
+	}
 }
 
-func (p *projectsModel) guideBody(selected *store.Project) string {
-	var b strings.Builder
-	b.WriteString("keys: [S] section [g] ref [F] freshness\n")
-	if selected.Guide == nil || len(selected.Guide.Sections) == 0 {
-		b.WriteString("  none\n")
-	} else {
-		for _, section := range selected.Guide.Sections {
-			b.WriteString("  " + section.Name + "\n")
-		}
+func (p *projectsModel) View() string {
+	switch p.view {
+	case pViewList:
+		return p.renderList()
+	case pViewDetail:
+		return p.renderDetailView()
 	}
-	return b.String()
-}
-
-func (p *projectsModel) advancedBody(selected *store.Project) string {
-	return "keys: [x] remove\nremove project is guarded by zero-task store constraints\n"
-}
-
-func (p *projectsModel) updateDetail(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "back":
-		p.mode = projList
-		p.detail = nil
-	case p.app.km.projectN:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Set name", []formField{{Label: "name", Required: true, Value: p.detail.Name}})
-		code := p.detail.Code
-		p.app.openForm("set-name", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.SetProjectName(code, vals["name"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.projectT:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Set type-axis", []formField{{Label: "namespace", Required: true, Value: p.detail.TypeAxis, Hint: "namespace must have >=1 label"}})
-		code := p.detail.Code
-		p.app.openForm("set-type-axis", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.SetTypeAxis(code, vals["namespace"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.projectBigL:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Add label", []formField{
-			{Label: "name", Required: true, Hint: "namespace:value"},
-			{Label: "description"},
-		})
-		code := p.detail.Code
-		p.app.openForm("label-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.LabelAdd(code, vals["name"], vals["description"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.projectL:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Remove label", []formField{{Label: "name", Required: true, Hint: "existing label"}})
-		code := p.detail.Code
-		p.app.openForm("label-remove", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			res, err := p.app.store.LabelRemove(code, vals["name"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				if res != nil && res.RetainedUsage > 0 {
-					p.app.showToast(fmt.Sprintf("soft-removed; retained_usage: %d", res.RetainedUsage))
-				} else {
-					p.app.showToast("label removed")
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.projectBigR:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Add repo path", []formField{{Label: "path", Required: true}})
-		code := p.detail.Code
-		p.app.openForm("repo-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.RepoAdd(code, vals["path"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.projectR:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Remove repo path", []formField{{Label: "path", Required: true}})
-		code := p.detail.Code
-		p.app.openForm("repo-remove", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.RepoRemove(code, vals["path"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideBigS:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Add guide section", []formField{{Label: "name", Required: true}})
-		code := p.detail.Code
-		p.app.openForm("section-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideSectionAdd(code, vals["name"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideS:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Rename section", []formField{
-			{Label: "name", Required: true},
-			{Label: "new-name", Required: true},
-		})
-		code := p.detail.Code
-		p.app.openForm("section-rename", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideSectionRename(code, vals["name"], vals["new-name"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideBigX:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Remove section", []formField{{Label: "name", Required: true}})
-		code := p.detail.Code
-		p.app.openForm("section-remove", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideSectionRemove(code, vals["name"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideBigM:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Move section", []formField{
-			{Label: "name", Required: true},
-			{Label: "before", Hint: "section to move before, or blank for end"},
-		})
-		code := p.detail.Code
-		p.app.openForm("section-move", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideSectionMove(code, vals["name"], vals["before"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideG:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Add guide ref", []formField{
-			{Label: "section", Required: true},
-			{Label: "kind", Required: true, Hint: "task|file"},
-			{Label: "target", Required: true, Hint: "task id or absolute file path"},
-		})
-		code := p.detail.Code
-		p.app.openForm("ref-add", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideRefAdd(code, vals["section"], vals["kind"], vals["target"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideM:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Move guide ref", []formField{
-			{Label: "section", Required: true},
-			{Label: "kind", Required: true},
-			{Label: "target", Required: true},
-			{Label: "before", Hint: "target to move before, or blank for end"},
-		})
-		code := p.detail.Code
-		p.app.openForm("ref-move", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideRefMove(code, vals["section"], vals["kind"], vals["target"], vals["before"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideD:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		f := NewForm("Remove guide ref", []formField{
-			{Label: "section", Required: true},
-			{Label: "kind", Required: true},
-			{Label: "target", Required: true},
-		})
-		code := p.detail.Code
-		p.app.openForm("ref-remove", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideRefRemove(code, vals["section"], vals["kind"], vals["target"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideBigF:
-		if !p.app.requireActor() {
-			p.app.showToast("set actor first")
-			return p.app, nil
-		}
-		current := ""
-		if p.detail != nil {
-			current = p.detail.GuideFreshnessThreshold
-		}
-		f := NewForm("Set freshness", []formField{
-			{Label: "threshold", Required: true, Value: current, Hint: "duration (720h) or 'unset'"},
-		})
-		code := p.detail.Code
-		p.app.openForm("set-freshness", f, func(fm *Form) tea.Cmd {
-			vals := fm.Values()
-			err := p.app.store.GuideSetFreshness(code, vals["threshold"], p.app.actor)
-			return func() tea.Msg {
-				if err != nil {
-					return errMsg{err}
-				}
-				p.refresh()
-				return refreshMsg{}
-			}
-		})
-	case p.app.km.guideBigD:
-		if p.detail != nil {
-			d_app_setDashProject(p.app, p.detail.Code)
-		}
-	}
-	return p.app, nil
-}
-
-func (p *projectsModel) view() string {
-	if p.mode == projDetail && p.detail != nil {
-		return p.renderDetail()
-	}
-	return p.renderList()
+	return ""
 }
 
 func (p *projectsModel) renderList() string {
 	var b strings.Builder
-	b.WriteString("PROJECTS")
-	if p.filter != "" {
-		b.WriteString("  filter: " + p.filter)
+	if len(p.list) == 0 {
+		empty := "no projects\n\npress [a] to add a project, then seed\nindex tasks (start-here, repo:, doc:)\nand label as you go"
+		b.WriteString(centerBlock(empty, p.m.width))
+		// pad to content height
+		out := b.String()
+		return padToHeight(out, p.m.contentHeight)
 	}
+	// Header.
+	b.WriteString(headerLabelStyle.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED")))
 	b.WriteString("\n")
-	b.WriteString("  CODE    NAME                            TASKS   LABELS   GUIDE   UPDATED\n")
-	list := p.filtered()
-	for i, pr := range list {
-		cursor := " "
+	b.WriteString(sepLine("─", 78, p.m.width, 2))
+	b.WriteString("\n")
+	for i, r := range p.list {
+		var gutter string
+		if r.code == p.m.projectScope {
+			gutter = gutterSelectStyle.Render("▸")
+		} else {
+			gutter = " "
+		}
+		// build cell line
+		line := fmt.Sprintf(" %-5s %-30s %6d %7d %10s", r.code, truncateRunes(r.name, 30), r.tasks, r.labels, r.updated)
 		if i == p.cursor {
-			cursor = ">"
+			line = gutter + " " + rowCursorStyle.Render(line)
+		} else {
+			line = gutter + " " + line
 		}
-		guide := "none"
-		if pr.Guide != nil && len(pr.Guide.Sections) > 0 {
-			guide = fmt.Sprintf("%d", len(pr.Guide.Sections))
-		}
-		tasks := len(p.app.store.ListTasks(store.QueryFilters{Project: pr.Code}))
-		name := pr.Name
-		if len(name) > 31 {
-			name = name[:31]
-		}
-		b.WriteString(fmt.Sprintf("%s %-6s  %-31s  %-5d   %-7d  %-6s  %s\n",
-			cursor, pr.Code, name, tasks, len(pr.Labels), guide, pr.UpdatedAt.Format("2006-01-02 15:04")))
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
-	b.WriteString("\n  [a]dd  [e]/Enter detail  [x] remove (zero-task guard)")
-	return b.String()
+	return padToHeight(b.String(), p.m.contentHeight)
 }
 
-func (p *projectsModel) renderDetail() string {
-	pr := p.detail
+func (p *projectsModel) renderDetailView() string {
+	end := p.detail.offset + p.m.contentHeight
+	if end > len(p.detail.lines) {
+		end = len(p.detail.lines)
+	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("PROJECT %s  %s\n\n", pr.Code, pr.Name))
-	b.WriteString("FACTS & LABELS\n")
-	b.WriteString(fmt.Sprintf("  code:    %s\n", pr.Code))
-	b.WriteString(fmt.Sprintf("  name:    %s\n", pr.Name))
-	b.WriteString(fmt.Sprintf("  type-axis: %s\n", pr.TypeAxis))
-	b.WriteString(fmt.Sprintf("  next_task_n: %d\n", pr.NextTaskN))
-	b.WriteString(fmt.Sprintf("  created: %s\n", pr.CreatedAt.Format("2006-01-02")))
-	b.WriteString(fmt.Sprintf("  updated: %s\n", pr.UpdatedAt.Format("2006-01-02")))
-	if len(pr.RepoPaths) > 0 {
-		b.WriteString("  repo paths:\n")
-		for _, r := range pr.RepoPaths {
-			b.WriteString("    " + r + "\n")
-		}
+	for i := p.detail.offset; i < end; i++ {
+		b.WriteString(p.detail.lines[i])
+		b.WriteString("\n")
 	}
-	b.WriteString("\nLABELS\n")
-	if len(pr.Labels) == 0 {
-		b.WriteString("  (none)\n")
-	} else {
-		for _, l := range pr.Labels {
-			line := "  " + l.Name
-			if l.Description != "" {
-				line += "  " + l.Description
-			}
-			b.WriteString(line + "\n")
-		}
-	}
-	b.WriteString("\nGUIDE\n")
-	if pr.Guide == nil || len(pr.Guide.Sections) == 0 {
-		b.WriteString("  (no guide)\n")
-	} else {
-		for _, sec := range pr.Guide.Sections {
-			marker := " "
-			if len(sec.Refs) == 0 {
-				marker = " [EMPTY]"
-			}
-			b.WriteString(fmt.Sprintf("  %s  %d refs%s\n", sec.Name, len(sec.Refs), marker))
-			for _, r := range sec.Refs {
-				state := refState(p.app.store, pr.Code, r)
-				b.WriteString(fmt.Sprintf("    [%s] %s  [%s]\n", r.Kind, r.Target, state))
-			}
-		}
-		if pr.GuideFreshnessThreshold != "" {
-			b.WriteString(fmt.Sprintf("  freshness threshold: %s\n", pr.GuideFreshnessThreshold))
-		}
-		if pr.Guide != nil {
-			b.WriteString(fmt.Sprintf("  guide updated: %s by %s\n", pr.Guide.UpdatedAt.Format("2006-01-02"), pr.Guide.UpdatedBy))
-		}
-	}
-	b.WriteString("\n[L]add label [l]remove [T]type-axis [N]name [R]/[r]repo [S]/[s]/[X]/[M]section [g]/[m]/[d]ref [F]freshness [D]dashboard")
 	return b.String()
 }
 
-func refState(s *store.Store, code string, r store.GuideRef) string {
-	if r.Kind == "task" {
-		t, err := s.GetTask(r.Target)
-		if err != nil || t == nil {
-			return "MISS"
+func (p *projectsModel) statusHint() string {
+	switch p.view {
+	case pViewList:
+		if len(p.list) == 0 {
+			return "[a]add [?]keys"
 		}
-		return "OK"
+		return "[a]dd [s]elect [Enter]detail [x]remove [?]keys"
+	case pViewDetail:
+		return "[N]name [L]add label [l]remove label [H]history [x]remove [Esc]back"
 	}
-	return "OK"
+	return "[?]keys"
 }
 
-func parseCSVLabels(s string) []store.Label {
-	if s == "" {
+// --- form openers ---
+
+var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
+
+func (p *projectsModel) openCreateForm() {
+	codeValidator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !codeRe.MatchString(value) {
+			return fmt.Errorf("code must be 3-6 uppercase letters")
+		}
 		return nil
 	}
-	parts := strings.Split(s, ",")
-	var out []store.Label
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, store.Label{Name: p})
-		}
+	fields := []formField{
+		{Label: "code", Required: true, Hint: "3-6 uppercase letters, e.g. ATM", Validator: codeValidator},
+		{Label: "name", Required: true, Hint: "project display name"},
 	}
-	return out
+	// If no actor set, add an actor field per mockup Screen 2.
+	if !p.m.canMutate() {
+		actorValidator := func(field, value string) error {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("actor is required")
+			}
+			return nil
+		}
+		fields = append(fields, formField{Label: "actor", Required: true, Hint: "free-form id (e.g. claude)", Validator: actorValidator})
+	}
+	f := NewForm("New project", fields)
+	p.m.form = f
+	p.m.formKind = formProjectCreate
 }
 
-func parseCSV(s string) []string {
-	if s == "" {
+func (p *projectsModel) openSetNameForm() {
+	pr := p.detail.project
+	if pr == nil {
+		return
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Value: pr.Name, Hint: "new project display name"},
+	}
+	f := NewForm("Set project name", fields)
+	p.m.form = f
+	p.m.formKind = formProjectSetName
+	p.m.formPayload = pr.Code
+}
+
+// labelSuffixRe validates the suffix the user types in the label add/remove
+// forms. The fixed "<CODE>:" prefix is prepended by the form submit handler
+// (doLabelAdd/doLabelRemove build full = code + ":" + suffix), so the suffix
+// itself is "<namespace>:<value>" or "<tag>" with NO leading colon. The mockup
+// spec's full-label regex is ^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$; removing
+// the leading "<CODE>:" yields this suffix regex.
+var labelSuffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
+
+func (p *projectsModel) openLabelAddForm() {
+	pr := p.detail.project
+	if pr == nil {
+		return
+	}
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>, e.g. status:open")
+		}
 		return nil
 	}
-	parts := strings.Split(s, ",")
-	var out []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>, e.g. status:open", Validator: validator},
+		{Label: "desc", Required: false, Hint: "optional; preserved if already set"},
+	}
+	f := NewForm(fmt.Sprintf("Add label  %s:", pr.Code), fields)
+	f.Title = fmt.Sprintf("Add label  %s:", pr.Code)
+	p.m.form = f
+	p.m.formKind = formLabelAdd
+	p.m.formPayload = pr.Code
+}
+
+func (p *projectsModel) openLabelRemoveForm() {
+	pr := p.detail.project
+	if pr == nil {
+		return
+	}
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
 		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>")
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+	}
+	f := NewForm(fmt.Sprintf("Remove label  %s:", pr.Code), fields)
+	f.Title = fmt.Sprintf("Remove label  %s:", pr.Code)
+	p.m.form = f
+	p.m.formKind = formLabelRemove
+	p.m.formPayload = pr.Code
+}
+
+// --- mutations ---
+
+func (p *projectsModel) requestRemoveProject(code string) tea.Cmd {
+	// Pre-check: tasks present -> refuse (store guard), else ask confirm.
+	if n := len(listTaskIDs(p.m.store, code)); n > 0 {
+		p.m.showToast(fmt.Sprintf("3 conflict: project has %d tasks — remove tasks first", n))
+		return nil
+	}
+	p.m.confirm = confirmRemoveProject
+	p.m.confirmMsg = fmt.Sprintf("Remove project %s?", code)
+	p.m.confirmArg = "History is lost. Registry labels are unaffected.\n[Enter] confirm   [Esc] cancel"
+	p.m.confirmArg = "History is lost. Registry labels are unaffected."
+	return nil
+}
+
+// doProjectCreate handles submit of the create form.
+func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
+	code := vals["code"]
+	name := vals["name"]
+	actor := m.actor
+	if actor == "" {
+		actor = strings.TrimSpace(vals["actor"])
+	}
+	if _, err := m.store.CreateProject(code, name, actor); err != nil {
+		if store.IsConflict(err) {
+			m.showToast(fmt.Sprintf("4 conflict: code %s exists", code))
+		} else {
+			m.showToast("error: " + err.Error())
+		}
+		return nil
+	}
+	m.projectScope = code
+	m.refreshAll()
+	return nil
+}
+
+func (m *Model) doProjectSetName(vals map[string]string) tea.Cmd {
+	code := m.formPayload
+	name := vals["name"]
+	if err := m.store.SetProjectName(code, name, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.projects.openDetail(code)
+	return nil
+}
+
+func (m *Model) doLabelAdd(vals map[string]string) tea.Cmd {
+	code := m.formPayload
+	suffix := vals["name"]
+	full := code + ":" + suffix
+	desc := vals["desc"]
+	if err := m.store.LabelAdd(full, desc, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	m.projects.openDetail(code)
+	return nil
+}
+
+func (m *Model) doLabelRemove(vals map[string]string) tea.Cmd {
+	code := m.formPayload
+	suffix := vals["name"]
+	full := code + ":" + suffix
+	res, err := m.store.LabelRemove(full, m.actor)
+	if err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.showToast(fmt.Sprintf("removed label %s (retained usage: %d)", full, res.RetainedUsage))
+	m.refreshAll()
+	m.projects.openDetail(code)
+	return nil
+}
+
+func (m *Model) confirmYes() tea.Cmd {
+	switch m.confirm {
+	case confirmRemoveProject:
+		code := m.projects.detail.code
+		if m.projects.view != pViewDetail {
+			// removing from list: use cursor row
+			if r, ok := m.projects.selected(); ok {
+				code = r.code
+			}
+		}
+		err := m.store.RemoveProject(code, m.actor)
+		m.confirm = confirmNone
+		if err != nil {
+			m.showToast("error: " + err.Error())
+			return nil
+		}
+		if m.projectScope == code {
+			m.projectScope = ""
+		}
+		m.projects.backToList()
+		m.refreshAll()
+		return nil
+	case confirmRemoveTask:
+		id := m.tasks.detail.id
+		err := m.store.RemoveTask(id, m.actor)
+		m.confirm = confirmNone
+		if err != nil {
+			m.showToast("error: " + err.Error())
+			return nil
+		}
+		m.tasks.backToList()
+		m.refreshAll()
+		return nil
+	}
+	m.confirm = confirmNone
+	return nil
+}
+
+// metaJSON renders a history meta map as a stable JSON-ish single line.
+func metaJSON(m map[string]any) string {
+	if len(m) == 0 {
+		return "{}"
+	}
+	var b strings.Builder
+	b.WriteString("{")
+	first := true
+	for k, v := range m {
+		if !first {
+			b.WriteString(",")
+		}
+		first = false
+		fmt.Fprintf(&b, "%q:%v", k, v)
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
+func pluralTasks(n int) string {
+	if n == 1 {
+		return "task"
+	}
+	return "tasks"
+}
+
+// padToHeight right-pads the string with blank lines so it fills `h` lines.
+func padToHeight(s string, h int) string {
+	lines := strings.Split(s, "\n")
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// listTaskIDs returns the per-project task IDs via the exported store query
+// API (the store's own listTaskIDs is unexported).
+func listTaskIDs(s *store.Store, code string) []string {
+	ts := s.ListTasks(store.QueryFilters{Project: code})
+	out := make([]string, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, t.ID)
 	}
 	return out
 }

@@ -1,0 +1,64 @@
+{
+  "conventions": {
+    "advisory": "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
+    "agent_first_contact_sequence": [
+      "atm conventions — read the guide",
+      "task list --project <CODE> --label <CODE>:context:start-here — get the entry-point pointer and follow it",
+      "task list --project <CODE> --label <CODE>:repo:* / :doc:* / :context:* — discover index tasks for repos, docs, and always-read context",
+      "task list --project <CODE> --label <CODE>:status:open — get open work"
+    ],
+    "first_time_human_sequence": [
+      "atm tui (auto-inits the store)",
+      "create the project (Add in the Projects tab)",
+      "create seed index tasks (start-here, repo:<name>, doc:<name>, context:always-read) and initial work tasks, labeling as you go"
+    ],
+    "namespaces": [
+      {
+        "examples": "open, todo, in-progress, done, blocked, review",
+        "namespace": "status:",
+        "purpose": "workflow states — labels only, no state machine"
+      },
+      {
+        "examples": "bug, feature, task, chore",
+        "namespace": "type:",
+        "purpose": "task categorization"
+      },
+      {
+        "examples": "high, medium, low",
+        "namespace": "priority:",
+        "purpose": "optional prioritization"
+      },
+      {
+        "examples": "ATM:repo:atm",
+        "namespace": "repo:<name>",
+        "purpose": "index task whose description says where to find the repo — repo to project binding in the label substrate"
+      },
+      {
+        "examples": "ATM:doc:architecture",
+        "namespace": "doc:<name>",
+        "purpose": "index task pointing at a doc/resource and how to use it"
+      },
+      {
+        "examples": "ATM:context:always-read",
+        "namespace": "context:always-read",
+        "purpose": "pointer to the always-read context markdown (replaces the deleted v1 Project Guide)"
+      },
+      {
+        "examples": "ATM:context:start-here",
+        "namespace": "context:start-here",
+        "purpose": "the single entry-point task a fresh agent queries first; its description is the read this first pointer"
+      },
+      {
+        "examples": "ATM:claimed-by:claude",
+        "namespace": "claimed-by:<agent>",
+        "purpose": "who's working on what — replaces v1 Claim; last-writer-wins, no conflict detection"
+      },
+      {
+        "examples": "ATM:blocks:ATM-0002",
+        "namespace": "blocks:<ID>, related:<ID>",
+        "purpose": "task relationships via labels (replaces v1 Links)"
+      }
+    ],
+    "version": "v2.0"
+  }
+}

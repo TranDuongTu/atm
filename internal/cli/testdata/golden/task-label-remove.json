@@ -1,0 +1,41 @@
+{
+  "task": {
+    "created_at": "TIMESTAMP",
+    "created_by": "claude",
+    "description": "",
+    "history": [
+      {
+        "action": "created",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h1"
+      },
+      {
+        "action": "label-added",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h2",
+        "meta": {
+          "label": "ATM:status:open"
+        }
+      },
+      {
+        "action": "label-removed",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "id": "h3",
+        "meta": {
+          "label": "ATM:status:open"
+        }
+      }
+    ],
+    "id": "ATM-0002",
+    "labels": [
+      "ATM:context:start-here"
+    ],
+    "project_code": "ATM",
+    "title": "Seed index tasks",
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
+  }
+}

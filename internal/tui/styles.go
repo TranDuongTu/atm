@@ -1,30 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	topStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39"))
-
-	contentStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("245"))
-
-	paneStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-
-	activePaneStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39"))
-
-	bottomStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39"))
-
 	activeTabStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
 			Background(lipgloss.Color("39")).
@@ -35,20 +19,19 @@ var (
 				Foreground(lipgloss.Color("245")).
 				Padding(0, 1)
 
-	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true).
-			Padding(0, 2)
-
-	locationStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).Italic(true)
-
 	// keyMenuStyle renders the contextual key hints in the bottom status bar.
 	keyMenuStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).Bold(true)
 
 	keyMenuDimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
+
+	// statusStyle renders the bottom status line text (STORE/SELECTED/actor).
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
+	statusLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).Bold(true)
 
 	// dialogStyle renders the create/edit dialog as a bordered overlay with
 	// no opaque background so the underlying content shows through.
@@ -81,6 +64,40 @@ var (
 	buttonInactiveStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("245")).
 				Padding(0, 2)
+
+	// rowCursorStyle highlights the cursor row with inverse video.
+	rowCursorStyle = lipgloss.NewStyle().Reverse(true)
+
+	// gutterSelectStyle renders the selection gutter marker.
+	gutterSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+
+	// emptyStyle centers empty-state copy.
+	emptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+	// headerLabelStyle renders column header labels in the list views.
+	headerLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+
+	// headerLineStyle renders the persistent Tasks-tab header line.
+	headerLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+
+	// groupHeaderStyle renders the grouped-view facet header (▾ LABEL (N)).
+	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+
+	// amberStyle renders warnings (retained_usage, remove confirm).
+	amberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+
+	// toastStyle renders the transient toast message.
+	toastStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("203")).
+			Bold(true).
+			Padding(0, 1)
+
+	// helpTableStyle renders the parity table / keymap rows.
+	helpTableStyle = lipgloss.NewStyle()
+
+	// overlayBackdropStyle dims the underlying content when a form/overlay is open.
+	overlayBackdropStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
 // box renders `inner` inside a bordered block at least `w` columns wide (so
@@ -192,4 +209,81 @@ func fitLine(s string, w int) string {
 		used += rw
 	}
 	return out.String()
+}
+
+// centerBlock right-pads and left-pads the (possibly multi-line) string so it
+// is centered horizontally within width w.
+func centerBlock(s string, w int) string {
+	lines := strings.Split(s, "\n")
+	maxL := 0
+	for _, l := range lines {
+		if lw := lipgloss.Width(l); lw > maxL {
+			maxL = lw
+		}
+	}
+	if maxL >= w {
+		return s
+	}
+	pad := (w - maxL) / 2
+	left := spaces(pad)
+	for i, l := range lines {
+		lines[i] = left + l
+	}
+	return strings.Join(lines, "\n")
+}
+
+// truncateRunes truncates s to at most w display columns, appending an
+// ellipsis ("...") if it was shortened.
+func truncateRunes(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	if w <= 3 {
+		return fitLine(s, w)
+	}
+	return fitLine(s, w-3) + "..."
+}
+
+// repeat returns n copies of s, clamped to n>=0 (avoids the panic
+// strings.Repeat panics on negative counts when the terminal width is 0).
+func repeat(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat(s, n)
+}
+
+// sepLine returns a horizontal separator line of length max(1, min(cap,
+// width-sub)), clamped to >=1 so a 0-width terminal never panics.
+func sepLine(rune_ string, cap, width, sub int) string {
+	n := cap
+	if w := width - sub; w < n {
+		n = w
+	}
+	if n < 1 {
+		n = 1
+	}
+	return repeat(rune_, n)
+}
+
+// relTime renders a human-readable relative timestamp from t to now.
+func relTime(t time.Time, now time.Time) string {
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	case d < 365*24*time.Hour:
+		return fmt.Sprintf("%dmo ago", int(d.Hours()/(24*30)))
+	default:
+		return fmt.Sprintf("%dy ago", int(d.Hours()/(24*365)))
+	}
 }

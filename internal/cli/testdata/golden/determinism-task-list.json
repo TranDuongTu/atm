@@ -1,330 +1,68 @@
 {
   "tasks": [
     {
-      "claim": null,
       "created_at": "TIMESTAMP",
+      "created_by": "claude",
       "description": "",
-      "discussions": [],
-      "followups": [],
       "history": [
         {
           "action": "created",
-          "actor": "human:alice",
+          "actor": "claude",
           "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
+          "id": "h1"
         }
       ],
       "id": "ATM-0001",
       "labels": [
-        "kind:convention",
-        "type:bug"
+        "ATM:status:open",
+        "ATM:type:bug"
       ],
-      "links": [],
       "project_code": "ATM",
-      "status": "open",
-      "title": "PR conventions for bug fixes",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
+      "title": "Fix label reconciliation",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
     },
     {
-      "claim": null,
       "created_at": "TIMESTAMP",
-      "description": "Investigate and fix the claim race.",
-      "discussions": [
-        {
-          "at": "TIMESTAMP",
-          "author": "human:alice",
-          "id": "d1",
-          "text": "Use file-level locking."
-        }
-      ],
-      "followups": [
-        {
-          "assignee": "human:alice",
-          "at": "TIMESTAMP",
-          "author": "human:alice",
-          "id": "f1",
-          "status": "open",
-          "text": "Decide storage format"
-        }
-      ],
+      "created_by": "claude",
+      "description": "",
       "history": [
         {
           "action": "created",
-          "actor": "human:alice",
+          "actor": "claude",
           "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
-        },
-        {
-          "action": "link-added",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h2",
-          "meta": {}
-        },
-        {
-          "action": "title-changed",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h3",
-          "meta": {}
-        },
-        {
-          "action": "description-changed",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h4",
-          "meta": {}
-        },
-        {
-          "action": "label-added",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h5",
-          "meta": {}
-        },
-        {
-          "action": "label-removed",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h6",
-          "meta": {}
-        },
-        {
-          "action": "todo-added",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h7",
-          "meta": {}
-        },
-        {
-          "action": "todo-toggled",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h8",
-          "meta": {}
-        },
-        {
-          "action": "followup-added",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h9",
-          "meta": {}
-        },
-        {
-          "action": "discussion-added",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h10",
-          "meta": {}
+          "id": "h1"
         }
       ],
       "id": "ATM-0002",
       "labels": [
-        "area:cli",
-        "type:bug"
-      ],
-      "links": [
-        {
-          "target": "ATM-0003",
-          "type": "blocks"
-        }
+        "ATM:context:start-here"
       ],
       "project_code": "ATM",
-      "status": "open",
-      "title": "Fix claim race (revised)",
-      "todos": [
-        {
-          "at": "TIMESTAMP",
-          "author": "agent:claude-1",
-          "done": true,
-          "id": "t1",
-          "text": "Write tests for claim"
-        }
-      ],
-      "updated_at": "TIMESTAMP"
+      "title": "Seed index tasks",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
     },
     {
-      "claim": null,
       "created_at": "TIMESTAMP",
+      "created_by": "claude",
       "description": "",
-      "discussions": [],
-      "followups": [],
       "history": [
         {
           "action": "created",
-          "actor": "human:alice",
+          "actor": "claude",
           "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
-        }
-      ],
-      "id": "ATM-0003",
-      "labels": [
-        "type:impl"
-      ],
-      "links": [],
-      "project_code": "ATM",
-      "status": "open",
-      "title": "Blocked subtask",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
-    },
-    {
-      "claim": null,
-      "created_at": "TIMESTAMP",
-      "description": "",
-      "discussions": [],
-      "followups": [],
-      "history": [
-        {
-          "action": "created",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
-        }
-      ],
-      "id": "ATM-0004",
-      "labels": [
-        "type:epic"
-      ],
-      "links": [],
-      "project_code": "ATM",
-      "status": "open",
-      "title": "Epic: agent workflow",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
-    },
-    {
-      "claim": {
-        "actor": "agent:claude-1",
-        "at": "TIMESTAMP"
-      },
-      "created_at": "TIMESTAMP",
-      "description": "",
-      "discussions": [],
-      "followups": [],
-      "history": [
-        {
-          "action": "created",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
-        },
-        {
-          "action": "link-added",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h2",
-          "meta": {}
-        },
-        {
-          "action": "claimed",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h3",
-          "meta": {}
-        },
-        {
-          "action": "status-changed",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h4",
-          "meta": {
-            "from": "open",
-            "to": "in-progress"
-          }
-        },
-        {
-          "action": "status-changed",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h5",
-          "meta": {
-            "from": "in-progress",
-            "to": "review"
-          }
-        },
-        {
-          "action": "review-requested",
-          "actor": "agent:claude-1",
-          "at": "TIMESTAMP",
-          "id": "h6",
-          "meta": {}
-        }
-      ],
-      "id": "ATM-0005",
-      "labels": [
-        "type:impl"
-      ],
-      "links": [
-        {
-          "target": "ATM-0004",
-          "type": "implements"
-        }
-      ],
-      "project_code": "ATM",
-      "status": "review",
-      "title": "Impl: claim command",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
-    },
-    {
-      "claim": null,
-      "created_at": "TIMESTAMP",
-      "description": "",
-      "discussions": [],
-      "followups": [],
-      "history": [
-        {
-          "action": "created",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
-        }
-      ],
-      "id": "ATM-0006",
-      "labels": [
-        "kind:convention",
-        "area:cli"
-      ],
-      "links": [],
-      "project_code": "ATM",
-      "status": "open",
-      "title": "Testing conventions",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
-    },
-    {
-      "claim": null,
-      "created_at": "TIMESTAMP",
-      "description": "",
-      "discussions": [],
-      "followups": [],
-      "history": [
-        {
-          "action": "created",
-          "actor": "human:alice",
-          "at": "TIMESTAMP",
-          "id": "h1",
-          "meta": {}
+          "id": "h1"
         }
       ],
       "id": "DEMO-0001",
       "labels": [
-        "area:cli"
+        "DEMO:status:open"
       ],
-      "links": [],
       "project_code": "DEMO",
-      "status": "open",
-      "title": "Old task",
-      "todos": [],
-      "updated_at": "TIMESTAMP"
+      "title": "Demo task",
+      "updated_at": "TIMESTAMP",
+      "updated_by": "claude"
     }
   ]
 }
