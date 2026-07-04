@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 )
 
 // box renders `inner` inside a bordered block at least `w` columns wide (so
@@ -106,17 +107,7 @@ func fitLine(s string, w int) string {
 	if w <= 0 || lipgloss.Width(s) <= w {
 		return s
 	}
-	var out strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		out.WriteRune(r)
-		used += rw
-	}
-	return out.String()
+	return truncate.String(s, uint(w))
 }
 
 func fitLineFrom(s string, start, width int) string {

@@ -3,6 +3,9 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // --- Labels tab tests ---
@@ -149,5 +152,19 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	// The removed label is back.
 	if _, err := m.store.LabelShow("ATM:context:fixit"); err != nil {
 		t.Errorf("ATM:context:fixit not restored after seed: %v", err)
+	}
+}
+
+func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	m := newTestModel(t)
+	line := m.styles.RowCursor.Render(strings.Repeat("x", 80))
+
+	got := fitLine(line, 20)
+
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Fatalf("truncated selected row does not reset ANSI styling: %q", got)
 	}
 }
