@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -83,6 +84,12 @@ func (h *goldenHarness) run(args ...string) (string, string, int) {
 	code := ExitSuccess
 	if err != nil {
 		code = ExitCodeForError(err)
+		// Mirror production Execute(): write the error envelope to stderr
+		// in JSON mode so error-case goldens capture the envelope shape.
+		if h.output == outputJSON {
+			env := NewErrorEnvelopeFromError(err)
+			fmt.Fprintln(h.stderr, env.String())
+		}
 	}
 	return h.stdout.String(), h.stderr.String(), code
 }

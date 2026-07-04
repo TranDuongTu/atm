@@ -46,7 +46,7 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	}
 	// Seed the default label set (idempotent; outside the project-create
 	// lock — SeedLabels takes its own project lock). A fresh project has
-	// all 17 default labels with descriptions the moment it exists.
+	// all 18 default labels with descriptions the moment it exists.
 	if seedErr := s.SeedLabels(code, actor); seedErr != nil {
 		return nil, seedErr
 	}
