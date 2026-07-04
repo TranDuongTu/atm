@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -132,14 +133,110 @@ func (s *Store) labelsInLogLocked(code string) (map[string]bool, error) {
 }
 
 func (s *Store) GetTask(id string) (*Task, error) {
+	code, _, ok := ParseTaskID(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+	}
 	var t Task
-	if err := ReadJSON(s.taskPath(id), &t); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+	cachePath := s.taskPath(id)
+	if err := ReadJSON(cachePath, &t); err != nil {
+		if !os.IsNotExist(err) {
+			// Corrupt cache → rebuild from log under the lock for safety.
+			if err := s.WithLock(code, func() error {
+				return s.rebuildTaskFromLog(id, code)
+			}); err != nil {
+				return nil, err
+			}
+			if err := ReadJSON(cachePath, &t); err != nil {
+				return nil, err
+			}
+			return &t, nil
 		}
+		// Missing cache → rebuild under lock.
+		if err := s.WithLock(code, func() error {
+			return s.rebuildTaskFromLog(id, code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &t); err != nil {
+			return nil, err
+		}
+		return &t, nil
+	}
+	// Cache present; check staleness.
+	last, lastErr := s.LastLogSeq(code)
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	if t.LogSeq > last {
+		return nil, fmt.Errorf("%w: task %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, id, t.LogSeq, last)
+	}
+	taskLast, err := s.lastTaskEventSeq(code, id)
+	if err != nil {
 		return nil, err
 	}
+	if t.LogSeq < taskLast {
+		// Stale: rebuild under lock.
+		if err := s.WithLock(code, func() error {
+			return s.rebuildTaskFromLog(id, code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &t); err != nil {
+			return nil, err
+		}
+	}
 	return &t, nil
+}
+
+// lastTaskEventSeq returns the seq of the latest log entry for the given task subject.
+// An integrity error from ReadLog is propagated (a corrupt log must not be treated
+// as "cache is fresh").
+func (s *Store) lastTaskEventSeq(code, id string) (int, error) {
+	entries, err := s.ReadLog(code)
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for _, e := range entries {
+		if e.Subject.Kind == "task" && e.Subject.ID == id {
+			last = e.Seq
+		}
+	}
+	return last, nil
+}
+
+// rebuildTaskFromLog replays the task's events and rewrites the cache file.
+// Caller MUST hold the project lock.
+func (s *Store) rebuildTaskFromLog(id, code string) error {
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return err
+	}
+	var t *Task
+	lastSeq := 0
+	for _, e := range entries {
+		if e.Subject.Kind != "task" || e.Subject.ID != id {
+			continue
+		}
+		lastSeq = e.Seq
+		if e.Action == ActionTaskRemoved {
+			t = nil
+			continue
+		}
+		var tk Task
+		if err := json.Unmarshal(e.Payload, &tk); err == nil {
+			t = &tk
+		}
+	}
+	if t == nil {
+		return fmt.Errorf("%w: task %q", ErrNotFound, id)
+	}
+	t.LogSeq = lastSeq
+	if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
+		return err
+	}
+	return WriteJSON(s.taskPath(id), t)
 }
 
 func (s *Store) SetTitle(id, title, actor string) error {

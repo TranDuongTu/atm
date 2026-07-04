@@ -180,3 +180,16 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	// (If no tombstone were appended, the cache file would still exist or the
 	// directory would not be removed.) The on-disk absence is the contract.
 }
+
+func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_ = os.Remove(s.projectPath("ATM"))
+	got, err := s.GetProject("ATM")
+	if err != nil {
+		t.Fatalf("GetProject after cache delete: %v", err)
+	}
+	if got.Code != "ATM" {
+		t.Fatalf("rebuilt project code = %q", got.Code)
+	}
+}

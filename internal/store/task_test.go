@@ -164,3 +164,63 @@ func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 		}
 	}
 }
+
+func TestGetTaskLazyMissRebuildsFromLog(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	// Hand-delete the cache file. Next read must rebuild from log.
+	_ = os.Remove(s.taskPath(tk.ID))
+	got, err := s.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask after cache delete: %v", err)
+	}
+	if got.ID != tk.ID || got.Title != tk.Title {
+		t.Fatalf("rebuilt task = %+v want %+v", got, tk)
+	}
+	// Cache file was rewritten.
+	if _, err := os.Stat(s.taskPath(tk.ID)); os.IsNotExist(err) {
+		t.Fatal("cache file was not rewritten after lazy miss")
+	}
+}
+
+func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_ = s.SetTitle(tk.ID, "changed", "claude")
+	// Stomp the cache back to an old LogSeq (simulate cache write failure after the log append).
+	cachePath := s.taskPath(tk.ID)
+	raw, _ := os.ReadFile(cachePath)
+	var tg Task
+	_ = json.Unmarshal(raw, &tg)
+	tg.LogSeq = 1 // stale: real last task event seq is higher (title-changed is seq=21).
+	newRaw, _ := json.Marshal(tg)
+	_ = os.WriteFile(cachePath, newRaw, 0o644)
+	got, err := s.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask with stale cache: %v", err)
+	}
+	if got.Title != "changed" {
+		t.Fatalf("lazy miss did not rebuild: title = %q want %q", got.Title, "changed")
+	}
+	// Rebuilt LogSeq must be stamped to the seq of the latest matching task event.
+	if got.LogSeq != 21 {
+		t.Fatalf("rebuilt LogSeq = %d, want 21 (seq of title-changed entry)", got.LogSeq)
+	}
+}
+
+func TestGetTaskFutureLogSeqIntegrity(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	// Hand-write a cache that claims a seq higher than the log's last.
+	cachePath := s.taskPath(tk.ID)
+	tk.LogSeq = 9999
+	newRaw, _ := json.Marshal(tk)
+	_ = os.WriteFile(cachePath, newRaw, 0o644)
+	_, err := s.GetTask(tk.ID)
+	if !IsIntegrity(err) {
+		t.Fatalf("expected ErrIntegrity, got %v", err)
+	}
+}

@@ -73,13 +73,101 @@ func mustMarshal(v any) json.RawMessage {
 
 func (s *Store) GetProject(code string) (*Project, error) {
 	var p Project
-	if err := ReadJSON(s.projectPath(code), &p); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
+	cachePath := s.projectPath(code)
+	if err := ReadJSON(cachePath, &p); err != nil {
+		if !os.IsNotExist(err) {
+			// Corrupt cache → rebuild from log under the lock for safety.
+			if err := s.WithLock(code, func() error {
+				return s.rebuildProjectFromLog(code)
+			}); err != nil {
+				return nil, err
+			}
+			if err := ReadJSON(cachePath, &p); err != nil {
+				return nil, err
+			}
+			return &p, nil
 		}
+		if err := s.WithLock(code, func() error {
+			return s.rebuildProjectFromLog(code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &p); err != nil {
+			return nil, err
+		}
+		return &p, nil
+	}
+	last, lastErr := s.LastLogSeq(code)
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	if p.LogSeq > last {
+		return nil, fmt.Errorf("%w: project %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, code, p.LogSeq, last)
+	}
+	// Project staleness only triggers on project.* events, not label events.
+	projLast, err := s.lastProjectEventSeq(code)
+	if err != nil {
 		return nil, err
 	}
+	if projLast > p.LogSeq {
+		if err := s.WithLock(code, func() error {
+			return s.rebuildProjectFromLog(code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &p); err != nil {
+			return nil, err
+		}
+	}
 	return &p, nil
+}
+
+// lastProjectEventSeq returns the seq of the latest project.* log entry.
+// An integrity error from ReadLog is propagated (a corrupt log must not be
+// treated as "cache is fresh").
+func (s *Store) lastProjectEventSeq(code string) (int, error) {
+	entries, err := s.ReadLog(code)
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for _, e := range entries {
+		if e.Subject.Kind == "project" && e.Subject.Code == code {
+			last = e.Seq
+		}
+	}
+	return last, nil
+}
+
+func (s *Store) rebuildProjectFromLog(code string) error {
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return err
+	}
+	var p *Project
+	lastSeq := 0
+	for _, e := range entries {
+		if e.Subject.Kind != "project" || e.Subject.Code != code {
+			continue
+		}
+		lastSeq = e.Seq
+		if e.Action == ActionProjectRemoved {
+			p = nil
+			continue
+		}
+		var proj Project
+		if err := json.Unmarshal(e.Payload, &proj); err == nil {
+			p = &proj
+		}
+	}
+	if p == nil {
+		return fmt.Errorf("%w: project %q", ErrNotFound, code)
+	}
+	p.LogSeq = lastSeq
+	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
+		return err
+	}
+	return WriteJSON(s.projectPath(code), p)
 }
 
 func (s *Store) ListProjects() []*Project {
