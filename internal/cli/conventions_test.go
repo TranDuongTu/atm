@@ -12,8 +12,8 @@ func TestConventionsText(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, "Suggested seed namespaces") {
-		t.Fatalf("expected 'Suggested seed namespaces' in text output: %s", out)
+	if !strings.Contains(out, "What ATM is") {
+		t.Fatalf("expected 'What ATM is' in text output: %s", out)
 	}
 	if !strings.Contains(out, "Agent code-of-conduct") {
 		t.Fatalf("expected 'Agent code-of-conduct' in text output")
@@ -38,6 +38,9 @@ func TestConventionsJSON(t *testing.T) {
 	}
 	if !strings.Contains(out, `"seeded_labels"`) {
 		t.Fatalf("expected 'seeded_labels' key in JSON output")
+	}
+	if !strings.Contains(out, `"how_to_search"`) {
+		t.Fatalf("expected 'how_to_search' key in JSON output")
 	}
 	compareGolden(t, "conventions-json", out)
 }

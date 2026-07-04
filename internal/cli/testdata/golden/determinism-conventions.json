@@ -2,11 +2,11 @@
   "conventions": {
     "advisory": "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
     "agent_first_contact_sequence": [
-      "atm conventions — read this guide, including the code-of-conduct",
-      "atm label list --project <CODE> — read every label's description first to understand the project's vocabulary before exploring tasks",
-      "task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
-      "task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
-      "task list --project <CODE> --label <CODE>:status:open — get open work"
+      "read this guide, including the code-of-conduct",
+      "atm label list --project <CODE> — read every label's description first to learn the project's vocabulary before touching tasks",
+      "atm task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
+      "atm task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
+      "atm task list --project <CODE> --label <CODE>:status:open — get open work"
     ],
     "code_of_conduct": [
       "Read before you write. Run atm label list --project <CODE> and read every label's description before introducing any new label.",
@@ -18,66 +18,11 @@
     ],
     "first_time_human_sequence": [
       "atm tui (auto-inits the store)",
-      "create the project (Add in the Projects tab); project create auto-seeds the 17 default labels with descriptions",
+      "create the project (Add in the Projects tab); project create auto-seeds the default labels with descriptions",
       "create seed index tasks (context:agent, context:repository, context:documentation) and initial work tasks, labeling as you go"
     ],
-    "namespaces": [
-      {
-        "examples": "open, todo, in-progress, done, blocked, review",
-        "namespace": "status:",
-        "purpose": "workflow states — labels only, no state machine"
-      },
-      {
-        "examples": "bug, feature, task, chore",
-        "namespace": "type:",
-        "purpose": "task categorization"
-      },
-      {
-        "examples": "high, medium, low",
-        "namespace": "priority:",
-        "purpose": "optional prioritization"
-      },
-      {
-        "examples": "ATM:context:documentation",
-        "namespace": "context:documentation",
-        "purpose": "the labeled task contains documentation about the project"
-      },
-      {
-        "examples": "ATM:context:repository",
-        "namespace": "context:repository",
-        "purpose": "the labeled task contains a pointer to a code repository"
-      },
-      {
-        "examples": "ATM:context:agent",
-        "namespace": "context:agent",
-        "purpose": "agent direction when navigating the project"
-      },
-      {
-        "examples": "ATM:context:fixit",
-        "namespace": "context:fixit",
-        "purpose": "something on this task should be reviewed, updated, or altered"
-      },
-      {
-        "examples": "ATM:repo:atm",
-        "namespace": "repo:<name>",
-        "purpose": "index task pointing at a repo — created on demand, not seeded"
-      },
-      {
-        "examples": "ATM:doc:architecture",
-        "namespace": "doc:<name>",
-        "purpose": "index task pointing at a doc/resource — created on demand, not seeded"
-      },
-      {
-        "examples": "ATM:claimed-by:claude",
-        "namespace": "claimed-by:<agent>",
-        "purpose": "who's working on what — last-writer-wins, no conflict detection"
-      },
-      {
-        "examples": "ATM:blocks:ATM-0002",
-        "namespace": "blocks:<ID>, related:<ID>",
-        "purpose": "task relationships via labels — created on demand, not seeded"
-      }
-    ],
+    "how_to_read_a_task_and_its_labels": "A task is read as: its title (one line of intent), its description (the running narrative), and its labels (the faceted classification). The labels are the query surface; the description is the working memory. A context:agent task's description holds agent directions for this project. A context:repository task points at a repo to read. A context:documentation task points at a doc to read. status:open means not done; status:in-progress means someone is on it; status:done means stop. Labels are advisory — nothing in the store enforces them, but reading them is how you understand a task without re-reading its whole history.",
+    "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:type:bug is open bugs.",
     "seeded_labels": [
       {
         "description": "workflow state: open; task is not started or is being considered",
@@ -148,6 +93,8 @@
         "suffix": "context:fixit"
       }
     ],
-    "version": "v2.1"
+    "what_atm_is": "ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives outside the store, in agent prompts and human habits; the store only keeps the substrate legible.",
+    "where_labels_live": "Labels are global and per-project. The seeded defaults (status, type, priority, context) are written into every new project by atm project create and re-applied idempotently by atm label seed --project <CODE> / the Labels tab [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, run atm label list --project <CODE>. Each label carries a description; that description is the label's intention record.",
+    "where_tasks_live": "Tasks live in the store, one JSON file per task, scoped to a project. atm task list --project <CODE> lists them. Each task has an ID (<CODE>-<NNNN>), a title, a description, and a label set. The description is free-form text — agents write what they are doing, what they found, what they decided, so the next agent or human can pick up where they left off."
   }
 }

@@ -210,23 +210,31 @@ func TestHelpOverlayOpensClosesAndScrolls(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "2")
 	update(t, m, "?")
-	if !m.helpOverlayOn {
-		t.Fatalf("help overlay should be open")
+	if m.helpOverlay != helpKeys {
+		t.Fatalf("help overlay should be open (keys), got %v", m.helpOverlay)
 	}
 	if m.focused != paneTasks {
 		t.Fatalf("opening help changed focus = %v want paneTasks", m.focused)
 	}
 	v := m.View()
+	mustContain(t, v, "Help - Keys")
 	mustContain(t, v, "CLI / TUI Parity")
-	mustContain(t, v, "Global Keymap")
+	// The keys overlay holds parity + keymap; scroll to reveal keymap.
+	for i := 0; i < 30; i++ {
+		update(t, m, "j")
+	}
+	mustContain(t, m.View(), "Global Keymap")
+	// Scrolling is clamped at the bottom; verify j still advances when not
+	// at the limit by resetting to top and stepping once.
+	update(t, m, "g")
 	before := m.help.offset
 	update(t, m, "j")
 	if m.help.offset <= before {
 		t.Fatalf("help j did not scroll: before=%d after=%d", before, m.help.offset)
 	}
 	update(t, m, "esc")
-	if m.helpOverlayOn {
-		t.Fatalf("esc should close help overlay")
+	if m.helpOverlay != helpNone {
+		t.Fatalf("esc should close help overlay, got %v", m.helpOverlay)
 	}
 }
 
@@ -384,15 +392,15 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 func TestThemeCyclesInsideHelpOverlay(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
-	if !m.helpOverlayOn {
-		t.Fatalf("setup: help overlay should be open")
+	if m.helpOverlay != helpKeys {
+		t.Fatalf("setup: help overlay should be open, got %v", m.helpOverlay)
 	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
-	if !m.helpOverlayOn {
-		t.Fatalf("theme cycling should not close help overlay")
+	if m.helpOverlay != helpKeys {
+		t.Fatalf("theme cycling should not close help overlay, got %v", m.helpOverlay)
 	}
 }
 
@@ -924,8 +932,8 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	if m.tasks.view != tViewDetail {
 		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
 	}
-	if m.form != nil || m.confirm != confirmNone || m.helpOverlayOn {
-		t.Fatalf("detail should not open an overlay: form=%v confirm=%v help=%v", m.form != nil, m.confirm, m.helpOverlayOn)
+	if m.form != nil || m.confirm != confirmNone || m.helpOverlay != helpNone {
+		t.Fatalf("detail should not open an overlay: form=%v confirm=%v help=%v", m.form != nil, m.confirm, m.helpOverlay)
 	}
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
@@ -1081,25 +1089,41 @@ func TestHelpOverlayParityTable(t *testing.T) {
 
 func TestHelpOverlayConventions(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "?")
+	update(t, m, "C")
+	if m.helpOverlay != helpConventions {
+		t.Fatalf("help overlay should be open (conventions), got %v", m.helpOverlay)
+	}
 	content := strings.Join(m.help.lines, "\n")
-	mustContain(t, content, "─ Conventions ─")
+	mustContain(t, content, "What ATM is")
+	mustContain(t, content, "Where labels live")
+	mustContain(t, content, "Where tasks live")
+	mustContain(t, content, "How to read a task and its labels")
+	mustContain(t, content, "How to search")
+	mustContain(t, content, "Agent code-of-conduct")
 	mustContain(t, content, "advisory")
-	mustContain(t, content, "Suggested seed namespaces")
+	// The conventions text references where to find labels/tasks but does NOT
+	// duplicate the seeded label list itself.
 	mustNotContain(t, content, "## Suggested seed namespaces")
 	mustNotContain(t, content, "## Agent code-of-conduct")
+	mustNotContain(t, content, "status:open, todo, in-progress")
+	// Keys-only content is NOT present in the conventions overlay.
+	mustNotContain(t, content, "CLI / TUI Parity")
+	mustNotContain(t, content, "Global Keymap")
 }
 
 func TestHelpOverlayKeymapUsesPaneLanguage(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
 	content := strings.Join(m.help.lines, "\n")
-	mustContain(t, content, "─ Global Keymap ─")
+	mustContain(t, content, "Global Keymap")
 	mustContain(t, content, "focus pane")
-	mustContain(t, content, "open help")
+	mustContain(t, content, "open keys help")
+	mustContain(t, content, "open conventions")
 	mustContain(t, content, "cycle theme")
 	mustNotContain(t, content, "switch tab")
-	mustNotContain(t, content, "Help")
+	// Conventions-only content is NOT present in the keys overlay.
+	mustNotContain(t, content, "Suggested seed namespaces")
+	mustNotContain(t, content, "advisory")
 }
 
 // --- Step 8: task detail [d] description edit + [x] remove confirm ---

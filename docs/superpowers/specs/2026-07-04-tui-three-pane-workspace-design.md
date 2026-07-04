@@ -105,21 +105,28 @@ editing. Keeping details pane-local matches the existing `projectsModel`,
 `tasksModel`, and `labelsModel` list/detail state and keeps overlays reserved
 for transient actions.
 
-## Help Overlay
+## Help Overlays
 
-Help is no longer a persistent fourth tab or pane. Pressing `?` opens a single
-overlay that contains the current help content: CLI/TUI parity, global keymap,
-and conventions. Pressing `?` or `Esc` closes it.
+Help is no longer a persistent fourth tab or pane. There are two read-only
+reference overlays, kept separate so each stays compact and readable:
 
-The help overlay may reuse the existing help model's content generation and
-scroll behavior, but it is rendered above the three-pane workspace. It should
-be large enough to read comfortably on fullscreen terminals while leaving the
-underlying workspace visually recognizable. Help remains read-only: mutating
-keys do not perform actions while the overlay is open.
+- `?` opens the **Keys** overlay: the CLI/TUI parity table and the global
+  keymap. Pressing `?` or `Esc` closes it.
+- `C` opens the **Conventions** overlay: the full onboarding guide and
+  suggested label namespaces. Pressing `C` or `Esc` closes it.
 
-The existing keymap overlay and Help tab should converge into this one help
-overlay. There should not be both a small keymap overlay and a separate Help
-tab after this refinement.
+While one overlay is open, pressing the other reference key switches which
+overlay is shown (so a user reading conventions can jump straight to the
+keymap without closing first). Both overlays render as a clean full-body
+replacement of the workspace area — the panes do NOT show through (an
+earlier char-overlay splice produced unreadable output when the box was
+nearly fullscreen). The status line remains visible beneath the overlay.
+Help remains read-only: mutating keys do not perform actions while an
+overlay is open.
+
+The existing keymap overlay and Help tab should converge into these two
+help overlays. There should not be both a small keymap overlay and a separate
+Help tab after this refinement.
 
 ## Rendering Responsibilities
 
@@ -144,7 +151,8 @@ The global keymap reference changes from tab language to pane focus language.
 It should document:
 
 - `1/2/3`: focus Projects, Tasks, Labels
-- `?`: open or close help overlay
+- `?`: open or close the Keys help overlay
+- `C`: open or close the Conventions help overlay
 - `T`: cycle theme
 - `q / ctrl+c`: quit
 
@@ -165,7 +173,8 @@ Implementation must add or update tests for:
 - the root view renders all three pane titles at once
 - the root view does not render a top tab bar
 - `1`, `2`, and `3` change focus without hiding the other panes
-- `?` opens a help overlay from any focused pane
+- `?` opens a help overlay (Keys) from any focused pane
+- `C` opens the Conventions help overlay from any focused pane
 - Help is not reachable as `4`
 - pane-local detail opens inside the focused pane, not as an overlay
 - `Esc` backs only the focused pane out of detail

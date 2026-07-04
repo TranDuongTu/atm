@@ -19,6 +19,15 @@ const (
 
 const numPanes = 3
 
+// helpOverlayKind identifies which read-only reference overlay is open.
+type helpOverlayKind int
+
+const (
+	helpNone        helpOverlayKind = iota
+	helpKeys                        // `?` — CLI/TUI parity + global keymap
+	helpConventions                 // `C` — full conventions text
+)
+
 // formAction identifies what a form overlay is collecting.
 type formAction int
 
@@ -61,7 +70,10 @@ type Model struct {
 	focused       workspacePane
 	projectScope  string // selection (mockup "Selection model")
 	quitting      bool
-	helpOverlayOn bool
+	// helpOverlay tracks which read-only reference overlay (if any) is open.
+	// It is a clean full-body replacement over the workspace (the workspace
+	// does not show through), unlike forms/confirms which layer on top.
+	helpOverlay helpOverlayKind
 
 	projects projectsModel
 	tasks    tasksModel
@@ -237,14 +249,35 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	}
 
-	// Help overlay (?) toggles anywhere and consumes the key.
-	if m.helpOverlayOn {
+	// Help overlay (? / C) toggles anywhere and consumes the key.
+	if m.helpOverlay != helpNone {
 		if k.String() == "T" {
 			m.cycleTheme()
 			return nil
 		}
-		if k.String() == "?" || k.String() == "esc" {
-			m.helpOverlayOn = false
+		// `?` and `C` toggle their own overlay; Esc closes; the other
+		// reference key switches which overlay is shown.
+		switch k.String() {
+		case "?":
+			if m.helpOverlay == helpKeys {
+				m.helpOverlay = helpNone
+			} else {
+				m.helpOverlay = helpKeys
+				m.help.mode = helpKeys
+				m.help.refresh()
+			}
+			return nil
+		case "C":
+			if m.helpOverlay == helpConventions {
+				m.helpOverlay = helpNone
+			} else {
+				m.helpOverlay = helpConventions
+				m.help.mode = helpConventions
+				m.help.refresh()
+			}
+			return nil
+		case "esc":
+			m.helpOverlay = helpNone
 			return nil
 		}
 		return m.help.handleKey(k)
@@ -287,7 +320,14 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.focused = paneLabels
 		return nil
 	case "?":
-		m.helpOverlayOn = true
+		m.helpOverlay = helpKeys
+		m.help.mode = helpKeys
+		m.help.refresh()
+		return nil
+	case "C":
+		m.helpOverlay = helpConventions
+		m.help.mode = helpConventions
+		m.help.refresh()
 		return nil
 	case "T":
 		m.cycleTheme()
@@ -402,12 +442,26 @@ func (m *Model) View() string {
 	if m.quitting {
 		return ""
 	}
+
+	// Help overlays are a clean full-body replacement: render the reference
+	// content as the workspace body, then the status line beneath. The
+	// underlying panes do NOT show through (avoiding the corrupted
+	// char-overlay look when the reference box is nearly fullscreen).
+	if m.helpOverlay != helpNone {
+		body := m.renderHelpBody()
+		var b strings.Builder
+		b.WriteString(body)
+		b.WriteString("\n")
+		b.WriteString(m.renderStatusLine())
+		return b.String()
+	}
+
 	var b strings.Builder
 	b.WriteString(m.renderWorkspace())
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
-	// Overlay layers (form, confirm, keymap) render on top of the body via
+	// Overlay layers (form, confirm) render on top of the body via
 	// lipgloss Place. We re-render the body+chrome then place the overlay.
 	out := b.String()
 	if m.form != nil && m.form.Active {
@@ -415,9 +469,6 @@ func (m *Model) View() string {
 	}
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
-	}
-	if m.helpOverlayOn {
-		out = m.placeOverlay(out, m.renderHelpOverlay())
 	}
 	if m.toastMsg != "" {
 		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
@@ -455,19 +506,21 @@ func (m *Model) statusHint() string {
 	case paneLabels:
 		return m.labels.statusHint()
 	}
-	return "[?]keys"
+	return "[?]keys [C]conventions"
 }
 
-func (m *Model) renderHelpOverlay() string {
-	overlayW := m.width - 8
-	if overlayW < 40 {
-		overlayW = m.width
+// renderHelpBody renders the active help overlay as a bordered box sized to
+// the workspace area (status line kept beneath it). The box height equals
+// contentHeight so the result composes cleanly with the status line. We use
+// DialogBody (no Border/Padding) so titledBoxHeight's manual border chars are
+// the only frame — Dialog itself carries a lipgloss Border which would
+// double-frame the content.
+func (m *Model) renderHelpBody() string {
+	title := "Help - Keys"
+	if m.helpOverlay == helpConventions {
+		title = "Help - Conventions"
 	}
-	overlayH := m.height
-	if overlayH < 8 {
-		overlayH = m.height
-	}
-	return titledBoxHeight(m.styles.Dialog, overlayW, "Help - CLI / TUI Parity / Global Keymap / Conventions", m.help.View(), overlayH)
+	return titledBoxHeight(m.styles.DialogBody, m.width, title, m.help.View(), m.contentHeight)
 }
 
 func (m *Model) renderStatusLine() string {
