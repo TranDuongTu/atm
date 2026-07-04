@@ -780,6 +780,7 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "SCY", "Scylla")
 	update(t, m, "s")
 	if m.projectScope != "ATM" {
 		t.Fatalf("projectScope = %q want ATM", m.projectScope)
@@ -789,7 +790,10 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	if m.projectScope != "" {
 		t.Fatalf("projectScope after removal = %q want empty", m.projectScope)
 	}
-	mustContain(t, m.projects.View(), "no projects")
+	body := m.projects.View()
+	mustContain(t, body, "select a project to see summaries")
+	mustNotContain(t, body, "Labels by namespace")
+	mustNotContain(t, body, "Activity")
 }
 
 func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
@@ -797,6 +801,9 @@ func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
 	m.SetSize(50, 8)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "Overview")
+	mustContain(t, body, "Project Summary")
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("View panicked on short terminal: %v", r)
