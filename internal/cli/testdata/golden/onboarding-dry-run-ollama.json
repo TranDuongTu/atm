@@ -1,0 +1,19 @@
+{
+  "agent": "ollama",
+  "argv": [
+    "ollama",
+    "launch",
+    "opencode",
+    "--",
+    "run",
+    "-f",
+    "/STORE/onboarding/FOO-RUNID.md",
+    "--auto",
+    "--title",
+    "ATM onboarding: FOO (FOO-RUNID)"
+  ],
+  "project": "FOO",
+  "prompt_path": "/STORE/onboarding/FOO-RUNID.md",
+  "prompt_version": "v1",
+  "run_id": "FOO-RUNID"
+}
