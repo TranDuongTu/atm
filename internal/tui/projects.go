@@ -203,6 +203,15 @@ func (p *projectsModel) renderDetail() {
 		b.WriteString("\n")
 		b.WriteString(sectionDivider(p.m.styles, p.width, "History"))
 		b.WriteString("\n")
+		hv := p.m.store.History(p.detail.code, store.Subject{Kind: "project", Code: p.detail.code})
+		if len(hv) == 0 {
+			b.WriteString(dashboardLine(p.width, " (no history)"))
+			b.WriteString("\n")
+		} else {
+			for _, e := range hv {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+			}
+		}
 	}
 
 	p.detail.lines = strings.Split(b.String(), "\n")

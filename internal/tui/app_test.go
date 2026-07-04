@@ -895,16 +895,21 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "─ Actions ─")
 	mustContain(t, v, "[e] edit title")
 	mustContain(t, v, "[b] add label")
-	mustContain(t, v, "created")
-	mustContain(t, v, "label-added")
-	// Chronological: "created" (h1) before "label-added" (h2).
-	createdIdx := strings.Index(v, "created")
-	addedIdx := strings.Index(v, "label-added")
+	mustContain(t, v, "task.created")
+	mustContain(t, v, "task.label-added")
+	// History rows are decorated with [seq] and ordered chronologically
+	// (the log is append-only); task.created is logged before task.label-added.
+	createdIdx := strings.Index(v, "task.created")
+	addedIdx := strings.Index(v, "task.label-added")
 	if createdIdx < 0 || addedIdx < 0 {
-		t.Fatalf("missing created/label-added in history")
+		t.Fatalf("missing task.created / task.label-added in history")
 	}
 	if addedIdx < createdIdx {
-		t.Errorf("history not chronological: label-added (%d) before created (%d)", addedIdx, createdIdx)
+		t.Errorf("history not chronological: task.label-added (%d) before task.created (%d)", addedIdx, createdIdx)
+	}
+	// The [seq] decoration must precede each row.
+	if !strings.Contains(v, "] ") {
+		t.Errorf("history rows missing [seq] decoration")
 	}
 }
 

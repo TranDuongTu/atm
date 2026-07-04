@@ -658,6 +658,15 @@ func (t *tasksModel) renderDetail() {
 
 	b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
 	b.WriteString("\n")
+	hv := t.m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
+	if len(hv) == 0 {
+		b.WriteString(dashboardLine(t.width, " (no history)"))
+		b.WriteString("\n")
+	} else {
+		for _, e := range hv {
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+		}
+	}
 	b.WriteString("\n")
 	b.WriteString(sectionDivider(t.m.styles, t.width, "Actions"))
 	b.WriteString("\n")
