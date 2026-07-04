@@ -7,9 +7,7 @@
     "--",
     "--auto",
     "--prompt",
-    "Read the onboarding instructions in the file at /STORE/onboarding/FOO-RUNID.md and follow them exactly.",
-    "--title",
-    "ATM onboarding: FOO (FOO-RUNID)"
+    "Read the onboarding instructions in the file at /STORE/onboarding/FOO-RUNID.md and follow them exactly."
   ],
   "project": "FOO",
   "prompt_path": "/STORE/onboarding/FOO-RUNID.md",
