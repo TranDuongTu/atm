@@ -37,13 +37,10 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 			Title:       title,
 			Description: description,
 			Labels:      append([]string(nil), labels...),
-			History: []HistoryEntry{
-				{ID: "h1", Action: "created", Actor: actor, At: ts, Meta: map[string]any{}},
-			},
-			CreatedAt: ts,
-			CreatedBy: actor,
-			UpdatedAt: ts,
-			UpdatedBy: actor,
+			CreatedAt:   ts,
+			CreatedBy:   actor,
+			UpdatedAt:   ts,
+			UpdatedBy:   actor,
 		}
 		sort.Strings(t.Labels)
 		if err := s.autoRegisterLabels(labels); err != nil {
@@ -82,15 +79,15 @@ func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
 		return fmt.Errorf("%w: title is required", ErrUsage)
 	}
-	return s.mutateTask(id, actor, "title-changed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		t.Title = title
-	}, map[string]any{})
+	})
 }
 
 func (s *Store) SetDescription(id, description, actor string) error {
-	return s.mutateTask(id, actor, "description-changed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		t.Description = description
-	}, map[string]any{})
+	})
 }
 
 // Design note: the spec says both "auto-registers any supplied labels" (upsert)
@@ -135,13 +132,12 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 		now := Now()
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
-		t.appendHistoryAt("label-added", actor, now, map[string]any{"label": label})
 		return WriteJSON(s.taskPath(id), t)
 	})
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
-	return s.mutateTask(id, actor, "label-removed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		out := t.Labels[:0]
 		for _, l := range t.Labels {
 			if l != label {
@@ -149,7 +145,7 @@ func (s *Store) TaskLabelRemove(id, label, actor string) error {
 			}
 		}
 		t.Labels = out
-	}, map[string]any{"label": label})
+	})
 }
 
 func (s *Store) RemoveTask(id, actor string) error {
@@ -168,7 +164,7 @@ func (s *Store) RemoveTask(id, actor string) error {
 	})
 }
 
-func (s *Store) mutateTask(id, actor, action string, fn func(t *Task, now time.Time), meta map[string]any) error {
+func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time)) error {
 	if actor == "" {
 		return fmt.Errorf("%w: actor is required", ErrUsage)
 	}
@@ -185,14 +181,6 @@ func (s *Store) mutateTask(id, actor, action string, fn func(t *Task, now time.T
 		fn(t, now)
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
-		t.appendHistoryAt(action, actor, now, meta)
 		return WriteJSON(s.taskPath(id), t)
-	})
-}
-
-func (t *Task) appendHistoryAt(action, actor string, at time.Time, meta map[string]any) {
-	n := len(t.History) + 1
-	t.History = append(t.History, HistoryEntry{
-		ID: fmt.Sprintf("h%d", n), Action: action, Actor: actor, At: at, Meta: meta,
 	})
 }

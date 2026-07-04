@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
 )
 
 func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
@@ -33,8 +32,6 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 		if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
 			return err
 		}
-		p.History = []HistoryEntry{{ID: "h1", Action: "created", Actor: actor, At: now, Meta: map[string]any{}}}
-		p.NextHistoryN = 2
 		if err := WriteJSON(s.projectPath(code), p); err != nil {
 			return err
 		}
@@ -135,18 +132,6 @@ func (s *Store) mutateProject(code, actor string, fn func(p *Project)) error {
 		now := Now()
 		p.UpdatedAt = now
 		p.UpdatedBy = actor
-		p.appendHistoryAt("name-changed", actor, now, map[string]any{})
 		return WriteJSON(s.projectPath(code), p)
 	})
-}
-
-func (p *Project) appendHistoryAt(action, actor string, at time.Time, meta map[string]any) {
-	n := p.NextHistoryN
-	if n == 0 {
-		n = len(p.History) + 1
-	}
-	p.History = append(p.History, HistoryEntry{
-		ID: fmt.Sprintf("h%d", n), Action: action, Actor: actor, At: at, Meta: meta,
-	})
-	p.NextHistoryN = n + 1
 }

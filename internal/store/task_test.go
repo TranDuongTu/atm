@@ -68,20 +68,3 @@ func TestTaskLabelRemoveDoesNotTouchRegistry(t *testing.T) {
 		t.Fatalf("registry must still contain label: %v", err)
 	}
 }
-
-func TestSetTitleAppendsHistory(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "old", "", nil, "claude")
-	_ = s.SetTitle(tk.ID, "new", "ttran")
-	got, _ := s.GetTask(tk.ID)
-	if got.Title != "new" {
-		t.Fatalf("title = %q", got.Title)
-	}
-	if len(got.History) < 2 {
-		t.Fatalf("history len = %d want >=2", len(got.History))
-	}
-	if got.History[1].Action != "title-changed" {
-		t.Fatalf("history[1].action = %q want title-changed", got.History[1].Action)
-	}
-}
