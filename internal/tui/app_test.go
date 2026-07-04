@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -498,7 +499,7 @@ func TestOverlayPreservesUnderlyingScreen(t *testing.T) {
 // TestProjectsListEmpty verifies the empty-store landing (mockup Screen 1).
 func TestProjectsListEmpty(t *testing.T) {
 	m := newTestModel(t)
-	v := m.View()
+	v := m.projects.View()
 	mustContain(t, v, "no projects")
 	mustContain(t, v, "press [a] to add a project")
 }
@@ -549,7 +550,7 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "enter")
-	v := m.View()
+	v := m.projects.View()
 	mustContain(t, v, "Project ATM")
 	mustContain(t, v, "─ Facts ─")
 	mustContain(t, v, "code")
@@ -591,7 +592,7 @@ func TestProjectDetailNoLabelsSection(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedLabel(t, m, "ATM:custom:x", "custom")
 	update(t, m, "enter") // open ATM detail (cursor on ATM)
-	v := m.View()
+	v := m.projects.View()
 	mustContain(t, v, "Project ATM")
 	mustNotContain(t, v, "LABELS")
 	// The labels count fact line stays.
@@ -772,7 +773,7 @@ func TestTasksGroupedNestedWildcards(t *testing.T) {
 		update(t, m, string(r))
 	}
 	update(t, m, "enter")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, "▾ ATM:status:open")
 	mustContain(t, v, "▾ ATM:status:done")
 	// Nested sub-groups (indented by two spaces).
@@ -828,7 +829,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	update(t, m, "2")
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, "Task ATM-0001")
 	mustContain(t, v, "─ Facts ─")
 	mustContain(t, v, "id      ATM-0001")
@@ -862,9 +863,99 @@ func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, " ATM:status:open ")
 	mustContain(t, v, " ATM:type:bug ")
+}
+
+func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "inside pane task", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "enter")
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
+	}
+	if m.form != nil || m.confirm != confirmNone || m.helpOverlayOn {
+		t.Fatalf("detail should not open an overlay: form=%v confirm=%v help=%v", m.form != nil, m.confirm, m.helpOverlayOn)
+	}
+	v := m.View()
+	mustContain(t, v, "[1] Projects")
+	mustContain(t, v, "[2] Tasks")
+	mustContain(t, v, "[3] Labels")
+	mustContain(t, v, "Task ATM-0001")
+}
+
+func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "pane task")
+	update(t, m, "s")
+	update(t, m, "enter")
+	if m.projects.view != pViewDetail {
+		t.Fatalf("setup: project detail not open")
+	}
+	update(t, m, "2")
+	update(t, m, "enter")
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("setup: task detail not open")
+	}
+	update(t, m, "esc")
+	if m.tasks.view != tViewList {
+		t.Fatalf("tasks should return to list")
+	}
+	if m.projects.view != pViewDetail {
+		t.Fatalf("projects detail should stay open when Tasks is focused")
+	}
+}
+
+func TestFormOverlayRendersAboveWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	base := m.View()
+	mustContain(t, base, "[1] Projects")
+	mustContain(t, base, "[2] Tasks")
+	update(t, m, "a")
+	withOverlay := m.View()
+	mustContain(t, withOverlay, "New project")
+	mustContain(t, withOverlay, "[1] Projects")
+	mustContain(t, withOverlay, "[2] Tasks")
+}
+
+func TestTaskFilterEditingKeepsPriorityOverFocusKeys(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "/")
+	update(t, m, "1")
+	if m.focused != paneTasks {
+		t.Fatalf("typing 1 in task filter should not focus Projects")
+	}
+	if m.tasks.filterEdit != "1" {
+		t.Fatalf("filterEdit = %q want 1", m.tasks.filterEdit)
+	}
+}
+
+func TestWorkspaceRendersAtCrampedSizes(t *testing.T) {
+	for _, size := range []struct {
+		w int
+		h int
+	}{
+		{20, 8},
+		{10, 5},
+		{1, 1},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
+			m := newTestModel(t)
+			m.SetSize(size.w, size.h)
+			_ = m.View()
+		})
+	}
 }
 
 // TestTasksEmptyStateNoProject verifies the no-project-selected prompt
@@ -873,10 +964,10 @@ func TestTasksEmptyStateNoProject(t *testing.T) {
 	m := newTestModel(t)
 	// No project selected (projectScope empty).
 	update(t, m, "2")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, "PROJECT: (none)")
 	mustContain(t, v, "no project selected")
-	mustContain(t, v, "press [s] in the Projects tab")
+	mustContain(t, v, "press [s] in the Projects pane")
 }
 
 // TestTasksEmptyStateFilterNoMatch verifies the filter-no-match empty state
@@ -892,7 +983,7 @@ func TestTasksEmptyStateFilterNoMatch(t *testing.T) {
 		update(t, m, string(r))
 	}
 	update(t, m, "enter")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, "no tasks match this filter")
 	mustContain(t, v, "ATM:status:done")
 	mustContain(t, v, "[/] to edit filter")
@@ -913,7 +1004,7 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 		update(t, m, string(r))
 	}
 	update(t, m, "enter")
-	v := m.View()
+	v := m.tasks.View()
 	mustContain(t, v, "no labels match wildcard — add labels to tasks")
 	mustContain(t, v, "▾ (no matching labels)")
 	mustContain(t, v, "task one")

@@ -255,7 +255,7 @@ func (l *labelsModel) renderList() string {
 		lines := []string{
 			l.m.styles.EmptyHead.Render("no project selected"),
 			"",
-			l.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", l.m.styles.EmptyKey.Render("[s]"))),
+			l.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects pane to scope this view", l.m.styles.EmptyKey.Render("[s]"))),
 		}
 		return padToHeight(centerLinesBoth(lines, l.m.width, l.m.contentHeight), l.m.contentHeight)
 	}

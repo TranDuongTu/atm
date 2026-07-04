@@ -8,25 +8,25 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// --- Labels tab tests ---
+// --- Labels pane tests ---
 
 func TestLabelsTabEmptyStateNoProject(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3") // switch to Labels tab
+	update(t, m, "3") // focus Labels pane
 	if m.focused != paneLabels {
 		t.Fatalf("focus = %v want paneLabels", m.focused)
 	}
-	v := m.View()
+	v := m.labels.View()
 	mustContain(t, v, "no project selected")
-	mustContain(t, v, "press [s] in the Projects tab")
+	mustContain(t, v, "press [s] in the Projects pane")
 }
 
 func TestLabelsTabListSeededLabels(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s") // select ATM
-	update(t, m, "3") // Labels tab
-	v := m.View()
+	update(t, m, "3") // Labels pane
+	v := m.labels.View()
 	body := m.labels.View()
 	if strings.HasPrefix(body, "Labels\n") {
 		t.Fatalf("labels body repeats tab title\n--- body ---\n%s", body)
@@ -49,7 +49,7 @@ func TestLabelsTabCallsOutMissingDescriptions(t *testing.T) {
 	seedLabel(t, m, "ATM:patch:urgent", "")
 	update(t, m, "s")
 	update(t, m, "3")
-	v := m.View()
+	v := m.labels.View()
 	mustContain(t, v, "ATM:patch:urgent")
 	mustContain(t, v, "needs description")
 }

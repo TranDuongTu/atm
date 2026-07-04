@@ -718,7 +718,7 @@ func (t *tasksModel) renderList() string {
 		t.renderEmptyState(&b, []string{
 			t.m.styles.EmptyHead.Render("no project selected"),
 			"",
-			t.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects tab to scope this view", t.m.styles.EmptyKey.Render("[s]"))),
+			t.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects pane to scope this view", t.m.styles.EmptyKey.Render("[s]"))),
 		})
 		return padToHeight(b.String(), t.m.contentHeight)
 	}
