@@ -233,6 +233,45 @@ label-list step first and follows the descriptions.
 default set idempotently — existing descriptions are preserved, and any new
 defaults introduced in a release are added.
 
+## Onboarding
+
+`atm onboarding` launches a non-interactive agent that explores the current
+working directory and seeds an existing ATM project with context tasks. The
+agent runs under its own permission model; ATM is the prompt-renderer and
+process parent.
+
+Prerequisite: the project must already exist.
+
+```
+atm project create --code FOO --name "Foo"
+cd /path/to/repo-to-onboard
+atm onboarding opencode --project FOO
+```
+
+For an ollama-backed agent:
+
+```
+atm onboarding ollama --project FOO --integration opencode
+```
+
+Flags:
+
+- `--project <CODE>` (required) — the existing ATM project.
+- `--actor <id>` (default `<launcher>-onboard`) — stamped into history.
+- `--prompt-version <v>` (default latest) — select an embedded prompt version.
+- `--dry-run` — render the prompt and print the launcher command without launching.
+- `--integration <name>` (ollama only, required) — passed through to `ollama launch`.
+
+Re-running onboarding is idempotent: the agent reads existing tasks and updates
+rather than duplicating. Run it per repo to build a multi-repo context map for
+a single project.
+
+A smoke script exercises dry-run + error paths against a temp store:
+
+```
+./scripts/onboard-smoke.sh /path/to/repo
+```
+
 ## TUI
 
 `atm tui` is a first-class management surface that mirrors every CLI op. The
