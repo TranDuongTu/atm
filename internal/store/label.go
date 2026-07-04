@@ -19,6 +19,12 @@ type LabelRemoveResult struct {
 	RetainedUsage int `json:"retained_usage"`
 }
 
+// LabelAdd is the explicit "force upsert" path for a label: it always
+// appends a label.upserted event to the project's log, then refreshes
+// the derived labels.json. If `description` is empty, the existing
+// description on the live registry (if any) is preserved; a non-empty
+// description overwrites whatever was there. Contrast with LabelSeed,
+// which is a no-op when the label already exists in the log.
 func (s *Store) LabelAdd(name, description, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
@@ -29,22 +35,28 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 	if err := s.labelProjectExists(name); err != nil {
 		return err
 	}
-	return s.WithLock(labelProject(name), func() error {
-		lf, err := s.loadLabels()
+	code := labelProject(name)
+	return s.WithLock(code, func() error {
+		l := Label{Name: name, Description: description}
+		if description == "" {
+			// Preserve the existing description if the label already exists.
+			if existing, err := s.LabelShow(name); err == nil {
+				l.Description = existing.Description
+			}
+		}
+		now := Now()
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: Subject{Kind: "label", Name: name},
+			Payload: mustMarshal(l),
+		})
 		if err != nil {
 			return err
 		}
-		for i, l := range lf.Labels {
-			if l.Name == name {
-				if description != "" && l.Description != description {
-					lf.Labels[i].Description = description
-				}
-				return s.writeLabels(lf)
-			}
-		}
-		lf.Labels = append(lf.Labels, Label{Name: name, Description: description})
-		sort.SliceStable(lf.Labels, func(i, j int) bool { return lf.Labels[i].Name < lf.Labels[j].Name })
-		return s.writeLabels(lf)
+		l.LogSeq = entry.Seq
+		return s.refreshDerivedLabelsLocked(code)
 	})
 }
 
@@ -64,20 +76,29 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 	if err := s.labelProjectExists(name); err != nil {
 		return err
 	}
-	return s.WithLock(labelProject(name), func() error {
-		lf, err := s.loadLabels()
+	code := labelProject(name)
+	return s.WithLock(code, func() error {
+		present, err := s.labelsInLogLocked(code)
 		if err != nil {
 			return err
 		}
-		for _, l := range lf.Labels {
-			if l.Name == name {
-				// Exists: preserve the existing description (no-op).
-				return nil
-			}
+		if present[name] {
+			// Exists: preserve the existing description (no-op).
+			return nil
 		}
-		lf.Labels = append(lf.Labels, Label{Name: name, Description: description})
-		sort.SliceStable(lf.Labels, func(i, j int) bool { return lf.Labels[i].Name < lf.Labels[j].Name })
-		return s.writeLabels(lf)
+		now := Now()
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: Subject{Kind: "label", Name: name},
+			Payload: mustMarshal(Label{Name: name, Description: description}),
+		})
+		if err != nil {
+			return err
+		}
+		_ = entry
+		return s.refreshDerivedLabelsLocked(code)
 	})
 }
 
@@ -121,19 +142,30 @@ func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
 	return s.refreshDerivedLabelsLocked(code)
 }
 
-// refreshDerivedLabelsLocked regenerates labels.json from label.* events in
-// this project's log. Merges with other projects' labels so a single project
-// create does not wipe the global registry. Minimal implementation here —
-// Task 5 will fold this into the full labels.json rewrite.
+// refreshDerivedLabelsLocked regenerates $ATM_HOME/labels.json from label.*
+// events across all project logs. Caller MUST hold the project lock for
+// <code> (the project we just mutated); other projects' logs are only read.
+// This acquires no extra locks; it reads other projects' logs without their
+// locks (best-effort, like v2's actors.json precedent). If a concurrent label
+// mutation in another project races, the next refreshDerivedLabelsLocked by
+// either writer will reconcile. Tombstoned labels (label.removed in the log)
+// are excluded because Replay drops them from the live set.
 func (s *Store) refreshDerivedLabelsLocked(code string) error {
+	merged := map[string]Label{}
+	// Seed with labels from other projects' logs (read-only).
+	for _, p := range s.ListProjects() {
+		st, err := s.Replay(p.Code)
+		if err != nil {
+			continue
+		}
+		for _, l := range st.Labels {
+			merged[l.Name] = l
+		}
+	}
+	// Force the current project's replay to be authoritative (we just appended to it).
 	st, err := s.Replay(code)
 	if err != nil {
 		return err
-	}
-	all := s.LabelList("", "")
-	merged := map[string]Label{}
-	for _, l := range all {
-		merged[l.Name] = l
 	}
 	for _, l := range st.Labels {
 		merged[l.Name] = l
@@ -154,25 +186,34 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
 	}
 	var result *LabelRemoveResult
-	err := s.WithLock(labelProject(name), func() error {
-		lf, err := s.loadLabels()
+	code := labelProject(name)
+	err := s.WithLock(code, func() error {
+		// Confirm the label exists in the live registry (reads labels.json,
+		// the derived view). If absent, return ErrNotFound — do NOT append
+		// a tombstone for a label that isn't registered.
+		l, err := s.LabelShow(name)
 		if err != nil {
 			return err
 		}
-		idx := -1
-		for i, l := range lf.Labels {
-			if l.Name == name {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			return fmt.Errorf("%w: label %q", ErrNotFound, name)
-		}
-		lf.Labels = append(lf.Labels[:idx], lf.Labels[idx+1:]...)
-		if err := s.writeLabels(lf); err != nil {
+		// Append a label.removed tombstone (payload = last full state).
+		now := Now()
+		_, err = s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionLabelRemoved,
+			Subject: Subject{Kind: "label", Name: name},
+			Payload: mustMarshal(l),
+		})
+		if err != nil {
 			return err
 		}
+		// Refresh the derived labels.json — Replay drops tombstoned labels,
+		// so the removed label disappears from the live registry.
+		if err := s.refreshDerivedLabelsLocked(code); err != nil {
+			return err
+		}
+		// Count tasks still carrying the label string (soft removal: tasks
+		// are not mutated, only the registry entry drops).
 		count, err := s.countTasksWithLabelGlobally(name)
 		if err != nil {
 			return err
@@ -239,35 +280,6 @@ func (s *Store) Namespaces(code string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// autoRegisterLabels upserts each label into the registry (called by CreateTask/TaskLabelAdd).
-func (s *Store) autoRegisterLabels(labels []string) error {
-	if len(labels) == 0 {
-		return nil
-	}
-	lf, err := s.loadLabels()
-	if err != nil {
-		return err
-	}
-	changed := false
-	existing := map[string]bool{}
-	for _, l := range lf.Labels {
-		existing[l.Name] = true
-	}
-	for _, name := range labels {
-		if existing[name] {
-			continue
-		}
-		lf.Labels = append(lf.Labels, Label{Name: name})
-		existing[name] = true
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-	sort.SliceStable(lf.Labels, func(i, j int) bool { return lf.Labels[i].Name < lf.Labels[j].Name })
-	return s.writeLabels(lf)
 }
 
 func (s *Store) labelProjectExists(name string) error {

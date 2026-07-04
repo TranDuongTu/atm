@@ -120,3 +120,45 @@ func TestLabelSeedPreservesExistingDescription(t *testing.T) {
 		t.Fatalf("LabelSeed overwrote description: got %q want \"human edited\"", l.Description)
 	}
 }
+
+func TestLabelAddAppendsLogEntry(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	if err := s.LabelAdd("ATM:new:thing", "desc", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+1 {
+		t.Fatalf("LabelAdd seq jumped %d → %d, want +1", before, after)
+	}
+}
+
+func TestLabelRemoveAppendsTombstone(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_ = s.LabelAdd("ATM:type:bug", "found bug", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	res, err := s.LabelRemove("ATM:type:bug", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatal("LabelRemoveResult nil")
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+1 {
+		t.Fatalf("LabelRemove seq jumped %d → %d, want +1 (tombstone)", before, after)
+	}
+	// Replay excludes the removed label.
+	st, _ := s.Replay("ATM")
+	for _, l := range st.Labels {
+		if l.Name == "ATM:type:bug" {
+			t.Fatal("removed label appeared in replay live set")
+		}
+	}
+}
+
+func TestRebuildRegeneratesLabelsJSON(t *testing.T) {
+	t.Skip("waiting for Rebuild in Task 7")
+}
