@@ -16,10 +16,9 @@ const (
 	paneProjects workspacePane = iota
 	paneTasks
 	paneLabels
-	paneHelp
 )
 
-const numPanes = 4
+const numPanes = 3
 
 // formAction identifies what a form overlay is collecting.
 type formAction int
@@ -59,12 +58,12 @@ type Model struct {
 	themeName ThemeName
 	styles    Styles
 
-	width, height   int
-	contentHeight   int
-	focused         workspacePane
-	projectScope    string // selection (mockup "Selection model")
-	quitting        bool
-	keymapOverlayOn bool
+	width, height int
+	contentHeight int
+	focused       workspacePane
+	projectScope  string // selection (mockup "Selection model")
+	quitting      bool
+	helpOverlayOn bool
 
 	projects projectsModel
 	tasks    tasksModel
@@ -204,16 +203,17 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	}
 
-	// Keymap overlay (?) toggles anywhere and consumes the key.
-	if m.keymapOverlayOn {
+	// Help overlay (?) toggles anywhere and consumes the key.
+	if m.helpOverlayOn {
 		if k.String() == "T" {
 			m.cycleTheme()
 			return nil
 		}
 		if k.String() == "?" || k.String() == "esc" {
-			m.keymapOverlayOn = false
+			m.helpOverlayOn = false
+			return nil
 		}
-		return nil
+		return m.help.handleKey(k)
 	}
 
 	// Confirm overlay consumes all keys until resolved.
@@ -252,11 +252,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "3":
 		m.focused = paneLabels
 		return nil
-	case "4":
-		m.focused = paneHelp
-		return nil
 	case "?":
-		m.keymapOverlayOn = true
+		m.helpOverlayOn = true
 		return nil
 	case "T":
 		m.cycleTheme()
@@ -294,8 +291,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	case paneLabels:
 		return m.labels.handleKey(k)
-	case paneHelp:
-		return m.help.handleKey(k)
 	}
 	return nil
 }
@@ -393,8 +388,8 @@ func (m *Model) View() string {
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
 	}
-	if m.keymapOverlayOn {
-		out = m.placeOverlay(out, m.renderKeymapOverlay())
+	if m.helpOverlayOn {
+		out = m.placeOverlay(out, m.renderHelpOverlay())
 	}
 	if m.toastMsg != "" {
 		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
@@ -429,8 +424,6 @@ func (m *Model) renderBody() string {
 		return m.tasks.View()
 	case paneLabels:
 		return m.labels.View()
-	case paneHelp:
-		return m.help.View()
 	}
 	return ""
 }
@@ -444,10 +437,20 @@ func (m *Model) statusHint() string {
 		return m.tasks.statusHint()
 	case paneLabels:
 		return m.labels.statusHint()
-	case paneHelp:
-		return "[1/2/3/4]tabs [?]keys"
 	}
 	return "[?]keys"
+}
+
+func (m *Model) renderHelpOverlay() string {
+	overlayW := m.width - 8
+	if overlayW < 40 {
+		overlayW = m.width
+	}
+	overlayH := m.height
+	if overlayH < 8 {
+		overlayH = m.height
+	}
+	return titledBoxHeight(m.styles.Dialog, overlayW, "Help - CLI / TUI Parity / Global Keymap / Conventions", m.help.View(), overlayH)
 }
 
 func (m *Model) renderStatusLine() string {

@@ -139,42 +139,74 @@ func TestSectionDividerCentersWiderColumn(t *testing.T) {
 	}
 }
 
-// --- Step 1: tab switching ---
+// --- Step 1: pane focus ---
 
-// TestTabSwitching verifies 1/2/3/4 switches the focused pane (mockup Screen
-// shared chrome: four tabs Projects/Tasks/Labels/Help).
-func TestTabSwitching(t *testing.T) {
+func TestPaneFocusKeys(t *testing.T) {
 	m := newTestModel(t)
 	if m.focused != paneProjects {
 		t.Fatalf("default focus = %v want paneProjects", m.focused)
 	}
-	m = update(t, m, "2")
+	update(t, m, "2")
 	if m.focused != paneTasks {
 		t.Fatalf("after 2: focus = %v want paneTasks", m.focused)
 	}
-	m = update(t, m, "3")
+	update(t, m, "3")
 	if m.focused != paneLabels {
 		t.Fatalf("after 3: focus = %v want paneLabels", m.focused)
 	}
-	m = update(t, m, "4")
-	if m.focused != paneHelp {
-		t.Fatalf("after 4: focus = %v want paneHelp", m.focused)
+	update(t, m, "4")
+	if m.focused != paneLabels {
+		t.Fatalf("4 should not focus Help; focus = %v want paneLabels", m.focused)
 	}
-	m = update(t, m, "1")
+	update(t, m, "1")
 	if m.focused != paneProjects {
 		t.Fatalf("after 1: focus = %v want paneProjects", m.focused)
 	}
 }
 
-// TestTabBarShowsNumbers verifies the tab bar renders numeric prefixes (1/2/3/4)
-// so the [1]/[2]/[3]/[4] switching keys are discoverable.
-func TestTabBarShowsNumbers(t *testing.T) {
+func TestHelpOverlayOpensClosesAndScrolls(t *testing.T) {
 	m := newTestModel(t)
-	bar := m.renderTabBar()
-	for _, want := range []string{"1", "2", "3", "4", "Projects", "Tasks", "Labels", "Help"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("tab bar missing %q\nbar: %s", want, bar)
-		}
+	update(t, m, "2")
+	update(t, m, "?")
+	if !m.helpOverlayOn {
+		t.Fatalf("help overlay should be open")
+	}
+	if m.focused != paneTasks {
+		t.Fatalf("opening help changed focus = %v want paneTasks", m.focused)
+	}
+	v := m.View()
+	mustContain(t, v, "CLI / TUI Parity")
+	mustContain(t, v, "Global Keymap")
+	before := m.help.offset
+	update(t, m, "j")
+	if m.help.offset <= before {
+		t.Fatalf("help j did not scroll: before=%d after=%d", before, m.help.offset)
+	}
+	update(t, m, "esc")
+	if m.helpOverlayOn {
+		t.Fatalf("esc should close help overlay")
+	}
+}
+
+func TestHelpOverlayReadOnly(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "?")
+	for _, k := range []string{"a", "x", "L", "l", "N", "H", "s", "S", "d"} {
+		update(t, m, k)
+	}
+	if m.form != nil {
+		t.Errorf("mutating key opened a form from help overlay")
+	}
+	if m.confirm != confirmNone {
+		t.Errorf("mutating key opened a confirm from help overlay")
+	}
+	if m.toastMsg != "" {
+		t.Errorf("mutating key produced toast %q from help overlay", m.toastMsg)
+	}
+	ps := m.store.ListProjects()
+	if len(ps) != 1 || ps[0].Code != "ATM" {
+		t.Errorf("store changed from help overlay: projects = %+v", ps)
 	}
 }
 
@@ -252,28 +284,18 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 }
 
-func TestThemeCyclesInsideKeymapOverlay(t *testing.T) {
+func TestThemeCyclesInsideHelpOverlay(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
-	if !m.keymapOverlayOn {
-		t.Fatalf("setup: keymap overlay should be open")
+	if !m.helpOverlayOn {
+		t.Fatalf("setup: help overlay should be open")
 	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
-	if !m.keymapOverlayOn {
-		t.Fatalf("theme cycling should not close keymap overlay")
-	}
-}
-
-func TestThemeChangesActiveTabStyle(t *testing.T) {
-	m := newTestModel(t)
-	before := m.styles.ActiveTab.GetBackground()
-	update(t, m, "T")
-	after := m.styles.ActiveTab.GetBackground()
-	if before == after {
-		t.Fatalf("active tab background did not change after theme cycle")
+	if !m.helpOverlayOn {
+		t.Fatalf("theme cycling should not close help overlay")
 	}
 }
 
