@@ -759,6 +759,36 @@ func TestActivityDayCountsIncludesProjectAndTaskHistory(t *testing.T) {
 	}
 }
 
+func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 48)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug", "ATM:urgent")
+	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
+	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "Labels by namespace")
+	mustContain(t, body, "status")
+	mustContain(t, body, "type")
+	mustContain(t, body, "tags")
+	mustContain(t, body, "Activity")
+	mustContain(t, body, "Keywords")
+	mustContain(t, body, "agent-generated keyword bubbles pending")
+}
+
+func TestRenderActivityDensityDeterministic(t *testing.T) {
+	counts := map[string]int{
+		"2026-07-01": 1,
+		"2026-07-02": 3,
+		"2026-07-03": 10,
+	}
+	got := renderActivityDensity(counts, 10)
+	want := "░▒█"
+	if got != want {
+		t.Fatalf("renderActivityDensity() = %q, want %q", got, want)
+	}
+}
+
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is
 // independent of the selection (mockup "Selection model"): cursoring down to
 // SCY does not move the ATM selection.

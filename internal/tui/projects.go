@@ -397,7 +397,83 @@ func (p *projectsModel) renderSummary(height int) string {
 		return padToHeight(b.String(), height)
 	}
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+	b.WriteString("\n")
+	for _, line := range p.renderLabelNamespaceChart(tasks, 5) {
+		fmt.Fprintf(&b, "%s\n", line)
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")))
+	activityWidth := dashboardContentWidth(p.width)
+	if activityWidth > 42 {
+		activityWidth = 42
+	}
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.renderActivityChart(project, tasks, activityWidth)))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Keywords")))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("agent-generated keyword bubbles pending")))
 	return padToHeight(b.String(), height)
+}
+
+func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines int) []string {
+	if maxLines <= 0 {
+		return nil
+	}
+	counts := labelNamespaceCounts(tasks)
+	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Labels by namespace"))}
+	if len(counts) == 0 {
+		return append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("no task labels yet")))
+	}
+	maxCount := counts[0].count
+	for i, nc := range counts {
+		if i >= maxLines-1 {
+			break
+		}
+		barW := 10
+		if p.width < 34 {
+			barW = 5
+		}
+		fill := 1
+		if maxCount > 0 {
+			fill = nc.count * barW / maxCount
+			if fill < 1 {
+				fill = 1
+			}
+		}
+		bar := repeat("█", fill)
+		if fill < barW {
+			bar += repeat("░", barW-fill)
+		}
+		line := fmt.Sprintf("%-10s %s %d", truncateRunes(nc.namespace, 10), bar, nc.count)
+		lines = append(lines, dashboardLine(p.width, line))
+	}
+	return lines
+}
+
+func (p *projectsModel) renderActivityChart(project *store.Project, tasks []*store.Task, width int) string {
+	counts := activityDayCounts(project, tasks)
+	if len(counts) == 0 {
+		return p.m.styles.Muted.Render("no activity yet")
+	}
+	return renderActivityDensity(counts, width)
+}
+
+func renderActivityDensity(counts map[string]int, width int) string {
+	if len(counts) == 0 || width <= 0 {
+		return ""
+	}
+	days := make([]string, 0, len(counts))
+	for day := range counts {
+		days = append(days, day)
+	}
+	sort.Strings(days)
+	if len(days) > width {
+		days = days[len(days)-width:]
+	}
+	var b strings.Builder
+	for _, day := range days {
+		b.WriteString(activityDensityGlyph(counts[day]))
+	}
+	return b.String()
 }
 
 func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, bool) {
