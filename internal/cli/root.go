@@ -136,31 +136,6 @@ func newInitCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func newStoreCmd(st *cliState) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "store",
-		Short: "Store inspection commands",
-	}
-	pathCmd := &cobra.Command{
-		Use:   "path",
-		Short: "Print the resolved store path",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root)
-			if err != nil {
-				return err
-			}
-			if st.isJSON() {
-				return writeJSON(st.stdout(), map[string]any{"store": s.StorePath()})
-			}
-			fmt.Fprintln(st.stdout(), s.StorePath())
-			return nil
-		},
-	}
-	cmd.AddCommand(pathCmd)
-	return cmd
-}
-
 func Execute() int {
 	st := &cliState{}
 	root := newRootCmdWithState(st)
