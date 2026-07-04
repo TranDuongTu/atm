@@ -386,33 +386,49 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 }
 
 func (p *projectsModel) renderSummary(height int) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", sectionDivider(p.m.styles, p.width, "Project Summary"))
+	lines := []string{sectionDivider(p.m.styles, p.width, "Project Summary")}
 	if p.m.projectScope == "" {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
-		return padToHeight(b.String(), height)
+		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
+		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	project, tasks, ok := p.projectSummaryData()
 	if !ok {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
-		return padToHeight(b.String(), height)
+		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
+		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
-	b.WriteString("\n")
-	for _, line := range p.renderLabelNamespaceChart(tasks, 5) {
-		fmt.Fprintf(&b, "%s\n", line)
+	lines = append(lines, dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+
+	remaining := height - len(lines)
+	labelMax := remaining
+	if remaining > 5 {
+		labelMax = remaining - 4 // reserve Activity + Keywords.
+	} else if remaining > 3 {
+		labelMax = remaining - 2 // reserve Activity.
 	}
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")))
+	if labelMax > 5 {
+		labelMax = 5
+	}
+	if labelMax > 0 {
+		lines = append(lines, p.renderLabelNamespaceChart(tasks, labelMax)...)
+	}
+
 	activityWidth := dashboardContentWidth(p.width)
 	if activityWidth > 42 {
 		activityWidth = 42
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.renderActivityChart(project, tasks, activityWidth)))
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Keywords")))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("agent-generated keyword bubbles pending")))
-	return padToHeight(b.String(), height)
+	if height-len(lines) >= 2 {
+		lines = append(lines,
+			dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")),
+			dashboardLine(p.width, p.renderActivityChart(project, tasks, activityWidth)),
+		)
+	}
+	if height-len(lines) >= 2 {
+		lines = append(lines,
+			dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Keywords")),
+			dashboardLine(p.width, p.m.styles.Muted.Render("agent-generated keyword bubbles pending")),
+		)
+	}
+	return padToHeight(strings.Join(lines, "\n"), height)
 }
 
 func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines int) []string {
@@ -420,11 +436,10 @@ func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines 
 		return nil
 	}
 	counts := labelNamespaceCounts(tasks)
-	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Labels by namespace"))}
+	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Labels pie"))}
 	if len(counts) == 0 {
 		return append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("no task labels yet")))
 	}
-	maxCount := counts[0].count
 	entryCap := maxLines - 1
 	if entryCap <= 0 {
 		return lines
@@ -434,26 +449,19 @@ func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines 
 	if showOverflow {
 		visibleCount--
 	}
+	total := 0
+	for _, nc := range counts {
+		total += nc.count
+	}
 	for i, nc := range counts {
 		if i >= visibleCount {
 			break
 		}
-		barW := 10
-		if p.width < 34 {
-			barW = 5
+		percent := 0
+		if total > 0 {
+			percent = (nc.count*100 + total/2) / total
 		}
-		fill := 1
-		if maxCount > 0 {
-			fill = nc.count * barW / maxCount
-			if fill < 1 {
-				fill = 1
-			}
-		}
-		bar := repeat("█", fill)
-		if fill < barW {
-			bar += repeat("░", barW-fill)
-		}
-		line := fmt.Sprintf("%-10s %s %d", truncateRunes(nc.namespace, 10), bar, nc.count)
+		line := fmt.Sprintf("%s %-10s %3d%% %d", pieGlyph(percent), truncateRunes(nc.namespace, 10), percent, nc.count)
 		lines = append(lines, dashboardLine(p.width, line))
 	}
 	if showOverflow {
@@ -461,6 +469,21 @@ func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines 
 		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("... %d more namespaces", remaining)))
 	}
 	return lines
+}
+
+func pieGlyph(percent int) string {
+	switch {
+	case percent <= 0:
+		return "○"
+	case percent < 25:
+		return "◔"
+	case percent < 50:
+		return "◑"
+	case percent < 75:
+		return "◕"
+	default:
+		return "●"
+	}
 }
 
 func (p *projectsModel) renderActivityChart(project *store.Project, tasks []*store.Task, width int) string {

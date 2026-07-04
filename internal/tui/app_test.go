@@ -767,13 +767,26 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Labels by namespace")
+	mustContain(t, body, "Labels pie")
 	mustContain(t, body, "status")
 	mustContain(t, body, "type")
 	mustContain(t, body, "tags")
+	mustContain(t, body, "%")
 	mustContain(t, body, "Activity")
 	mustContain(t, body, "Keywords")
 	mustContain(t, body, "agent-generated keyword bubbles pending")
+}
+
+func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 14)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
+	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "Labels pie")
+	mustContain(t, body, "Activity")
+	mustContain(t, body, "░")
 }
 
 func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
@@ -870,6 +883,23 @@ func TestRenderLabelNamespaceChartShowsOverflowSummary(t *testing.T) {
 	mustContain(t, got, "b")
 	mustContain(t, got, "c")
 	mustContain(t, got, "... 2 more namespaces")
+}
+
+func TestRenderLabelNamespaceChartUsesPieStyle(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.SetSize(80, 20)
+	tasks := []*store.Task{
+		{Labels: []string{"ATM:status:open", "ATM:type:bug"}},
+		{Labels: []string{"ATM:status:done"}},
+	}
+	got := strings.Join(p.renderLabelNamespaceChart(tasks, 4), "\n")
+	mustContain(t, got, "Labels pie")
+	mustContain(t, got, "status")
+	mustContain(t, got, "67%")
+	mustContain(t, got, "type")
+	mustContain(t, got, "33%")
+	mustNotContain(t, got, "█")
 }
 
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is
