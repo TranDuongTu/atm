@@ -920,19 +920,19 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 	mustContain(t, v, "task two")
 }
 
-// --- Step 7: help tab ---
+// --- Step 7: help overlay ---
 
-// TestHelpTabParityTable verifies the CLI/TUI parity table is present in the
-// Help tab (mockup Screen 10, Section 1).
-func TestHelpTabParityTable(t *testing.T) {
+func TestHelpOverlayParityTable(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 35)
-	update(t, m, "4")
+	update(t, m, "?")
 	v := m.View()
 	mustContain(t, v, "─ CLI / TUI Parity ─")
-	mustContain(t, v, "atm project create")
-	mustContain(t, v, "atm task create")
-	mustContain(t, v, "atm conventions")
+	mustNotContain(t, v, "Help tab")
+	content := strings.Join(m.help.lines, "\n")
+	mustContain(t, content, "atm project create")
+	mustContain(t, content, "atm task create")
+	mustContain(t, content, "atm conventions")
 	lines := strings.Split(m.help.View(), "\n")
 	if len(lines) < 3 {
 		t.Fatalf("help view too short\n--- help ---\n%s", m.help.View())
@@ -942,13 +942,9 @@ func TestHelpTabParityTable(t *testing.T) {
 	}
 }
 
-// TestHelpTabConventions verifies the conventions (advisory) section is
-// present (mockup Screen 10, Section 3). It lives below the parity table and
-// keymap; the test checks the help model's rendered lines (the full content)
-// rather than the scrolled viewport, since Section 3 is far down.
-func TestHelpTabConventions(t *testing.T) {
+func TestHelpOverlayConventions(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "4")
+	update(t, m, "?")
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "─ Conventions ─")
 	mustContain(t, content, "advisory")
@@ -957,49 +953,16 @@ func TestHelpTabConventions(t *testing.T) {
 	mustNotContain(t, content, "## Agent code-of-conduct")
 }
 
-// TestHelpTabReadOnly verifies no mutating keys route to the store from the
-// Help tab. We press several mutating keys (a, x, L, l, N) and confirm the
-// store state is unchanged (no projects created/removed).
-func TestHelpTabReadOnly(t *testing.T) {
+func TestHelpOverlayKeymapUsesPaneLanguage(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "4")
-	for _, k := range []string{"a", "x", "L", "l", "N", "H", "s", "S", "d"} {
-		update(t, m, k)
-	}
-	// No form should have opened; no confirm; no toast.
-	if m.form != nil {
-		t.Errorf("mutating key opened a form from Help tab")
-	}
-	if m.confirm != confirmNone {
-		t.Errorf("mutating key opened a confirm from Help tab")
-	}
-	if m.toastMsg != "" {
-		t.Errorf("mutating key produced toast %q from Help tab", m.toastMsg)
-	}
-	// Store unchanged: ATM still present, no extra projects.
-	ps := m.store.ListProjects()
-	if len(ps) != 1 || ps[0].Code != "ATM" {
-		t.Errorf("store changed from Help tab: projects = %+v", ps)
-	}
-}
-
-// TestHelpTabKeymap verifies the Help tab's Section 2 (Global keymap) is
-// rendered with its heading and the keymap summary table content (mockup
-// Screen 10, Section 2). Covers the third spec target "global keymap" that
-// TestHelpTabParityTable (§1) and TestHelpTabConventions (§3) do not assert.
-func TestHelpTabKeymap(t *testing.T) {
-	m := newTestModel(t)
-	update(t, m, "4")
+	update(t, m, "?")
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "─ Global Keymap ─")
-	// A stable binding row from the keymap table — [a] add project/task.
-	mustContain(t, content, "[a]")
-	// The table header should be present too.
-	mustContain(t, content, "Key")
-	mustContain(t, content, "Detail")
-	mustContain(t, content, "T")
+	mustContain(t, content, "focus pane")
+	mustContain(t, content, "open help")
 	mustContain(t, content, "cycle theme")
+	mustNotContain(t, content, "switch tab")
+	mustNotContain(t, content, "Help")
 }
 
 // --- Step 8: task detail [d] description edit + [x] remove confirm ---

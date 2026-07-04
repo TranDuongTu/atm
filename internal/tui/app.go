@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -447,37 +446,6 @@ func (m *Model) renderPane(pane workspacePane, width int, height int, title stri
 	return titledBoxHeight(style, width, title, body, height)
 }
 
-func (m *Model) renderTabBar() string {
-	names := []string{"Projects", "Tasks", "Labels", "Help"}
-	var parts []string
-	for i, n := range names {
-		label := fmt.Sprintf("%d  %s", i+1, n)
-		if workspacePane(i) == m.focused {
-			parts = append(parts, m.styles.ActiveTab.Render(label))
-		} else {
-			parts = append(parts, m.styles.InactiveTab.Render(label))
-		}
-	}
-	bar := strings.Join(parts, "  ")
-	// Right-fill to width.
-	if lw := lipgloss.Width(bar); lw < m.width {
-		bar += spaces(m.width - lw)
-	}
-	return bar
-}
-
-func (m *Model) renderBody() string {
-	switch m.focused {
-	case paneProjects:
-		return m.projects.View()
-	case paneTasks:
-		return m.tasks.View()
-	case paneLabels:
-		return m.labels.View()
-	}
-	return ""
-}
-
 // statusHint returns the tab-specific keymap hint for the status line.
 func (m *Model) statusHint() string {
 	switch m.focused {
@@ -625,21 +593,6 @@ func (m *Model) renderConfirm() string {
 	b.WriteString(m.styles.Warning.Render(m.confirmArg))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.KeyMenuDim.Render("[Enter] confirm   [Esc] cancel"))
-	return m.styles.Dialog.Render(b.String())
-}
-
-// renderKeymapOverlay renders a compact version of the global keymap.
-func (m *Model) renderKeymapOverlay() string {
-	var b strings.Builder
-	b.WriteString(m.styles.DialogTitle.Render("Keymap"))
-	b.WriteString("\n")
-	b.WriteString(repeat("-", 10))
-	b.WriteString("\n\n")
-	for _, r := range keymapRows {
-		fmt.Fprintf(&b, "%-12s %s\n", r.Key, r.Projects)
-	}
-	b.WriteString("\n")
-	b.WriteString(m.styles.KeyMenuDim.Render("[?] or [Esc] to close"))
 	return m.styles.Dialog.Render(b.String())
 }
 

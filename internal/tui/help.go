@@ -130,24 +130,23 @@ var parityTable = `CLI                                   TUI
 ─────────────────────────────────────────────────────────────────────────────
 atm init                              (auto on first atm tui)
 atm store path                        status bar (STORE:)
-atm conventions                       this tab, bottom section
-
-atm project create --code --name      Projects tab  [a]dd
-atm project list                      Projects tab  (list)
-atm project show --code               Projects tab  [Enter] detail
+atm conventions                       help overlay, conventions section
+atm project create --code --name      Projects pane  [a]dd
+atm project list                      Projects pane  (list)
+atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [N]
-atm project remove --code             Projects tab  [x]
+atm project remove --code             Projects pane  [x]
 
-atm label add --name --desc           Labels tab  [a]dd / [d]esc
-atm label remove --name               Labels tab  [l]
-atm label seed --project              Labels tab  [S]
-atm label list [--project] [--ns]     Labels tab  (list)
+atm label add --name --desc           Labels pane  [a]dd / [d]esc
+atm label remove --name               Labels pane  [l]
+atm label seed --project              Labels pane  [S]
+atm label list [--project] [--ns]     Labels pane  (list)
 atm label show --name                 — (CLI only)
 
-atm task create --project --title [--label]   Tasks tab  [a]dd (labels field)
-atm task list [--project] [--label]   Tasks tab  (list; / for filter)
-atm task list --facets                Tasks tab  (wildcard filter -> grouped)
-atm task show --id                    Tasks tab  [Enter] detail
+atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
+atm task list [--project] [--label]   Tasks pane  (list; / for filter)
+atm task list --facets                Tasks pane  (wildcard filter -> grouped)
+atm task show --id                    Tasks pane  [Enter] detail
 atm task set-title --id --title       Task detail  [e]
 atm task set-description --id --desc  Task detail  [d]
 atm task label add --id --label       Task detail  [b]
@@ -159,25 +158,23 @@ atm tui                                (you are here)`
 // keymapTable renders the global keymap summary as a fixed-width table.
 func keymapTable() string {
 	var b strings.Builder
-	widths := []int{10, 17, 20, 18, 9, 17}
-	fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+	widths := []int{10, 18, 21, 19, 21}
+	fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s\n",
 		widths[0], "Key",
 		widths[1], "Projects",
 		widths[2], "Tasks",
 		widths[3], "Labels",
-		widths[4], "Help",
-		widths[5], "Detail",
+		widths[4], "Detail/Overlay",
 	)
-	b.WriteString(strings.Repeat("-", widths[0]+1+widths[1]+1+widths[2]+1+widths[3]+1+widths[4]+1+widths[5]))
+	b.WriteString(strings.Repeat("-", widths[0]+1+widths[1]+1+widths[2]+1+widths[3]+1+widths[4]))
 	b.WriteString("\n")
 	for _, r := range keymapRows {
-		fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+		fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s\n",
 			widths[0], truncateRunes(r.Key, widths[0]),
 			widths[1], truncateRunes(r.Projects, widths[1]),
 			widths[2], truncateRunes(r.Tasks, widths[2]),
 			widths[3], truncateRunes(r.Labels, widths[3]),
-			widths[4], truncateRunes(r.Help, widths[4]),
-			widths[5], truncateRunes(r.Detail, widths[5]),
+			widths[4], truncateRunes(r.Detail, widths[4]),
 		)
 	}
 	return b.String()
@@ -202,7 +199,7 @@ treats ATM:context:agent identically to ATM:type:bug.
 
 A fresh project is auto-seeded with the 17 default labels below on atm project
 create (and re-applied idempotently by atm label seed --project <CODE> / the
-Labels tab [S] key). Templated namespaces (repo:<name>, doc:<name>,
+Labels pane [S] key). Templated namespaces (repo:<name>, doc:<name>,
 claimed-by:<agent>, blocks:<ID>, related:<ID>) are created on demand — they
 depend on project-specific values and are NOT seeded as concrete labels.
 
@@ -231,7 +228,7 @@ legible for humans and other agents:
      as state:open or wf:open.
   3. Invent only when nothing fits. If no existing label captures your intent,
      you may create a new one — agents are free to self-organize. But before
-     you do, ask yourself: would a human reviewing the Labels tab understand
+     you do, ask yourself: would a human reviewing the Labels pane understand
      why this label exists?
   4. State the intention in the label description. When you create a new label,
      also call atm label add --name <CODE>:<ns>:<value> --description "<one
@@ -242,19 +239,19 @@ legible for humans and other agents:
      things across tasks. If your intent diverges from an existing label's
      description, create a new label with a distinct name and a description
      that distinguishes it.
-  6. Humans reconcile. The Labels tab is the human's review surface. If you see
+  6. Humans reconcile. The Labels pane is the human's review surface. If you see
      labels that overlap, contradict, or lack descriptions, edit or remove
      them there. Agents follow the rules above; humans curate.
 
 ## First-time human sequence
 
   1. atm tui (auto-inits the store)
-  2. Create the project (Add in the Projects tab). Project create auto-seeds the
-     17 default labels with descriptions, so the Labels tab is populated from
+  2. Create the project (Add in the Projects pane). Project create auto-seeds the
+     17 default labels with descriptions, so the Labels pane is populated from
      the start.
   3. Create seed index tasks (context:agent, context:repository,
      context:documentation) and initial work tasks, labeling as you go. The
-     human curates labels in the Labels tab.
+     human curates labels in the Labels pane.
 
 ## Agent first-contact sequence
 
@@ -276,7 +273,7 @@ legible for humans and other agents:
   - Plugins/skills: ATM ships only the doc + the conventions command. Plugins
     or agent skills may wrap the first-contact sequence; ATM itself has no
     plugin mechanism.
-  - Re-seeding defaults: atm label seed --project <CODE> or the Labels tab [S]
+  - Re-seeding defaults: atm label seed --project <CODE> or the Labels pane [S]
     key re-applies the default set idempotently — existing descriptions are
     preserved, and any new defaults introduced in a release are added.
 
