@@ -166,7 +166,7 @@ func (s *Store) mutateProject(code, actor string, fn func(p *Project)) error {
 
 - [ ] **Step 5: Patch `internal/cli/output.go` and callers to compile**
 
-Delete `historyToJSON`. Delete the `History []jsonHistory` field from `jsonTask` and `jsonProject`. Replace every `historyToJSON(...)` call site with `nil` (so JSON output drops the `history` field temporarily — Task 11 reintroduces it from the log). Grep `internal/cli/` for `historyToJSON` and fix every call. Grep for `.History` references in `internal/cli/` and `internal/tui/`; replace with empty slices or no-ops so the package compiles (these will be properly wired in Task 12).
+Delete `historyToJSON`. Delete the `History []jsonHistory` field from `jsonTask` and `jsonProject`. Replace every `historyToJSON(...)` call site with `nil` (so JSON output drops the `history` field temporarily — Task 11 reintroduces it from the log). Grep `internal/cli/` for `historyToJSON` and fix every call. Grep for `.History` references in `internal/cli/` and `internal/tui/`; replace with empty slices or no-ops so the package compiles (these will be properly wired in Task 9 for CLI and Task 10 for TUI; Task 11 confirms a full clean build).
 
 - [ ] **Step 6: Run `go build ./...` — expect failures in tui**
 
@@ -2173,12 +2173,13 @@ func TestVerifyDetectsSeqGap(t *testing.T) {
 	}
 	_ = os.WriteFile(s.logPath("ATM"), newData, 0o644)
 	report, _ := s.VerifyProject("ATM")
-	// Seq gap is reported in the LogOK/Truncated field semantically as an integrity
-	// problem (not auto-repaired). Verify the report reflects this.
-	if report.LogOK && report.Truncated == 0 && !report.Diverged {
-		// Either Diverged (because caches now mismatch) or LogOK=false.
-		// Stronger assertion: there should be a gap report somewhere.
-		// (If the implementation surfaces a distinct SeqGaps field, assert on it.)
+	// Seq gap is surfaced in report.SeqGaps (per spec: reported, never auto-repaired).
+	if len(report.SeqGaps) == 0 {
+		t.Fatalf("expected at least one seq gap, got %+v", report.SeqGaps)
+	}
+	// And the log is not OK because of the gap.
+	if report.LogOK {
+		t.Errorf("LogOK = true with seq gap, want false")
 	}
 }
 
@@ -2197,8 +2198,6 @@ func splitLines(data []byte) [][]byte {
 	return out
 }
 ```
-
-For the seq-gap test, the assertion is intentionally loose — the spec says gaps are reported but never auto-repaired. Tighten the assertion once the report shape is finalized in Step 3.
 
 - [ ] **Step 2: Run tests, expect failures (`Verify`/`VerifyProject`/`Rebuild` undefined)**
 
