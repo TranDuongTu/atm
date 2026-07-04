@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"atm/internal/seed"
 )
@@ -82,7 +83,8 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 
 // SeedLabels applies the default seed labels (internal/seed.Labels) to the
 // project. Idempotent — preserves existing descriptions (via LabelSeed).
-// Called by CreateProject and by the CLI/TUI on-demand seed path.
+// Called by the CLI/TUI on-demand seed path. (CreateProject seeds via
+// seedLabelsLocked inside its own lock instead.)
 func (s *Store) SeedLabels(code, actor string) error {
 	for _, l := range seed.Labels {
 		full := code + ":" + l.Suffix
@@ -91,6 +93,57 @@ func (s *Store) SeedLabels(code, actor string) error {
 		}
 	}
 	return nil
+}
+
+// seedLabelsLocked appends label.upserted events for each default label not
+// already in the log. Caller MUST hold the project lock. CreateProject calls
+// this from inside its WithLock callback so the log epoch + label seeds land
+// atomically under one lock acquisition. Unlike LabelSeed, this does NOT
+// preserve existing descriptions — at create time the log is empty.
+func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
+	for _, l := range seed.Labels {
+		full := code + ":" + l.Suffix
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      at,
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: Subject{Kind: "label", Name: full},
+			Payload: mustMarshal(Label{Name: full, Description: l.Description}),
+		})
+		if err != nil {
+			return err
+		}
+		// Update per-label cache stamp on the global labels.json — minimal
+		// patch here; full labels.json derivation comes in Task 5. For now
+		// the derived file is written by refreshDerivedLabelsLocked.
+		_ = entry
+	}
+	return s.refreshDerivedLabelsLocked(code)
+}
+
+// refreshDerivedLabelsLocked regenerates labels.json from label.* events in
+// this project's log. Merges with other projects' labels so a single project
+// create does not wipe the global registry. Minimal implementation here —
+// Task 5 will fold this into the full labels.json rewrite.
+func (s *Store) refreshDerivedLabelsLocked(code string) error {
+	st, err := s.Replay(code)
+	if err != nil {
+		return err
+	}
+	all := s.LabelList("", "")
+	merged := map[string]Label{}
+	for _, l := range all {
+		merged[l.Name] = l
+	}
+	for _, l := range st.Labels {
+		merged[l.Name] = l
+	}
+	var out []Label
+	for _, l := range merged {
+		out = append(out, l)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return WriteJSON(s.labelsPath(), labelsFile{Labels: out})
 }
 
 func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {

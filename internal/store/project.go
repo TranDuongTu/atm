@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,25 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 			CreatedBy: actor,
 			UpdatedAt: now,
 			UpdatedBy: actor,
+			LogSeq:    0,
 		}
+		// 1. Append project.created to log.
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionProjectCreated,
+			Subject: Subject{Kind: "project", Code: code},
+			Payload: mustMarshal(p),
+		})
+		if err != nil {
+			return err
+		}
+		p.LogSeq = entry.Seq
+		// 2. Seed default labels (appends label.upserted per default label).
+		if err := s.seedLabelsLocked(code, actor, now); err != nil {
+			return err
+		}
+		// 3. Write project cache.
 		if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
 			return err
 		}
@@ -41,13 +60,15 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Seed the default label set (idempotent; outside the project-create
-	// lock — SeedLabels takes its own project lock). A fresh project has
-	// all 18 default labels with descriptions the moment it exists.
-	if seedErr := s.SeedLabels(code, actor); seedErr != nil {
-		return nil, seedErr
-	}
 	return created, nil
+}
+
+func mustMarshal(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 func (s *Store) GetProject(code string) (*Project, error) {
@@ -82,8 +103,30 @@ func (s *Store) ListProjects() []*Project {
 }
 
 func (s *Store) SetProjectName(code, name, actor string) error {
-	return s.mutateProject(code, actor, func(p *Project) {
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	return s.WithLock(code, func() error {
+		p, err := s.GetProject(code)
+		if err != nil {
+			return err
+		}
 		p.Name = name
+		now := Now()
+		p.UpdatedAt = now
+		p.UpdatedBy = actor
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionProjectNameChanged,
+			Subject: Subject{Kind: "project", Code: code},
+			Payload: mustMarshal(p),
+		})
+		if err != nil {
+			return err
+		}
+		p.LogSeq = entry.Seq
+		return WriteJSON(s.projectPath(code), p)
 	})
 }
 
@@ -95,10 +138,22 @@ func (s *Store) RemoveProject(code, actor string) error {
 		if err := s.hasTasksGuard(code); err != nil {
 			return err
 		}
-		if _, err := os.Stat(s.projectPath(code)); os.IsNotExist(err) {
-			return fmt.Errorf("%w: project %q", ErrNotFound, code)
+		p, err := s.GetProject(code)
+		if err != nil {
+			return err
 		}
-		_ = os.RemoveAll(s.tasksDir(code))
+		now := Now()
+		// 1. Append project.removed tombstone (payload = last state).
+		_, _ = s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionProjectRemoved,
+			Subject: Subject{Kind: "project", Code: code},
+			Payload: mustMarshal(p),
+		})
+		// 2. Delete the project directory (including log.jsonl).
+		_ = os.RemoveAll(s.projectDir(code))
+		// 3. Delete the project cache file.
 		return os.Remove(s.projectPath(code))
 	})
 }
@@ -132,6 +187,17 @@ func (s *Store) mutateProject(code, actor string, fn func(p *Project)) error {
 		now := Now()
 		p.UpdatedAt = now
 		p.UpdatedBy = actor
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionProjectNameChanged, // callers use SetProjectName directly; mutateProject retained for symmetry
+			Subject: Subject{Kind: "project", Code: code},
+			Payload: mustMarshal(p),
+		})
+		if err != nil {
+			return err
+		}
+		p.LogSeq = entry.Seq
 		return WriteJSON(s.projectPath(code), p)
 	})
 }

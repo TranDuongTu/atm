@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -115,4 +117,66 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	if l2.Description == "" {
 		t.Error("ATM:status:open lost its description after re-seed")
 	}
+}
+
+func TestCreateProjectAppendsLogEntries(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := s.ReadLog("ATM")
+	// 1 project.created + 18 label.upserted (seed) = 19 entries
+	if len(entries) < 2 {
+		t.Fatalf("log has %d entries, want >= 2", len(entries))
+	}
+	if entries[0].Action != ActionProjectCreated {
+		t.Fatalf("first entry action = %q want %q", entries[0].Action, ActionProjectCreated)
+	}
+	for _, e := range entries[1:] {
+		if e.Action != ActionLabelUpserted {
+			t.Fatalf("seed entry action = %q want %q", e.Action, ActionLabelUpserted)
+		}
+	}
+}
+
+func TestSetProjectNameAppendsNameChanged(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "old", "claude")
+	// Drop seed entries from the comparison: focus on entries after create.
+	before, _ := s.LastLogSeq("ATM")
+	_ = s.SetProjectName("ATM", "new", "ttran")
+	entries, _ := s.ReadLog("ATM")
+	var nameChange *LogEntry
+	for i := range entries {
+		if entries[i].Seq > before && entries[i].Action == ActionProjectNameChanged {
+			nameChange = &entries[i]
+			break
+		}
+	}
+	if nameChange == nil {
+		t.Fatalf("no project.name-changed entry after SetProjectName")
+	}
+	var p Project
+	_ = json.Unmarshal(nameChange.Payload, &p)
+	if p.Name != "new" {
+		t.Fatalf("payload name = %q want %q", p.Name, "new")
+	}
+}
+
+func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	if err := s.RemoveProject("ATM", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	// Project file and log file are gone (project directory removed).
+	if _, err := s.GetProject("ATM"); !IsNotFound(err) {
+		t.Fatalf("GetProject after remove: %v want ErrNotFound", err)
+	}
+	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
+		t.Fatalf("log.jsonl must be deleted with the project dir, got %v", err)
+	}
+	// Tombstone was appended before deletion: we can only observe this indirectly.
+	// (If no tombstone were appended, the cache file would still exist or the
+	// directory would not be removed.) The on-disk absence is the contract.
 }

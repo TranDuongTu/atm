@@ -81,39 +81,50 @@ func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
 	if !validActions[e.Action] {
 		return LogEntry{}, fmt.Errorf("%w: unknown action %q", ErrUsage, e.Action)
 	}
-	var appended LogEntry
 	err := s.WithLock(code, func() error {
-		last, err := s.LastLogSeq(code)
-		if err != nil {
-			return err
-		}
-		e.Seq = last + 1
-		if e.At.IsZero() {
-			e.At = Now()
-		}
-		line, err := marshalLogLine(e)
-		if err != nil {
-			return err
-		}
-		path := s.logPath(code)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		if _, err := f.Write(line); err != nil {
-			return err
-		}
-		return f.Sync()
+		var err2 error
+		e, err2 = s.appendLogLocked(code, e)
+		return err2
 	})
 	if err != nil {
 		return LogEntry{}, err
 	}
-	appended = e
-	return appended, nil
+	return e, nil
+}
+
+// appendLogLocked assigns Seq, appends one line to projects/<CODE>/log.jsonl,
+// and fsyncs. Caller MUST already hold the project lock — this is the
+// re-entrancy-safe variant of AppendLog for write-first paths that already
+// run inside WithLock.
+func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
+	last, err := s.LastLogSeq(code)
+	if err != nil {
+		return e, err
+	}
+	e.Seq = last + 1
+	if e.At.IsZero() {
+		e.At = Now()
+	}
+	line, err := marshalLogLine(e)
+	if err != nil {
+		return e, err
+	}
+	path := s.logPath(code)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return e, err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return e, err
+	}
+	defer f.Close()
+	if _, err := f.Write(line); err != nil {
+		return e, err
+	}
+	if err := f.Sync(); err != nil {
+		return e, err
+	}
+	return e, nil
 }
 
 func marshalLogLine(e LogEntry) ([]byte, error) {
