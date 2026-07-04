@@ -776,6 +776,50 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	mustContain(t, body, "agent-generated keyword bubbles pending")
 }
 
+func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	if m.projectScope != "ATM" {
+		t.Fatalf("projectScope = %q want ATM", m.projectScope)
+	}
+	update(t, m, "x")
+	update(t, m, "enter")
+	if m.projectScope != "" {
+		t.Fatalf("projectScope after removal = %q want empty", m.projectScope)
+	}
+	mustContain(t, m.projects.View(), "no projects")
+}
+
+func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(50, 8)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("View panicked on short terminal: %v", r)
+		}
+	}()
+	_ = m.View()
+}
+
+func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "agent-generated keyword bubbles pending")
+	if m.form != nil {
+		t.Fatalf("keyword placeholder opened form")
+	}
+	if m.confirm != confirmNone {
+		t.Fatalf("keyword placeholder opened confirm = %v", m.confirm)
+	}
+}
+
 func TestRenderActivityDensityDeterministic(t *testing.T) {
 	counts := map[string]int{
 		"2026-07-01": 1,
