@@ -37,6 +37,7 @@ Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<n
 3. ` + "`atm task list --project <CODE> --label <CODE>:context:agent`" + ` — get agent directions for working in this project.
 4. ` + "`atm task list --project <CODE> --label <CODE>:context:repository`" + ` / ` + "`:context:documentation`" + ` — discover repository pointers and documentation.
 5. ` + "`atm task list --project <CODE> --label <CODE>:status:open`" + ` — get open work.
+6. ` + "`atm store log <CODE>`" + ` — read the project's append-only audit log to observe recent activity.
 
 A fresh agent that does not yet know the project's namespaces runs the label-list step first and follows the descriptions.
 
@@ -97,6 +98,7 @@ func conventionsStructured() map[string]any {
 			"atm task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
 			"atm task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
 			"atm task list --project <CODE> --label <CODE>:status:open — get open work",
+			"atm store log <CODE> — read the project's append-only audit log to observe recent activity",
 		},
 		"advisory": "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
 	}

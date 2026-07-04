@@ -11,7 +11,7 @@ Before exploring the repo, run `<ATM_BIN> conventions` and read it. It tells you
 
 ## 2. Research already-captured knowledge
 
-Run `<ATM_BIN> task list --project <CODE> --output json` and read the existing tasks' titles, labels, and descriptions. This project may already have context from other repositories (frontend, backend, infra, they may disagree). This is your reconciliation baseline: what is already known, what is already pointer-mapped, where the gaps are. Note any disagreements between existing tasks; you will either update them or flag them as `context:question` rather than silently picking a side.
+Run `<ATM_BIN> task list --project <CODE> --output json` and read the existing tasks' titles, labels, and descriptions. Also run `<ATM_BIN> store log <CODE>` to read the project's append-only audit log and observe recent activity before reconciling. This project may already have context from other repositories (frontend, backend, infra, they may disagree). This is your reconciliation baseline: what is already known, what is already pointer-mapped, where the gaps are. Note any disagreements between existing tasks; you will either update them or flag them as `context:question` rather than silently picking a side.
 
 Existing tasks at onboarding start (t0 snapshot, for audit):
 
