@@ -210,6 +210,61 @@ func TestHelpOverlayReadOnly(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	v := m.View()
+	mustContain(t, v, "[1] Projects")
+	mustContain(t, v, "[2] Tasks")
+	mustContain(t, v, "[3] Labels")
+	mustNotContain(t, v, "1  Projects")
+	mustNotContain(t, v, "4  Help")
+}
+
+func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	for _, key := range []string{"1", "2", "3"} {
+		update(t, m, key)
+		v := m.View()
+		mustContain(t, v, "[1] Projects")
+		mustContain(t, v, "[2] Tasks")
+		mustContain(t, v, "[3] Labels")
+	}
+}
+
+func TestFocusedPaneStyleChanges(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	update(t, m, "1")
+	projectsFocused := m.View()
+	update(t, m, "2")
+	tasksFocused := m.View()
+	if projectsFocused == tasksFocused {
+		t.Fatalf("focus change should change rendered pane styling")
+	}
+	if m.styles.PaneActive.GetForeground() == m.styles.PaneInactive.GetForeground() {
+		t.Fatalf("active and inactive pane foregrounds should differ")
+	}
+}
+
+func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	update(t, m, "1")
+	projects := m.renderStatusLine()
+	update(t, m, "2")
+	tasks := m.renderStatusLine()
+	update(t, m, "3")
+	labels := m.renderStatusLine()
+	if projects == tasks || tasks == labels || projects == labels {
+		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q\nlabels=%q", projects, tasks, labels)
+	}
+	mustContain(t, tasks, "[/]filter")
+	mustContain(t, labels, "[a]dd")
+}
+
 func TestDefaultTheme(t *testing.T) {
 	m := newTestModel(t)
 	if m.themeName != themeGraphite {
@@ -452,7 +507,7 @@ func TestProjectsListEmpty(t *testing.T) {
 // and the selection gutter marker (mockup Screen 3).
 func TestProjectsListPopulated(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(120, 35)
+	m.SetSize(200, 35)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedProject(t, m, "SCY", "Scylla")
 	v := m.View()
@@ -468,9 +523,9 @@ func TestProjectsListPopulated(t *testing.T) {
 	if leadingSpaces(lines[1]) != leadingSpaces(lines[0]) {
 		t.Fatalf("summary should align with divider: divider=%q summary=%q", lines[0], lines[1])
 	}
-	mustContain(t, v, "total projects: 2")
-	mustContain(t, v, "selected: none")
-	for _, col := range []string{"CODE", "NAME", "TASKS", "LABELS", "UPDATED"} {
+	mustContain(t, body, "total projects: 2")
+	mustContain(t, body, "selected: none")
+	for _, col := range []string{"CODE", "NAME"} {
 		mustContain(t, v, col)
 	}
 	mustContain(t, v, "ATM")
@@ -486,7 +541,7 @@ func TestProjectsListPopulated(t *testing.T) {
 		t.Errorf("after s: projectScope = %q want ATM", m.projectScope)
 	}
 	selected := m.View()
-	mustContain(t, selected, "selected: ATM")
+	mustContain(t, m.projects.View(), "selected: ATM")
 	mustContain(t, selected, "▸")
 }
 

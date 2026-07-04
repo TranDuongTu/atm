@@ -28,6 +28,8 @@ type Theme struct {
 type Styles struct {
 	ActiveTab       lipgloss.Style
 	InactiveTab     lipgloss.Style
+	PaneActive      lipgloss.Style
+	PaneInactive    lipgloss.Style
 	KeyMenu         lipgloss.Style
 	KeyMenuDim      lipgloss.Style
 	Status          lipgloss.Style
@@ -90,6 +92,8 @@ func buildStyles(themeName ThemeName) Styles {
 	s := Styles{
 		ActiveTab:       lipgloss.NewStyle().Foreground(t.AccentText).Background(t.Accent).Bold(true).Padding(0, 1),
 		InactiveTab:     lipgloss.NewStyle().Foreground(t.Muted).Padding(0, 1),
+		PaneActive:      lipgloss.NewStyle().Foreground(t.Text).BorderForeground(t.Accent),
+		PaneInactive:    lipgloss.NewStyle().Foreground(t.Muted).BorderForeground(t.Border),
 		KeyMenu:         lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
 		KeyMenuDim:      lipgloss.NewStyle().Foreground(t.Muted),
 		Status:          lipgloss.NewStyle().Foreground(t.Muted),
@@ -124,6 +128,8 @@ func buildStyles(themeName ThemeName) Styles {
 	}
 	if themeName == themeMono {
 		s.ActiveTab = lipgloss.NewStyle().Reverse(true).Bold(true).Padding(0, 1)
+		s.PaneActive = lipgloss.NewStyle().Bold(true).BorderForeground(t.Accent)
+		s.PaneInactive = lipgloss.NewStyle().BorderForeground(t.Border)
 		s.HeaderLabel = lipgloss.NewStyle().Bold(true).Underline(true)
 		s.GroupHeader = lipgloss.NewStyle().Bold(true)
 		s.LabelChip = lipgloss.NewStyle().Reverse(true).Padding(0, 1)

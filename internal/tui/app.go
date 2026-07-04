@@ -137,20 +137,56 @@ func (m *Model) SetSize(w, h int) {
 	}
 	m.width = w
 	m.height = h
-	// chrome: 1 tab bar + 1 status line + 2 separator lines = 4; content
-	// height is what remains for the body.
-	m.contentHeight = h - 4
+	// chrome: 1 status line. The remaining height belongs to the workspace.
+	m.contentHeight = h - 1
 	if m.contentHeight < 1 {
 		m.contentHeight = 1
 	}
-	contentW := w
-	if contentW < 1 {
-		contentW = 1
+	leftW, rightW := splitWorkspaceWidths(w)
+	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
+	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
+	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
+	m.labels.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
+	m.help.SetSize(w, m.contentHeight)
+	m.help.refresh()
+}
+
+func splitWorkspaceWidths(width int) (int, int) {
+	if width < 2 {
+		return width, 0
 	}
-	m.projects.SetSize(contentW, m.contentHeight)
-	m.tasks.SetSize(contentW, m.contentHeight)
-	m.labels.SetSize(contentW, m.contentHeight)
-	m.help.SetSize(contentW, m.contentHeight)
+	left := width * 40 / 100
+	if left < 24 && width >= 48 {
+		left = 24
+	}
+	if left > width-20 && width >= 40 {
+		left = width - 20
+	}
+	right := width - left
+	return left, right
+}
+
+func splitRightColumnHeights(height int) (int, int) {
+	if height < 2 {
+		return height, 0
+	}
+	top := height / 2
+	bottom := height - top
+	return top, bottom
+}
+
+func innerPaneWidth(width int) int {
+	if width <= 2 {
+		return 1
+	}
+	return width - 2
+}
+
+func innerPaneHeight(height int) int {
+	if height <= 2 {
+		return 1
+	}
+	return height - 2
 }
 
 // refreshAll reloads all panes from the store. Called on launch and after
@@ -369,13 +405,7 @@ func (m *Model) View() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(m.renderTabBar())
-	b.WriteString("\n")
-	b.WriteString(repeat("─", m.width))
-	b.WriteString("\n")
-	b.WriteString(m.renderBody())
-	b.WriteString("\n")
-	b.WriteString(repeat("─", m.width))
+	b.WriteString(m.renderWorkspace())
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
@@ -395,6 +425,26 @@ func (m *Model) View() string {
 		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
 	}
 	return out
+}
+
+func (m *Model) renderWorkspace() string {
+	leftW, rightW := splitWorkspaceWidths(m.width)
+	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
+
+	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
+	tasks := m.renderPane(paneTasks, rightW, tasksH, "[2] Tasks", m.tasks.View())
+	labels := m.renderPane(paneLabels, rightW, labelsH, "[3] Labels", m.labels.View())
+
+	right := lipgloss.JoinVertical(lipgloss.Left, tasks, labels)
+	return lipgloss.JoinHorizontal(lipgloss.Top, projects, right)
+}
+
+func (m *Model) renderPane(pane workspacePane, width int, height int, title string, body string) string {
+	style := m.styles.PaneInactive
+	if m.focused == pane {
+		style = m.styles.PaneActive
+	}
+	return titledBoxHeight(style, width, title, body, height)
 }
 
 func (m *Model) renderTabBar() string {
