@@ -185,16 +185,14 @@ func centerBlockBoth(s string, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
-// centerLinesBoth centers each pre-rendered line both horizontally (via
-// lipgloss AlignCenter, so each line centers independently) and vertically
-// (top-padded to sit in the middle of an h-line box). Returns the block
-// without final height padding; callers pad to their content height so they
-// can account for any header lines they wrote first.
+// centerLinesBoth top-pads pre-rendered lines to sit in the middle of an
+// h-line box, while keeping the text left-aligned inside the pane. Returns the
+// block without final height padding; callers pad to their content height so
+// they can account for any header lines they wrote first.
 func centerLinesBoth(lines []string, w, h int) string {
 	if w < 1 {
 		w = 1
 	}
-	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
 	topPad := 0
 	if n := len(lines); n < h {
 		topPad = (h - n) / 2
@@ -205,7 +203,7 @@ func centerLinesBoth(lines []string, w, h int) string {
 		out = append(out, blank)
 	}
 	for _, l := range lines {
-		out = append(out, center.Render(l))
+		out = append(out, fitLine(l, w))
 	}
 	return strings.Join(out, "\n")
 }
@@ -277,11 +275,7 @@ func dashboardContentWidth(width int) int {
 }
 
 func dashboardLeftPad(width int) int {
-	contentW := dashboardContentWidth(width)
-	if width <= contentW {
-		return 0
-	}
-	return (width - contentW) / 2
+	return 0
 }
 
 func dashboardLine(width int, line string) string {

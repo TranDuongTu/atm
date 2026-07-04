@@ -128,15 +128,23 @@ func leadingSpaces(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " "))
 }
 
-func TestSectionDividerCentersWiderColumn(t *testing.T) {
+func TestDashboardContentUsesPaneWidthWithoutCentering(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(120, 30)
-	line := sectionDivider(m.styles, m.width, "Overview")
-	if got := leadingSpaces(line); got != 12 {
-		t.Fatalf("divider left padding = %d want 12\nline: %q", got, line)
+	width := 38
+	line := sectionDivider(m.styles, width, "Overview")
+	if got := leadingSpaces(line); got != 0 {
+		t.Fatalf("divider left padding = %d want 0\nline: %q", got, line)
 	}
-	if got := lipgloss.Width(strings.TrimLeft(line, " ")); got != 96 {
-		t.Fatalf("divider content width = %d want 96\nline: %q", got, line)
+	if got, want := lipgloss.Width(line), dashboardContentWidth(width); got != want {
+		t.Fatalf("divider width = %d want content width %d\nline: %q", got, want, line)
+	}
+	text := dashboardLine(width, "PROJECT: ATM")
+	if got := leadingSpaces(text); got != 0 {
+		t.Fatalf("dashboard line left padding = %d want 0\nline: %q", got, text)
+	}
+	block := centerLinesBoth([]string{"no projects"}, width, 1)
+	if got := leadingSpaces(block); got != 0 {
+		t.Fatalf("centerLinesBoth left padding = %d want 0\nblock: %q", got, block)
 	}
 }
 
