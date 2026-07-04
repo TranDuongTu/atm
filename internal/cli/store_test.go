@@ -2,11 +2,18 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"atm/internal/store"
 )
+
+func taskCachePath(root, code, id string) string {
+	return filepath.Join(root, "projects", code, "tasks", id+".json")
+}
 
 // Minimal test harness for the store subcommands. The package's golden harness
 // defaults to JSON output and is oriented around fixture comparison; these
@@ -77,6 +84,22 @@ func mustContain(t *testing.T, s, sub string) {
 	}
 }
 
+func mustNotContain(t *testing.T, s, sub string) {
+	t.Helper()
+	if strings.Contains(s, sub) {
+		t.Fatalf("unexpected %q in:\n%s", sub, s)
+	}
+}
+
+func hasLineWithPrefix(s, prefix string) bool {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestStoreLogText(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
@@ -106,4 +129,63 @@ func TestStoreRebuild(t *testing.T) {
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
 	out := runArgsOut(t, st, "store", "rebuild")
 	mustContain(t, out, "projects")
+}
+
+func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
+	st := newTestCLI(t)
+	_, _ = st.store.CreateProject("ATM", "x", "claude")
+	tk, _ := st.store.CreateTask("ATM", "t", "", nil, "claude")
+	_ = st.store.SetTitle(tk.ID, "changed", "claude")
+	// Stomp the task cache back to seq 1 (stale) so verify detects divergence.
+	path := taskCachePath(st.store.StorePath(), "ATM", tk.ID)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tg store.Task
+	if err := json.Unmarshal(raw, &tg); err != nil {
+		t.Fatal(err)
+	}
+	tg.LogSeq = 1
+	newRaw, err := json.Marshal(tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, newRaw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, code := runArgs(st, "store", "verify")
+	if code != 5 {
+		t.Fatalf("store verify exit code = %d, want 5 (integrity divergence)", code)
+	}
+}
+
+func TestStoreLogFromToFilter(t *testing.T) {
+	st := newTestCLI(t)
+	_, _ = st.store.CreateProject("ATM", "x", "claude")
+	// Generate six task events: project.created=1, then tasks 2..6.
+	for i := 0; i < 5; i++ {
+		if _, err := st.store.CreateTask("ATM", "t", "", nil, "claude"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := runArgsOut(t, st, "store", "log", "ATM", "--from", "3", "--to", "5")
+	if !hasLineWithPrefix(out, "3\t") {
+		t.Fatalf("missing seq 3 in:\n%s", out)
+	}
+	if !hasLineWithPrefix(out, "4\t") {
+		t.Fatalf("missing seq 4 in:\n%s", out)
+	}
+	if !hasLineWithPrefix(out, "5\t") {
+		t.Fatalf("missing seq 5 in:\n%s", out)
+	}
+	if hasLineWithPrefix(out, "1\t") {
+		t.Fatalf("unexpected seq 1 in:\n%s", out)
+	}
+	if hasLineWithPrefix(out, "2\t") {
+		t.Fatalf("unexpected seq 2 in:\n%s", out)
+	}
+	if hasLineWithPrefix(out, "6\t") {
+		t.Fatalf("unexpected seq 6 in:\n%s", out)
+	}
 }

@@ -56,6 +56,19 @@ func newStoreCmd(st *cliState) *cobra.Command {
 			if err != nil && !store.IsIntegrity(err) {
 				return err
 			}
+			from, _ := cmd.Flags().GetInt("from")
+			to, _ := cmd.Flags().GetInt("to")
+			filtered := make([]store.LogEntry, 0, len(entries))
+			for _, e := range entries {
+				if from != 0 && e.Seq < from {
+					continue
+				}
+				if to != 0 && e.Seq > to {
+					continue
+				}
+				filtered = append(filtered, e)
+			}
+			entries = filtered
 			if st.isJSON() {
 				if err != nil {
 					return err
@@ -92,7 +105,10 @@ func newStoreCmd(st *cliState) *cobra.Command {
 					r2, _ := s.VerifyProject(args[0])
 					r = r2
 				}
-				return st.emitVerify(r)
+				if err := st.emitVerify(r); err != nil {
+					return err
+				}
+				return reportIntegrityError([]store.VerifyReport{*r})
 			}
 			reports, err := s.Verify()
 			if err != nil {
@@ -107,7 +123,10 @@ func newStoreCmd(st *cliState) *cobra.Command {
 				}
 				reports, _ = s.Verify()
 			}
-			return st.emitVerifyAll(reports)
+			if err := st.emitVerifyAll(reports); err != nil {
+				return err
+			}
+			return reportIntegrityError(reports)
 		},
 	}
 	verifyCmd.Flags().Bool("repair", false, "regenerate caches from logs on divergence")
@@ -156,6 +175,15 @@ func (st *cliState) emitVerifyAll(rs []store.VerifyReport) error {
 	for _, r := range rs {
 		if err := st.emitVerify(&r); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func reportIntegrityError(reports []store.VerifyReport) error {
+	for _, r := range reports {
+		if r.Diverged || !r.LogOK {
+			return fmt.Errorf("%w: project %s has integrity issues (diverged=%v, log_ok=%v)", store.ErrIntegrity, r.Project, r.Diverged, r.LogOK)
 		}
 	}
 	return nil
