@@ -15,26 +15,37 @@ const (
 
 // ---- v2 JSON shapes ----
 
+type jsonHistory struct {
+	Seq    int    `json:"seq"`
+	Action string `json:"action"`
+	Actor  string `json:"actor"`
+	At     string `json:"at"`
+}
+
 type jsonTask struct {
-	ID          string   `json:"id"`
-	ProjectCode string   `json:"project_code"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Labels      []string `json:"labels"`
-	CreatedAt   string   `json:"created_at"`
-	CreatedBy   string   `json:"created_by"`
-	UpdatedAt   string   `json:"updated_at"`
-	UpdatedBy   string   `json:"updated_by"`
+	ID          string        `json:"id"`
+	ProjectCode string        `json:"project_code"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Labels      []string      `json:"labels"`
+	LogSeq      int           `json:"log_seq"`
+	History     []jsonHistory `json:"history"`
+	CreatedAt   string        `json:"created_at"`
+	CreatedBy   string        `json:"created_by"`
+	UpdatedAt   string        `json:"updated_at"`
+	UpdatedBy   string        `json:"updated_by"`
 }
 
 type jsonProject struct {
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	NextTaskN int    `json:"next_task_n"`
-	CreatedAt string `json:"created_at"`
-	CreatedBy string `json:"created_by"`
-	UpdatedAt string `json:"updated_at"`
-	UpdatedBy string `json:"updated_by"`
+	Code      string        `json:"code"`
+	Name      string        `json:"name"`
+	NextTaskN int           `json:"next_task_n"`
+	LogSeq    int           `json:"log_seq"`
+	History   []jsonHistory `json:"history"`
+	CreatedAt string        `json:"created_at"`
+	CreatedBy string        `json:"created_by"`
+	UpdatedAt string        `json:"updated_at"`
+	UpdatedBy string        `json:"updated_by"`
 }
 
 type jsonLabel struct {
@@ -54,13 +65,28 @@ type jsonFacets struct {
 
 // ---- mappers ----
 
-func taskToJSON(t *store.Task) jsonTask {
+func historyToJSON(h []store.HistoryView) []jsonHistory {
+	out := make([]jsonHistory, 0, len(h))
+	for _, e := range h {
+		out = append(out, jsonHistory{
+			Seq:    e.Seq,
+			Action: e.Action,
+			Actor:  e.Actor,
+			At:     store.RFC3339UTC(e.At),
+		})
+	}
+	return out
+}
+
+func taskToJSON(t *store.Task, history []store.HistoryView) jsonTask {
 	return jsonTask{
 		ID:          t.ID,
 		ProjectCode: t.ProjectCode,
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      normalizeStrSlice(t.Labels),
+		LogSeq:      t.LogSeq,
+		History:     historyToJSON(history),
 		CreatedAt:   store.RFC3339UTC(t.CreatedAt),
 		CreatedBy:   t.CreatedBy,
 		UpdatedAt:   store.RFC3339UTC(t.UpdatedAt),
@@ -71,16 +97,18 @@ func taskToJSON(t *store.Task) jsonTask {
 func tasksToJSON(ts []*store.Task) []jsonTask {
 	out := make([]jsonTask, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, taskToJSON(t))
+		out = append(out, taskToJSON(t, nil))
 	}
 	return out
 }
 
-func projectToJSON(p *store.Project) jsonProject {
+func projectToJSON(p *store.Project, history []store.HistoryView) jsonProject {
 	return jsonProject{
 		Code:      p.Code,
 		Name:      p.Name,
 		NextTaskN: p.NextTaskN,
+		LogSeq:    p.LogSeq,
+		History:   historyToJSON(history),
 		CreatedAt: store.RFC3339UTC(p.CreatedAt),
 		CreatedBy: p.CreatedBy,
 		UpdatedAt: store.RFC3339UTC(p.UpdatedAt),
@@ -91,7 +119,7 @@ func projectToJSON(p *store.Project) jsonProject {
 func projectsToJSON(ps []*store.Project) []jsonProject {
 	out := make([]jsonProject, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, projectToJSON(p))
+		out = append(out, projectToJSON(p, nil))
 	}
 	return out
 }

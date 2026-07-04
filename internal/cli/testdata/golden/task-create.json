@@ -3,16 +3,10 @@
     "created_at": "TIMESTAMP",
     "created_by": "claude",
     "description": "",
-    "history": [
-      {
-        "action": "created",
-        "actor": "claude",
-        "at": "TIMESTAMP",
-        "id": "h1"
-      }
-    ],
+    "history": [],
     "id": "ATM-0003",
     "labels": [],
+    "log_seq": 25,
     "project_code": "ATM",
     "title": "New task",
     "updated_at": "TIMESTAMP",

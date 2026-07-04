@@ -4,14 +4,8 @@
       "code": "ATM",
       "created_at": "TIMESTAMP",
       "created_by": "claude",
-      "history": [
-        {
-          "action": "created",
-          "actor": "claude",
-          "at": "TIMESTAMP",
-          "id": "h1"
-        }
-      ],
+      "history": [],
+      "log_seq": 1,
       "name": "Agent Tasks Management",
       "next_task_n": 3,
       "updated_at": "TIMESTAMP",
@@ -21,20 +15,8 @@
       "code": "DEMO",
       "created_at": "TIMESTAMP",
       "created_by": "claude",
-      "history": [
-        {
-          "action": "created",
-          "actor": "claude",
-          "at": "TIMESTAMP",
-          "id": "h1"
-        },
-        {
-          "action": "name-changed",
-          "actor": "claude",
-          "at": "TIMESTAMP",
-          "id": "h2"
-        }
-      ],
+      "history": [],
+      "log_seq": 22,
       "name": "Demo Project",
       "next_task_n": 2,
       "updated_at": "TIMESTAMP",

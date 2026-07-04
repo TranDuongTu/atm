@@ -5,16 +5,17 @@
     "description": "",
     "history": [
       {
-        "action": "created",
+        "action": "task.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "id": "h1"
+        "seq": 24
       }
     ],
     "id": "ATM-0002",
     "labels": [
       "ATM:context:agent"
     ],
+    "log_seq": 24,
     "project_code": "ATM",
     "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",
