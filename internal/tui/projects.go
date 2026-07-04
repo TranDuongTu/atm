@@ -326,40 +326,87 @@ func (p *projectsModel) View() string {
 }
 
 func (p *projectsModel) renderList() string {
-	var b strings.Builder
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
+	listH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	var parts []string
+	if listH > 0 {
+		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
+	}
+	if summaryH > 0 {
+		parts = append(parts, padToHeight(p.renderSummary(summaryH), summaryH))
+	}
+	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
+}
+
+func (p *projectsModel) renderListRows(maxRows int) string {
+	var b strings.Builder
 	selected := p.m.projectScope
 	if selected == "" {
 		selected = "none"
 	}
-	b.WriteString(sectionDivider(p.m.styles, p.width, "Overview"))
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", sectionDivider(p.m.styles, p.width, "Overview"))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
+
+	availableRows := maxRows - 4
+	if availableRows < 0 {
+		availableRows = 0
+	}
 	for i, r := range p.list {
+		if i >= availableRows {
+			remaining := len(p.list) - i
+			if remaining > 0 && availableRows > 0 {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("... %d more projects", remaining))))
+			}
+			break
+		}
 		var gutter string
 		if r.code == p.m.projectScope {
 			gutter = p.m.styles.GutterSelect.Render("▸")
 		} else {
 			gutter = " "
 		}
-		// build cell line
 		line := fmt.Sprintf(" %-5s %-30s %6d %7d %10s", r.code, truncateRunes(r.name, 30), r.tasks, r.labels, r.updated)
 		if i == p.cursor {
 			line = gutter + " " + p.m.styles.RowCursor.Render(line)
 		} else {
 			line = gutter + " " + line
 		}
-		b.WriteString(dashboardLine(p.width, line))
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
 	}
-	return padToHeight(b.String(), p.contentHeight)
+	return b.String()
+}
+
+func (p *projectsModel) renderSummary(height int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", sectionDivider(p.m.styles, p.width, "Project Summary"))
+	if p.m.projectScope == "" {
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
+		return padToHeight(b.String(), height)
+	}
+	project, tasks, ok := p.projectSummaryData()
+	if !ok {
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
+		return padToHeight(b.String(), height)
+	}
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+	return padToHeight(b.String(), height)
+}
+
+func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, bool) {
+	code := p.m.projectScope
+	if code == "" {
+		return nil, nil, false
+	}
+	project, err := p.m.store.GetProject(code)
+	if err != nil {
+		return nil, nil, false
+	}
+	tasks := p.m.store.ListTasks(store.QueryFilters{Project: code})
+	return project, tasks, true
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading

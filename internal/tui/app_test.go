@@ -596,6 +596,47 @@ func TestProjectsListPopulated(t *testing.T) {
 	mustContain(t, selected, "▸")
 }
 
+func TestProjectsListRendersSummaryRegionBelowList(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	body := m.projects.View()
+	mustContain(t, body, "─ Overview ─")
+	mustContain(t, body, "─ Project Summary ─")
+	mustContain(t, body, "select a project to see summaries")
+	overviewIdx := strings.Index(body, "─ Overview ─")
+	summaryIdx := strings.Index(body, "─ Project Summary ─")
+	if overviewIdx < 0 || summaryIdx < 0 || summaryIdx <= overviewIdx {
+		t.Fatalf("summary should render below overview\n--- body ---\n%s", body)
+	}
+}
+
+func TestProjectsListSummaryUsesSelectedProjectNotCursor(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "SCY", "Scylla")
+	update(t, m, "s")
+	update(t, m, "j")
+	body := m.projects.View()
+	mustContain(t, body, "project: ATM")
+	if m.projectScope != "ATM" {
+		t.Fatalf("projectScope = %q want ATM", m.projectScope)
+	}
+}
+
+func TestProjectDetailDoesNotRenderSummaryCharts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	update(t, m, "enter")
+	body := m.projects.View()
+	mustContain(t, body, "Project ATM")
+	mustNotContain(t, body, "Project Summary")
+	mustNotContain(t, body, "Labels by namespace")
+}
+
 func TestProjectDetailDashboardSections(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 50)
