@@ -15,23 +15,29 @@ type Launcher interface {
 	BuildArgv(promptPath, title string) []string
 }
 
-// OpencodeLauncher execs `opencode run -i "<msg>" -f <prompt> --auto --title
-// <title>`. opencode run requires a positional message; -f only attaches a
-// file alongside the message, it does not replace one. -i opens the
-// interactive split-footer TUI the user is familiar with (without it, run
-// streams to stdout and exits). The message instructs the agent to read the
-// attached prompt file and follow it.
+// OpencodeLauncher execs `opencode --auto --prompt "<msg>" --title <title>`.
+// The default `opencode` command (no `run` subcommand) opens the full native
+// TUI the user is familiar with. `--prompt` sets the initial user message;
+// `--auto` approves the onboarding agent's tool calls non-interactively. The
+// message instructs the agent to read the attached prompt file and follow it.
+//
+// The prompt file is passed via the message text (an absolute path), not via
+// `-f`, because the default `opencode` command does not accept `-f`. The agent
+// reads the file at that path using its normal file tools.
 type OpencodeLauncher struct{}
 
 func (OpencodeLauncher) Name() string         { return "opencode" }
 func (OpencodeLauncher) NotFoundHint() string { return "https://opencode.ai" }
 func (OpencodeLauncher) BuildArgv(promptPath, title string) []string {
-	return []string{"opencode", "run", "-i", onboardingMessage, "-f", promptPath, "--auto", "--title", title}
+	msg := onboardingMessagePrefix + promptPath + onboardingMessageSuffix
+	return []string{"opencode", "--auto", "--prompt", msg, "--title", title}
 }
 
-// OllamaLauncher execs `ollama launch <integration> -- run -i "<msg>" -f
-// <prompt> --auto --title <title>`. The `--` separator is ollama launch's
-// documented passthrough; ATM does not validate the integration name.
+// OllamaLauncher execs `ollama launch <integration> -- --auto --prompt
+// "<msg>" --title <title>`. The `--` separator is ollama launch's documented
+// passthrough; ATM does not validate the integration name. Everything after
+// `--` is passed to the integration's default entrypoint (the full TUI for
+// opencode).
 type OllamaLauncher struct {
 	Integration string
 }
@@ -39,11 +45,16 @@ type OllamaLauncher struct {
 func (OllamaLauncher) Name() string         { return "ollama" }
 func (OllamaLauncher) NotFoundHint() string { return "https://ollama.com" }
 func (l OllamaLauncher) BuildArgv(promptPath, title string) []string {
+	msg := onboardingMessagePrefix + promptPath + onboardingMessageSuffix
 	return []string{"ollama", "launch", l.Integration, "--",
-		"run", "-i", onboardingMessage, "-f", promptPath, "--auto", "--title", title}
+		"--auto", "--prompt", msg, "--title", title}
 }
 
-// onboardingMessage is the positional message handed to `opencode run` /
-// `ollama launch <integration> -- run ...`. It points the agent at the
-// attached prompt file (-f), which carries the full onboarding instructions.
-const onboardingMessage = "Read the attached prompt file and follow its instructions exactly."
+// onboardingMessagePrefix/Suffix wrap the prompt file path in a short
+// instruction the agent reads as its first user message. The default
+// `opencode` command has no `-f` file-attachment flag, so the message itself
+// points at the file.
+const (
+	onboardingMessagePrefix = "Read the onboarding instructions in the file at "
+	onboardingMessageSuffix = " and follow them exactly."
+)

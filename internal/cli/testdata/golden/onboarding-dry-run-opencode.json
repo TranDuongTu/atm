@@ -2,12 +2,9 @@
   "agent": "opencode",
   "argv": [
     "opencode",
-    "run",
-    "-i",
-    "Read the attached prompt file and follow its instructions exactly.",
-    "-f",
-    "/STORE/onboarding/FOO-RUNID.md",
     "--auto",
+    "--prompt",
+    "Read the onboarding instructions in the file at /STORE/onboarding/FOO-RUNID.md and follow them exactly.",
     "--title",
     "ATM onboarding: FOO (FOO-RUNID)"
   ],
