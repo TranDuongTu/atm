@@ -625,6 +625,39 @@ func TestProjectsListSummaryUsesSelectedProjectNotCursor(t *testing.T) {
 	}
 }
 
+func TestProjectsListOverflowSentinelRendersWithinHeight(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	codes := []string{"AAA", "AAB", "AAC", "AAD", "AAE", "AAF", "AAG", "AAH", "AAI", "AAJ"}
+	for i, code := range codes {
+		seedProject(t, m, code, fmt.Sprintf("Project %02d", i))
+	}
+	body := m.projects.View()
+	mustContain(t, body, "more projects")
+	lines := strings.Split(body, "\n")
+	if len(lines) > 40 {
+		t.Fatalf("projects view has %d lines, want <= 40\n--- body ---\n%s", len(lines), body)
+	}
+}
+
+func TestProjectsViewUsesThirtySeventySplit(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 30)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	body := m.projects.View()
+	lines := strings.Split(body, "\n")
+	summaryLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Project Summary") {
+			summaryLine = i
+			break
+		}
+	}
+	if summaryLine != 8 {
+		t.Fatalf("summary divider is on line %d, want 8\n--- body ---\n%s", summaryLine, body)
+	}
+}
+
 func TestProjectDetailDoesNotRenderSummaryCharts(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)

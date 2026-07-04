@@ -355,10 +355,14 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 	if availableRows < 0 {
 		availableRows = 0
 	}
+	overflow := len(p.list) > availableRows
+	if overflow && availableRows > 0 {
+		availableRows--
+	}
 	for i, r := range p.list {
 		if i >= availableRows {
 			remaining := len(p.list) - i
-			if remaining > 0 && availableRows > 0 {
+			if remaining > 0 && overflow && availableRows > 0 {
 				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("... %d more projects", remaining))))
 			}
 			break
