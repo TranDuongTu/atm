@@ -1,0 +1,137 @@
+package store
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestAppendLogMonotoneSeq(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	e1, err := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e1.Seq != 1 {
+		t.Fatalf("first seq = %d want 1", e1.Seq)
+	}
+	e2, _ := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectNameChanged, Subject: Subject{Kind: "project", Code: "ATM"}})
+	if e2.Seq != 2 {
+		t.Fatalf("second seq = %d want 2", e2.Seq)
+	}
+	last, _ := s.LastLogSeq("ATM")
+	if last != 2 {
+		t.Fatalf("LastLogSeq = %d want 2", last)
+	}
+}
+
+func TestAppendLogRejectsUnknownAction(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	_, err := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: "bogus.action", Subject: Subject{Kind: "project", Code: "ATM"}})
+	if !IsUsage(err) {
+		t.Fatalf("expected ErrUsage for unknown action, got %v", err)
+	}
+	last, _ := s.LastLogSeq("ATM")
+	if last != 0 {
+		t.Fatalf("no line should have been appended; LastLogSeq = %d", last)
+	}
+}
+
+func TestReadLogTruncatesMalformedTail(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	_, _ = s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
+	// Append garbage bytes simulating a crash mid-write.
+	p := s.logPath("ATM")
+	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
+	_, _ = f.WriteString("{\"seq\":2,\"at\":\"2026-07-04T12:00:00Z\",\"actor\":\"a\",\"action\":\"project.name-changed\",\"subje") // truncated
+	_ = f.Close()
+	entries, err := s.ReadLog("ATM")
+	if err == nil {
+		t.Fatal("expected ErrIntegrity from partial line, got nil")
+	}
+	if !IsIntegrity(err) {
+		t.Fatalf("expected ErrIntegrity, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d valid entries, want 1 (the truncated line dropped)", len(entries))
+	}
+	// After truncation, LastLogSeq reflects committed state only.
+	last, _ := s.LastLogSeq("ATM")
+	if last != 1 {
+		t.Fatalf("LastLogSeq after truncation = %d want 1", last)
+	}
+}
+
+func TestIsIntegrity(t *testing.T) {
+	if !IsIntegrity(fmt.Errorf("%w: x", ErrIntegrity)) {
+		t.Fatal("IsIntegrity should match wrapped ErrIntegrity")
+	}
+}
+
+func newLogEntry(seq int, action string, subj Subject, payload any) LogEntry {
+	raw, _ := json.Marshal(payload)
+	return LogEntry{Seq: seq, At: time.Now().UTC(), Actor: "a", Action: action, Subject: subj, Payload: raw}
+}
+
+func TestReplayDeterministicAndTombstones(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	// project.created
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	// task.created
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	// task.label-added (full Task after state with label)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskLabelAdded, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
+	// task.removed (tombstone)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
+
+	st1, err := s.Replay("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st1.Project == nil || st1.Project.Code != "ATM" {
+		t.Fatalf("replay missing project: %+v", st1.Project)
+	}
+	if len(st1.Tasks) != 0 {
+		t.Fatalf("tombstoned task must not be in live set, got %d tasks", len(st1.Tasks))
+	}
+	// Determinism: replay again, identical result.
+	st2, _ := s.Replay("ATM")
+	if len(st2.Tasks) != len(st1.Tasks) || st2.Project.Code != st1.Project.Code {
+		t.Fatalf("non-deterministic replay: %+v vs %+v", st1, st2)
+	}
+}
+
+func TestReplayLabelUpsertedAndRemoved(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "first"}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelRemoved, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
+	st, _ := s.Replay("ATM")
+	for _, l := range st.Labels {
+		if l.Name == "ATM:type:bug" {
+			t.Fatalf("removed label must not be in live registry, got %+v", l)
+		}
+	}
+}
+
+func TestHistoryProjection(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", Title: "other"}))
+	hv := s.History("ATM", Subject{Kind: "task", ID: "ATM-0001"})
+	if len(hv) != 2 {
+		t.Fatalf("history for ATM-0001 len = %d want 2", len(hv))
+	}
+	if hv[0].Action != ActionTaskCreated || hv[1].Action != ActionTaskTitleChanged {
+		t.Fatalf("history actions = %q, %q", hv[0].Action, hv[1].Action)
+	}
+}
