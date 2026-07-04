@@ -797,6 +797,11 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 }
 
 func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("View panicked on short terminal: %v", r)
+		}
+	}()
 	m := newTestModel(t)
 	m.SetSize(50, 8)
 	seedProject(t, m, "ATM", "Acme Task Manager")
@@ -804,11 +809,6 @@ func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
 	body := m.projects.View()
 	mustContain(t, body, "Overview")
 	mustContain(t, body, "Project Summary")
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("View panicked on short terminal: %v", r)
-		}
-	}()
 	_ = m.View()
 }
 
@@ -838,6 +838,38 @@ func TestRenderActivityDensityDeterministic(t *testing.T) {
 	if got != want {
 		t.Fatalf("renderActivityDensity() = %q, want %q", got, want)
 	}
+}
+
+func TestRenderActivityDensityIncludesQuietDaysWithinWindow(t *testing.T) {
+	counts := map[string]int{
+		"2026-07-01": 1,
+		"2026-07-03": 3,
+	}
+	got := renderActivityDensity(counts, 10)
+	want := "░·▒"
+	if got != want {
+		t.Fatalf("renderActivityDensity() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderLabelNamespaceChartShowsOverflowSummary(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	p := newProjectsModel(m)
+	p.SetSize(120, 40)
+	tasks := []*store.Task{
+		{Labels: []string{"ATM:a:one"}},
+		{Labels: []string{"ATM:b:one"}},
+		{Labels: []string{"ATM:c:one"}},
+		{Labels: []string{"ATM:d:one"}},
+		{Labels: []string{"ATM:e:one"}},
+	}
+	lines := p.renderLabelNamespaceChart(tasks, 5)
+	got := strings.Join(lines, "\n")
+	mustContain(t, got, "a")
+	mustContain(t, got, "b")
+	mustContain(t, got, "c")
+	mustContain(t, got, "... 2 more namespaces")
 }
 
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is

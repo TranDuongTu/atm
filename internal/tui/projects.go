@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
@@ -424,8 +425,17 @@ func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines 
 		return append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("no task labels yet")))
 	}
 	maxCount := counts[0].count
+	entryCap := maxLines - 1
+	if entryCap <= 0 {
+		return lines
+	}
+	showOverflow := len(counts) > entryCap && entryCap >= 2
+	visibleCount := entryCap
+	if showOverflow {
+		visibleCount--
+	}
 	for i, nc := range counts {
-		if i >= maxLines-1 {
+		if i >= visibleCount {
 			break
 		}
 		barW := 10
@@ -446,6 +456,10 @@ func (p *projectsModel) renderLabelNamespaceChart(tasks []*store.Task, maxLines 
 		line := fmt.Sprintf("%-10s %s %d", truncateRunes(nc.namespace, 10), bar, nc.count)
 		lines = append(lines, dashboardLine(p.width, line))
 	}
+	if showOverflow {
+		remaining := len(counts) - visibleCount
+		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("... %d more namespaces", remaining)))
+	}
 	return lines
 }
 
@@ -461,19 +475,45 @@ func renderActivityDensity(counts map[string]int, width int) string {
 	if len(counts) == 0 || width <= 0 {
 		return ""
 	}
-	days := make([]string, 0, len(counts))
-	for day := range counts {
-		days = append(days, day)
-	}
-	sort.Strings(days)
-	if len(days) > width {
-		days = days[len(days)-width:]
-	}
+	days := boundedActivityDays(counts, width)
 	var b strings.Builder
 	for _, day := range days {
 		b.WriteString(activityDensityGlyph(counts[day]))
 	}
 	return b.String()
+}
+
+func boundedActivityDays(counts map[string]int, width int) []string {
+	if len(counts) == 0 || width <= 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(counts))
+	for day := range counts {
+		keys = append(keys, day)
+	}
+	sort.Strings(keys)
+	start, err := time.Parse("2006-01-02", keys[0])
+	if err != nil {
+		if len(keys) > width {
+			return keys[len(keys)-width:]
+		}
+		return keys
+	}
+	end, err := time.Parse("2006-01-02", keys[len(keys)-1])
+	if err != nil {
+		if len(keys) > width {
+			return keys[len(keys)-width:]
+		}
+		return keys
+	}
+	if days := int(end.Sub(start).Hours()/24) + 1; days > width {
+		start = end.AddDate(0, 0, -(width - 1))
+	}
+	window := make([]string, 0, width)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		window = append(window, day.Format("2006-01-02"))
+	}
+	return window
 }
 
 func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, bool) {
