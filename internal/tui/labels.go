@@ -25,7 +25,7 @@ func pluralTasks(n int) string {
 var labelSuffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
 
 // openLabelAddForm opens the add-label form bound to the given project code.
-// Used by the Labels tab (Task 8).
+// Used by the Labels pane.
 func (m *Model) openLabelAddForm(code string) {
 	validator := func(field, value string) error {
 		if value == "" {
@@ -95,7 +95,7 @@ func (m *Model) doLabelRemove(vals map[string]string) tea.Cmd {
 	return nil
 }
 
-// --- Labels tab model (Task 8) ---
+// --- Labels pane model ---
 
 type labelsModel struct {
 	m      *Model

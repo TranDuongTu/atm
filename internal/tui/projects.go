@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 )
 
-// projectsModel owns the Projects tab state: list, detail, cursor, selection.
+// projectsModel owns the Projects pane state: list, detail, cursor, selection.
 type projectsModel struct {
 	m      *Model
 	list   []projRow

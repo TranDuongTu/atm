@@ -25,9 +25,9 @@ type formAction int
 const (
 	formNone formAction = iota
 	formProjectCreate
-	formLabelAdd      // Labels tab / task detail: add label (ATM: prefix fixed)
-	formLabelRemove   // Labels tab: remove label (name-only + warning)
-	formLabelDescribe // Labels tab: set description (upsert)
+	formLabelAdd      // Labels pane / task detail: add label (ATM: prefix fixed)
+	formLabelRemove   // Labels pane: remove label (name-only + warning)
+	formLabelDescribe // Labels pane: set description (upsert)
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
@@ -45,9 +45,8 @@ const (
 	confirmRemoveTask
 )
 
-// Model is the root Bubble Tea model for the v2 TUI: four tabs
-// (Projects/Tasks/Labels/Help) sharing a single content area with a tab bar
-// and a status line.
+// Model is the root Bubble Tea model for the v2 TUI: a persistent three-pane
+// workspace (Projects, Tasks, Labels), a help overlay, and a status line.
 type Model struct {
 	store    *store.Store
 	storeSet bool
@@ -397,8 +396,8 @@ func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
 }
 
-// View renders the full screen: tab bar, body, status line, plus any active
-// overlay/form/keymap-overlay.
+// View renders the full screen: workspace, status line, plus any active
+// overlay/form/help overlay.
 func (m *Model) View() string {
 	if m.quitting {
 		return ""
@@ -446,7 +445,7 @@ func (m *Model) renderPane(pane workspacePane, width int, height int, title stri
 	return titledBoxHeight(style, width, title, body, height)
 }
 
-// statusHint returns the tab-specific keymap hint for the status line.
+// statusHint returns the focused-pane keymap hint for the status line.
 func (m *Model) statusHint() string {
 	switch m.focused {
 	case paneProjects:

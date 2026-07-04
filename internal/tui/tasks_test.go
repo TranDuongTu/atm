@@ -128,7 +128,7 @@ func TestTaskCreateWithLabelsField(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s") // select ATM
-	update(t, m, "2") // Tasks tab
+	update(t, m, "2") // Tasks pane
 	update(t, m, "a") // open create form
 	if m.form == nil {
 		t.Fatalf("create form not open")

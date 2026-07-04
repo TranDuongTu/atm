@@ -586,7 +586,7 @@ func TestProjectsListCursorVsSelectionIndependent(t *testing.T) {
 }
 
 // TestProjectDetailNoLabelsSection verifies the project detail no longer
-// renders a LABELS section (label management moved to the Labels tab).
+// renders a LABELS section (label management moved to the Labels pane).
 func TestProjectDetailNoLabelsSection(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
@@ -635,7 +635,7 @@ func TestProjectDetailHistoryToggle(t *testing.T) {
 	}
 }
 
-// --- Step 4: label add/remove forms (moved to Labels tab in Task 8) ---
+// --- Step 4: label add/remove forms (moved to Labels pane) ---
 
 // --- Step 5: tasks flat + grouped ---
 
@@ -646,7 +646,7 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "task one", "ATM:status:open")
 	update(t, m, "s") // select ATM
-	update(t, m, "2") // switch to Tasks tab
+	update(t, m, "2") // focus Tasks pane
 	v := m.View()
 	body := m.tasks.View()
 	if strings.HasPrefix(body, "Tasks\n") {
