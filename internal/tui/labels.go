@@ -98,12 +98,14 @@ func (m *Model) doLabelRemove(vals map[string]string) tea.Cmd {
 // --- Labels pane model ---
 
 type labelsModel struct {
-	m      *Model
-	rows   []labelRow
-	cursor int
-	offset int
-	view   lView
-	detail labelDetailState
+	m             *Model
+	width         int
+	contentHeight int
+	rows          []labelRow
+	cursor        int
+	offset        int
+	view          lView
+	detail        labelDetailState
 }
 
 type lView int
@@ -129,8 +131,14 @@ func newLabelsModel(m *Model) labelsModel {
 }
 
 func (l *labelsModel) SetSize(w, h int) {
-	_ = w
-	_ = h
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	l.width = w
+	l.contentHeight = h
 }
 
 func (l *labelsModel) refresh() {
@@ -257,16 +265,16 @@ func (l *labelsModel) renderList() string {
 			"",
 			l.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects pane to scope this view", l.m.styles.EmptyKey.Render("[s]"))),
 		}
-		return padToHeight(centerLinesBoth(lines, l.m.width, l.m.contentHeight), l.m.contentHeight)
+		return padToHeight(centerLinesBoth(lines, l.width, l.contentHeight), l.contentHeight)
 	}
 	if len(l.rows) == 0 {
-		return padToHeight("no labels", l.m.contentHeight)
+		return padToHeight("no labels", l.contentHeight)
 	}
-	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Overview"))
+	b.WriteString(sectionDivider(l.m.styles, l.width, "Overview"))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Namespaces"))
+	b.WriteString(sectionDivider(l.m.styles, l.width, "Namespaces"))
 	b.WriteString("\n")
 	// Group by namespace.
 	byNS := map[string][]labelRow{}
@@ -288,7 +296,7 @@ func (l *labelsModel) renderList() string {
 	sort.Strings(nsOrder)
 	rowIdx := 0
 	for _, ns := range nsOrder {
-		b.WriteString(dashboardLine(l.m.width, l.m.styles.NamespaceHeader.Render(ns+":")))
+		b.WriteString(dashboardLine(l.width, l.m.styles.NamespaceHeader.Render(ns+":")))
 		b.WriteString("\n")
 		for _, r := range byNS[ns] {
 			desc := r.description
@@ -301,13 +309,13 @@ func (l *labelsModel) renderList() string {
 			} else {
 				line = " " + line
 			}
-			b.WriteString(dashboardLine(l.m.width, line))
+			b.WriteString(dashboardLine(l.width, line))
 			b.WriteString("\n")
 			rowIdx++
 		}
 	}
 	if len(tags) > 0 {
-		b.WriteString(dashboardLine(l.m.width, l.m.styles.NamespaceHeader.Render("tags:")))
+		b.WriteString(dashboardLine(l.width, l.m.styles.NamespaceHeader.Render("tags:")))
 		b.WriteString("\n")
 		for _, r := range tags {
 			desc := r.description
@@ -320,34 +328,34 @@ func (l *labelsModel) renderList() string {
 			} else {
 				line = " " + line
 			}
-			b.WriteString(dashboardLine(l.m.width, line))
+			b.WriteString(dashboardLine(l.width, line))
 			b.WriteString("\n")
 			rowIdx++
 		}
 	}
-	return padToHeight(b.String(), l.m.contentHeight)
+	return padToHeight(b.String(), l.contentHeight)
 }
 
 func (l *labelsModel) renderDetail() string {
 	r := l.detail.row
 	var b strings.Builder
 	fmt.Fprintf(&b, "Label %s\n", r.full)
-	b.WriteString(sepLine("─", 78, l.m.width, 2))
+	b.WriteString(sepLine("─", 78, l.width, 2))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Facts"))
+	b.WriteString(sectionDivider(l.m.styles, l.width, "Facts"))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("name        %s", r.full)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("usage       %d %s", r.usage, pluralTasks(r.usage))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralTasks(r.usage))))
 	desc := r.description
 	if desc == "" {
 		desc = l.m.styles.Warning.Render("needs description")
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.m.width, fmt.Sprintf("description %s", desc)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.m.width, "Actions"))
+	b.WriteString(sectionDivider(l.m.styles, l.width, "Actions"))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(l.m.width, l.m.styles.KeyMenuDim.Render("[d] describe   [l] remove   [Esc] back")))
-	return padToHeight(b.String(), l.m.contentHeight)
+	b.WriteString(dashboardLine(l.width, l.m.styles.KeyMenuDim.Render("[d] describe   [l] remove   [Esc] back")))
+	return padToHeight(b.String(), l.contentHeight)
 }
 
 func (l *labelsModel) statusHint() string {

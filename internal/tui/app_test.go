@@ -154,6 +154,33 @@ func TestDashboardContentUsesPaneWidthWithoutCentering(t *testing.T) {
 	}
 }
 
+func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 36)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+
+	leftW, rightW := splitWorkspaceWidths(m.width)
+	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
+	if got, want := lipgloss.Width(strings.Split(m.projects.View(), "\n")[0]), innerPaneWidth(leftW); got != want {
+		t.Fatalf("projects divider width = %d want pane inner width %d", got, want)
+	}
+	if got, want := lipgloss.Width(strings.Split(m.tasks.View(), "\n")[0]), innerPaneWidth(rightW); got != want {
+		t.Fatalf("tasks divider width = %d want pane inner width %d", got, want)
+	}
+	if got, want := lipgloss.Width(strings.Split(m.labels.View(), "\n")[0]), innerPaneWidth(rightW); got != want {
+		t.Fatalf("labels divider width = %d want pane inner width %d", got, want)
+	}
+	wantPageSize := (innerPaneHeight(tasksH) - 6) / 2
+	if wantPageSize < 1 {
+		wantPageSize = 1
+	}
+	if got, want := m.tasks.pageSize, wantPageSize; got != want {
+		t.Fatalf("tasks pageSize = %d want %d", got, want)
+	}
+	_ = labelsH
+}
+
 // --- Step 1: pane focus ---
 
 func TestPaneFocusKeys(t *testing.T) {
@@ -562,6 +589,7 @@ func TestProjectsListPopulated(t *testing.T) {
 
 func TestProjectDetailDashboardSections(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 50)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "enter")
 	v := m.projects.View()
@@ -775,6 +803,7 @@ func TestTasksGroupedSingleWildcard(t *testing.T) {
 // (mockup Screen 7, two-wildcard case).
 func TestTasksGroupedNestedWildcards(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(160, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "a", "ATM:status:open", "ATM:type:bug")
 	seedTask(t, m, "ATM", "b", "ATM:status:open", "ATM:type:task")
@@ -832,6 +861,7 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 // facts, label chips, and always-visible HISTORY chronological.
 func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(160, 80)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "Fix label reconciliation", "ATM:status:in-progress", "ATM:type:bug")
 	// Add a label after creation to get a second history entry.
@@ -872,6 +902,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 
 func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(160, 50)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "chip task", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
@@ -1008,6 +1039,7 @@ func TestTasksEmptyStateFilterNoMatch(t *testing.T) {
 // bucket renders with all in-scope tasks.
 func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(160, 60)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "task one", "ATM:type:bug")
 	seedTask(t, m, "ATM", "task two", "ATM:status:open")

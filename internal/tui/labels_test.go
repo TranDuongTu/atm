@@ -23,6 +23,7 @@ func TestLabelsTabEmptyStateNoProject(t *testing.T) {
 
 func TestLabelsTabListSeededLabels(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 80)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s") // select ATM
 	update(t, m, "3") // Labels pane
@@ -45,6 +46,7 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 
 func TestLabelsTabCallsOutMissingDescriptions(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 60)
 	seedProject(t, m, "ATM", "Acme")
 	seedLabel(t, m, "ATM:patch:urgent", "")
 	update(t, m, "s")

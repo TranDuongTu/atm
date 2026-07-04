@@ -10,8 +10,10 @@ import (
 )
 
 type tasksModel struct {
-	m    *Model
-	view tView
+	m             *Model
+	width         int
+	contentHeight int
+	view          tView
 
 	// list state (flat + grouped)
 	rows     []taskRow
@@ -92,7 +94,14 @@ func newTasksModel(m *Model) tasksModel {
 }
 
 func (t *tasksModel) SetSize(w, h int) {
-	_ = w
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	t.width = w
+	t.contentHeight = h
 	t.pageSize = (h - 6) / 2 // dashboard header + two-line rows + footer
 	if t.pageSize < 1 {
 		t.pageSize = 1
@@ -405,11 +414,11 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		t.detail.offset = 0
 	case "pgdown", " ":
-		t.detail.offset += t.m.contentHeight / 2
+		t.detail.offset += t.contentHeight / 2
 		t.clampDetail()
 	case "pgup":
-		if t.detail.offset > t.m.contentHeight/2 {
-			t.detail.offset -= t.m.contentHeight / 2
+		if t.detail.offset > t.contentHeight/2 {
+			t.detail.offset -= t.contentHeight / 2
 		} else {
 			t.detail.offset = 0
 		}
@@ -610,61 +619,61 @@ func (t *tasksModel) renderDetail() {
 		return
 	}
 	fmt.Fprintf(&b, "Task %s\n", tk.ID)
-	b.WriteString(sepLine("─", 78, t.m.width, 2))
+	b.WriteString(sepLine("─", 78, t.width, 2))
 	b.WriteString("\n")
 	b.WriteString(t.m.styles.Muted.Render(tk.Title))
 	b.WriteString("\n\n")
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Facts"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Facts"))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("id      %s", tk.ID)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("project %s", tk.ProjectCode)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("title   %s", tk.Title)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("id      %s", tk.ID)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("project %s", tk.ProjectCode)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("title   %s", tk.Title)))
 	if tk.Description == "" {
-		b.WriteString(dashboardLine(t.m.width, "description (none)"))
+		b.WriteString(dashboardLine(t.width, "description (none)"))
 		b.WriteString("\n")
 	} else {
 		for i, line := range strings.Split(tk.Description, "\n") {
 			if i == 0 {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("description %s", line)))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("description %s", line)))
 			} else {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("            %s", line)))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("            %s", line)))
 			}
 		}
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("created %s   by %s", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("updated %s   by %s", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("created %s   by %s", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("updated %s   by %s", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
 	b.WriteString("\n")
 
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Labels"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Labels"))
 	b.WriteString("\n")
 	if len(tk.Labels) == 0 {
-		b.WriteString(dashboardLine(t.m.width, " (no labels)"))
+		b.WriteString(dashboardLine(t.width, " (no labels)"))
 		b.WriteString("\n")
 	} else {
-		chips := renderLabelChips(t.m.styles, tk.Labels, t.m.width-2)
-		b.WriteString(dashboardLine(t.m.width, " "+chips))
+		chips := renderLabelChips(t.m.styles, tk.Labels, t.width-2)
+		b.WriteString(dashboardLine(t.width, " "+chips))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "History"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
 	b.WriteString("\n")
 	for _, h := range tk.History {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
+		fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
 		if len(h.Meta) > 0 {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(t.m.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Actions"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Actions"))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(t.m.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [x] remove   [Esc] back")))
+	b.WriteString(dashboardLine(t.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [x] remove   [Esc] back")))
 	t.detail.lines = strings.Split(b.String(), "\n")
 	t.clampDetail()
 }
 
 func (t *tasksModel) clampDetail() {
-	maxOff := len(t.detail.lines) - t.m.contentHeight
+	maxOff := len(t.detail.lines) - t.contentHeight
 	if maxOff < 0 {
 		maxOff = 0
 	}
@@ -708,9 +717,9 @@ func (t *tasksModel) headerLine() string {
 
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Overview"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Overview"))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(t.m.width, t.m.styles.HeaderLine.Render(t.headerLine())))
+	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLine.Render(t.headerLine())))
 	b.WriteString("\n")
 	b.WriteString("\n")
 
@@ -720,7 +729,7 @@ func (t *tasksModel) renderList() string {
 			"",
 			t.m.styles.EmptyText.Render(fmt.Sprintf("press %s in the Projects pane to scope this view", t.m.styles.EmptyKey.Render("[s]"))),
 		})
-		return padToHeight(b.String(), t.m.contentHeight)
+		return padToHeight(b.String(), t.contentHeight)
 	}
 
 	if t.hasWildcard() {
@@ -728,7 +737,7 @@ func (t *tasksModel) renderList() string {
 	} else {
 		t.renderFlatList(&b)
 	}
-	return padToHeight(b.String(), t.m.contentHeight)
+	return padToHeight(b.String(), t.contentHeight)
 }
 
 // renderEmptyState appends a vertically+horizontally centered empty-state
@@ -736,7 +745,7 @@ func (t *tasksModel) renderList() string {
 // centered within contentHeight-1 to account for the header line already
 // written by the caller.
 func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
-	b.WriteString(centerLinesBoth(lines, t.m.width, t.m.contentHeight-1))
+	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight-1))
 }
 
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
@@ -759,7 +768,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		if len(r.labels) > 0 {
 			labels = strings.Join(r.labels, " ")
 		}
-		titleW := t.m.width - 4
+		titleW := t.width - 4
 		if titleW < 20 {
 			titleW = 20
 		}
@@ -768,22 +777,22 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		if i == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
-		b.WriteString(dashboardLine(t.m.width, line))
+		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
-		b.WriteString(dashboardLine(t.m.width, t.m.styles.Muted.Render(meta)))
+		b.WriteString(dashboardLine(t.width, t.m.styles.Muted.Render(meta)))
 		b.WriteString("\n")
 	}
 	b.WriteString(fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows)))
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
-	b.WriteString(sectionDivider(t.m.styles, t.m.width, "Groups"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Groups"))
 	b.WriteString("\n")
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
 		b.WriteString(centerLinesBoth([]string{
 			t.m.styles.EmptyHead.Render("no labels match wildcard — add labels to tasks"),
-		}, t.m.width, t.m.contentHeight-1))
+		}, t.width, t.contentHeight-1))
 		b.WriteString("\n")
 	}
 	idx := 0
@@ -797,7 +806,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	if idx == t.cursor {
 		header = t.m.styles.RowCursor.Render(header)
 	}
-	b.WriteString(dashboardLine(t.m.width, header))
+	b.WriteString(dashboardLine(t.width, header))
 	b.WriteString("\n")
 	idx++
 	for _, r := range t.others {
@@ -805,7 +814,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		if len(r.labels) > 0 {
 			labels = strings.Join(r.labels, " ")
 		}
-		titleW := t.m.width - 6
+		titleW := t.width - 6
 		if titleW < 20 {
 			titleW = 20
 		}
@@ -816,7 +825,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		if idx == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
-		b.WriteString(dashboardLine(t.m.width, line))
+		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
 		idx++
 	}
@@ -843,7 +852,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 	if idx == t.cursor {
 		header = t.m.styles.RowCursor.Render(header)
 	}
-	b.WriteString(dashboardLine(t.m.width, header))
+	b.WriteString(dashboardLine(t.width, header))
 	b.WriteString("\n")
 	idx++
 	if g.collapsed {
@@ -860,7 +869,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 			if len(r.labels) > 0 {
 				labels = strings.Join(r.labels, " ")
 			}
-			titleW := t.m.width - 6 - len(rowIndent)
+			titleW := t.width - 6 - len(rowIndent)
 			if titleW < 20 {
 				titleW = 20
 			}
@@ -871,7 +880,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 			if idx == t.cursor {
 				line = t.m.styles.RowCursor.Render(line)
 			}
-			b.WriteString(dashboardLine(t.m.width, line))
+			b.WriteString(dashboardLine(t.width, line))
 			b.WriteString("\n")
 			idx++
 		}
@@ -894,7 +903,7 @@ func groupLeafCount(g taskGroup) int {
 }
 
 func (t *tasksModel) renderDetailView() string {
-	end := t.detail.offset + t.m.contentHeight
+	end := t.detail.offset + t.contentHeight
 	if end > len(t.detail.lines) {
 		end = len(t.detail.lines)
 	}
@@ -903,7 +912,7 @@ func (t *tasksModel) renderDetailView() string {
 		b.WriteString(t.detail.lines[i])
 		b.WriteString("\n")
 	}
-	return padToHeight(b.String(), t.m.contentHeight)
+	return padToHeight(b.String(), t.contentHeight)
 }
 
 func (t *tasksModel) pageWindow(total int) (int, int) {

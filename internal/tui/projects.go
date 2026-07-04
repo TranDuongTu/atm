@@ -11,11 +11,13 @@ import (
 
 // projectsModel owns the Projects pane state: list, detail, cursor, selection.
 type projectsModel struct {
-	m      *Model
-	list   []projRow
-	view   pView
-	cursor int
-	detail detailState
+	m             *Model
+	width         int
+	contentHeight int
+	list          []projRow
+	view          pView
+	cursor        int
+	detail        detailState
 
 	// history toggle on project detail.
 	showHistory bool
@@ -50,8 +52,14 @@ func newProjectsModel(m *Model) projectsModel {
 }
 
 func (p *projectsModel) SetSize(w, h int) {
-	_ = w
-	// detail scroll height
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	p.width = w
+	p.contentHeight = h
 	p.detail.offset = 0
 }
 
@@ -173,32 +181,32 @@ func (p *projectsModel) renderDetail() {
 		return
 	}
 	fmt.Fprintf(&b, "Project %s\n", pr.Code)
-	b.WriteString(sepLine("─", 78, p.m.width, 2))
+	b.WriteString(sepLine("─", 78, p.width, 2))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", p.m.styles.Muted.Render(pr.Name))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Facts"))
+	b.WriteString(sectionDivider(p.m.styles, p.width, "Facts"))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("code      %s", pr.Code)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("name      %s", pr.Name)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("tasks     %d", len(listTaskIDs(p.m.store, pr.Code)))))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("labels    %d", len(p.m.store.LabelList(pr.Code, "")))))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("created   %s   by %s", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("updated   %s   by %s", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("code      %s", pr.Code)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("name      %s", pr.Name)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("tasks     %d", len(listTaskIDs(p.m.store, pr.Code)))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("labels    %d", len(p.m.store.LabelList(pr.Code, "")))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("created   %s   by %s", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("updated   %s   by %s", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Actions"))
+	b.WriteString(sectionDivider(p.m.styles, p.width, "Actions"))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.m.width, p.m.styles.KeyMenuDim.Render("[N] set name   [H] history   [x] remove   [Esc] back")))
+	b.WriteString(dashboardLine(p.width, p.m.styles.KeyMenuDim.Render("[N] set name   [H] history   [x] remove   [Esc] back")))
 	b.WriteString("\n")
 
 	if p.detail.historyOn {
 		b.WriteString("\n")
-		b.WriteString(sectionDivider(p.m.styles, p.m.width, "History"))
+		b.WriteString(sectionDivider(p.m.styles, p.width, "History"))
 		b.WriteString("\n")
 		for _, h := range pr.History {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
 			if len(h.Meta) > 0 {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
 			}
 		}
 	}
@@ -208,7 +216,7 @@ func (p *projectsModel) renderDetail() {
 }
 
 func (p *projectsModel) clampDetail() {
-	maxOff := len(p.detail.lines) - p.m.contentHeight
+	maxOff := len(p.detail.lines) - p.contentHeight
 	if maxOff < 0 {
 		maxOff = 0
 	}
@@ -239,13 +247,13 @@ func (p *projectsModel) renderList() string {
 	if selected == "" {
 		selected = "none"
 	}
-	b.WriteString(sectionDivider(p.m.styles, p.m.width, "Overview"))
+	b.WriteString(sectionDivider(p.m.styles, p.width, "Overview"))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.m.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.m.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
+	b.WriteString(dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.m.width, repeat("─", dashboardContentWidth(p.m.width))))
+	b.WriteString(dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
 	b.WriteString("\n")
 	for i, r := range p.list {
 		var gutter string
@@ -261,10 +269,10 @@ func (p *projectsModel) renderList() string {
 		} else {
 			line = gutter + " " + line
 		}
-		b.WriteString(dashboardLine(p.m.width, line))
+		b.WriteString(dashboardLine(p.width, line))
 		b.WriteString("\n")
 	}
-	return padToHeight(b.String(), p.m.contentHeight)
+	return padToHeight(b.String(), p.contentHeight)
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading
@@ -279,11 +287,11 @@ func (p *projectsModel) renderEmpty() string {
 		p.m.styles.EmptyDim.Render("index tasks (start-here, repo:, doc:)"),
 		p.m.styles.EmptyDim.Render("and label as you go"),
 	}
-	return padToHeight(centerLinesBoth(lines, p.m.width, p.m.contentHeight), p.m.contentHeight)
+	return padToHeight(centerLinesBoth(lines, p.width, p.contentHeight), p.contentHeight)
 }
 
 func (p *projectsModel) renderDetailView() string {
-	end := p.detail.offset + p.m.contentHeight
+	end := p.detail.offset + p.contentHeight
 	if end > len(p.detail.lines) {
 		end = len(p.detail.lines)
 	}
@@ -292,7 +300,7 @@ func (p *projectsModel) renderDetailView() string {
 		b.WriteString(p.detail.lines[i])
 		b.WriteString("\n")
 	}
-	return padToHeight(b.String(), p.m.contentHeight)
+	return padToHeight(b.String(), p.contentHeight)
 }
 
 func (p *projectsModel) statusHint() string {
