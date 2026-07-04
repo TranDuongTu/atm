@@ -131,16 +131,22 @@ func leadingSpaces(s string) int {
 func TestDashboardContentUsesPaneWidthWithoutCentering(t *testing.T) {
 	m := newTestModel(t)
 	width := 38
+	if got := dashboardContentWidth(width); got != width {
+		t.Fatalf("dashboardContentWidth(%d) = %d want %d", width, got, width)
+	}
 	line := sectionDivider(m.styles, width, "Overview")
 	if got := leadingSpaces(line); got != 0 {
 		t.Fatalf("divider left padding = %d want 0\nline: %q", got, line)
 	}
-	if got, want := lipgloss.Width(line), dashboardContentWidth(width); got != want {
-		t.Fatalf("divider width = %d want content width %d\nline: %q", got, want, line)
+	if got := lipgloss.Width(line); got != width {
+		t.Fatalf("divider width = %d want pane width %d\nline: %q", got, width, line)
 	}
 	text := dashboardLine(width, "PROJECT: ATM")
 	if got := leadingSpaces(text); got != 0 {
 		t.Fatalf("dashboard line left padding = %d want 0\nline: %q", got, text)
+	}
+	if got := lipgloss.Width(text); got != len("PROJECT: ATM") {
+		t.Fatalf("dashboard line should not pad text, width = %d", got)
 	}
 	block := centerLinesBoth([]string{"no projects"}, width, 1)
 	if got := leadingSpaces(block); got != 0 {

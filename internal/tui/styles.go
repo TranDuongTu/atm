@@ -264,14 +264,7 @@ func dashboardContentWidth(width int) int {
 	if width < 1 {
 		return 1
 	}
-	contentW := width - 4
-	if contentW < 1 {
-		contentW = width
-	}
-	if contentW > 96 {
-		contentW = 96
-	}
-	return contentW
+	return width
 }
 
 func dashboardLeftPad(width int) int {
