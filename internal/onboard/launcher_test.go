@@ -8,7 +8,7 @@ import (
 func TestOpencodeLauncherBuildArgv(t *testing.T) {
 	l := OpencodeLauncher{}
 	got := l.BuildArgv("/tmp/p.md", "ATM onboarding: FOO (FOO-x)")
-	want := []string{"opencode", "run", "-f", "/tmp/p.md", "--auto", "--title", "ATM onboarding: FOO (FOO-x)"}
+	want := []string{"opencode", "run", onboardingMessage, "-f", "/tmp/p.md", "--auto", "--title", "ATM onboarding: FOO (FOO-x)"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("BuildArgv = %v, want %v", got, want)
 	}
@@ -27,7 +27,7 @@ func TestOpencodeLauncherNameAndHint(t *testing.T) {
 func TestOllamaLauncherBuildArgv(t *testing.T) {
 	l := OllamaLauncher{Integration: "opencode"}
 	got := l.BuildArgv("/tmp/p.md", "ATM onboarding: FOO (FOO-x)")
-	want := []string{"ollama", "launch", "opencode", "--", "run", "-f", "/tmp/p.md", "--auto", "--title", "ATM onboarding: FOO (FOO-x)"}
+	want := []string{"ollama", "launch", "opencode", "--", "run", onboardingMessage, "-f", "/tmp/p.md", "--auto", "--title", "ATM onboarding: FOO (FOO-x)"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("BuildArgv = %v, want %v", got, want)
 	}

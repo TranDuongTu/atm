@@ -6,6 +6,7 @@
     "opencode",
     "--",
     "run",
+    "Read the attached prompt file and follow its instructions exactly.",
     "-f",
     "/STORE/onboarding/FOO-RUNID.md",
     "--auto",
