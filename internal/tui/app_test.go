@@ -789,6 +789,19 @@ func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	mustContain(t, body, "░")
 }
 
+func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(80, 20)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
+	update(t, m, "s")
+	body := m.projects.renderSummary(5)
+	mustContain(t, body, "Project Summary")
+	mustContain(t, body, "Labels pie")
+	mustContain(t, body, "Activity")
+	mustContain(t, body, "░")
+}
+
 func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -805,7 +818,7 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	}
 	body := m.projects.View()
 	mustContain(t, body, "select a project to see summaries")
-	mustNotContain(t, body, "Labels by namespace")
+	mustNotContain(t, body, "Labels pie")
 	mustNotContain(t, body, "Activity")
 }
 

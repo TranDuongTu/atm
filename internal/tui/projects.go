@@ -399,6 +399,37 @@ func (p *projectsModel) renderSummary(height int) string {
 	lines = append(lines, dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
 
 	remaining := height - len(lines)
+	if remaining <= 0 {
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 1 {
+		lines = append(lines, dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 2 {
+		activityWidth := dashboardContentWidth(p.width)
+		if activityWidth > 42 {
+			activityWidth = 42
+		}
+		lines = append(lines,
+			dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")),
+			dashboardLine(p.width, p.renderActivityChart(project, tasks, activityWidth)),
+		)
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 3 {
+		activityWidth := dashboardContentWidth(p.width)
+		if activityWidth > 42 {
+			activityWidth = 42
+		}
+		lines = append(lines,
+			dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Labels pie")),
+			dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Activity")),
+			dashboardLine(p.width, p.renderActivityChart(project, tasks, activityWidth)),
+		)
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+
 	labelMax := remaining
 	if remaining > 5 {
 		labelMax = remaining - 4 // reserve Activity + Keywords.
