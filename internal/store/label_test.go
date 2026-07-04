@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestLabelAddValidatesRegexAndProjectPrefix(t *testing.T) {
 	s := newTestStore(t)
@@ -160,5 +163,20 @@ func TestLabelRemoveAppendsTombstone(t *testing.T) {
 }
 
 func TestRebuildRegeneratesLabelsJSON(t *testing.T) {
-	t.Skip("waiting for Rebuild in Task 7")
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	_ = s.LabelAdd("ATM:type:bug", "d", "claude")
+	// Hand-delete labels.json.
+	_ = os.Remove(s.labelsPath())
+	// Rebuild regenerates it from log events across all projects.
+	if _, err := s.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.labelsPath()); os.IsNotExist(err) {
+		t.Fatal("Rebuild did not regenerate labels.json")
+	}
+	l, _ := s.LabelShow("ATM:type:bug")
+	if l.Description != "d" {
+		t.Fatalf("rebuilt label desc = %q want %q", l.Description, "d")
+	}
 }
