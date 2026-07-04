@@ -39,8 +39,9 @@ var Labels = []Label{
 	{"priority:high", "optional prioritization: high"},
 	{"priority:medium", "optional prioritization: medium"},
 	{"priority:low", "optional prioritization: low"},
-	{"context:documentation", "the labeled task contains documentation about the project"},
-	{"context:repository", "the labeled task contains a pointer to a code repository"},
-	{"context:agent", "agent direction when navigating the project; read these to understand how to work in this project"},
-	{"context:fixit", "something on this task should be reviewed, updated, or altered"},
+	{"context:documentation", "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it"},
+	{"context:repository", "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient"},
+	{"context:agent", "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know"},
+	{"context:fixit", "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent"},
+	{"context:question", "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding"},
 }

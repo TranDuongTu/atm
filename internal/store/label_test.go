@@ -74,9 +74,9 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	_ = s.LabelAdd("ATM:custom:a", "", "claude")
 	_ = s.LabelAdd("ATM:custom:b", "", "claude")
 	_ = s.LabelAdd("SCY:custom:a", "", "claude")
-	// ATM has 17 seeded + 2 custom = 19.
-	if got := len(s.LabelList("ATM", "")); got != 19 {
-		t.Fatalf("ATM labels = %d want 19", got)
+	// ATM has 18 seeded + 2 custom = 20.
+	if got := len(s.LabelList("ATM", "")); got != 20 {
+		t.Fatalf("ATM labels = %d want 20", got)
 	}
 	// Filter to the custom namespace.
 	if got := len(s.LabelList("ATM", "custom")); got != 2 {

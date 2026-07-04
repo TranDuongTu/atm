@@ -39,8 +39,20 @@ func TestLabelsDescriptionsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestLabelsCountIs17(t *testing.T) {
-	if len(Labels) != 17 {
-		t.Fatalf("seed.Labels has %d entries, want 17", len(Labels))
+func TestLabelsCountIs18(t *testing.T) {
+	if len(Labels) != 18 {
+		t.Fatalf("seed.Labels has %d entries, want 18", len(Labels))
 	}
+}
+
+func TestContextQuestionLabelPresent(t *testing.T) {
+	for _, l := range Labels {
+		if l.Suffix == "context:question" {
+			if l.Description == "" {
+				t.Errorf("context:question has empty description")
+			}
+			return
+		}
+	}
+	t.Errorf("context:question label not found in seed.Labels")
 }

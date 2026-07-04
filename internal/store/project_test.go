@@ -63,13 +63,13 @@ func newTestStore(t *testing.T) *Store {
 func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
-	// SeedLabels applies all 17 defaults (CreateProject seeding is wired in Task 3).
+	// SeedLabels applies all 18 defaults (CreateProject seeding is wired in Task 3).
 	if err := s.SeedLabels("ATM", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
-	if len(ls) != 17 {
-		t.Fatalf("SeedLabels left %d labels, want 17", len(ls))
+	if len(ls) != 18 {
+		t.Fatalf("SeedLabels left %d labels, want 18", len(ls))
 	}
 	l, _ := s.LabelShow("ATM:context:agent")
 	if l.Description == "" {
@@ -83,8 +83,8 @@ func TestCreateProjectSeedsLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
-	if len(ls) != 17 {
-		t.Fatalf("after CreateProject, ATM has %d labels, want 17 (seeded defaults)", len(ls))
+	if len(ls) != 18 {
+		t.Fatalf("after CreateProject, ATM has %d labels, want 18 (seeded defaults)", len(ls))
 	}
 	// Every seeded label has a non-empty description.
 	for _, l := range ls {

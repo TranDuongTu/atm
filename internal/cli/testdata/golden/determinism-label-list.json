@@ -1,19 +1,23 @@
 {
   "labels": [
     {
-      "description": "agent direction when navigating the project; read these to understand how to work in this project",
+      "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
       "name": "ATM:context:agent"
     },
     {
-      "description": "the labeled task contains documentation about the project",
+      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
       "name": "ATM:context:documentation"
     },
     {
-      "description": "something on this task should be reviewed, updated, or altered",
+      "description": "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent",
       "name": "ATM:context:fixit"
     },
     {
-      "description": "the labeled task contains a pointer to a code repository",
+      "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
+      "name": "ATM:context:question"
+    },
+    {
+      "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
       "name": "ATM:context:repository"
     },
     {
@@ -73,19 +77,23 @@
       "name": "ATM:type:task"
     },
     {
-      "description": "agent direction when navigating the project; read these to understand how to work in this project",
+      "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
       "name": "DEMO:context:agent"
     },
     {
-      "description": "the labeled task contains documentation about the project",
+      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
       "name": "DEMO:context:documentation"
     },
     {
-      "description": "something on this task should be reviewed, updated, or altered",
+      "description": "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent",
       "name": "DEMO:context:fixit"
     },
     {
-      "description": "the labeled task contains a pointer to a code repository",
+      "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
+      "name": "DEMO:context:question"
+    },
+    {
+      "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
       "name": "DEMO:context:repository"
     },
     {
