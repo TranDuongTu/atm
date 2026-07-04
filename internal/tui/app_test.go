@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"atm/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
@@ -609,6 +610,79 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 	mustContain(t, v, "[N] set name")
 	mustContain(t, v, "[H] history")
 	mustContain(t, v, "[x] remove")
+}
+
+func TestProjectPaneSplitHeights(t *testing.T) {
+	listH, summaryH := projectPaneSplitHeights(30)
+	if listH != 9 || summaryH != 21 {
+		t.Fatalf("projectPaneSplitHeights(30) = (%d,%d), want (9,21)", listH, summaryH)
+	}
+	listH, summaryH = projectPaneSplitHeights(3)
+	if listH < 1 || summaryH < 1 || listH+summaryH != 3 {
+		t.Fatalf("projectPaneSplitHeights(3) = (%d,%d), want positive heights summing to 3", listH, summaryH)
+	}
+	listH, summaryH = projectPaneSplitHeights(1)
+	if listH != 1 || summaryH != 0 {
+		t.Fatalf("projectPaneSplitHeights(1) = (%d,%d), want (1,0)", listH, summaryH)
+	}
+}
+
+func TestLabelNamespaceCounts(t *testing.T) {
+	tasks := []*store.Task{
+		{Labels: []string{"ATM:status:open", "ATM:type:bug", "ATM:priority:high", "ATM:urgent"}},
+		{Labels: []string{"ATM:status:done", "ATM:type:bug", "ATM:type:refactor"}},
+		{Labels: []string{"ATM:context:agent"}},
+	}
+	got := labelNamespaceCounts(tasks)
+	want := []namespaceCount{
+		{namespace: "type", count: 3},
+		{namespace: "status", count: 2},
+		{namespace: "context", count: 1},
+		{namespace: "priority", count: 1},
+		{namespace: "tags", count: 1},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("labelNamespaceCounts() = %#v, want %#v", got, want)
+	}
+}
+
+func TestActivityDayCountsIncludesProjectAndTaskHistory(t *testing.T) {
+	mustTime := func(s string) time.Time {
+		t.Helper()
+		ts, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			t.Fatalf("time.Parse(%q): %v", s, err)
+		}
+		return ts
+	}
+	day1 := mustTime("2026-07-01T10:00:00Z")
+	day2 := mustTime("2026-07-02T10:00:00Z")
+	project := &store.Project{
+		History: []store.HistoryEntry{
+			{ID: "h1", Action: "created", Actor: "claude", At: day1},
+			{ID: "h2", Action: "name-changed", Actor: "claude", At: day2},
+		},
+	}
+	tasks := []*store.Task{
+		{History: []store.HistoryEntry{
+			{ID: "h1", Action: "created", Actor: "claude", At: day1},
+			{ID: "h2", Action: "label-added", Actor: "claude", At: day2},
+		}},
+		{History: []store.HistoryEntry{
+			{ID: "h1", Action: "created", Actor: "claude", At: day2},
+		}},
+	}
+	got := activityDayCounts(project, tasks)
+	want := map[string]int{
+		"2026-07-01": 2,
+		"2026-07-02": 3,
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("activityDayCounts() = %#v, want %#v", got, want)
+	}
+	if activityDensityGlyph(0) != "·" || activityDensityGlyph(1) != "░" || activityDensityGlyph(3) != "▒" || activityDensityGlyph(6) != "▓" || activityDensityGlyph(10) != "█" {
+		t.Fatalf("activityDensityGlyph returned unexpected density marks")
+	}
 }
 
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is

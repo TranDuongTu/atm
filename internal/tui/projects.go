@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"atm/internal/store"
@@ -47,8 +48,94 @@ type detailState struct {
 	historyOn bool
 }
 
+type namespaceCount struct {
+	namespace string
+	count     int
+}
+
 func newProjectsModel(m *Model) projectsModel {
 	return projectsModel{m: m}
+}
+
+func projectPaneSplitHeights(total int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if total == 1 {
+		return 1, 0
+	}
+	listH := total * 30 / 100
+	if listH < 1 {
+		listH = 1
+	}
+	summaryH := total - listH
+	if summaryH < 1 {
+		summaryH = 1
+		listH = total - summaryH
+		if listH < 1 {
+			listH = 1
+			summaryH = 0
+		}
+	}
+	return listH, summaryH
+}
+
+func labelNamespaceCounts(tasks []*store.Task) []namespaceCount {
+	counts := map[string]int{}
+	for _, tk := range tasks {
+		for _, label := range tk.Labels {
+			parts := strings.Split(label, ":")
+			ns := "tags"
+			if len(parts) >= 3 {
+				ns = parts[1]
+			}
+			counts[ns]++
+		}
+	}
+	out := make([]namespaceCount, 0, len(counts))
+	for ns, count := range counts {
+		out = append(out, namespaceCount{namespace: ns, count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count == out[j].count {
+			return out[i].namespace < out[j].namespace
+		}
+		return out[i].count > out[j].count
+	})
+	return out
+}
+
+func activityDayCounts(project *store.Project, tasks []*store.Task) map[string]int {
+	counts := map[string]int{}
+	if project != nil {
+		for _, h := range project.History {
+			counts[h.At.UTC().Format("2006-01-02")]++
+		}
+	}
+	for _, tk := range tasks {
+		if tk == nil {
+			continue
+		}
+		for _, h := range tk.History {
+			counts[h.At.UTC().Format("2006-01-02")]++
+		}
+	}
+	return counts
+}
+
+func activityDensityGlyph(count int) string {
+	switch {
+	case count <= 0:
+		return "·"
+	case count <= 2:
+		return "░"
+	case count <= 5:
+		return "▒"
+	case count <= 9:
+		return "▓"
+	default:
+		return "█"
+	}
 }
 
 func (p *projectsModel) SetSize(w, h int) {
