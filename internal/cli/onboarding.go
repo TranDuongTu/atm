@@ -2,6 +2,7 @@ package cli
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -130,6 +131,10 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 		ExistingTasks: snapshot,
 	})
 	if err != nil {
+		if errors.Is(err, onboard.ErrUnknownVersion) {
+			return fmt.Errorf("%w: unknown prompt version %q; available: %s",
+				ErrUsage, version, strings.Join(onboard.Versions(), ", "))
+		}
 		return fmt.Errorf("%w: %v", ErrUsage, err)
 	}
 	if err := os.WriteFile(promptPath, []byte(rendered), 0o644); err != nil {
@@ -148,7 +153,7 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 	before := len(existing)
 	exitCode, runErr := runChild(l, argv)
 	after := len(s.ListTasks(store.QueryFilters{Project: opts.Project}))
-	if err := emitOnboardingTail(st, opts.Project, runID, version, promptPath, before, after, exitCode); err != nil {
+	if err := emitOnboardingTail(st, l.Name(), opts.Project, runID, version, promptPath, before, after, exitCode); err != nil {
 		return err
 	}
 	if runErr != nil {
@@ -191,7 +196,7 @@ func emitOnboardingHeader(st *cliState, launcherName, project, runID, version, p
 	})
 }
 
-func emitOnboardingTail(st *cliState, project, runID, version, promptPath string, before, after, agentExit int) error {
+func emitOnboardingTail(st *cliState, launcherName, project, runID, version, promptPath string, before, after, agentExit int) error {
 	return st.emit(st.stdout(), map[string]any{
 		"run_id":         runID,
 		"project":        project,
@@ -206,7 +211,7 @@ func emitOnboardingTail(st *cliState, project, runID, version, promptPath string
 		fmt.Fprintf(os.Stdout, "  before:  %d tasks\n", before)
 		fmt.Fprintf(os.Stdout, "  after:   %d tasks\n", after)
 		fmt.Fprintf(os.Stdout, "  created: %d   (net)\n", after-before)
-		fmt.Fprintf(os.Stdout, "agent exited %d\n", agentExit)
+		fmt.Fprintf(os.Stdout, "%s exited %d\n", launcherName, agentExit)
 	})
 }
 

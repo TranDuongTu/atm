@@ -14,9 +14,17 @@ var promptOpencodeV1 string
 // A new prompt version = a new prompt_opencode_v<N>.md file + a bump here.
 const Latest = "v1"
 
-// errUnknownVersion is returned by Render when the requested version does not
-// match any embedded prompt asset.
-var errUnknownVersion = errors.New("unknown prompt version")
+// Versions returns the list of embedded prompt versions, in the order they
+// were declared. Used by the CLI to report available versions in the
+// unknown-version error message.
+func Versions() []string {
+	return []string{"v1"}
+}
+
+// ErrUnknownVersion is returned by Render when the requested version does not
+// match any embedded prompt asset. Exported so the CLI can detect it and
+// augment the error message with the available-versions list.
+var ErrUnknownVersion = errors.New("unknown prompt version")
 
 // Data carries the values substituted into the prompt template at render time.
 type Data struct {
@@ -31,7 +39,7 @@ type Data struct {
 
 // Render substitutes the placeholders in the prompt template for the requested
 // version and returns the rendered markdown. Unknown versions return
-// errUnknownVersion (wrapped with the requested version for the CLI to map to
+// ErrUnknownVersion (wrapped with the requested version for the CLI to map to
 // exit 2).
 func Render(version string, data Data) (string, error) {
 	var tmpl string
@@ -39,7 +47,7 @@ func Render(version string, data Data) (string, error) {
 	case "v1":
 		tmpl = promptOpencodeV1
 	default:
-		return "", fmt.Errorf("%w: %q", errUnknownVersion, version)
+		return "", fmt.Errorf("%w: %q", ErrUnknownVersion, version)
 	}
 	if data.ExistingTasks == "" {
 		data.ExistingTasks = "(none)"

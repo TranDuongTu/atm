@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -55,6 +56,44 @@ func TestOnboardingUnknownPromptVersion(t *testing.T) {
 	}
 	got := normalizeOnboardingOutput(stderrStr, h.store.StorePath())
 	compareGolden(t, "onboarding-unknown-prompt-version", got)
+}
+
+// TestOnboardingLauncherNotFound exercises the Launcher-not-on-PATH error
+// path (spec: onboarding-v1-design.md:431-432). It forces PATH to a
+// non-existent directory so exec.LookPath("opencode") fails before any child
+// process spawns. The command runs without --dry-run (dry-run exits before the
+// launch step) and in JSON mode (the harness default) so the error envelope
+// lands on stderr. Exit code is ExitGeneric (1).
+func TestOnboardingLauncherNotFound(t *testing.T) {
+	// exec.LookPath reads PATH at call time; isolating PATH to a directory
+	// that contains no binaries guarantees the not-found branch.
+	t.Setenv("PATH", "/nonexistent")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, stderrStr, code := h.run("onboarding", "opencode", "--project", "FOO")
+	if code != ExitGeneric {
+		t.Fatalf("exit = %d, want %d (generic)", code, ExitGeneric)
+	}
+	got := normalizeOnboardingOutput(stderrStr, h.store.StorePath())
+	compareGolden(t, "onboarding-launcher-not-found", got)
+}
+
+// TestOnboardingTailSummaryJSON drives emitOnboardingTail directly as a pure
+// function (spec: onboarding-v1-design.md:426-430) and asserts the JSON output
+// shape via golden comparison. The tail is not reached via a live child exec
+// because that would require an external launcher; emitOnboardingTail is a
+// same-package helper callable from the test.
+func TestOnboardingTailSummaryJSON(t *testing.T) {
+	st := &cliState{flags: globalFlags{output: outputJSON}}
+	buf := &bytes.Buffer{}
+	st.out = buf
+	if err := emitOnboardingTail(st, "opencode", "FOO", "FOO-RUNID", "v1",
+		"/STORE/onboarding/FOO-RUNID.md", 3, 12, 0); err != nil {
+		t.Fatalf("emitOnboardingTail: %v", err)
+	}
+	got := normalizeOnboardingOutput(buf.String(), "")
+	compareGolden(t, "onboarding-tail-summary", got)
 }
 
 // normalizeOnboardingOutput scrubs run-specific values (run-id, prompt path,
