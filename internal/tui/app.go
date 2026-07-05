@@ -157,8 +157,59 @@ func (m *Model) SetSize(w, h int) {
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
 	m.labels.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
-	m.help.SetSize(w, m.contentHeight)
+	if m.helpOverlay != helpNone {
+		bw, bh := m.helpBoxSize()
+		m.help.SetSize(bw, bh)
+	} else {
+		m.help.SetSize(w, m.contentHeight)
+	}
 	m.help.refresh()
+}
+
+// helpBoxSize returns the outer dimensions of the centered modal that hosts
+// the ?/C reference overlay. It is intentionally larger than the form dialog
+// (~80% of the workspace) so the parity table and conventions text remain
+// readable, while still leaving workspace visible above and below the modal
+// and a small lateral margin on either side.
+func (m *Model) helpBoxSize() (int, int) {
+	const pct = 80
+	bw := m.width * pct / 100
+	// Keep at least 95 cols so the 93-wide parity table fits inside the
+	// border; only go wider (80% of terminal) when the terminal is large.
+	if bw < 95 {
+		bw = 95
+	}
+	if bw > m.width-4 {
+		bw = m.width - 4
+	}
+	if bw < 1 {
+		bw = 1
+	}
+	bh := m.contentHeight * pct / 100
+	if bh > m.contentHeight-2 {
+		bh = m.contentHeight - 2
+	}
+	if bh < 10 {
+		bh = m.contentHeight
+	}
+	if bh < 1 {
+		bh = 1
+	}
+	return bw, bh
+}
+
+// openHelp activates the requested reference overlay and re-sizes the help
+// content to the centered modal box. closeHelp dismisses it.
+func (m *Model) openHelp(kind helpOverlayKind) {
+	m.helpOverlay = kind
+	m.help.mode = kind
+	bw, bh := m.helpBoxSize()
+	m.help.SetSize(bw, bh)
+	m.help.refresh()
+}
+
+func (m *Model) closeHelp() {
+	m.helpOverlay = helpNone
 }
 
 func splitWorkspaceWidths(width int) (int, int) {
@@ -249,10 +300,17 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	}
 
+	// Transient toast: clear on the next key so the user is never locked
+	// behind a notification. A toast set by an action dispatched later in
+	// this same call (e.g. submitForm -> showToast) survives because it is
+	// assigned after this point, then renders until the next key.
+	m.toastMsg = ""
+
 	// Help overlay (? / C) toggles anywhere and consumes the key.
 	if m.helpOverlay != helpNone {
 		if k.String() == "T" {
 			m.cycleTheme()
+			m.help.refresh()
 			return nil
 		}
 		// `?` and `C` toggle their own overlay; Esc closes; the other
@@ -260,24 +318,20 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		switch k.String() {
 		case "?":
 			if m.helpOverlay == helpKeys {
-				m.helpOverlay = helpNone
+				m.closeHelp()
 			} else {
-				m.helpOverlay = helpKeys
-				m.help.mode = helpKeys
-				m.help.refresh()
+				m.openHelp(helpKeys)
 			}
 			return nil
 		case "C":
 			if m.helpOverlay == helpConventions {
-				m.helpOverlay = helpNone
+				m.closeHelp()
 			} else {
-				m.helpOverlay = helpConventions
-				m.help.mode = helpConventions
-				m.help.refresh()
+				m.openHelp(helpConventions)
 			}
 			return nil
 		case "esc":
-			m.helpOverlay = helpNone
+			m.closeHelp()
 			return nil
 		}
 		return m.help.handleKey(k)
@@ -320,14 +374,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.focused = paneLabels
 		return nil
 	case "?":
-		m.helpOverlay = helpKeys
-		m.help.mode = helpKeys
-		m.help.refresh()
+		m.openHelp(helpKeys)
 		return nil
 	case "C":
-		m.helpOverlay = helpConventions
-		m.help.mode = helpConventions
-		m.help.refresh()
+		m.openHelp(helpConventions)
 		return nil
 	case "T":
 		m.cycleTheme()
@@ -430,8 +480,9 @@ func (m *Model) submitForm() tea.Cmd {
 	return nil
 }
 
-// showToast records a transient toast message. Toasts clear on the next
-// non-form/confirm key.
+// showToast records a transient toast message shown inline in the status
+// line. The toast is cleared on the next key press (any key) so the TUI
+// never locks the user out of the workspace behind a notification screen.
 func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
 }
@@ -443,36 +494,27 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	// Help overlays are a clean full-body replacement: render the reference
-	// content as the workspace body, then the status line beneath. The
-	// underlying panes do NOT show through (avoiding the corrupted
-	// char-overlay look when the reference box is nearly fullscreen).
-	if m.helpOverlay != helpNone {
-		body := m.renderHelpBody()
-		var b strings.Builder
-		b.WriteString(body)
-		b.WriteString("\n")
-		b.WriteString(m.renderStatusLine())
-		return b.String()
-	}
-
 	var b strings.Builder
 	b.WriteString(m.renderWorkspace())
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
-	// Overlay layers (form, confirm) render on top of the body via
-	// lipgloss Place. We re-render the body+chrome then place the overlay.
+	// Overlay layers (help, form, confirm) render on top of the body via
+	// placeOverlay: the workspace stays visible on the rows above and below
+	// each modal, while the modal's own rows are blank-filled either side
+	// (see overlayLineAt) so underlying pane borders do not leak through.
 	out := b.String()
+	if m.helpOverlay != helpNone {
+		out = m.placeOverlay(out, m.renderHelpOverlay())
+	}
 	if m.form != nil && m.form.Active {
 		out = m.placeOverlay(out, m.form.View(m.styles))
 	}
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
 	}
-	if m.toastMsg != "" {
-		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
-	}
+	// Toasts render inline in the status line (see renderStatusLine), not as
+	// a full-screen overlay, so the workspace stays interactive underneath.
 	return out
 }
 
@@ -509,18 +551,18 @@ func (m *Model) statusHint() string {
 	return "[?]keys [C]conventions"
 }
 
-// renderHelpBody renders the active help overlay as a bordered box sized to
-// the workspace area (status line kept beneath it). The box height equals
-// contentHeight so the result composes cleanly with the status line. We use
-// DialogBody (no Border/Padding) so titledBoxHeight's manual border chars are
-// the only frame — Dialog itself carries a lipgloss Border which would
+// renderHelpOverlay renders the active reference overlay as a centered,
+// larger-than-form modal box (see helpBoxSize), placed on top of the
+// workspace via placeOverlay. We use DialogBody (no Border/Padding) so
+// titledBoxHeight's manual border chars are the only frame — Dialog would
 // double-frame the content.
-func (m *Model) renderHelpBody() string {
+func (m *Model) renderHelpOverlay() string {
 	title := "Help - Keys"
 	if m.helpOverlay == helpConventions {
 		title = "Help - Conventions"
 	}
-	return titledBoxHeight(m.styles.DialogBody, m.width, title, m.help.View(), m.contentHeight)
+	bw, bh := m.helpBoxSize()
+	return titledBoxHeight(m.styles.DialogBody, bw, title, m.help.View(), bh)
 }
 
 func (m *Model) renderStatusLine() string {
@@ -532,6 +574,9 @@ func (m *Model) renderStatusLine() string {
 	parts = append(parts, m.styles.StatusLabel.Render("theme: ")+m.styles.Status.Render(string(m.themeName)))
 	hint := m.statusHint()
 	parts = append(parts, m.styles.KeyMenu.Render(hint))
+	if m.toastMsg != "" {
+		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
+	}
 	actor := "actor: " + m.actorOr()
 	// Right-align the actor segment.
 	left := strings.Join(parts, "  ")
@@ -564,13 +609,18 @@ func shortenPath(p string, maxW int) string {
 }
 
 // placeOverlay centers `overlay` over `base` (top-half vertical, centered
-// horizontal). The base is kept visible underneath (no opaque backdrop fill —
-// the form's own border frames it).
+// horizontal). The entire backdrop is dimmed with a `░` shade (OverlayBackdrop
+// style) — every row the modal does not occupy is replaced with a full-width
+// dim row, and the columns either side of the modal on its own rows get the
+// same dim fill. The overlay's own border frames the modal content. This gives
+// the documented "modal on a dimmed workspace" look: the workspace shapes
+// are still readable through the shade, but the modal reads unambiguously as
+// the focused surface.
 func (m *Model) placeOverlay(base, overlay string) string {
-	return overlayLines(base, overlay, m.width, m.height)
+	return m.overlayLines(base, overlay, m.width, m.height)
 }
 
-func overlayLines(base, overlay string, width, height int) string {
+func (m *Model) overlayLines(base, overlay string, width, height int) string {
 	baseLines := strings.Split(base, "\n")
 	for len(baseLines) < height {
 		baseLines = append(baseLines, spaces(width))
@@ -579,10 +629,10 @@ func overlayLines(base, overlay string, width, height int) string {
 		baseLines = baseLines[:height]
 	}
 
-	overlayLines := strings.Split(overlay, "\n")
-	overlayH := len(overlayLines)
+	overlayRows := strings.Split(overlay, "\n")
+	overlayH := len(overlayRows)
 	overlayW := 0
-	for _, line := range overlayLines {
+	for _, line := range overlayRows {
 		if w := lipgloss.Width(line); w > overlayW {
 			overlayW = w
 		}
@@ -595,44 +645,41 @@ func overlayLines(base, overlay string, width, height int) string {
 	if y < 0 {
 		y = 0
 	}
-	for i, overlayLine := range overlayLines {
-		target := y + i
-		if target < 0 || target >= len(baseLines) {
+	fullBackdrop := m.styles.OverlayBackdrop.Render(strings.Repeat("░", width))
+	for i := range baseLines {
+		// Rows outside the modal rectangle get the full dim backdrop.
+		if i < y || i >= y+overlayH {
+			baseLines[i] = fullBackdrop
 			continue
 		}
-		baseLines[target] = overlayLineAt(baseLines[target], overlayLine, x, width)
+		baseLines[i] = m.overlayLineAt(overlayRows[i-y], x, width)
 	}
 	return strings.Join(baseLines, "\n")
 }
 
-func overlayLineAt(baseLine, overlayLine string, x, width int) string {
-	plainPrefix := fitLine(baseLine, x)
-	if lipgloss.Width(plainPrefix) < x {
-		plainPrefix += spaces(x - lipgloss.Width(plainPrefix))
+// overlayLineAt composes a single modal row: the modal line sits at column x,
+// columns either side are filled with the dim `░` shade (OverlayBackdrop).
+// Dimming (rather than blanking) the side columns avoids the "modal-stripe
+// over a bright workspace" look while still covering the pane borders that
+// previously leaked through and read as shifted-to-the-right.
+func (m *Model) overlayLineAt(overlayLine string, x, width int) string {
+	maxW := width - x
+	if maxW < 0 {
+		maxW = 0
 	}
-	remaining := width - x - lipgloss.Width(overlayLine)
-	if remaining < 0 {
-		remaining = 0
+	trimmed := fitLine(overlayLine, maxW)
+	ow := lipgloss.Width(trimmed)
+	backdrop := m.styles.OverlayBackdrop.Render(strings.Repeat("░", x))
+	suffixW := width - x - ow
+	if suffixW < 0 {
+		suffixW = 0
 	}
-	suffixStart := x + lipgloss.Width(overlayLine)
-	suffix := ""
-	if lipgloss.Width(baseLine) > suffixStart {
-		suffix = fitLineFrom(baseLine, suffixStart, remaining)
-	}
-	line := plainPrefix + overlayLine + suffix
-	if lipgloss.Width(line) < width {
-		line += spaces(width - lipgloss.Width(line))
+	suffix := m.styles.OverlayBackdrop.Render(strings.Repeat("░", suffixW))
+	line := backdrop + trimmed + suffix
+	if lw := lipgloss.Width(line); lw < width {
+		line += spaces(width - lw)
 	}
 	return line
-}
-
-// placeToast puts the toast near the bottom, above the status line.
-func (m *Model) placeToast(base, toast string) string {
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Bottom,
-		toast,
-		lipgloss.WithWhitespaceChars(" "),
-	)
 }
 
 // renderConfirm renders the destructive-action confirm overlay.

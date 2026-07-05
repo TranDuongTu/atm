@@ -532,7 +532,11 @@ func TestProjectCreateFormNoActor(t *testing.T) {
 	}
 }
 
-func TestOverlayPreservesUnderlyingScreen(t *testing.T) {
+// TestOverlayRendersDimmedBackdropWithModal verifies the create-project form
+// renders as a centered modal over a dimmed `░` backdrop: the modal content is
+// present, the backdrop shade is present, and the underlying workspace text
+// is replaced by the dim shade (not visible through the modal).
+func TestOverlayRendersDimmedBackdropWithModal(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	base := m.View()
@@ -540,8 +544,8 @@ func TestOverlayPreservesUnderlyingScreen(t *testing.T) {
 	update(t, m, "a")
 	withOverlay := m.View()
 	mustContain(t, withOverlay, "New project")
-	mustContain(t, withOverlay, "Projects")
-	mustContain(t, withOverlay, "total projects: 1")
+	mustContain(t, withOverlay, "░")
+	mustNotContain(t, withOverlay, "Acme Task Manager")
 }
 
 // --- Step 3: projects list + detail ---
@@ -1410,7 +1414,10 @@ func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
 	}
 }
 
-func TestFormOverlayRendersAboveWorkspace(t *testing.T) {
+// TestFormOverlayRendersAsModalOverDimmedBackdrop verifies the form overlay
+// covers the workspace with a dim `░` backdrop on every row the modal does
+// not occupy, and the modal content stays readable on top.
+func TestFormOverlayRendersAsModalOverDimmedBackdrop(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
 	seedProject(t, m, "ATM", "Acme Task Manager")
@@ -1420,8 +1427,10 @@ func TestFormOverlayRendersAboveWorkspace(t *testing.T) {
 	update(t, m, "a")
 	withOverlay := m.View()
 	mustContain(t, withOverlay, "New project")
-	mustContain(t, withOverlay, "[1] Projects")
-	mustContain(t, withOverlay, "[2] Tasks")
+	mustContain(t, withOverlay, "░")
+	// Underlying pane titles are replaced by the dim backdrop, not visible.
+	mustNotContain(t, withOverlay, "[1] Projects")
+	mustNotContain(t, withOverlay, "[2] Tasks")
 }
 
 func TestTaskFilterEditingKeepsPriorityOverFocusKeys(t *testing.T) {
