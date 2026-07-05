@@ -650,7 +650,7 @@ func (t *tasksModel) renderDetail() {
 	b.WriteString("\n")
 	b.WriteString(t.m.styles.Muted.Render(tk.Title))
 	b.WriteString("\n\n")
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Facts"))
+	b.WriteString(sectionCaption(t.m.styles, t.width, "FACTS"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("id      %s", tk.ID)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("project %s", tk.ProjectCode)))
@@ -671,7 +671,7 @@ func (t *tasksModel) renderDetail() {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("updated %s   by %s", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
 	b.WriteString("\n")
 
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Labels"))
+	b.WriteString(sectionCaption(t.m.styles, t.width, "LABELS"))
 	b.WriteString("\n")
 	if len(tk.Labels) == 0 {
 		b.WriteString(dashboardLine(t.width, " (no labels)"))
@@ -683,7 +683,7 @@ func (t *tasksModel) renderDetail() {
 	}
 	b.WriteString("\n")
 
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Comments"))
+	b.WriteString(sectionCaption(t.m.styles, t.width, "COMMENTS"))
 	b.WriteString("\n")
 	cs, _ := t.m.store.ListComments(tk.ID)
 	if len(cs) == 0 {
@@ -706,11 +706,6 @@ func (t *tasksModel) renderDetail() {
 			}
 		}
 	}
-	b.WriteString("\n")
-
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Actions"))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(t.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [M] add comment   [H] history   [x] remove   [Esc] back")))
 	t.detail.lines = strings.Split(b.String(), "\n")
 	t.clampDetail()
 }

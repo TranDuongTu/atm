@@ -1350,17 +1350,18 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	// behind the [H] overlay.
 	v := m.tasks.View()
 	mustContain(t, v, "Task ATM-0001")
-	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "FACTS")
 	mustContain(t, v, "id      ATM-0001")
 	mustContain(t, v, "project ATM")
 	mustContain(t, v, "title   Fix label reconciliation")
-	mustContain(t, v, "─ Labels ─")
+	mustContain(t, v, "LABELS")
 	mustContain(t, v, "ATM:status:in-progress")
 	mustContain(t, v, "ATM:type:bug")
 	mustContain(t, v, "ATM:priority:high")
-	mustContain(t, v, "─ Actions ─")
-	mustContain(t, v, "[e] edit title")
-	mustContain(t, v, "[b] add label")
+	mustNotContain(t, v, "Actions")
+	hint := m.tasks.statusHint()
+	mustContain(t, hint, "[e]title")
+	mustContain(t, hint, "[b]add label")
 	if strings.Contains(v, "task.created") {
 		t.Fatalf("history must be hidden behind [H] overlay by default, found task.created:\n%s", v)
 	}
@@ -1394,7 +1395,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	}
 	v = m.tasks.View()
 	mustContain(t, v, "Task ATM-0001")
-	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "FACTS")
 }
 
 func TestTaskDetailLabelsRenderAsChips(t *testing.T) {

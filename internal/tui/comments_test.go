@@ -18,7 +18,7 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	m.SetSize(240, 70)
 	m.tasks.openDetail(tk.ID)
 	view := m.tasks.View()
-	if !strings.Contains(view, "Comments") {
+	if !strings.Contains(view, "COMMENTS") {
 		t.Fatalf("missing Comments section:\n%s", view)
 	}
 	if !strings.Contains(view, "agent") {
@@ -33,11 +33,12 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	if !strings.Contains(view, "second reply") {
 		t.Fatalf("missing second comment body:\n%s", view)
 	}
-	if !strings.Contains(view, "[M] add comment") {
-		t.Fatalf("missing [M] hint:\n%s", view)
+	hint := m.tasks.statusHint()
+	if !strings.Contains(hint, "[M]comment") {
+		t.Fatalf("missing [M] hint: %s", hint)
 	}
-	if !strings.Contains(view, "[H] history") {
-		t.Fatalf("missing [H] hint:\n%s", view)
+	if !strings.Contains(hint, "[H]history") {
+		t.Fatalf("missing [H] hint: %s", hint)
 	}
 }
 
@@ -201,7 +202,7 @@ func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
 	}
 	// The detail-mode facts must NOT be visible while the history overlay
 	// is open (the overlay replaces the detail view).
-	if strings.Contains(view, "─ Facts ─") {
+	if strings.Contains(view, "FACTS") {
 		t.Fatalf("history overlay should hide task detail facts, but found them:\n%s", view)
 	}
 
@@ -211,7 +212,7 @@ func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
 		t.Fatal("Esc should have closed the history overlay")
 	}
 	view = m.tasks.View()
-	if !strings.Contains(view, "─ Facts ─") {
+	if !strings.Contains(view, "FACTS") {
 		t.Fatalf("detail facts should reappear after closing history overlay:\n%s", view)
 	}
 }
