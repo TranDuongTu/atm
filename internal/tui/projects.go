@@ -3,10 +3,14 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"atm/internal/store"
+	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // projectsModel owns the Projects pane state: list, detail, cursor, selection.
@@ -47,8 +51,126 @@ type detailState struct {
 	historyOn bool
 }
 
+type actorActivityRow struct {
+	actor   string
+	count   int
+	percent int
+}
+
+type activityStripeDay struct {
+	day   string
+	count int
+}
+
 func newProjectsModel(m *Model) projectsModel {
 	return projectsModel{m: m}
+}
+
+func projectPaneSplitHeights(total int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if total == 1 {
+		return 1, 0
+	}
+	listH := total * 30 / 100
+	if listH < 1 {
+		listH = 1
+	}
+	summaryH := total - listH
+	if summaryH < 1 {
+		summaryH = 1
+		listH = total - summaryH
+		if listH < 1 {
+			listH = 1
+			summaryH = 0
+		}
+	}
+	return listH, summaryH
+}
+
+func actorActivityRows(entries []store.LogEntry, limit int) []actorActivityRow {
+	if limit <= 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	total := 0
+	for _, e := range entries {
+		if e.Actor == "" {
+			continue
+		}
+		counts[e.Actor]++
+		total++
+	}
+	out := make([]actorActivityRow, 0, len(counts))
+	for actor, count := range counts {
+		out = append(out, actorActivityRow{actor: actor, count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count == out[j].count {
+			return out[i].actor < out[j].actor
+		}
+		return out[i].count > out[j].count
+	})
+	if len(out) > limit {
+		visible := limit - 1
+		if visible < 0 {
+			visible = 0
+		}
+		otherCount := 0
+		for _, row := range out[visible:] {
+			otherCount += row.count
+		}
+		out = out[:visible]
+		out = append(out, actorActivityRow{actor: "others", count: otherCount})
+	}
+	for i := range out {
+		if total > 0 {
+			out[i].percent = (out[i].count*100 + total/2) / total
+		}
+	}
+	return out
+}
+
+func activityStripeDayCounts(entries []store.LogEntry, days int) []activityStripeDay {
+	return activityStripeDayCountsEnding(entries, days, store.Now())
+}
+
+func activityStripeDayCountsEnding(entries []store.LogEntry, days int, end time.Time) []activityStripeDay {
+	if days <= 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	for _, e := range entries {
+		if e.At.IsZero() {
+			continue
+		}
+		day := e.At.UTC().Format("2006-01-02")
+		counts[day]++
+	}
+	end = end.UTC()
+	start := end.AddDate(0, 0, -(days - 1))
+	out := make([]activityStripeDay, 0, days)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		key := day.Format("2006-01-02")
+		out = append(out, activityStripeDay{day: key, count: counts[key]})
+	}
+	return out
+}
+
+func activityDensityGlyph(count int) string {
+	switch {
+	case count <= 0:
+		return "·"
+	case count <= 2:
+		return "░"
+	case count <= 5:
+		return "▒"
+	case count <= 9:
+		return "▓"
+	default:
+		return "█"
+	}
 }
 
 func (p *projectsModel) SetSize(w, h int) {
@@ -242,40 +364,464 @@ func (p *projectsModel) View() string {
 }
 
 func (p *projectsModel) renderList() string {
-	var b strings.Builder
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
+	listH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	var parts []string
+	if listH > 0 {
+		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
+	}
+	if summaryH > 0 {
+		parts = append(parts, padToHeight(p.renderSummary(summaryH), summaryH))
+	}
+	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
+}
+
+func (p *projectsModel) renderListRows(maxRows int) string {
+	var b strings.Builder
 	selected := p.m.projectScope
 	if selected == "" {
 		selected = "none"
 	}
-	b.WriteString(sectionDivider(p.m.styles, p.width, "Overview"))
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", sectionDivider(p.m.styles, p.width, "Overview"))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
+
+	availableRows := maxRows - 4
+	if availableRows < 0 {
+		availableRows = 0
+	}
+	overflow := len(p.list) > availableRows
+	if overflow && availableRows > 0 {
+		availableRows--
+	}
 	for i, r := range p.list {
+		if i >= availableRows {
+			remaining := len(p.list) - i
+			if remaining > 0 && overflow && availableRows > 0 {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("... %d more projects", remaining))))
+			}
+			break
+		}
 		var gutter string
 		if r.code == p.m.projectScope {
 			gutter = p.m.styles.GutterSelect.Render("▸")
 		} else {
 			gutter = " "
 		}
-		// build cell line
 		line := fmt.Sprintf(" %-5s %-30s %6d %7d %10s", r.code, truncateRunes(r.name, 30), r.tasks, r.labels, r.updated)
 		if i == p.cursor {
 			line = gutter + " " + p.m.styles.RowCursor.Render(line)
 		} else {
 			line = gutter + " " + line
 		}
-		b.WriteString(dashboardLine(p.width, line))
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
 	}
-	return padToHeight(b.String(), p.contentHeight)
+	return b.String()
+}
+
+func (p *projectsModel) renderSummary(height int) string {
+	lines := []string{sectionDivider(p.m.styles, p.width, "Project Summary")}
+	if p.m.projectScope == "" {
+		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	project, tasks, entries, ok := p.projectSummaryData()
+	if !ok {
+		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	lines = append(lines, dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+
+	remaining := height - len(lines)
+	if remaining <= 0 {
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 1 {
+		lines = append(lines, dashboardLine(p.width, "activity by actor"))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 2 {
+		lines = append(lines, p.renderActorActivityChart(entries, 2)...)
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if remaining == 3 {
+		lines = append(lines, p.renderActorActivityChart(entries, 2)...)
+		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("activity stripe %s", p.renderActivityStripeChart(entries, 2))))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+
+	if remaining >= 9 {
+		actorH, stripeH, bubblesH := chartBoxHeights(remaining)
+		lines = append(lines, p.renderActorActivityChart(entries, actorH)...)
+		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
+		lines = append(lines, strings.Split(p.renderBubbleChart(bubblesH), "\n")...)
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+
+	actorMax := remaining
+	if remaining > 6 {
+		actorMax = remaining - 4
+	} else if remaining > 3 {
+		actorMax = remaining - 2
+	}
+	if actorMax > 0 {
+		lines = append(lines, p.renderActorActivityChart(entries, actorMax)...)
+	}
+	if height-len(lines) >= 2 {
+		lines = append(lines,
+			dashboardLine(p.width, "activity stripe"),
+			dashboardLine(p.width, p.renderActivityStripeChart(entries, 2)),
+		)
+	}
+	return padToHeight(strings.Join(lines, "\n"), height)
+}
+
+func chartBoxHeights(total int) (int, int, int) {
+	if total < 9 {
+		return total, 0, 0
+	}
+	actor := total / 3
+	stripe := total / 3
+	bubbles := total - actor - stripe
+	if actor < 3 {
+		actor = 3
+	}
+	if stripe < 3 {
+		stripe = 3
+	}
+	if bubbles < 3 {
+		bubbles = 3
+	}
+	return actor, stripe, bubbles
+}
+
+func (p *projectsModel) renderActorActivityChart(entries []store.LogEntry, maxLines int) []string {
+	if maxLines <= 0 {
+		return nil
+	}
+	if maxLines < 3 {
+		return []string{dashboardLine(p.width, "activity by actor")}
+	}
+	entryCap := maxLines - 2
+	if entryCap <= 0 {
+		return []string{dashboardLine(p.width, "activity by actor")}
+	}
+	if entryCap > 10 {
+		entryCap = 10
+	}
+	rows := actorActivityRows(entries, entryCap)
+	body := []string{}
+	if len(rows) == 0 {
+		body = append(body, p.m.styles.Muted.Render("no activity yet"))
+		return strings.Split(p.renderChartBox("activity by actor", strings.Join(body, "\n"), 3), "\n")
+	}
+	for i, row := range rows {
+		if i >= entryCap {
+			break
+		}
+		nameW := longestActorNameWidth(rows)
+		meterW := chartBoxInnerWidth(p.width) - nameW - 10
+		if meterW < 10 {
+			meterW = 10
+		}
+		line := fmt.Sprintf("%-*s %s %3d%% %d", nameW, row.actor, meterBar(row.percent, meterW), row.percent, row.count)
+		body = append(body, line)
+	}
+	return strings.Split(p.renderChartBox("activity by actor", strings.Join(body, "\n"), maxLines), "\n")
+}
+
+func longestActorNameWidth(rows []actorActivityRow) int {
+	width := 0
+	for _, row := range rows {
+		if w := lipgloss.Width(row.actor); w > width {
+			width = w
+		}
+	}
+	return width
+}
+
+func (p *projectsModel) renderActivityStripeChart(entries []store.LogEntry, bodyHeight int) string {
+	days := activityStripeDayCounts(entries, 7)
+	if len(days) == 0 {
+		return p.m.styles.Muted.Render("no activity yet")
+	}
+	return renderActivityStripeCanvas(days, chartBoxInnerWidth(p.width), bodyHeight)
+}
+
+func renderActivityStripe(days []activityStripeDay) string {
+	if len(days) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, day := range days {
+		b.WriteString(activityDensityGlyph(day.count))
+	}
+	return b.String()
+}
+
+func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...int) string {
+	if len(days) == 0 || width <= 0 {
+		return ""
+	}
+	height := 2
+	if len(heights) > 0 && heights[0] > 0 {
+		height = heights[0]
+	}
+	if height < 2 {
+		height = 2
+	}
+	axisH := 1
+	bodyH := height - axisH
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	gap := 1
+	cellW := (width - (len(days)-1)*gap) / len(days)
+	if cellW < 1 {
+		cellW = 1
+	}
+	if cellW > 10 {
+		cellW = 10
+	}
+	canvasW := cellW*len(days) + (len(days)-1)*gap
+	c := canvas.New(canvasW, height)
+	for i, day := range days {
+		x0 := i * (cellW + gap)
+		r := activityCanvasRune(day.count)
+		style := activityCanvasStyle(day.count)
+		for x := 0; x < cellW; x++ {
+			for y := 0; y < bodyH-1; y++ {
+				c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: y}, r, style)
+			}
+			c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: bodyH - 1}, emptyBarRune(day.count), style)
+		}
+	}
+	axis := activityStripeAxis(canvasW, cellW, len(days), gap)
+	c.SetStringWithStyle(canvas.Point{X: 0, Y: height - 1}, axis, lipgloss.NewStyle().Foreground(lipgloss.Color("244")))
+	return c.View()
+}
+
+func emptyBarRune(count int) rune {
+	if count <= 0 {
+		return '▁'
+	}
+	return activityCanvasRune(count)
+}
+
+func activityStripeAxis(width, cellW, days, gap int) string {
+	if width <= 0 {
+		return ""
+	}
+	left := "7d ago"
+	mid := "Yesterday"
+	right := "Today"
+	line := []rune(repeat(" ", width))
+	put := func(label string, pos int) {
+		if pos < 0 {
+			pos = 0
+		}
+		if pos+len([]rune(label)) > width {
+			pos = width - len([]rune(label))
+		}
+		if pos < 0 {
+			return
+		}
+		for i, r := range label {
+			line[pos+i] = r
+		}
+	}
+	put(left, 0)
+	if days >= 6 {
+		yesterdayX := (days - 2) * (cellW + gap)
+		put(mid, yesterdayX)
+	}
+	put(right, width-len([]rune(right)))
+	return string(line)
+}
+
+func activityCanvasStyle(count int) lipgloss.Style {
+	switch {
+	case count <= 0:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	case count <= 2:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	case count <= 5:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	}
+}
+
+func activityCanvasRune(count int) rune {
+	switch {
+	case count <= 0:
+		return '·'
+	case count <= 2:
+		return '▂'
+	case count <= 5:
+		return '▅'
+	default:
+		return '█'
+	}
+}
+
+func renderSampleBubbleCanvas(width int, heights ...int) string {
+	if width < 18 {
+		width = 18
+	}
+	height := 3
+	if len(heights) > 0 && heights[0] > 0 {
+		height = heights[0]
+	}
+	if height < 3 {
+		height = 3
+	}
+	c := canvas.New(width, height)
+	labels := []struct {
+		text string
+		x    int
+		y    int
+		s    lipgloss.Style
+	}{
+		{"(events)", 2, 0, lipgloss.NewStyle().Foreground(lipgloss.Color("39"))},
+		{"((agents))", width/2 - 5, height / 2, lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)},
+		{"(tasks)", 4, height - 1, lipgloss.NewStyle().Foreground(lipgloss.Color("82"))},
+		{"labels", width - 10, 0, lipgloss.NewStyle().Foreground(lipgloss.Color("171"))},
+	}
+	for _, label := range labels {
+		if label.x < 0 {
+			label.x = 0
+		}
+		if label.y < 0 {
+			label.y = 0
+		}
+		if label.y >= height {
+			label.y = height - 1
+		}
+		c.SetStringWithStyle(canvas.Point{X: label.x, Y: label.y}, label.text, label.s)
+	}
+	return c.View()
+}
+
+func (p *projectsModel) renderBubbleChart(maxLines int) string {
+	if maxLines < 3 {
+		return dashboardLine(p.width, "bubbles")
+	}
+	return p.renderChartBox("bubbles", renderSampleBubbleCanvas(chartBoxInnerWidth(p.width), maxLines-2), maxLines)
+}
+
+func chartBoxWidth(width int) int {
+	if width <= 8 {
+		return width
+	}
+	w := width * 96 / 100
+	if w < 18 {
+		w = width
+	}
+	if w > width {
+		w = width
+	}
+	return w
+}
+
+func chartBoxInnerWidth(width int) int {
+	w := chartBoxWidth(width) - 2
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+func (p *projectsModel) renderChartBox(title, body string, maxLines int) string {
+	boxW := chartBoxWidth(p.width)
+	if boxW < 3 || maxLines < 3 {
+		return dashboardLine(p.width, title)
+	}
+	innerW := boxW - 2
+	bodyLines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if len(bodyLines) == 1 && bodyLines[0] == "" {
+		bodyLines = []string{""}
+	}
+	innerH := maxLines - 2
+	if len(bodyLines) > innerH {
+		bodyLines = bodyLines[:innerH]
+	}
+	topPad := 0
+	if len(bodyLines) < innerH {
+		topPad = (innerH - len(bodyLines)) / 2
+	}
+	for i := 0; i < topPad; i++ {
+		bodyLines = append([]string{""}, bodyLines...)
+	}
+	for len(bodyLines) < innerH {
+		bodyLines = append(bodyLines, "")
+	}
+	border := p.m.styles.Muted
+	content := p.m.styles.Body
+	label := " " + title + " "
+	if lipgloss.Width(label) > innerW {
+		label = fitLine(label, innerW)
+	}
+	topFill := innerW - lipgloss.Width(label)
+	if topFill < 0 {
+		topFill = 0
+	}
+	top := border.Render("╭" + label + repeat("─", topFill) + "╮")
+	bottom := border.Render("╰" + repeat("─", innerW) + "╯")
+	out := []string{top}
+	for _, line := range bodyLines {
+		fit := fitLine(line, innerW)
+		leftPad := 0
+		if lipgloss.Width(fit) < innerW {
+			leftPad = (innerW - lipgloss.Width(fit)) / 2
+		}
+		fit = spaces(leftPad) + fit
+		pad := innerW - lipgloss.Width(fit)
+		if pad < 0 {
+			pad = 0
+		}
+		out = append(out, border.Render("│")+content.Render(fit)+spaces(pad)+border.Render("│"))
+	}
+	out = append(out, bottom)
+	prefix := spaces((p.width - boxW) / 2)
+	for i := range out {
+		out[i] = dashboardLine(p.width, prefix+out[i])
+	}
+	return strings.Join(out, "\n")
+}
+
+func meterBar(percent int, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	filled := (percent*width + 99) / 100
+	if percent <= 0 {
+		filled = 0
+	}
+	if filled > width {
+		filled = width
+	}
+	return repeat("█", filled) + repeat("░", width-filled)
+}
+
+func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []store.LogEntry, bool) {
+	code := p.m.projectScope
+	if code == "" {
+		return nil, nil, nil, false
+	}
+	project, err := p.m.store.GetProject(code)
+	if err != nil {
+		return nil, nil, nil, false
+	}
+	tasks := p.m.store.ListTasks(store.QueryFilters{Project: code})
+	entries, err := p.m.store.ReadLog(code)
+	if err != nil && !store.IsIntegrity(err) {
+		return nil, nil, nil, false
+	}
+	return project, tasks, entries, true
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading

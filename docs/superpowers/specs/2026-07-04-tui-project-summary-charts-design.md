@@ -1,6 +1,7 @@
 # ATM TUI Project Summary Charts — Design Spec
 
-**Status:** Approved from user feedback on the three-pane workspace.
+**Status:** Approved from user feedback on the three-pane workspace; revised
+2026-07-05 after the audit-log/event-sourcing merge.
 **Scope:** Follow-on refinement for the Projects pane in the v2 Bubble Tea TUI.
 
 ## Driver
@@ -23,10 +24,12 @@ model.
 - Put the summary region below the project list, taking roughly 70 percent of
   the Projects pane body height.
 - Render summaries only when a project is selected.
+- Render chart content inside large centered boxes that occupy the summary
+  region's remaining height.
 - Add three summary chart areas:
-  - task label usage by label namespace
-  - project activity over time from project and task history
-  - keyword bubbles placeholder for a future agent integration
+  - activities by actor from the selected project's audit log
+  - one-week project activity stripe from the selected project's audit log
+  - sample keyword bubbles placeholder for a future agent integration
 - Keep the charts terminal-friendly, bounded, and non-interactive in this
   iteration.
 - Keep implementation in the TUI layer using existing store reads.
@@ -58,17 +61,22 @@ Inside the Projects pane body, list mode splits vertically:
 │ ▸ ATM  Agent Tasks   12     18       │
 ├──────────────────────────────────────┤
 │ ─ Project Summary ─                  │  roughly 70%
-│ Labels by namespace                  │
-│ status      ███████  8               │
-│ type        █████    5               │
-│ priority    ███      3               │
+│ ╭ activity by actor ───────────────╮ │
+│ │ claude   ███████████████ 62% 18 │ │
+│ │ codex    ████████        31%  9 │ │
+│ │ others   ██               7%  2 │ │
+│ ╰──────────────────────────────────╯ │
 │                                      │
-│ Activity                             │
-│ ░ ░ ▒ ▓ █ ░ ▒ ░ ░ ▓ ▒ ░             │
+│ ╭ activity stripe ─────────────────╮ │
+│ │ ▁▁▁▁ ▂▂▂▂ ▅▅▅▅ ▁▁▁▁ ▁▁▁▁ ████ ▁▁▁▁ │ │
+│ │ 7d ago                  Yesterday Today │ │
+│ ╰──────────────────────────────────╯ │
 │                                      │
-│ Keywords                             │
-│ agent-generated keyword bubbles      │
-│ pending                              │
+│ ╭ bubbles ─────────────────────────╮ │
+│ │ (events)                  labels │ │
+│ │          ((agents))              │ │
+│ │    (tasks)                       │ │
+│ ╰──────────────────────────────────╯ │
 └──────────────────────────────────────┘
 ```
 
@@ -97,67 +105,71 @@ the Tasks and Labels panes.
 - Removing the selected project clears `projectScope`; the summary region
   returns to the empty state.
 
-## Chart 1: Labels By Namespace
+## Chart 1: Activities By Actor
 
-The first chart summarizes task label usage by namespace for the selected
-project. It does not render each concrete label as a separate slice.
+The first chart summarizes audit-log activity by actor for the selected
+project. Activity is defined as the number of project log events carried by
+that actor. Every `store.LogEntry` returned by `Store.ReadLog(<CODE>)`
+contributes one activity to its `Actor`.
 
-For a label named `<CODE>:<namespace>:<value>`, the namespace is the middle
-segment. For a tag label named `<CODE>:<tag>`, the namespace bucket is `tags`.
-Counts are computed from labels actually attached to tasks in the selected
-project, not from registry labels alone.
+Rows are sorted by activity count descending, then actor name ascending for
+ties. The chart renders at most 10 actor rows. If more than 10 actors are
+present, the final row is `others`, aggregating all actors after the first 9.
 
-Counting is multi-membership:
+Each row should feel like a compact btop CPU meter: actor name, horizontal bar,
+percentage of total activity, and raw count. It renders inside a large centered
+box titled `activity by actor`; the title is quieter and less prominent than a
+section divider. The box is approximately 95 percent of the Projects pane
+width, uses a dim gray border, and centers chart content inside the available
+box space. Actor names are displayed in full. Bars use color through Lip Gloss
+styling.
 
-- A task with `ATM:status:open` and `ATM:type:bug` contributes one count to
-  `status` and one count to `type`.
-- A task with two labels in the same namespace contributes two counts to that
-  namespace. This intentionally surfaces high label density and inconsistent
-  duplicate namespace use rather than hiding it.
+If the selected project has no log entries or no actor-bearing entries, the
+chart renders an empty state instead of blank space.
 
-The chart should render as a compact text bar or pie-like summary. Exact visual
-encoding is implementation detail, but it must show namespace names and counts
-and fit within the Projects pane width.
+## Chart 2: Activity Stripe
 
-If the selected project has no tasks or no task labels, the chart renders an
-empty state instead of blank space.
+The second chart shows selected-project activity intensity across one week.
+It uses all audit-log events for the selected project, across all actors, and
+renders inside a large centered box titled `activity stripe`.
 
-## Chart 2: Activity Over Time
+Events are bucketed by UTC date. The stripe renders seven distinct calendar day
+bars ending today, so the rightmost bar is always `Today` even when today has no
+activity. The x-axis labels only the first, sixth, and seventh bars:
+`7d ago`, `Yesterday`, and `Today`; the middle unlabeled bars are intentionally
+omitted to reduce clutter. More events produce a stronger density mark for that
+day; zero-activity days render as an empty/low bar rather than disappearing. The
+renderer uses
+`github.com/NimbleMarkets/ntcharts/canvas` so the stripe is a small chart block
+rather than a raw one-line glyph string. Example glyph progression: `▁`, `▂`,
+`▅`, `█`.
 
-The second chart shows selected-project activity over time in a style similar to
-a GitHub contribution chart. It is a visual density indicator, not an exact
-audit report.
+The chart is a visual density indicator, not an exact audit report. It should
+communicate whether the selected project has been quiet, steady, or recently
+active.
 
-Input events include:
+If there are no log entries, the chart renders seven empty/low bars ending
+today rather than a blank chart.
 
-- every history entry on the selected project
-- every history entry on every task in the selected project
+## Chart 3: Sample Bubbles Placeholder
 
-Events are bucketed by date. The display may choose daily or coarser buckets
-depending on available width; the requirement is that more events produce a
-visibly stronger density mark for that bucket. Example glyph progression:
-`·`, `░`, `▒`, `▓`, `█`.
-
-The chart should be deterministic for a fixed store state. It does not need to
-show exact numeric labels for every bucket, and it does not need to perfectly
-match GitHub's week grid. It should communicate whether the selected project
-has been quiet, steady, or recently active.
-
-If there are no history entries, the chart renders an empty state.
-
-## Chart 3: Keyword Bubbles Placeholder
-
-The third chart is a placeholder for future agent-generated project keywords.
-It should render only when a project is selected and should make the deferred
-state explicit, for example:
+The third chart is a placeholder for future agent-generated project bubbles.
+It renders only when a project is selected and shows deterministic sample
+bubbles such as `events`, `agents`, `tasks`, and `labels` inside a large
+centered box titled `bubbles`. Bubble labels use distinct colors.
 
 ```text
-Keywords
-agent-generated keyword bubbles pending
+╭ bubbles ─────────╮
+│ (events) labels  │
+│    ((agents))    │
+│  (tasks)         │
+╰──────────────────╯
 ```
 
 No agent is invoked. No keyword extraction runs locally. No cache file or store
-field is added.
+field is added. The placeholder uses `github.com/NimbleMarkets/ntcharts/canvas`
+so the future integration can replace the static labels with real weighted
+terms without changing the chart container.
 
 A future design may add an agent integration that digests current project data
 and returns keyword bubbles. This spec only reserves the visual slot and keeps
@@ -172,8 +184,9 @@ should compute chart data from existing store data:
 
 - selected project code from `Model.projectScope`
 - tasks from `Store.ListTasks(store.QueryFilters{Project: code})`
-- project history from `Store.GetProject(code)`
-- task labels and task history from the returned tasks
+- project metadata from `Store.GetProject(code)`
+- project activity events from `Store.ReadLog(code)`
+- chart drawing primitives from `github.com/NimbleMarkets/ntcharts/canvas`
 
 No new store methods are required unless implementation reveals a small
 read-only helper that clearly belongs in `internal/store`. The default direction
@@ -182,9 +195,10 @@ is to keep this as TUI aggregation.
 Pure helper functions are preferred for:
 
 - splitting the Projects pane list and summary heights
-- aggregating label namespace counts
-- collecting and bucketing activity history
+- aggregating audit-log entries by actor
+- collecting and bucketing audit-log entries into the one-week stripe
 - rendering density glyphs from bucket counts
+- drawing sample bubbles with deterministic placeholder labels
 
 This keeps chart behavior testable without relying on full-screen ANSI
 snapshots.
@@ -200,6 +214,11 @@ section dividers, muted text, dashboard lines, truncation helpers, and stable
 height padding. It should not introduce a new visual theme or dominate the
 right-side Tasks and Labels panes.
 
+The three chart boxes should consume all remaining summary height after the
+summary title and project context lines. On normal terminal heights, the space
+is split across actor activity, activity stripe, and bubbles. On very short
+terminals, rendering may gracefully degrade to compact labels/inline charts.
+
 The Projects status hint does not need new keys because charts are
 non-interactive. Existing list keys remain valid.
 
@@ -210,9 +229,9 @@ height to show all three charts, the summary region should render as many chart
 lines as fit in priority order:
 
 1. chart section title / selected project context
-2. label namespace chart
-3. activity chart
-4. keyword placeholder
+2. activities by actor chart
+3. activity stripe chart
+4. bubbles placeholder
 
 If a selected project cannot be loaded, the summary region should render a
 short error-like empty state and avoid interrupting the rest of the TUI render.
@@ -227,12 +246,14 @@ Implementation must add or update tests for:
   70 percent summary on normal terminal sizes.
 - No project selected renders the summary empty state.
 - Selecting a project renders all three chart sections.
-- Label namespace aggregation counts task labels by namespace, not by concrete
-  label value.
-- Tag labels are counted under `tags`.
-- Activity aggregation includes both project history and task history.
+- Activity-by-actor aggregation counts project log events by actor.
+- Activity-by-actor aggregation sorts by count and folds extra actors into
+  `others` when more than 10 actors are present.
+- Activity stripe renders exactly seven bars ending today and labels only
+  `7d ago`, `Yesterday`, and `Today`.
 - Activity density rendering is deterministic for fixed bucket counts.
-- Keyword chart renders as a placeholder and does not invoke an agent.
+- Bubbles chart renders deterministic sample placeholders and does not invoke
+  an agent.
 - Project detail mode uses the full Projects pane body and does not render
   summary charts.
 - Narrow and short terminal sizes render without panic.
