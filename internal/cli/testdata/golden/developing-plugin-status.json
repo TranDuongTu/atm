@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "agent": "codex",
+      "path": "/HOME/.codex/plugins/atm-developing",
+      "state": "missing"
+    }
+  ]
+}

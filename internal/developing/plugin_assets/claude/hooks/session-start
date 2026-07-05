@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${ATM_ROLE:-}" != "developing" ] || [ -z "${ATM_PROJECT:-}" ]; then
+  printf '{}\n'
+  exit 0
+fi
+
+escape_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+context="This is an ATM developing session for project ${ATM_PROJECT}. Use ATM as the visible work ledger. Use ${ATM_BIN:-atm} for ATM commands. Find or create a relevant task before substantial feature, design, spec, bug, chore, or investigation work. Record intentions, progress, decisions, test results, commit references, blockers, and handoff notes as task comments. Follow repo instructions, existing skills, harness rules, tool permissions, and user directions first; ATM records the work, it does not replace the workflow. More context: ${ATM_CONTEXT_FILE:-}"
+escaped="$(escape_json "$context")"
+
+printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"

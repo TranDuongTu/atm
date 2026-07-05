@@ -1,0 +1,18 @@
+{
+  "name": "atm-developing",
+  "version": "0.1.0",
+  "description": "Session bootstrap and skill for ATM developing sessions",
+  "author": {
+    "name": "ATM"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ATM Developing",
+    "shortDescription": "Use ATM tasks and comments as a development ledger",
+    "longDescription": "Adds a small ATM developing reminder when Codex is launched by atm developing.",
+    "developerName": "ATM",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": ["Use ATM as the work ledger for this development session."]
+  }
+}

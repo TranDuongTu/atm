@@ -1,0 +1,8 @@
+{
+  "name": "atm-developing",
+  "description": "Session bootstrap for ATM developing sessions",
+  "version": "0.1.0",
+  "author": {
+    "name": "ATM"
+  }
+}
