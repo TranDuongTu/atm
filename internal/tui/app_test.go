@@ -1325,6 +1325,8 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	update(t, m, "2")
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
+	// History is hidden behind [H] by default; open it.
+	update(t, m, "H")
 	v := m.tasks.View()
 	mustContain(t, v, "Task ATM-0001")
 	mustContain(t, v, "─ Facts ─")

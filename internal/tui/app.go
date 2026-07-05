@@ -40,9 +40,13 @@ const (
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
-	formTaskLabelAdd    // task detail: add label
-	formTaskLabelRemove // task detail: remove label
-	formProjectSetName  // project detail: set name
+	formTaskLabelAdd       // task detail: add label
+	formTaskLabelRemove    // task detail: remove label
+	formProjectSetName     // project detail: set name
+	formCommentAdd         // task detail: add comment
+	formCommentSetBody     // comment detail: edit body
+	formCommentLabelAdd    // comment detail: add label
+	formCommentLabelRemove // comment detail: remove label
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -52,6 +56,7 @@ const (
 	confirmNone confirmAction = iota
 	confirmRemoveProject
 	confirmRemoveTask
+	confirmRemoveComment
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent three-pane
@@ -476,7 +481,46 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doTaskLabelAdd(vals)
 	case formTaskLabelRemove:
 		return m.doTaskLabelRemove(vals)
+	case formCommentAdd:
+		return m.doCommentAdd(vals)
+	case formCommentSetBody:
+		return m.doCommentSetBody(vals)
+	case formCommentLabelAdd:
+		return m.doCommentLabelAdd(vals)
+	case formCommentLabelRemove:
+		return m.doCommentLabelRemove(vals)
 	}
+	return nil
+}
+
+func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
+	taskID := m.tasks.detail.id
+	body := vals["body"]
+	var labels []string
+	for _, tok := range strings.Fields(vals["labels"]) {
+		labels = append(labels, m.projectScope+":"+tok)
+	}
+	replyTo := vals["reply-to"]
+	c, err := m.store.CreateComment(taskID, body, labels, replyTo, m.actor)
+	if err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	_ = c
+	m.refreshAll()
+	m.tasks.openDetail(taskID)
+	return nil
+}
+
+func (m *Model) doCommentSetBody(vals map[string]string) tea.Cmd {
+	return nil
+}
+
+func (m *Model) doCommentLabelAdd(vals map[string]string) tea.Cmd {
+	return nil
+}
+
+func (m *Model) doCommentLabelRemove(vals map[string]string) tea.Cmd {
 	return nil
 }
 

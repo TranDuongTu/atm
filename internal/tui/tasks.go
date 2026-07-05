@@ -83,10 +83,11 @@ type taskGroup struct {
 }
 
 type taskDetailState struct {
-	id     string
-	task   *store.Task
-	lines  []string
-	offset int
+	id          string
+	task        *store.Task
+	lines       []string
+	offset      int
+	historyOpen bool
 }
 
 func newTasksModel(m *Model) tasksModel {
@@ -432,6 +433,11 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		t.openLabelRemoveForm()
 	case "x":
 		return t.requestRemoveTask()
+	case "M":
+		t.openCommentAddForm()
+	case "H":
+		t.detail.historyOpen = !t.detail.historyOpen
+		t.renderDetail()
 	}
 	return nil
 }
@@ -656,21 +662,48 @@ func (t *tasksModel) renderDetail() {
 	}
 	b.WriteString("\n")
 
-	b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
+	b.WriteString(sectionDivider(t.m.styles, t.width, "Comments"))
 	b.WriteString("\n")
-	hv := t.m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
-	if len(hv) == 0 {
-		b.WriteString(dashboardLine(t.width, " (no history)"))
+	cs, _ := t.m.store.ListComments(tk.ID)
+	if len(cs) == 0 {
+		b.WriteString(dashboardLine(t.width, " (no comments)"))
 		b.WriteString("\n")
 	} else {
-		for _, e := range hv {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+		for _, c := range cs {
+			labels := "(no labels)"
+			if len(c.Labels) > 0 {
+				labels = strings.Join(c.Labels, " ")
+			}
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf(" %s   %s   %s", c.CreatedBy, relTime(c.CreatedAt, store.Now()), truncateRunes(labels, 36))))
+			bodyLines := strings.Split(c.Body, "\n")
+			maxLines := 6
+			for i := 0; i < len(bodyLines) && i < maxLines; i++ {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("     %s", bodyLines[i])))
+			}
+			if len(bodyLines) > maxLines {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, "     …"))
+			}
 		}
 	}
 	b.WriteString("\n")
+
+	if t.detail.historyOpen {
+		b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
+		b.WriteString("\n")
+		hv := t.m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
+		if len(hv) == 0 {
+			b.WriteString(dashboardLine(t.width, " (no history)"))
+			b.WriteString("\n")
+		} else {
+			for _, e := range hv {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+			}
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString(sectionDivider(t.m.styles, t.width, "Actions"))
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(t.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [x] remove   [Esc] back")))
+	b.WriteString(dashboardLine(t.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [M] add comment   [H] history   [x] remove   [Esc] back")))
 	t.detail.lines = strings.Split(b.String(), "\n")
 	t.clampDetail()
 }
@@ -1053,6 +1086,33 @@ func (t *tasksModel) requestRemoveTask() tea.Cmd {
 	t.m.confirmMsg = fmt.Sprintf("Remove task %s?", t.detail.id)
 	t.m.confirmArg = "History is lost. Registry labels are unaffected."
 	return nil
+}
+
+func (t *tasksModel) openCommentAddForm() {
+	tk := t.detail.task
+	if tk == nil {
+		return
+	}
+	labelsValidator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		for _, tok := range strings.Fields(value) {
+			if !labelSuffixRe.MatchString(tok) {
+				return fmt.Errorf("bad label %q: use <namespace>:<value> or <tag>", tok)
+			}
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "body", Required: true, Hint: "comment body (free-form prose)"},
+		{Label: "labels", Required: false, Hint: "space-separated suffixes, e.g. 'comment:open-question' (prefix auto-added)", Validator: labelsValidator},
+		{Label: "reply-to", Required: false, Hint: "optional comment id this replies to (same task)"},
+	}
+	f := NewForm("New comment  "+tk.ID+":", fields)
+	f.Title = "New comment  " + tk.ID + ":"
+	t.m.form = f
+	t.m.formKind = formCommentAdd
 }
 
 // --- mutations ---
