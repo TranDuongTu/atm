@@ -249,6 +249,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	}
 
+	// Transient toast: clear on the next key so the user is never locked
+	// behind a notification. A toast set by an action dispatched later in
+	// this same call (e.g. submitForm -> showToast) survives because it is
+	// assigned after this point, then renders until the next key.
+	m.toastMsg = ""
+
 	// Help overlay (? / C) toggles anywhere and consumes the key.
 	if m.helpOverlay != helpNone {
 		if k.String() == "T" {
@@ -430,8 +436,9 @@ func (m *Model) submitForm() tea.Cmd {
 	return nil
 }
 
-// showToast records a transient toast message. Toasts clear on the next
-// non-form/confirm key.
+// showToast records a transient toast message shown inline in the status
+// line. The toast is cleared on the next key press (any key) so the TUI
+// never locks the user out of the workspace behind a notification screen.
 func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
 }
@@ -470,9 +477,8 @@ func (m *Model) View() string {
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
 	}
-	if m.toastMsg != "" {
-		out = m.placeToast(out, m.styles.Toast.Render(" "+m.toastMsg+" "))
-	}
+	// Toasts render inline in the status line (see renderStatusLine), not as
+	// a full-screen overlay, so the workspace stays interactive underneath.
 	return out
 }
 
@@ -532,6 +538,9 @@ func (m *Model) renderStatusLine() string {
 	parts = append(parts, m.styles.StatusLabel.Render("theme: ")+m.styles.Status.Render(string(m.themeName)))
 	hint := m.statusHint()
 	parts = append(parts, m.styles.KeyMenu.Render(hint))
+	if m.toastMsg != "" {
+		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
+	}
 	actor := "actor: " + m.actorOr()
 	// Right-align the actor segment.
 	left := strings.Join(parts, "  ")
@@ -626,14 +635,7 @@ func overlayLineAt(baseLine, overlayLine string, x, width int) string {
 	return line
 }
 
-// placeToast puts the toast near the bottom, above the status line.
-func (m *Model) placeToast(base, toast string) string {
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Bottom,
-		toast,
-		lipgloss.WithWhitespaceChars(" "),
-	)
-}
+
 
 // renderConfirm renders the destructive-action confirm overlay.
 func (m *Model) renderConfirm() string {
