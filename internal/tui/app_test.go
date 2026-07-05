@@ -698,13 +698,14 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 	update(t, m, "enter")
 	v := m.projects.View()
 	mustContain(t, v, "Project ATM")
-	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "FACTS")
 	mustContain(t, v, "code")
 	mustContain(t, v, "tasks")
-	mustContain(t, v, "─ Actions ─")
-	mustContain(t, v, "[N] set name")
-	mustContain(t, v, "[H] history")
-	mustContain(t, v, "[x] remove")
+	mustNotContain(t, v, "Actions")
+	hint := m.projects.statusHint()
+	mustContain(t, hint, "[N]name")
+	mustContain(t, hint, "[H]history")
+	mustContain(t, hint, "[x]remove")
 }
 
 func TestProjectPaneSplitHeights(t *testing.T) {
@@ -1137,7 +1138,7 @@ func TestProjectDetailHistoryToggle(t *testing.T) {
 		t.Errorf("after H: detail.historyOn = false want true")
 	}
 	v = m.View()
-	mustContain(t, v, "History")
+	mustContain(t, v, "HISTORY")
 	// Press H again to toggle off.
 	update(t, m, "H")
 	if m.projects.detail.historyOn {

@@ -307,7 +307,7 @@ func (p *projectsModel) renderDetail() {
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", p.m.styles.Muted.Render(pr.Name))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(p.m.styles, p.width, "Facts"))
+	b.WriteString(sectionCaption(p.m.styles, p.width, "FACTS"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("code      %s", pr.Code)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("name      %s", pr.Name)))
@@ -315,15 +315,10 @@ func (p *projectsModel) renderDetail() {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("labels    %d", len(p.m.store.LabelList(pr.Code, "")))))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("created   %s   by %s", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("updated   %s   by %s", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
-	b.WriteString("\n")
-	b.WriteString(sectionDivider(p.m.styles, p.width, "Actions"))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(p.width, p.m.styles.KeyMenuDim.Render("[N] set name   [H] history   [x] remove   [Esc] back")))
-	b.WriteString("\n")
 
 	if p.detail.historyOn {
 		b.WriteString("\n")
-		b.WriteString(sectionDivider(p.m.styles, p.width, "History"))
+		b.WriteString(sectionCaption(p.m.styles, p.width, "HISTORY"))
 		b.WriteString("\n")
 		hv := p.m.store.History(p.detail.code, store.Subject{Kind: "project", Code: p.detail.code})
 		if len(hv) == 0 {
@@ -421,7 +416,7 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 }
 
 func (p *projectsModel) renderSummary(height int) string {
-	lines := []string{sectionDivider(p.m.styles, p.width, "Project Summary")}
+	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Project Summary"))}
 	if p.m.projectScope == "" {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
 		return padToHeight(strings.Join(lines, "\n"), height)
