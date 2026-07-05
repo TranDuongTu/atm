@@ -13,31 +13,43 @@ type helpModel struct {
 	mode   helpOverlayKind
 	lines  []string
 	offset int
+	// width and height are the outer dims of the box the help content is
+	// being rendered for (either the full workspace when no overlay is open,
+	// or the smaller centered modal when ?/C is active). refresh() wraps
+	// content to width-2 (the manual titledBox border consumes the 2),
+	// and View() exposes height-2 lines of scrolling content.
+	width, height int
 }
 
 func newHelpModel(m *Model) helpModel {
-	return helpModel{m: m, mode: helpKeys}
+	return helpModel{m: m, mode: helpKeys, width: m.width, height: m.contentHeight}
 }
 
 func (h *helpModel) SetSize(w, hh int) {
-	_ = w
-	_ = hh
+	if w < 1 {
+		w = 1
+	}
+	if hh < 1 {
+		hh = 1
+	}
+	h.width = w
+	h.height = hh
 }
 
 func (h *helpModel) refresh() {
 	switch h.mode {
 	case helpConventions:
-		h.lines = strings.Split(renderConventionsText(h.m.styles, h.m.width, conventionsTextTUI), "\n")
+		h.lines = strings.Split(renderConventionsText(h.m.styles, h.width, conventionsTextTUI), "\n")
 	default:
 		h.mode = helpKeys
 		var b strings.Builder
-		b.WriteString(sectionDivider(h.m.styles, h.m.width, "CLI / TUI Parity"))
+		b.WriteString(sectionDivider(h.m.styles, h.width, "CLI / TUI Parity"))
 		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.m.width, parityTable))
+		b.WriteString(dashboardBlock(h.width, parityTable))
 		b.WriteString("\n\n")
-		b.WriteString(sectionDivider(h.m.styles, h.m.width, "Global Keymap"))
+		b.WriteString(sectionDivider(h.m.styles, h.width, "Global Keymap"))
 		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.m.width, keymapTable()))
+		b.WriteString(dashboardBlock(h.width, keymapTable()))
 		h.lines = strings.Split(b.String(), "\n")
 	}
 	h.clampOffset()
@@ -96,7 +108,11 @@ func isNumberedItem(line string) bool {
 }
 
 func (h *helpModel) clampOffset() {
-	maxOff := len(h.lines) - h.m.contentHeight
+	innerH := h.height - 2
+	if innerH < 1 {
+		innerH = 1
+	}
+	maxOff := len(h.lines) - innerH
 	if maxOff < 0 {
 		maxOff = 0
 	}
@@ -133,7 +149,11 @@ func (h *helpModel) handleKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (h *helpModel) View() string {
-	end := h.offset + h.m.contentHeight
+	innerH := h.height - 2
+	if innerH < 1 {
+		innerH = 1
+	}
+	end := h.offset + innerH
 	if end > len(h.lines) {
 		end = len(h.lines)
 	}
@@ -142,7 +162,7 @@ func (h *helpModel) View() string {
 		b.WriteString(h.lines[i])
 		b.WriteString("\n")
 	}
-	return padToHeight(b.String(), h.m.contentHeight)
+	return padToHeight(b.String(), innerH)
 }
 
 // parityTable is the verbatim CLI/TUI parity table from mockup Screen 10.
