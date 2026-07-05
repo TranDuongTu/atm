@@ -7,7 +7,8 @@
       "atm task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
       "atm task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
       "atm task list --project <CODE> --label <CODE>:status:open — get open work",
-      "atm store log <CODE> — read the project's append-only audit log to observe recent activity"
+      "atm store log <CODE> — read the project's append-only audit log to observe recent activity",
+      "atm task comment list --task <ID> — read the running narrative on a task before acting on it"
     ],
     "code_of_conduct": [
       "Read before you write. Run atm label list --project <CODE> and read every label's description before introducing any new label.",
@@ -22,6 +23,7 @@
       "create the project (Add in the Projects tab); project create auto-seeds the default labels with descriptions",
       "create seed index tasks (context:agent, context:repository, context:documentation) and initial work tasks, labeling as you go"
     ],
+    "how_to_narrate_progress": "Comments are the running narrative on a task: a clarification, an implementation PR/commit reference, a bug detected by QA, an open question, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with atm task comment add --task <ID> --body <text> --label <CODE>:<kind>. The label is the classification (ATM:comment:clarification, ATM:comment:implementation, ATM:comment:qa-bug, ATM:comment:open-question, ATM:comment:design-doc — advisory; the store treats these like any other label). Comments support --reply-to <COMMENT-ID> for threading within the same task. Edit a comment's body with atm task comment set-body; remove one with atm task comment remove.",
     "how_to_read_a_task_and_its_labels": "A task is read as: its title (one line of intent), its description (the running narrative), and its labels (the faceted classification). The labels are the query surface; the description is the working memory. A context:agent task's description holds agent directions for this project. A context:repository task points at a repo to read. A context:documentation task points at a doc to read. status:open means not done; status:in-progress means someone is on it; status:done means stop. Labels are advisory — nothing in the store enforces them, but reading them is how you understand a task without re-reading its whole history.",
     "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:type:bug is open bugs.",
     "seeded_labels": [
