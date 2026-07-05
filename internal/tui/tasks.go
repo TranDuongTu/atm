@@ -987,6 +987,12 @@ func (t *tasksModel) pageWindow(total int) (int, int) {
 }
 
 func (t *tasksModel) statusHint() string {
+	if t.commentOverlay.id != "" {
+		return "[H]istory   [Esc]back"
+	}
+	if t.historyOverlay.active {
+		return "[Esc]back"
+	}
 	if t.m.projectScope == "" {
 		return "[?]keys"
 	}

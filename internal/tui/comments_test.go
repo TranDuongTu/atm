@@ -243,3 +243,39 @@ func TestHistoryOverlayHasNoTrailingHintLine(t *testing.T) {
 	mustContain(t, view, "task.created")
 	mustNotContain(t, view, "[Esc] back")
 }
+
+func TestStatusHintReflectsOverlayState(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateComment(tk.ID, "body", nil, "", "agent")
+	m.projectScope = "ATM"
+	m.tasks.openDetail(tk.ID)
+
+	base := m.tasks.statusHint()
+	if !strings.Contains(base, "[e]title") {
+		t.Fatalf("base detail hint = %q, want task-detail hint", base)
+	}
+
+	m.tasks.handleDetailKey(keyMsg("enter")) // open comment overlay
+	if m.tasks.commentOverlay.id == "" {
+		t.Fatal("expected comment overlay open")
+	}
+	if got := m.tasks.statusHint(); got != "[H]istory   [Esc]back" {
+		t.Errorf("statusHint with comment overlay open = %q want [H]istory   [Esc]back", got)
+	}
+	m.tasks.handleCommentOverlayKey(keyMsg("esc"))
+
+	m.tasks.handleDetailKey(keyMsg("H")) // open history overlay
+	if !m.tasks.historyOverlay.active {
+		t.Fatal("expected history overlay active")
+	}
+	if got := m.tasks.statusHint(); got != "[Esc]back" {
+		t.Errorf("statusHint with history overlay open = %q want [Esc]back", got)
+	}
+	m.tasks.handleHistoryOverlayKey(keyMsg("esc"))
+
+	if got := m.tasks.statusHint(); got != base {
+		t.Errorf("statusHint after closing overlays = %q want %q", got, base)
+	}
+}
