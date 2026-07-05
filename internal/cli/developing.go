@@ -25,10 +25,107 @@ func newDevelopingCmd(st *cliState) *cobra.Command {
 		Use:   "developing",
 		Short: "Launch an agent with ATM developing context",
 	}
+	cmd.AddCommand(newDevelopingPluginCmd(st))
 	for _, name := range []string{"opencode", "codex", "claude"} {
 		cmd.AddCommand(newDevelopingAgentCmd(st, name))
 	}
 	return cmd
+}
+
+func newDevelopingPluginCmd(st *cliState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "plugin",
+		Short: "Manage ATM developing agent plugins",
+	}
+	cmd.AddCommand(newDevelopingPluginStatusCmd(st))
+	cmd.AddCommand(newDevelopingPluginInstallCmd(st))
+	return cmd
+}
+
+func newDevelopingPluginStatusCmd(st *cliState) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status [all|opencode|codex|claude]",
+		Short: "Show ATM developing plugin install status",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "all"
+			if len(args) > 0 {
+				target = args[0]
+			}
+			agents, err := developingPluginAgents(target)
+			if err != nil {
+				return err
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve home dir: %w", err)
+			}
+			plugins := make([]developing.Status, 0, len(agents))
+			for _, agent := range agents {
+				plugins = append(plugins, developing.PluginStatus(agent, home))
+			}
+			return st.emit(st.stdout(), map[string]any{"plugins": plugins}, func() {
+				for _, plugin := range plugins {
+					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", plugin.Agent, plugin.State, plugin.Path)
+				}
+			})
+		},
+	}
+}
+
+func newDevelopingPluginInstallCmd(st *cliState) *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "install [all|opencode|codex|claude]",
+		Short: "Install ATM developing plugin assets",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "all"
+			if len(args) > 0 {
+				target = args[0]
+			}
+			agents, err := developingPluginAgents(target)
+			if err != nil {
+				return err
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve home dir: %w", err)
+			}
+			installed := make([]developing.InstallResult, 0, len(agents))
+			for _, agent := range agents {
+				res, err := developing.InstallPlugin(agent, home, dryRun)
+				if err != nil {
+					return err
+				}
+				installed = append(installed, res)
+			}
+			return st.emit(st.stdout(), map[string]any{"installed": installed}, func() {
+				for _, res := range installed {
+					mode := "installed"
+					if res.DryRun {
+						mode = "would install"
+					}
+					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", res.Agent, mode, res.Path)
+				}
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print files that would be written without modifying user config")
+	return cmd
+}
+
+func developingPluginAgents(target string) ([]string, error) {
+	all := []string{"opencode", "codex", "claude"}
+	if target == "" || target == "all" {
+		return all, nil
+	}
+	for _, agent := range all {
+		if target == agent {
+			return []string{agent}, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: unknown developing plugin agent %q", ErrUsage, target)
 }
 
 func newDevelopingAgentCmd(st *cliState, agent string) *cobra.Command {

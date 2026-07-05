@@ -2,7 +2,9 @@ package developing
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 )
 
@@ -61,4 +63,70 @@ func PluginAssets(agent string) ([]Asset, bool) {
 		return nil, false
 	}
 	return assets, true
+}
+
+type Status struct {
+	Agent string `json:"agent"`
+	State string `json:"state"`
+	Path  string `json:"path"`
+}
+
+type InstallResult struct {
+	Agent  string   `json:"agent"`
+	Path   string   `json:"path"`
+	Files  []string `json:"files"`
+	DryRun bool     `json:"dry_run"`
+}
+
+func PluginInstallRoot(agent string, home string) (string, bool) {
+	switch agent {
+	case "opencode":
+		return filepath.Join(home, ".config", "opencode", "plugins", "atm-developing.js"), true
+	case "claude":
+		return filepath.Join(home, ".claude", "skills", "atm-developing"), true
+	case "codex":
+		return filepath.Join(home, ".codex", "plugins", "atm-developing"), true
+	default:
+		return "", false
+	}
+}
+
+func PluginStatus(agent string, home string) Status {
+	root, ok := PluginInstallRoot(agent, home)
+	if !ok {
+		return Status{Agent: agent, State: "unknown"}
+	}
+	if _, err := os.Stat(root); err == nil {
+		return Status{Agent: agent, State: "installed", Path: root}
+	}
+	return Status{Agent: agent, State: "missing", Path: root}
+}
+
+func InstallPlugin(agent string, home string, dryRun bool) (InstallResult, error) {
+	root, ok := PluginInstallRoot(agent, home)
+	if !ok {
+		return InstallResult{}, fmt.Errorf("unknown agent %q", agent)
+	}
+	assets, ok := PluginAssets(agent)
+	if !ok {
+		return InstallResult{}, fmt.Errorf("plugin assets for %q not found", agent)
+	}
+	res := InstallResult{Agent: agent, Path: root, DryRun: dryRun}
+	for _, a := range assets {
+		dst := root
+		if agent != "opencode" {
+			dst = filepath.Join(root, filepath.FromSlash(a.Path))
+		}
+		res.Files = append(res.Files, dst)
+		if dryRun {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return res, err
+		}
+		if err := os.WriteFile(dst, a.Content, a.Mode); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
 }

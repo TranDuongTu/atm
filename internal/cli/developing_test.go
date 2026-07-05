@@ -41,6 +41,30 @@ func TestDevelopingTailSummaryJSON(t *testing.T) {
 	compareGolden(t, "developing-tail-summary", got)
 }
 
+func TestDevelopingPluginStatusJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	_, _, code := h.run("developing", "plugin", "status", "codex")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeHome(h.stdout.String(), home)
+	compareGolden(t, "developing-plugin-status", got)
+}
+
+func TestDevelopingPluginInstallDryRunJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	_, _, code := h.run("developing", "plugin", "install", "claude", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeHome(h.stdout.String(), home)
+	compareGolden(t, "developing-plugin-install-dry-run", got)
+}
+
 func normalizeDevelopingOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
@@ -52,4 +76,8 @@ func normalizeDevelopingOutput(s, storePath string) string {
 	atmBinRe := regexp.MustCompile(`"ATM_BIN": "[^"]+"`)
 	s = atmBinRe.ReplaceAllString(s, `"ATM_BIN": "/ATM_BIN"`)
 	return s
+}
+
+func normalizeHome(s, home string) string {
+	return strings.ReplaceAll(normalizeOutput(s), filepath.ToSlash(home), "/HOME")
 }
