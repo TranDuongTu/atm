@@ -839,8 +839,6 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Groups"))
-	b.WriteString("\n")
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
 		b.WriteString(centerLinesBoth([]string{

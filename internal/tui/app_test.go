@@ -1259,7 +1259,6 @@ func TestTasksGroupedSingleWildcard(t *testing.T) {
 	}
 	update(t, m, "enter")
 	v := m.View()
-	mustContain(t, v, "Groups")
 	mustContain(t, v, "▾ ATM:status:done")
 	mustContain(t, v, "▾ ATM:status:open")
 	// (no matching labels) bucket last.
