@@ -1,0 +1,21 @@
+{
+  "comment": {
+    "body": "Body here",
+    "created_at": "TIMESTAMP",
+    "created_by": "claude",
+    "history": [
+      {
+        "action": "comment.created",
+        "actor": "claude",
+        "at": "TIMESTAMP",
+        "seq": 25
+      }
+    ],
+    "id": "ATM-0001-c0001",
+    "labels": [],
+    "log_seq": 25,
+    "task_id": "ATM-0001",
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
+  }
+}

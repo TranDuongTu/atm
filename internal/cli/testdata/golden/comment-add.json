@@ -1,0 +1,16 @@
+{
+  "comment": {
+    "body": "First comment",
+    "created_at": "TIMESTAMP",
+    "created_by": "claude",
+    "history": [],
+    "id": "ATM-0001-c0001",
+    "labels": [
+      "ATM:comment:open-question"
+    ],
+    "log_seq": 26,
+    "task_id": "ATM-0001",
+    "updated_at": "TIMESTAMP",
+    "updated_by": "claude"
+  }
+}

@@ -20,6 +20,7 @@ func newTaskCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newTaskSetTitleCmd(st))
 	cmd.AddCommand(newTaskSetDescriptionCmd(st))
 	cmd.AddCommand(newTaskLabelCmd(st))
+	cmd.AddCommand(newTaskCommentCmd(st))
 	cmd.AddCommand(newTaskRemoveCmd(st))
 	return cmd
 }

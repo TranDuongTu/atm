@@ -205,6 +205,72 @@ func renderLabelListText(ls []jsonLabel) string {
 	return b.String()
 }
 
+type jsonComment struct {
+	ID        string        `json:"id"`
+	TaskID    string        `json:"task_id"`
+	ReplyTo   string        `json:"reply_to,omitempty"`
+	Body      string        `json:"body"`
+	Labels    []string      `json:"labels"`
+	LogSeq    int           `json:"log_seq"`
+	History   []jsonHistory `json:"history"`
+	CreatedAt string        `json:"created_at"`
+	CreatedBy string        `json:"created_by"`
+	UpdatedAt string        `json:"updated_at"`
+	UpdatedBy string        `json:"updated_by"`
+}
+
+func commentToJSON(c *store.Comment, hv []store.HistoryView) jsonComment {
+	return jsonComment{
+		ID:        c.ID,
+		TaskID:    c.TaskID,
+		ReplyTo:   c.ReplyTo,
+		Body:      c.Body,
+		Labels:    normalizeStrSlice(c.Labels),
+		LogSeq:    c.LogSeq,
+		History:   historyToJSON(hv),
+		CreatedAt: store.RFC3339UTC(c.CreatedAt),
+		CreatedBy: c.CreatedBy,
+		UpdatedAt: store.RFC3339UTC(c.UpdatedAt),
+		UpdatedBy: c.UpdatedBy,
+	}
+}
+
+func commentsToJSON(cs []*store.Comment) []jsonComment {
+	out := make([]jsonComment, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, commentToJSON(c, nil))
+	}
+	return out
+}
+
+func renderCommentListText(cs []jsonComment) string {
+	var b strings.Builder
+	for _, c := range cs {
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", c.ID, c.CreatedAt, c.CreatedBy, formatLabels(c.Labels))
+		for _, line := range strings.Split(c.Body, "\n") {
+			fmt.Fprintf(&b, "    %s\n", line)
+		}
+	}
+	return b.String()
+}
+
+func renderCommentText(c jsonComment) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "id      %s\n", c.ID)
+	fmt.Fprintf(&b, "task    %s\n", c.TaskID)
+	if c.ReplyTo != "" {
+		fmt.Fprintf(&b, "reply-to %s\n", c.ReplyTo)
+	}
+	fmt.Fprintf(&b, "actor   %s\n", c.CreatedBy)
+	fmt.Fprintf(&b, "created %s\n", c.CreatedAt)
+	fmt.Fprintf(&b, "updated %s  by %s\n", c.UpdatedAt, c.UpdatedBy)
+	fmt.Fprintf(&b, "labels  %s\n", formatLabels(c.Labels))
+	b.WriteString("\n")
+	b.WriteString(c.Body)
+	b.WriteString("\n")
+	return b.String()
+}
+
 func renderFacetsText(f jsonFacets) string {
 	var b strings.Builder
 	for _, g := range f.Groups {
