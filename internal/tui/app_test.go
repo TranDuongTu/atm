@@ -194,7 +194,7 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
 	assertLinesWithinWidth("labels", m.labels.View(), innerPaneWidth(rightW))
-	wantPageSize := (innerPaneHeight(tasksH) - 6) / 2
+	wantPageSize := innerPaneHeight(tasksH) - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
 	}
@@ -1163,13 +1163,18 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	if strings.HasPrefix(body, "Tasks\n") {
 		t.Fatalf("tasks body repeats tab title\n--- body ---\n%s", body)
 	}
-	mustContain(t, body, "─ Overview ─")
+	mustNotContain(t, body, "─ Overview ─")
+	mustContain(t, body, "ID")
+	mustContain(t, body, "TITLE")
+	mustContain(t, body, "LABELS")
+	mustContain(t, body, "UPDATED")
 	mustContain(t, v, "PROJECT: ATM")
 	mustContain(t, v, "FILTER: (none)")
 	mustContain(t, v, "SORT: updated-desc")
 	mustContain(t, v, "task one")
-	mustContain(t, v, "id ATM-0001")
-	mustContain(t, v, "labels ATM:status:open")
+	mustContain(t, v, "ATM-0001")
+	mustContain(t, v, "ATM:status:open")
+	mustContain(t, v, "showing 1-1 of 1")
 }
 
 // TestTasksFilterInlineEditing verifies / enters edit mode, typing and Enter

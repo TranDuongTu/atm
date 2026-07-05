@@ -108,7 +108,7 @@ func (t *tasksModel) SetSize(w, h int) {
 	}
 	t.width = w
 	t.contentHeight = h
-	t.pageSize = (h - 6) / 2 // dashboard header + two-line rows + footer
+	t.pageSize = h - 6 // header line + blank + column header + rule + footer + margin
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}
@@ -760,8 +760,6 @@ func (t *tasksModel) headerLine() string {
 
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString(sectionDivider(t.m.styles, t.width, "Overview"))
-	b.WriteString("\n")
 	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLine.Render(t.headerLine())))
 	b.WriteString("\n")
 	b.WriteString("\n")
@@ -791,6 +789,19 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight-1))
 }
 
+// taskColumnWidths returns fixed widths for ID/LABELS/UPDATED and a flexible
+// TITLE width that absorbs the remaining pane width. The format string used
+// by both the header and data rows is " %-*s %-*s %-*s %*s" (leading space +
+// 3 inter-column spaces = 4 extra columns of padding).
+func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
+	idW, labelsW, updatedW = 9, 18, 8
+	titleW = t.width - idW - labelsW - updatedW - 4
+	if titleW < 16 {
+		titleW = 16
+	}
+	return
+}
+
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	if len(t.rows) == 0 {
 		filter := strings.Join(t.parseFilter(), " and ")
@@ -803,7 +814,13 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		})
 		return
 	}
-	// Page window.
+	idW, labelsW, updatedW, titleW := t.taskColumnWidths()
+	header := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, "ID", titleW, "TITLE", labelsW, "LABELS", updatedW, "UPDATED")
+	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLabel.Render(header)))
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(t.width, repeat("─", dashboardContentWidth(t.width))))
+	b.WriteString("\n")
+
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
@@ -811,21 +828,14 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		if len(r.labels) > 0 {
 			labels = strings.Join(r.labels, " ")
 		}
-		titleW := t.width - 4
-		if titleW < 20 {
-			titleW = 20
-		}
-		line := " " + truncateRunes(r.title, titleW)
-		meta := fmt.Sprintf("   id %s   labels %s   updated %s", r.id, truncateRunes(labels, 42), r.updated)
+		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, r.id, titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
 		if i == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
 		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
-		b.WriteString(dashboardLine(t.width, t.m.styles.Muted.Render(meta)))
-		b.WriteString("\n")
 	}
-	b.WriteString(fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows)))
+	b.WriteString(dashboardLine(t.width, fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows))))
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
