@@ -270,11 +270,7 @@ func (l *labelsModel) renderList() string {
 	if len(l.rows) == 0 {
 		return padToHeight("no labels", l.contentHeight)
 	}
-	b.WriteString(sectionDivider(l.m.styles, l.width, "Overview"))
-	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
-	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.width, "Namespaces"))
 	b.WriteString("\n")
 	// Group by namespace.
 	byNS := map[string][]labelRow{}

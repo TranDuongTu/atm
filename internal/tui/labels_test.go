@@ -32,9 +32,9 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 	if strings.HasPrefix(body, "Labels\n") {
 		t.Fatalf("labels body repeats tab title\n--- body ---\n%s", body)
 	}
-	mustContain(t, body, "─ Overview ─")
+	mustNotContain(t, body, "─ Overview ─")
 	mustContain(t, v, "total labels: 18")
-	mustContain(t, v, "─ Namespaces ─")
+	mustNotContain(t, v, "─ Namespaces ─")
 	// Namespace headings for seeded namespaces.
 	mustContain(t, v, "context:")
 	mustContain(t, v, "status:")
