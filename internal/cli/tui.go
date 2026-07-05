@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"atm/internal/store"
 	"atm/internal/tui"
@@ -18,6 +19,7 @@ func newTUICmd(st *cliState) *cobra.Command {
 			if a == "" {
 				a = st.flags.actor
 			}
+			setTmuxWindowLabel(os.Stdout, tmuxLabelTUI)
 			root := store.ResolveStorePath(st.flags.store)
 			if err := tui.Run(root, a); err != nil {
 				return fmt.Errorf("tui: %w", err)

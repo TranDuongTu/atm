@@ -150,6 +150,7 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 		return nil
 	}
 
+	setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
 	before := len(existing)
 	exitCode, runErr := runChild(l, argv)
 	after := len(s.ListTasks(store.QueryFilters{Project: opts.Project}))
