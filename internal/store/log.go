@@ -15,31 +15,43 @@ var ErrIntegrity = errors.New("integrity")
 
 // Action enum — closed. Unknown action → ErrUsage.
 const (
-	ActionProjectCreated     = "project.created"
-	ActionProjectNameChanged = "project.name-changed"
-	ActionProjectRemoved     = "project.removed"
-	ActionTaskCreated        = "task.created"
-	ActionTaskTitleChanged   = "task.title-changed"
-	ActionTaskDescChanged    = "task.description-changed"
-	ActionTaskLabelAdded     = "task.label-added"
-	ActionTaskLabelRemoved   = "task.label-removed"
-	ActionTaskRemoved        = "task.removed"
-	ActionLabelUpserted      = "label.upserted"
-	ActionLabelRemoved       = "label.removed"
+	ActionProjectCreated      = "project.created"
+	ActionProjectNameChanged  = "project.name-changed"
+	ActionProjectRemoved      = "project.removed"
+	ActionTaskCreated         = "task.created"
+	ActionTaskTitleChanged    = "task.title-changed"
+	ActionTaskDescChanged     = "task.description-changed"
+	ActionTaskLabelAdded      = "task.label-added"
+	ActionTaskLabelRemoved    = "task.label-removed"
+	ActionTaskRemoved         = "task.removed"
+	ActionLabelUpserted       = "label.upserted"
+	ActionLabelRemoved        = "label.removed"
+	ActionTaskMetaChanged     = "task.meta-changed"
+	ActionCommentCreated      = "comment.created"
+	ActionCommentBodyChanged  = "comment.body-changed"
+	ActionCommentLabelAdded   = "comment.label-added"
+	ActionCommentLabelRemoved = "comment.label-removed"
+	ActionCommentRemoved      = "comment.removed"
 )
 
 var validActions = map[string]bool{
-	ActionProjectCreated:     true,
-	ActionProjectNameChanged: true,
-	ActionProjectRemoved:     true,
-	ActionTaskCreated:        true,
-	ActionTaskTitleChanged:   true,
-	ActionTaskDescChanged:    true,
-	ActionTaskLabelAdded:     true,
-	ActionTaskLabelRemoved:   true,
-	ActionTaskRemoved:        true,
-	ActionLabelUpserted:      true,
-	ActionLabelRemoved:       true,
+	ActionProjectCreated:      true,
+	ActionProjectNameChanged:  true,
+	ActionProjectRemoved:      true,
+	ActionTaskCreated:         true,
+	ActionTaskTitleChanged:    true,
+	ActionTaskDescChanged:     true,
+	ActionTaskLabelAdded:      true,
+	ActionTaskLabelRemoved:    true,
+	ActionTaskRemoved:         true,
+	ActionLabelUpserted:       true,
+	ActionLabelRemoved:        true,
+	ActionTaskMetaChanged:     true,
+	ActionCommentCreated:      true,
+	ActionCommentBodyChanged:  true,
+	ActionCommentLabelAdded:   true,
+	ActionCommentLabelRemoved: true,
+	ActionCommentRemoved:      true,
 }
 
 type LogEntry struct {
@@ -59,9 +71,10 @@ type Subject struct {
 }
 
 type ReplayState struct {
-	Project *Project
-	Tasks   []*Task
-	Labels  []Label
+	Project  *Project
+	Tasks    []*Task
+	Labels   []Label
+	Comments []*Comment
 }
 
 type HistoryView struct {
@@ -213,6 +226,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 	var proj *Project
 	tasks := map[string]*Task{}
 	labels := map[string]Label{}
+	comments := map[string]*Comment{}
 	for _, e := range entries {
 		switch e.Subject.Kind {
 		case "project":
@@ -229,10 +243,20 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 			var tk Task
 			_ = json.Unmarshal(e.Payload, &tk)
 			switch e.Action {
-			case ActionTaskCreated, ActionTaskTitleChanged, ActionTaskDescChanged, ActionTaskLabelAdded, ActionTaskLabelRemoved:
+			case ActionTaskCreated, ActionTaskTitleChanged, ActionTaskDescChanged, ActionTaskLabelAdded, ActionTaskLabelRemoved, ActionTaskMetaChanged:
 				tasks[e.Subject.ID] = &tk
 			case ActionTaskRemoved:
 				delete(tasks, e.Subject.ID)
+			}
+		case "comment":
+			var c Comment
+			_ = json.Unmarshal(e.Payload, &c)
+			switch e.Action {
+			case ActionCommentCreated, ActionCommentBodyChanged,
+				ActionCommentLabelAdded, ActionCommentLabelRemoved:
+				comments[e.Subject.ID] = &c
+			case ActionCommentRemoved:
+				delete(comments, e.Subject.ID)
 			}
 		case "label":
 			var l Label
@@ -254,6 +278,10 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		st.Labels = append(st.Labels, l)
 	}
 	sort.Slice(st.Labels, func(i, j int) bool { return st.Labels[i].Name < st.Labels[j].Name })
+	for _, c := range comments {
+		st.Comments = append(st.Comments, c)
+	}
+	sort.Slice(st.Comments, func(i, j int) bool { return st.Comments[i].ID < st.Comments[j].ID })
 	return st, nil
 }
 
@@ -280,6 +308,8 @@ func subjectMatch(a, b Subject) bool {
 		return a.ID == b.ID
 	case "label":
 		return a.Name == b.Name
+	case "comment":
+		return a.ID == b.ID
 	}
 	return false
 }
