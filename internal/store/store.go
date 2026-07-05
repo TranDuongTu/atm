@@ -72,6 +72,30 @@ func SortTaskIDs(ids []string) {
 	})
 }
 
+var CommentIDRe = regexp.MustCompile(`^([A-Z]{3,6})-(\d+)-c(\d+)$`)
+
+func ParseCommentID(id string) (code string, taskN int, commentN int, ok bool) {
+	m := CommentIDRe.FindStringSubmatch(id)
+	if m == nil {
+		return "", 0, 0, false
+	}
+	var t, c int
+	for _, r := range m[2] {
+		t = t*10 + int(r-'0')
+	}
+	for _, r := range m[3] {
+		c = c*10 + int(r-'0')
+	}
+	return m[1], t, c, true
+}
+
+func RenderCommentID(taskID string, n int) string {
+	if n < 10000 {
+		return fmt.Sprintf("%s-c%04d", taskID, n)
+	}
+	return fmt.Sprintf("%s-c%d", taskID, n)
+}
+
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
@@ -154,6 +178,16 @@ func (s *Store) taskPath(id string) string {
 		return ""
 	}
 	return filepath.Join(s.tasksDir(code), id+".json")
+}
+func (s *Store) commentsDir(code string) string {
+	return filepath.Join(s.projectDir(code), "comments")
+}
+func (s *Store) commentPath(id string) string {
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return ""
+	}
+	return filepath.Join(s.commentsDir(code), id+".json")
 }
 func (s *Store) labelsPath() string { return filepath.Join(s.Root, "labels.json") }
 func (s *Store) lockPath(code string) string {
