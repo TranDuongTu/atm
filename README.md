@@ -145,6 +145,19 @@ special-cases the documented namespaces. The system treats `ATM:context:agent`
 identically to `ATM:type:bug`. See the "Conventions" section below for the
 suggested seed namespaces.
 
+### Developing sessions
+
+```
+atm developing plugin install codex
+atm developing codex --project <CODE>
+```
+
+`atm developing <opencode|codex|claude> --project <CODE>` launches the
+agent's normal interactive entrypoint with ATM environment variables and a
+rendered context file. Bootstrap plugins are installed explicitly with
+`atm developing plugin install`; the launcher never modifies agent config
+silently.
+
 ## Conventions
 
 v2's vision is that workflow lives outside the system — in agent prompts and
@@ -235,6 +248,11 @@ legible for humans and other agents:
 
 A fresh agent that does not yet know the project's namespaces runs the
 label-list step first and follows the descriptions.
+
+For day-to-day development, start the agent through
+`atm developing <agent> --project <CODE>` after installing the ATM developing
+plugin. The command preserves the agent's normal workflow and adds ATM ledger
+context for the session.
 
 ### Re-seeding defaults
 
