@@ -70,3 +70,57 @@ func TestTaskDetailMKeyOpensCommentForm(t *testing.T) {
 		t.Fatalf("expected formCommentAdd, got form=%v kind=%v", m.form, m.formKind)
 	}
 }
+
+func TestEnterOnCommentOpensDetailOverlay(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", "agent")
+	m.projectScope = "ATM"
+	m.tasks.openDetail(tk.ID)
+	// Cursor at the comments section row.
+	m.tasks.commentsCursor = 0
+	m.tasks.handleDetailKey(keyMsg("enter"))
+	if m.tasks.commentOverlay.id != "ATM-0001-c0001" {
+		t.Fatalf("comment overlay not opened: %+v", m.tasks.commentOverlay)
+	}
+}
+
+func TestCommentOverlayShowsIDAndBody(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", "agent")
+	m.projectScope = "ATM"
+	m.tasks.openDetail(tk.ID)
+	m.tasks.commentsCursor = 0
+	m.tasks.handleDetailKey(keyMsg("enter"))
+	view := m.tasks.commentOverlay.view(m)
+	if !strings.Contains(view, "ATM-0001-c0001") || !strings.Contains(view, "the body text") {
+		t.Fatalf("overlay view missing id/body:\n%s", view)
+	}
+}
+
+func TestCommentOverlayKeysEditRemove(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := m.store.CreateComment(tk.ID, "orig", nil, "", "agent")
+	m.projectScope = "ATM"
+	m.tasks.openDetail(tk.ID)
+	m.tasks.commentsCursor = 0
+	m.tasks.handleDetailKey(keyMsg("enter"))
+
+	// e -> body edit form
+	m.tasks.handleCommentOverlayKey(keyMsg("e"))
+	if m.form == nil || m.formKind != formCommentSetBody {
+		t.Fatalf("[e] should open set-body form: form=%v kind=%v", m.form, m.formKind)
+	}
+	_ = c
+
+	// x -> confirm remove
+	m.tasks.handleCommentOverlayKey(keyMsg("x"))
+	if m.confirm != confirmRemoveComment {
+		t.Fatalf("[x] should open remove-confirm: %v", m.confirm)
+	}
+}

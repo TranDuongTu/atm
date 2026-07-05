@@ -193,6 +193,14 @@ atm task label add --id --label       Task detail  [b]
 atm task label remove --id --label    Task detail  [B]
 atm task remove --id                  Task detail  [x]
 
+atm task comment add --id --body       Task detail  [M]   (Comment Detail overlay [R] reply)
+atm task comment list --id            Task detail  Comments section   (Comment Detail [Enter])
+atm task comment show --id            Comment Detail overlay   (Task detail [Enter] on comment)
+atm task comment set-body --id --body  Comment Detail overlay  [e]
+atm task comment label add --id --label   Comment Detail overlay  [b]
+atm task comment label remove --id --label   Comment Detail overlay  [B]
+atm task comment remove --id           Comment Detail overlay  [x]
+
 atm tui                                (you are here)`
 
 // keymapTable renders the global keymap summary as a fixed-width table.

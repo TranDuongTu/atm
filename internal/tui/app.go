@@ -500,27 +500,65 @@ func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
 	for _, tok := range strings.Fields(vals["labels"]) {
 		labels = append(labels, m.projectScope+":"+tok)
 	}
-	replyTo := vals["reply-to"]
-	c, err := m.store.CreateComment(taskID, body, labels, replyTo, m.actor)
+	replyTo := m.formPayload
+	if rt, ok := vals["reply-to"]; ok && rt != "" {
+		replyTo = rt
+	}
+	_, err := m.store.CreateComment(taskID, body, labels, replyTo, m.actor)
 	if err != nil {
 		m.showToast("error: " + err.Error())
 		return nil
 	}
-	_ = c
+	m.formPayload = ""
 	m.refreshAll()
 	m.tasks.openDetail(taskID)
 	return nil
 }
 
 func (m *Model) doCommentSetBody(vals map[string]string) tea.Cmd {
+	id := m.formPayload
+	if err := m.store.SetCommentBody(id, vals["body"], m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	c, err := m.store.GetComment(id)
+	if err == nil {
+		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
+		m.tasks.commentOverlay.render(m)
+	}
 	return nil
 }
 
 func (m *Model) doCommentLabelAdd(vals map[string]string) tea.Cmd {
+	id := m.formPayload
+	full := m.projectScope + ":" + vals["name"]
+	if err := m.store.CommentLabelAdd(id, full, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	c, err := m.store.GetComment(id)
+	if err == nil {
+		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
+		m.tasks.commentOverlay.render(m)
+	}
 	return nil
 }
 
 func (m *Model) doCommentLabelRemove(vals map[string]string) tea.Cmd {
+	id := m.formPayload
+	full := m.projectScope + ":" + vals["name"]
+	if err := m.store.CommentLabelRemove(id, full, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.refreshAll()
+	c, err := m.store.GetComment(id)
+	if err == nil {
+		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
+		m.tasks.commentOverlay.render(m)
+	}
 	return nil
 }
 

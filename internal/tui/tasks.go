@@ -31,6 +31,11 @@ type tasksModel struct {
 
 	// detail
 	detail taskDetailState
+
+	// comments section focus ring + comment detail overlay.
+	commentsCursor int
+	commentsFocus  bool
+	commentOverlay commentOverlayModel
 }
 
 type tView int
@@ -404,6 +409,9 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
+	if t.commentOverlay.id != "" {
+		return t.handleCommentOverlayKey(k)
+	}
 	switch k.String() {
 	case "j", "down":
 		t.detail.offset++
@@ -438,6 +446,16 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	case "H":
 		t.detail.historyOpen = !t.detail.historyOpen
 		t.renderDetail()
+	case "tab":
+		t.commentsFocus = !t.commentsFocus
+		t.renderDetail()
+	case "enter":
+		if t.commentsCursor >= 0 {
+			cs, _ := t.m.store.ListComments(t.detail.id)
+			if t.commentsCursor < len(cs) {
+				return t.openCommentOverlay(cs[t.commentsCursor].ID)
+			}
+		}
 	}
 	return nil
 }
@@ -939,6 +957,9 @@ func groupLeafCount(g taskGroup) int {
 }
 
 func (t *tasksModel) renderDetailView() string {
+	if t.commentOverlay.id != "" {
+		return t.commentOverlay.view(t.m)
+	}
 	end := t.detail.offset + t.contentHeight
 	if end > len(t.detail.lines) {
 		end = len(t.detail.lines)
@@ -975,7 +996,7 @@ func (t *tasksModel) statusHint() string {
 		return "[?]keys"
 	}
 	if t.view == tViewDetail {
-		return "[e]title [d]desc [b]add label [B]remove label [x]remove [Esc]back"
+		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
 	hint := "[/]filter [s]sort [a]dd [Enter]detail [?]keys"
 	if t.filterEditing {
@@ -1113,6 +1134,88 @@ func (t *tasksModel) openCommentAddForm() {
 	f.Title = "New comment  " + tk.ID + ":"
 	t.m.form = f
 	t.m.formKind = formCommentAdd
+}
+
+func (t *tasksModel) openCommentOverlay(id string) tea.Cmd {
+	c, err := t.m.store.GetComment(id)
+	if err != nil {
+		t.m.showToast("error: " + err.Error())
+		return nil
+	}
+	t.commentOverlay = commentOverlayModel{id: id, comment: c}
+	t.commentOverlay.render(t.m)
+	return nil
+}
+
+func (t *tasksModel) openCommentBodyForm(c *store.Comment) {
+	fields := []formField{
+		{Label: "body", Required: true, Value: c.Body, Hint: "new body"},
+	}
+	f := NewForm("Edit comment body", fields)
+	t.m.form = f
+	t.m.formKind = formCommentSetBody
+	t.m.formPayload = c.ID
+}
+
+func (t *tasksModel) openCommentLabelAddForm(c *store.Comment) {
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>")
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+	}
+	f := NewForm("Add comment label  "+t.m.projectScope+":", fields)
+	t.m.form = f
+	t.m.formKind = formCommentLabelAdd
+	t.m.formPayload = c.ID
+}
+
+func (t *tasksModel) openCommentLabelRemoveForm(c *store.Comment) {
+	validator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		if !labelSuffixRe.MatchString(value) {
+			return fmt.Errorf("use <namespace>:<value> or <tag>")
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+	}
+	f := NewForm("Remove comment label  "+t.m.projectScope+":", fields)
+	t.m.form = f
+	t.m.formKind = formCommentLabelRemove
+	t.m.formPayload = c.ID
+}
+
+func (t *tasksModel) openCommentReplyForm(parent *store.Comment) {
+	labelsValidator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		for _, tok := range strings.Fields(value) {
+			if !labelSuffixRe.MatchString(tok) {
+				return fmt.Errorf("bad label %q: use <namespace>:<value> or <tag>", tok)
+			}
+		}
+		return nil
+	}
+	fields := []formField{
+		{Label: "body", Required: true, Hint: "reply body"},
+		{Label: "labels", Required: false, Hint: "space-separated suffixes", Validator: labelsValidator},
+	}
+	f := NewForm("Reply to  "+parent.ID+":", fields)
+	f.Title = "Reply to  " + parent.ID + ":"
+	t.m.form = f
+	t.m.formKind = formCommentAdd
+	t.m.formPayload = parent.ID // doCommentAdd reads this as reply-to
 }
 
 // --- mutations ---

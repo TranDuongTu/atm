@@ -1310,7 +1310,7 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 // --- Step 6: task detail + empty states ---
 
 // TestTaskDetailFactsLabelsHistory verifies the task detail (mockup Screen 8):
-// facts, label chips, and always-visible HISTORY chronological.
+// facts, label chips, and HISTORY behind the [H] toggle (opened in-test).
 func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 80)
