@@ -114,6 +114,35 @@ func TestVerifyDetectsSeqGap(t *testing.T) {
 	}
 }
 
+func TestVerifyReportsCommentCacheStale(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "x", nil, "", "claude")
+	// Stomp cache to a stale seq.
+	raw, _ := os.ReadFile(s.commentPath(c.ID))
+	var cc Comment
+	_ = json.Unmarshal(raw, &cc)
+	cc.LogSeq = 0
+	newRaw, _ := json.Marshal(cc)
+	_ = os.WriteFile(s.commentPath(c.ID), newRaw, 0o644)
+	rep, err := s.VerifyProject("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ck := range rep.Caches {
+		if ck.Path == s.commentPath(c.ID) {
+			if ck.Status == "stale" || ck.Status == "corrupt" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("comment cache stale not reported: %+v", rep.Caches)
+	}
+}
+
 func splitLines(data []byte) [][]byte {
 	var out [][]byte
 	start := 0

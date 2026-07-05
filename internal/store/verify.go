@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -65,6 +66,32 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 	for _, t := range st.Tasks {
 		report.Caches = append(report.Caches, s.checkTaskCache(code, t.ID, t.LogSeq))
 	}
+	// Verify each comment cache.
+	for _, c := range st.Comments {
+		report.Caches = append(report.Caches, s.checkCommentCache(code, c.ID, c.LogSeq))
+	}
+	// Sweep orphan comment caches (no replay comment for the file).
+	commentEntries, _ := os.ReadDir(s.commentsDir(code))
+	for _, e := range commentEntries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		cid := e.Name()[:len(e.Name())-len(".json")]
+		live := false
+		for _, c := range st.Comments {
+			if c.ID == cid {
+				live = true
+				break
+			}
+		}
+		if !live {
+			report.Caches = append(report.Caches, CacheCheck{
+				Path:   filepath.Join(s.commentsDir(code), e.Name()),
+				Status: "corrupt",
+			})
+			report.Diverged = true
+		}
+	}
 	for _, c := range report.Caches {
 		if c.Status != "ok" {
 			report.Diverged = true
@@ -109,6 +136,25 @@ func (s *Store) checkTaskCache(code, id string, expectedLogSeq int) CacheCheck {
 		return CacheCheck{Path: path, Status: "stale", CacheLogSeq: t.LogSeq, LastEventSeq: last}
 	}
 	return CacheCheck{Path: path, Status: "ok", CacheLogSeq: t.LogSeq, LastEventSeq: last}
+}
+
+func (s *Store) checkCommentCache(code, id string, expectedLogSeq int) CacheCheck {
+	path := s.commentPath(id)
+	var c Comment
+	if err := ReadJSON(path, &c); err != nil {
+		if os.IsNotExist(err) {
+			return CacheCheck{Path: path, Status: "missing"}
+		}
+		return CacheCheck{Path: path, Status: "corrupt"}
+	}
+	last, _ := s.lastCommentEventSeq(code, id)
+	if c.LogSeq > last {
+		return CacheCheck{Path: path, Status: "corrupt", CacheLogSeq: c.LogSeq, LastEventSeq: last}
+	}
+	if c.LogSeq < last {
+		return CacheCheck{Path: path, Status: "stale", CacheLogSeq: c.LogSeq, LastEventSeq: last}
+	}
+	return CacheCheck{Path: path, Status: "ok", CacheLogSeq: c.LogSeq, LastEventSeq: last}
 }
 
 func extractTruncatedBytes(err error) int {

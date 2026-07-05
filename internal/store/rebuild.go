@@ -50,6 +50,24 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 				_ = os.Remove(filepath.Join(s.tasksDir(p.Code), e.Name()))
 			}
 		}
+		// Rebuild comment caches. Delete caches for tombstoned comments.
+		liveComments := map[string]bool{}
+		for _, c := range st.Comments {
+			if err := WriteJSON(s.commentPath(c.ID), c); err != nil {
+				return rep, err
+			}
+			liveComments[c.ID] = true
+		}
+		commentEntries, _ := os.ReadDir(s.commentsDir(p.Code))
+		for _, e := range commentEntries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+				continue
+			}
+			cid := e.Name()[:len(e.Name())-len(".json")]
+			if !liveComments[cid] {
+				_ = os.Remove(filepath.Join(s.commentsDir(p.Code), e.Name()))
+			}
+		}
 		// Merge labels.
 		for _, l := range st.Labels {
 			mergedLabels[l.Name] = l
