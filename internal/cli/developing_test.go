@@ -65,6 +65,36 @@ func TestDevelopingPluginInstallDryRunJSON(t *testing.T) {
 	compareGolden(t, "developing-plugin-install-dry-run", got)
 }
 
+func TestDevelopingEnvIncludesATMValues(t *testing.T) {
+	got := developingEnv("FOO", "/bin/atm", "codex-dev", "FOO-RUNID", "/tmp/context.md")
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{
+		"ATM_ROLE=developing",
+		"ATM_PROJECT=FOO",
+		"ATM_BIN=/bin/atm",
+		"ATM_ACTOR=codex-dev",
+		"ATM_RUN_ID=FOO-RUNID",
+		"ATM_CONTEXT_FILE=/tmp/context.md",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("developing env missing %q", want)
+		}
+	}
+}
+
+func TestDevelopingLauncherNotFound(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, stderrStr, code := h.run("developing", "codex", "--project", "FOO")
+	if code != ExitGeneric {
+		t.Fatalf("exit = %d, want %d", code, ExitGeneric)
+	}
+	got := normalizeDevelopingOutput(stderrStr, h.store.StorePath())
+	compareGolden(t, "developing-launcher-not-found", got)
+}
+
 func normalizeDevelopingOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
