@@ -338,7 +338,7 @@ func (l *labelsModel) renderDetail() string {
 	fmt.Fprintf(&b, "Label %s\n", r.full)
 	b.WriteString(sepLine("─", 78, l.width, 2))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.width, "Facts"))
+	b.WriteString(sectionCaption(l.m.styles, l.width, "FACTS"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralTasks(r.usage))))
@@ -347,10 +347,6 @@ func (l *labelsModel) renderDetail() string {
 		desc = l.m.styles.Warning.Render("needs description")
 	}
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
-	b.WriteString("\n")
-	b.WriteString(sectionDivider(l.m.styles, l.width, "Actions"))
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(l.width, l.m.styles.KeyMenuDim.Render("[d] describe   [l] remove   [Esc] back")))
 	return padToHeight(b.String(), l.contentHeight)
 }
 

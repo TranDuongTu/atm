@@ -64,13 +64,17 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	update(t, m, "enter")
 	v := m.View()
 	mustContain(t, v, "Label ")
-	mustContain(t, v, "─ Facts ─")
+	mustContain(t, v, "FACTS")
 	mustContain(t, v, "usage")
 	mustContain(t, v, "description")
-	mustContain(t, v, "─ Actions ─")
-	mustContain(t, v, "[d] describe")
-	mustContain(t, v, "[l] remove")
-	mustContain(t, v, "[Esc] back")
+	mustNotContain(t, v, "Actions")
+	hint := m.labels.statusHint()
+	if hint != "[d]esc [l]remove [Esc]back" {
+		t.Fatalf("labels detail statusHint = %q want [d]esc [l]remove [Esc]back", hint)
+	}
+	mustContain(t, v, "[d]esc")
+	mustContain(t, v, "[l]remove")
+	mustContain(t, v, "[Esc]back")
 }
 
 func TestLabelsTabAddLabel(t *testing.T) {
