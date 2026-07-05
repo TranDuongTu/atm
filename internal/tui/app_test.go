@@ -184,15 +184,16 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 
 	leftW, rightW := splitWorkspaceWidths(m.width)
 	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
-	if got, want := lipgloss.Width(strings.Split(m.projects.View(), "\n")[0]), innerPaneWidth(leftW); got != want {
-		t.Fatalf("projects divider width = %d want pane inner width %d", got, want)
+	assertLinesWithinWidth := func(name, body string, maxW int) {
+		for i, line := range strings.Split(body, "\n") {
+			if got := lipgloss.Width(line); got > maxW {
+				t.Fatalf("%s line %d width = %d want <= pane inner width %d\nline: %q", name, i, got, maxW, line)
+			}
+		}
 	}
-	if got, want := lipgloss.Width(strings.Split(m.tasks.View(), "\n")[0]), innerPaneWidth(rightW); got != want {
-		t.Fatalf("tasks divider width = %d want pane inner width %d", got, want)
-	}
-	if got, want := lipgloss.Width(strings.Split(m.labels.View(), "\n")[0]), innerPaneWidth(rightW); got != want {
-		t.Fatalf("labels divider width = %d want pane inner width %d", got, want)
-	}
+	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
+	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
+	assertLinesWithinWidth("labels", m.labels.View(), innerPaneWidth(rightW))
 	wantPageSize := (innerPaneHeight(tasksH) - 6) / 2
 	if wantPageSize < 1 {
 		wantPageSize = 1
