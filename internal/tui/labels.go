@@ -104,6 +104,7 @@ type labelsModel struct {
 	rows          []labelRow
 	cursor        int
 	offset        int
+	pageSize      int
 	view          lView
 	detail        labelDetailState
 }
@@ -139,6 +140,10 @@ func (l *labelsModel) SetSize(w, h int) {
 	}
 	l.width = w
 	l.contentHeight = h
+	l.pageSize = h - 3 // caption + blank + footer
+	if l.pageSize < 1 {
+		l.pageSize = 1
+	}
 }
 
 func (l *labelsModel) refresh() {
@@ -187,6 +192,19 @@ func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		l.cursor = 0
+	case "]":
+		l.cursor += l.pageSize
+		if l.cursor > len(l.rows)-1 {
+			l.cursor = len(l.rows) - 1
+		}
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
+	case "[":
+		l.cursor -= l.pageSize
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
 	case "a":
 		if l.m.projectScope == "" {
 			return nil
@@ -258,7 +276,6 @@ func (l *labelsModel) View() string {
 }
 
 func (l *labelsModel) renderList() string {
-	var b strings.Builder
 	if l.m.projectScope == "" {
 		lines := []string{
 			l.m.styles.EmptyHead.Render("no project selected"),
@@ -270,9 +287,15 @@ func (l *labelsModel) renderList() string {
 	if len(l.rows) == 0 {
 		return padToHeight("no labels", l.contentHeight)
 	}
+	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
 	b.WriteString("\n")
-	// Group by namespace.
+
+	// Group by namespace, building each row's line into `bodyLines` (rather
+	// than writing straight to b) so the visible window can be computed
+	// afterward, keyed to the line the cursor's row lands on — namespace
+	// headers are lines too but are not cursor-addressable, so lineRowIdx
+	// tracks which l.rows index (if any) each line represents.
 	byNS := map[string][]labelRow{}
 	var tags []labelRow
 	var nsOrder []string
@@ -290,44 +313,63 @@ func (l *labelsModel) renderList() string {
 		}
 	}
 	sort.Strings(nsOrder)
+
+	var bodyLines []string
+	var lineRowIdx []int
+	cursorLine := 0
 	rowIdx := 0
+	appendRow := func(r labelRow) {
+		desc := r.description
+		if desc == "" {
+			desc = l.m.styles.Warning.Render("needs description")
+		}
+		line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
+		if rowIdx == l.cursor {
+			line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			cursorLine = len(bodyLines)
+		} else {
+			line = " " + line
+		}
+		bodyLines = append(bodyLines, dashboardLine(l.width, line))
+		lineRowIdx = append(lineRowIdx, rowIdx)
+		rowIdx++
+	}
+	appendHeader := func(label string) {
+		bodyLines = append(bodyLines, dashboardLine(l.width, l.m.styles.NamespaceHeader.Render(label)))
+		lineRowIdx = append(lineRowIdx, -1)
+	}
 	for _, ns := range nsOrder {
-		b.WriteString(dashboardLine(l.width, l.m.styles.NamespaceHeader.Render(ns+":")))
-		b.WriteString("\n")
+		appendHeader(ns + ":")
 		for _, r := range byNS[ns] {
-			desc := r.description
-			if desc == "" {
-				desc = l.m.styles.Warning.Render("needs description")
-			}
-			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
-			if rowIdx == l.cursor {
-				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
-			} else {
-				line = " " + line
-			}
-			b.WriteString(dashboardLine(l.width, line))
-			b.WriteString("\n")
-			rowIdx++
+			appendRow(r)
 		}
 	}
 	if len(tags) > 0 {
-		b.WriteString(dashboardLine(l.width, l.m.styles.NamespaceHeader.Render("tags:")))
-		b.WriteString("\n")
+		appendHeader("tags:")
 		for _, r := range tags {
-			desc := r.description
-			if desc == "" {
-				desc = l.m.styles.Warning.Render("needs description")
-			}
-			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
-			if rowIdx == l.cursor {
-				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
-			} else {
-				line = " " + line
-			}
-			b.WriteString(dashboardLine(l.width, line))
-			b.WriteString("\n")
-			rowIdx++
+			appendRow(r)
 		}
+	}
+
+	start, end := windowLines(len(bodyLines), cursorLine, l.pageSize)
+	for i := start; i < end; i++ {
+		b.WriteString(bodyLines[i])
+		b.WriteString("\n")
+	}
+	firstRow, lastRow := -1, -1
+	for i := start; i < end; i++ {
+		if lineRowIdx[i] < 0 {
+			continue
+		}
+		if firstRow == -1 {
+			firstRow = lineRowIdx[i]
+		}
+		lastRow = lineRowIdx[i]
+	}
+	if firstRow == -1 {
+		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("showing 0-0 of "+fmt.Sprint(len(l.rows)))))
+	} else {
+		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", firstRow+1, lastRow+1, len(l.rows)))))
 	}
 	return padToHeight(b.String(), l.contentHeight)
 }

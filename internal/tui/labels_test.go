@@ -56,6 +56,53 @@ func TestLabelsTabCallsOutMissingDescriptions(t *testing.T) {
 	mustContain(t, v, "needs description")
 }
 
+// TestLabelsListScrollsWithCursor verifies the list window follows the
+// cursor: a namespace-grouped label past the first page is not rendered
+// until the cursor reaches it (regression guard: the list previously never
+// scrolled, so the cursor could run off the bottom of the pane while the
+// rendered rows stayed fixed).
+func TestLabelsListScrollsWithCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(200, 20) // shrink the labels pane so the seeded set needs paging
+	update(t, m, "s")
+	update(t, m, "3")
+
+	rows := m.labels.rows
+	if len(rows) < 10 {
+		t.Fatalf("expected several seeded labels, got %d", len(rows))
+	}
+	last := rows[len(rows)-1]
+	if strings.Contains(m.labels.View(), last.full) {
+		t.Fatalf("expected %s to be scrolled out of view initially:\n%s", last.full, m.labels.View())
+	}
+	m.labels.cursor = len(rows) - 1
+	view := m.labels.View()
+	if !strings.Contains(view, last.full) {
+		t.Fatalf("cursor on %s but it is not visible:\n%s", last.full, view)
+	}
+}
+
+// TestLabelsBracketKeysPageThroughList verifies "]"/"[" jump the cursor a
+// full page forward/backward.
+func TestLabelsBracketKeysPageThroughList(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(200, 20)
+	update(t, m, "s")
+	update(t, m, "3")
+	start := m.labels.cursor
+	update(t, m, "]")
+	if m.labels.cursor <= start {
+		t.Fatalf("] should move cursor forward, got %d (was %d)", m.labels.cursor, start)
+	}
+	after := m.labels.cursor
+	update(t, m, "[")
+	if m.labels.cursor >= after {
+		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.labels.cursor, after)
+	}
+}
+
 func TestLabelDetailDashboardSections(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")

@@ -378,6 +378,12 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		t.cursor = 0
 		t.offset = 0
+	case "]":
+		t.cursor += t.listPageSize()
+		t.clampCursor()
+	case "[":
+		t.cursor -= t.listPageSize()
+		t.clampCursor()
 	case "/":
 		if t.m.projectScope == "" {
 			return nil
@@ -841,9 +847,15 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		}, t.width, t.contentHeight-1))
 		b.WriteString("\n")
 	}
+
+	// Build the full group/row tree into `body` first (idx mirrors the exact
+	// flattened line-index scheme flatLineCount/rowAtCursor use), then window
+	// it to the visible page so the cursor's row stays in view and "[" / "]"
+	// have something well-defined to jump.
+	var body strings.Builder
 	idx := 0
 	for _, g := range t.groups {
-		idx = t.renderGroup(b, g, 0, idx)
+		idx = t.renderGroup(&body, g, 0, idx)
 	}
 	// (no matching labels) bucket — always rendered, last. Stays flat (no
 	// nesting): these tasks matched no wildcard, so there is nothing to
@@ -852,8 +864,8 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	if idx == t.cursor {
 		header = t.m.styles.RowCursor.Render(header)
 	}
-	b.WriteString(dashboardLine(t.width, header))
-	b.WriteString("\n")
+	body.WriteString(dashboardLine(t.width, header))
+	body.WriteString("\n")
 	idx++
 	for _, r := range t.others {
 		labels := "(no labels)"
@@ -871,10 +883,18 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		if idx == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
-		b.WriteString(dashboardLine(t.width, line))
-		b.WriteString("\n")
+		body.WriteString(dashboardLine(t.width, line))
+		body.WriteString("\n")
 		idx++
 	}
+
+	lines := strings.Split(strings.TrimSuffix(body.String(), "\n"), "\n")
+	start, end := windowLines(len(lines), t.cursor, t.groupPageSize())
+	for i := start; i < end; i++ {
+		b.WriteString(lines[i])
+		b.WriteString("\n")
+	}
+	b.WriteString(dashboardLine(t.width, fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(lines))))
 }
 
 // renderGroup renders one group (header + its leaf rows or its expanded
@@ -968,22 +988,28 @@ func (t *tasksModel) renderDetailView() string {
 }
 
 func (t *tasksModel) pageWindow(total int) (int, int) {
-	start := 0
-	// keep cursor in view
-	if t.cursor >= start+t.pageSize {
-		start = t.cursor - t.pageSize + 1
+	return windowLines(total, t.cursor, t.pageSize)
+}
+
+// groupPageSize returns the number of lines that fit in the grouped/tree
+// list body (the header line + blank line written by renderList are the
+// only fixed overhead; group/row lines are the scrollable body).
+func (t *tasksModel) groupPageSize() int {
+	size := t.contentHeight - 2
+	if size < 1 {
+		size = 1
 	}
-	if t.cursor < start {
-		start = t.cursor
+	return size
+}
+
+// listPageSize returns the page size for whichever list mode is active,
+// used by the "[" / "]" page-jump keys (and matching the size the renderer
+// windows by, so a jump always lands on a page boundary).
+func (t *tasksModel) listPageSize() int {
+	if t.hasWildcard() {
+		return t.groupPageSize()
 	}
-	if start < 0 {
-		start = 0
-	}
-	end := start + t.pageSize
-	if end > total {
-		end = total
-	}
-	return start, end
+	return t.pageSize
 }
 
 func (t *tasksModel) statusHint() string {

@@ -288,6 +288,28 @@ func dashboardBlock(width int, block string) string {
 	return strings.Join(lines, "\n")
 }
 
+// windowLines returns the [start, end) bounds of a `pageSize`-line page of
+// `total` lines that contains `cursorLine`. Pages are pageSize-aligned (page
+// N covers lines [N*pageSize, (N+1)*pageSize)) rather than following the
+// cursor by one line at a time, so moving the cursor across a page boundary
+// advances the whole visible page at once — this is what backs "[" / "]"
+// page navigation as well as plain j/k list scrolling.
+func windowLines(total, cursorLine, pageSize int) (start, end int) {
+	if pageSize <= 0 || total <= pageSize {
+		return 0, total
+	}
+	if cursorLine < 0 {
+		cursorLine = 0
+	}
+	page := cursorLine / pageSize
+	start = page * pageSize
+	end = start + pageSize
+	if end > total {
+		end = total
+	}
+	return start, end
+}
+
 func sectionDivider(styles Styles, width int, title string) string {
 	contentW := dashboardContentWidth(width)
 	label := " " + title + " "

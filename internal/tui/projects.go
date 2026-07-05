@@ -230,6 +230,21 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		p.cursor = 0
+	case "]":
+		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		p.cursor += p.listPageSize(listH)
+		if p.cursor > len(p.list)-1 {
+			p.cursor = len(p.list) - 1
+		}
+		if p.cursor < 0 {
+			p.cursor = 0
+		}
+	case "[":
+		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		p.cursor -= p.listPageSize(listH)
+		if p.cursor < 0 {
+			p.cursor = 0
+		}
 	case "enter", "e":
 		if r, ok := p.selected(); ok {
 			p.openDetail(r.code)
@@ -373,6 +388,18 @@ func (p *projectsModel) renderList() string {
 	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
 }
 
+// listPageSize returns the number of project rows that fit in the list
+// section at the given section height, after the caption/header/rule/footer
+// overhead. Shared by rendering (the visible window) and the "[" / "]" page
+// jump so both agree on what a "page" is.
+func (p *projectsModel) listPageSize(maxRows int) int {
+	availableRows := maxRows - 4 // caption + header + rule + footer
+	if availableRows < 1 {
+		availableRows = 1
+	}
+	return availableRows
+}
+
 func (p *projectsModel) renderListRows(maxRows int) string {
 	var b strings.Builder
 	selected := p.m.projectScope
@@ -383,15 +410,9 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
 
-	availableRows := maxRows - 4 // caption + header + rule + footer
-	if availableRows < 0 {
-		availableRows = 0
-	}
-	end := len(p.list)
-	if end > availableRows {
-		end = availableRows
-	}
-	for i := 0; i < end; i++ {
+	pageSize := p.listPageSize(maxRows)
+	start, end := windowLines(len(p.list), p.cursor, pageSize)
+	for i := start; i < end; i++ {
 		r := p.list[i]
 		var gutter string
 		if r.code == p.m.projectScope {
@@ -407,10 +428,10 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 		}
 		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
 	}
-	if end == 0 {
+	if end == start {
 		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
 	} else {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing 1-%d of %d", end, len(p.list)))))
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(p.list)))))
 	}
 	return b.String()
 }

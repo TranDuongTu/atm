@@ -661,6 +661,49 @@ func TestProjectsListOverflowSentinelRendersWithinHeight(t *testing.T) {
 	}
 }
 
+// TestProjectsListScrollsWithCursor verifies the list window follows the
+// cursor: a project seeded past the first page is not rendered until the
+// cursor reaches it (regression guard for the "cursor runs off-screen while
+// the list stays still" bug).
+func TestProjectsListScrollsWithCursor(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 30)
+	codes := []string{"AAA", "AAB", "AAC", "AAD", "AAE", "AAF", "AAG", "AAH", "AAI", "AAJ"}
+	for i, code := range codes {
+		seedProject(t, m, code, fmt.Sprintf("Project %02d", i))
+	}
+	last := codes[len(codes)-1]
+	if strings.Contains(m.projects.View(), last) {
+		t.Fatalf("expected %s to be scrolled out of view initially:\n%s", last, m.projects.View())
+	}
+	m.projects.cursor = len(codes) - 1
+	view := m.projects.View()
+	if !strings.Contains(view, last) {
+		t.Fatalf("cursor on %s but it is not visible:\n%s", last, view)
+	}
+}
+
+// TestProjectsBracketKeysPageThroughList verifies "]"/"[" jump the cursor a
+// full page forward/backward.
+func TestProjectsBracketKeysPageThroughList(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 30)
+	codes := []string{"AAA", "AAB", "AAC", "AAD", "AAE", "AAF", "AAG", "AAH", "AAI", "AAJ"}
+	for i, code := range codes {
+		seedProject(t, m, code, fmt.Sprintf("Project %02d", i))
+	}
+	start := m.projects.cursor
+	update(t, m, "]")
+	if m.projects.cursor <= start {
+		t.Fatalf("] should move cursor forward, got %d (was %d)", m.projects.cursor, start)
+	}
+	after := m.projects.cursor
+	update(t, m, "[")
+	if m.projects.cursor >= after {
+		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.projects.cursor, after)
+	}
+}
+
 func TestProjectsViewUsesThirtySeventySplit(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 30)
@@ -1240,6 +1283,125 @@ func TestTasksPagingFooter(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "showing ")
 	mustContain(t, v, "of 25")
+}
+
+// TestTasksFlatListScrollsWithCursor verifies the flat list window follows
+// the cursor: a task seeded past the first page is not rendered until the
+// cursor reaches it (regression guard for lists whose window never moves).
+func TestTasksFlatListScrollsWithCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	for i := 0; i < 25; i++ {
+		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
+	}
+	update(t, m, "s")
+	update(t, m, "2")
+
+	rows := m.tasks.rows
+	if len(rows) != 25 {
+		t.Fatalf("expected 25 rows, got %d", len(rows))
+	}
+	last := rows[len(rows)-1]
+	if strings.Contains(m.tasks.View(), last.id) {
+		t.Fatalf("expected %s to be scrolled out of view initially:\n%s", last.id, m.tasks.View())
+	}
+	m.tasks.cursor = len(rows) - 1
+	view := m.tasks.View()
+	if !strings.Contains(view, last.id) {
+		t.Fatalf("cursor on %s but it is not visible:\n%s", last.id, view)
+	}
+}
+
+// TestTasksFlatListBracketKeysPageThroughList verifies "]"/"[" jump the
+// cursor a full page forward/backward in the flat list.
+func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	for i := 0; i < 25; i++ {
+		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
+	}
+	update(t, m, "s")
+	update(t, m, "2")
+	start := m.tasks.cursor
+	update(t, m, "]")
+	if m.tasks.cursor <= start {
+		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+	}
+	after := m.tasks.cursor
+	update(t, m, "[")
+	if m.tasks.cursor >= after {
+		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+	}
+}
+
+// TestTasksGroupedListScrollsWithCursor verifies the grouped/tree list window
+// also follows the cursor (the grouped view previously never windowed at
+// all, relying on padToHeight to silently truncate the bottom).
+func TestTasksGroupedListScrollsWithCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	for i := 0; i < 12; i++ {
+		seedTask(t, m, "ATM", "task "+string(rune('A'+i)), "ATM:status:open")
+	}
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "/")
+	for _, r := range "ATM:status:*" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+
+	total := m.tasks.flatLineCount()
+	lastLeaf := -1
+	for i := total - 1; i >= 0; i-- {
+		m.tasks.cursor = i
+		if _, ok := m.tasks.rowAtCursor(); ok {
+			lastLeaf = i
+			break
+		}
+	}
+	if lastLeaf < 0 {
+		t.Fatalf("expected at least one leaf row in the grouped view")
+	}
+	m.tasks.cursor = lastLeaf
+	r, _ := m.tasks.rowAtCursor()
+
+	m.tasks.cursor = 0
+	if strings.Contains(m.tasks.View(), r.id) {
+		t.Fatalf("expected last leaf row %s to be scrolled out of view when cursor is at top", r.id)
+	}
+	m.tasks.cursor = lastLeaf
+	view := m.tasks.View()
+	if !strings.Contains(view, r.id) {
+		t.Fatalf("cursor on last leaf row %s but it is not visible:\n%s", r.id, view)
+	}
+}
+
+// TestTasksGroupedListBracketKeysPageThroughList verifies "]"/"[" jump the
+// cursor a full page forward/backward in the grouped/tree list.
+func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	for i := 0; i < 12; i++ {
+		seedTask(t, m, "ATM", "task "+string(rune('A'+i)), "ATM:status:open")
+	}
+	update(t, m, "s")
+	update(t, m, "2")
+	update(t, m, "/")
+	for _, r := range "ATM:status:*" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+	start := m.tasks.cursor
+	update(t, m, "]")
+	if m.tasks.cursor <= start {
+		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+	}
+	after := m.tasks.cursor
+	update(t, m, "[")
+	if m.tasks.cursor >= after {
+		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+	}
 }
 
 // TestTasksGroupedSingleWildcard verifies the grouped view for a single
