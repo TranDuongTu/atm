@@ -40,13 +40,10 @@ const (
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
-	formTaskLabelAdd       // task detail: add label
-	formTaskLabelRemove    // task detail: remove label
-	formProjectSetName     // project detail: set name
-	formCommentAdd         // task detail: add comment
-	formCommentSetBody     // comment detail: edit body
-	formCommentLabelAdd    // comment detail: add label
-	formCommentLabelRemove // comment detail: remove label
+	formTaskLabelAdd    // task detail: add label
+	formTaskLabelRemove // task detail: remove label
+	formProjectSetName  // project detail: set name
+	formCommentAdd      // task detail: add comment
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -56,7 +53,6 @@ const (
 	confirmNone confirmAction = iota
 	confirmRemoveProject
 	confirmRemoveTask
-	confirmRemoveComment
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent three-pane
@@ -390,6 +386,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	}
 
 	// Esc at pane level: back from detail to list, or cancel task filter.
+	// If a per-detail overlay (comment peek or history) is open, defer to
+	// the pane's overlay Esc handler so Esc returns to the detail rather
+	// than leaping out to the list and leaving the overlay state stale.
 	if k.String() == "esc" {
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
 			m.projects.backToList()
@@ -397,6 +396,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 		if m.focused == paneTasks {
 			if m.tasks.view == tViewDetail {
+				if m.tasks.commentOverlay.id != "" || m.tasks.historyOverlay.active {
+					return m.tasks.handleKey(k)
+				}
 				m.tasks.backToList()
 				return nil
 			}
@@ -483,12 +485,6 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doTaskLabelRemove(vals)
 	case formCommentAdd:
 		return m.doCommentAdd(vals)
-	case formCommentSetBody:
-		return m.doCommentSetBody(vals)
-	case formCommentLabelAdd:
-		return m.doCommentLabelAdd(vals)
-	case formCommentLabelRemove:
-		return m.doCommentLabelRemove(vals)
 	}
 	return nil
 }
@@ -500,65 +496,14 @@ func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
 	for _, tok := range strings.Fields(vals["labels"]) {
 		labels = append(labels, m.projectScope+":"+tok)
 	}
-	replyTo := m.formPayload
-	if rt, ok := vals["reply-to"]; ok && rt != "" {
-		replyTo = rt
-	}
+	replyTo := vals["reply-to"]
 	_, err := m.store.CreateComment(taskID, body, labels, replyTo, m.actor)
 	if err != nil {
 		m.showToast("error: " + err.Error())
 		return nil
 	}
-	m.formPayload = ""
 	m.refreshAll()
 	m.tasks.openDetail(taskID)
-	return nil
-}
-
-func (m *Model) doCommentSetBody(vals map[string]string) tea.Cmd {
-	id := m.formPayload
-	if err := m.store.SetCommentBody(id, vals["body"], m.actor); err != nil {
-		m.showToast("error: " + err.Error())
-		return nil
-	}
-	m.refreshAll()
-	c, err := m.store.GetComment(id)
-	if err == nil {
-		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
-		m.tasks.commentOverlay.render(m)
-	}
-	return nil
-}
-
-func (m *Model) doCommentLabelAdd(vals map[string]string) tea.Cmd {
-	id := m.formPayload
-	full := m.projectScope + ":" + vals["name"]
-	if err := m.store.CommentLabelAdd(id, full, m.actor); err != nil {
-		m.showToast("error: " + err.Error())
-		return nil
-	}
-	m.refreshAll()
-	c, err := m.store.GetComment(id)
-	if err == nil {
-		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
-		m.tasks.commentOverlay.render(m)
-	}
-	return nil
-}
-
-func (m *Model) doCommentLabelRemove(vals map[string]string) tea.Cmd {
-	id := m.formPayload
-	full := m.projectScope + ":" + vals["name"]
-	if err := m.store.CommentLabelRemove(id, full, m.actor); err != nil {
-		m.showToast("error: " + err.Error())
-		return nil
-	}
-	m.refreshAll()
-	c, err := m.store.GetComment(id)
-	if err == nil {
-		m.tasks.commentOverlay = commentOverlayModel{id: id, comment: c}
-		m.tasks.commentOverlay.render(m)
-	}
 	return nil
 }
 

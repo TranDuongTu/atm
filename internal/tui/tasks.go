@@ -32,10 +32,11 @@ type tasksModel struct {
 	// detail
 	detail taskDetailState
 
-	// comments section focus ring + comment detail overlay.
-	commentsCursor int
-	commentsFocus  bool
+	// comment read-only overlay (peek) and history overlay; both clear on
+	// backToList / openDetail so stale overlay state never leaks across
+	// detail sessions.
 	commentOverlay commentOverlayModel
+	historyOverlay historyOverlayModel
 }
 
 type tView int
@@ -88,11 +89,10 @@ type taskGroup struct {
 }
 
 type taskDetailState struct {
-	id          string
-	task        *store.Task
-	lines       []string
-	offset      int
-	historyOpen bool
+	id     string
+	task   *store.Task
+	lines  []string
+	offset int
 }
 
 func newTasksModel(m *Model) tasksModel {
@@ -412,6 +412,9 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	if t.commentOverlay.id != "" {
 		return t.handleCommentOverlayKey(k)
 	}
+	if t.historyOverlay.active {
+		return t.handleHistoryOverlayKey(k)
+	}
 	switch k.String() {
 	case "j", "down":
 		t.detail.offset++
@@ -444,18 +447,14 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	case "M":
 		t.openCommentAddForm()
 	case "H":
-		t.detail.historyOpen = !t.detail.historyOpen
-		t.renderDetail()
-	case "tab":
-		t.commentsFocus = !t.commentsFocus
-		t.renderDetail()
+		return t.openHistoryOverlay()
 	case "enter":
-		if t.commentsCursor >= 0 {
-			cs, _ := t.m.store.ListComments(t.detail.id)
-			if t.commentsCursor < len(cs) {
-				return t.openCommentOverlay(cs[t.commentsCursor].ID)
-			}
+		cs, _ := t.m.store.ListComments(t.detail.id)
+		if len(cs) > 0 {
+			return t.openCommentOverlay(cs[0].ID)
 		}
+	case "esc":
+		t.backToList()
 	}
 	return nil
 }
@@ -625,6 +624,8 @@ func (t *tasksModel) openDetail(id string) tea.Cmd {
 		t.m.showToast("error: " + err.Error())
 		return nil
 	}
+	t.commentOverlay = commentOverlayModel{}
+	t.historyOverlay = historyOverlayModel{}
 	t.detail = taskDetailState{id: id, task: tk}
 	t.view = tViewDetail
 	t.renderDetail()
@@ -634,6 +635,8 @@ func (t *tasksModel) openDetail(id string) tea.Cmd {
 func (t *tasksModel) backToList() {
 	t.view = tViewList
 	t.detail = taskDetailState{}
+	t.commentOverlay = commentOverlayModel{}
+	t.historyOverlay = historyOverlayModel{}
 }
 
 func (t *tasksModel) renderDetail() {
@@ -705,20 +708,6 @@ func (t *tasksModel) renderDetail() {
 	}
 	b.WriteString("\n")
 
-	if t.detail.historyOpen {
-		b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
-		b.WriteString("\n")
-		hv := t.m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
-		if len(hv) == 0 {
-			b.WriteString(dashboardLine(t.width, " (no history)"))
-			b.WriteString("\n")
-		} else {
-			for _, e := range hv {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
-			}
-		}
-		b.WriteString("\n")
-	}
 	b.WriteString(sectionDivider(t.m.styles, t.width, "Actions"))
 	b.WriteString("\n")
 	b.WriteString(dashboardLine(t.width, t.m.styles.KeyMenuDim.Render("[e] edit title   [d] edit description   [b] add label   [B] remove label   [M] add comment   [H] history   [x] remove   [Esc] back")))
@@ -960,6 +949,9 @@ func (t *tasksModel) renderDetailView() string {
 	if t.commentOverlay.id != "" {
 		return t.commentOverlay.view(t.m)
 	}
+	if t.historyOverlay.active {
+		return t.historyOverlay.view(t.m)
+	}
 	end := t.detail.offset + t.contentHeight
 	if end > len(t.detail.lines) {
 		end = len(t.detail.lines)
@@ -1147,75 +1139,14 @@ func (t *tasksModel) openCommentOverlay(id string) tea.Cmd {
 	return nil
 }
 
-func (t *tasksModel) openCommentBodyForm(c *store.Comment) {
-	fields := []formField{
-		{Label: "body", Required: true, Value: c.Body, Hint: "new body"},
-	}
-	f := NewForm("Edit comment body", fields)
-	t.m.form = f
-	t.m.formKind = formCommentSetBody
-	t.m.formPayload = c.ID
-}
-
-func (t *tasksModel) openCommentLabelAddForm(c *store.Comment) {
-	validator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		if !labelSuffixRe.MatchString(value) {
-			return fmt.Errorf("use <namespace>:<value> or <tag>")
-		}
+func (t *tasksModel) openHistoryOverlay() tea.Cmd {
+	tk := t.detail.task
+	if tk == nil {
 		return nil
 	}
-	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
-	}
-	f := NewForm("Add comment label  "+t.m.projectScope+":", fields)
-	t.m.form = f
-	t.m.formKind = formCommentLabelAdd
-	t.m.formPayload = c.ID
-}
-
-func (t *tasksModel) openCommentLabelRemoveForm(c *store.Comment) {
-	validator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		if !labelSuffixRe.MatchString(value) {
-			return fmt.Errorf("use <namespace>:<value> or <tag>")
-		}
-		return nil
-	}
-	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
-	}
-	f := NewForm("Remove comment label  "+t.m.projectScope+":", fields)
-	t.m.form = f
-	t.m.formKind = formCommentLabelRemove
-	t.m.formPayload = c.ID
-}
-
-func (t *tasksModel) openCommentReplyForm(parent *store.Comment) {
-	labelsValidator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		for _, tok := range strings.Fields(value) {
-			if !labelSuffixRe.MatchString(tok) {
-				return fmt.Errorf("bad label %q: use <namespace>:<value> or <tag>", tok)
-			}
-		}
-		return nil
-	}
-	fields := []formField{
-		{Label: "body", Required: true, Hint: "reply body"},
-		{Label: "labels", Required: false, Hint: "space-separated suffixes", Validator: labelsValidator},
-	}
-	f := NewForm("Reply to  "+parent.ID+":", fields)
-	f.Title = "Reply to  " + parent.ID + ":"
-	t.m.form = f
-	t.m.formKind = formCommentAdd
-	t.m.formPayload = parent.ID // doCommentAdd reads this as reply-to
+	t.historyOverlay = historyOverlayModel{active: true}
+	t.historyOverlay.render(t.m, tk.ProjectCode, tk.ID)
+	return nil
 }
 
 // --- mutations ---

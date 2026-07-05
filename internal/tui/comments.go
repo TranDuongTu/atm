@@ -69,7 +69,7 @@ func (co *commentOverlayModel) render(m *Model) {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(dashboardLine(m.tasks.width, m.styles.KeyMenuDim.Render("[e] edit body   [b] add label   [B] remove label   [R] reply   [H] history   [x] remove   [Esc] back")))
+	b.WriteString(dashboardLine(m.tasks.width, m.styles.KeyMenuDim.Render("[H] history   [Esc] back")))
 	co.lines = strings.Split(b.String(), "\n")
 }
 
@@ -80,7 +80,10 @@ func formatLabelsTUI(labels []string) string {
 	return strings.Join(labels, " ")
 }
 
-// handleCommentOverlayKey dispatches a key pressed while the comment overlay is open.
+// handleCommentOverlayKey dispatches a key pressed while the comment overlay
+// is open. The overlay is a read-only peek: scrolling, in-overlay history
+// toggle, and Esc to return to the task detail. Comment mutations (body,
+// labels, remove, reply) are CLI-only (`atm task comment ...`).
 func (t *tasksModel) handleCommentOverlayKey(k tea.KeyMsg) tea.Cmd {
 	co := &t.commentOverlay
 	if co.comment == nil {
@@ -96,22 +99,9 @@ func (t *tasksModel) handleCommentOverlayKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		co.offset = 0
-	case "e":
-		t.openCommentBodyForm(co.comment)
-	case "b":
-		t.openCommentLabelAddForm(co.comment)
-	case "B":
-		t.openCommentLabelRemoveForm(co.comment)
-	case "R":
-		t.openCommentReplyForm(co.comment)
 	case "H":
 		co.historyOpen = !co.historyOpen
 		co.render(t.m)
-	case "x":
-		t.m.confirm = confirmRemoveComment
-		t.m.confirmMsg = fmt.Sprintf("Remove comment %s?", co.id)
-		t.m.confirmArg = "History is preserved in the audit log."
-		return nil
 	case "esc":
 		t.commentOverlay = commentOverlayModel{}
 		t.renderDetail()
@@ -126,5 +116,73 @@ func (t *tasksModel) clampCommentOverlay() {
 	}
 	if t.commentOverlay.offset > maxOff {
 		t.commentOverlay.offset = maxOff
+	}
+}
+
+// historyOverlayModel is a read-only overlay showing the task's audit-log
+// history. Opened with [H] from task detail; closed with Esc.
+type historyOverlayModel struct {
+	active bool
+	lines  []string
+	offset int
+}
+
+func (ho *historyOverlayModel) view(m *Model) string {
+	end := ho.offset + m.tasks.contentHeight
+	if end > len(ho.lines) {
+		end = len(ho.lines)
+	}
+	var b strings.Builder
+	for i := ho.offset; i < end; i++ {
+		b.WriteString(ho.lines[i])
+		b.WriteString("\n")
+	}
+	return padToHeight(b.String(), m.tasks.contentHeight)
+}
+
+func (ho *historyOverlayModel) render(m *Model, code, taskID string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "History  %s\n", taskID)
+	b.WriteString(sepLine("─", 78, m.tasks.width, 2))
+	b.WriteString("\n")
+	hv := m.store.History(code, store.Subject{Kind: "task", ID: taskID})
+	if len(hv) == 0 {
+		b.WriteString(dashboardLine(m.tasks.width, " (no history)"))
+		b.WriteString("\n")
+	} else {
+		for _, e := range hv {
+			fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(m.tasks.width, m.styles.KeyMenuDim.Render("[Esc] back")))
+	ho.lines = strings.Split(b.String(), "\n")
+}
+
+func (t *tasksModel) handleHistoryOverlayKey(k tea.KeyMsg) tea.Cmd {
+	ho := &t.historyOverlay
+	switch k.String() {
+	case "j", "down":
+		ho.offset++
+		t.clampHistoryOverlay()
+	case "k", "up":
+		if ho.offset > 0 {
+			ho.offset--
+		}
+	case "g":
+		ho.offset = 0
+	case "esc":
+		t.historyOverlay = historyOverlayModel{}
+	}
+	return nil
+}
+
+func (t *tasksModel) clampHistoryOverlay() {
+	maxOff := len(t.historyOverlay.lines) - t.contentHeight
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if t.historyOverlay.offset > maxOff {
+		t.historyOverlay.offset = maxOff
 	}
 }

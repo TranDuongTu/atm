@@ -979,18 +979,6 @@ func (m *Model) confirmYes() tea.Cmd {
 		m.tasks.backToList()
 		m.refreshAll()
 		return nil
-	case confirmRemoveComment:
-		id := m.tasks.commentOverlay.id
-		if err := m.store.RemoveComment(id, m.actor); err != nil {
-			m.showToast("error: " + err.Error())
-			m.confirm = confirmNone
-			return nil
-		}
-		m.confirm = confirmNone
-		m.tasks.commentOverlay = commentOverlayModel{}
-		m.refreshAll()
-		m.tasks.openDetail(m.tasks.detail.id)
-		return nil
 	}
 	m.confirm = confirmNone
 	return nil

@@ -1310,7 +1310,7 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 // --- Step 6: task detail + empty states ---
 
 // TestTaskDetailFactsLabelsHistory verifies the task detail (mockup Screen 8):
-// facts, label chips, and HISTORY behind the [H] toggle (opened in-test).
+// facts, label chips, and HISTORY behind the [H] overlay (opened in-test).
 func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 80)
@@ -1325,8 +1325,8 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	update(t, m, "2")
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
-	// History is hidden behind [H] by default; open it.
-	update(t, m, "H")
+	// Detail-mode facts + labels render by default; History is hidden
+	// behind the [H] overlay.
 	v := m.tasks.View()
 	mustContain(t, v, "Task ATM-0001")
 	mustContain(t, v, "─ Facts ─")
@@ -1337,10 +1337,19 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "ATM:status:in-progress")
 	mustContain(t, v, "ATM:type:bug")
 	mustContain(t, v, "ATM:priority:high")
-	mustContain(t, v, "─ History ─")
 	mustContain(t, v, "─ Actions ─")
 	mustContain(t, v, "[e] edit title")
 	mustContain(t, v, "[b] add label")
+	if strings.Contains(v, "task.created") {
+		t.Fatalf("history must be hidden behind [H] overlay by default, found task.created:\n%s", v)
+	}
+	// Open the history overlay: it replaces the detail view while active.
+	update(t, m, "H")
+	if !m.tasks.historyOverlay.active {
+		t.Fatal("expected history overlay active after [H]")
+	}
+	v = m.tasks.View()
+	mustContain(t, v, "History")
 	mustContain(t, v, "task.created")
 	mustContain(t, v, "task.label-added")
 	// History rows are decorated with [seq] and ordered chronologically
@@ -1348,7 +1357,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	createdIdx := strings.Index(v, "task.created")
 	addedIdx := strings.Index(v, "task.label-added")
 	if createdIdx < 0 || addedIdx < 0 {
-		t.Fatalf("missing task.created / task.label-added in history")
+		t.Fatalf("missing task.created / task.label-added in history overlay")
 	}
 	if addedIdx < createdIdx {
 		t.Errorf("history not chronological: task.label-added (%d) before task.created (%d)", addedIdx, createdIdx)
@@ -1357,6 +1366,14 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	if !strings.Contains(v, "] ") {
 		t.Errorf("history rows missing [seq] decoration")
 	}
+	// Closing the overlay returns to the detail view.
+	update(t, m, "esc")
+	if m.tasks.historyOverlay.active {
+		t.Fatal("Esc should have closed the history overlay")
+	}
+	v = m.tasks.View()
+	mustContain(t, v, "Task ATM-0001")
+	mustContain(t, v, "─ Facts ─")
 }
 
 func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
