@@ -43,7 +43,7 @@ func newTaskCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "created task %s\n", t.ID)
 			})
 		},
@@ -106,8 +106,9 @@ func newTaskShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
-				jt := taskToJSON(t)
+			hv := s.History(t.ProjectCode, store.Subject{Kind: "task", ID: t.ID})
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, hv)}, func() {
+				jt := taskToJSON(t, hv)
 				fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", jt.ID, jt.Title, formatLabels(jt.Labels))
 			})
 		},
@@ -138,7 +139,7 @@ func newTaskSetTitleCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "updated title %s\n", t.ID)
 			})
 		},
@@ -171,7 +172,7 @@ func newTaskSetDescriptionCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "updated description %s\n", t.ID)
 			})
 		},
@@ -214,7 +215,7 @@ func newTaskLabelAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "added label %s to %s\n", label, t.ID)
 			})
 		},
@@ -247,7 +248,7 @@ func newTaskLabelRemoveCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t)}, func() {
+			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "removed label %s from %s\n", label, t.ID)
 			})
 		},

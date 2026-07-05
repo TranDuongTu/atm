@@ -3,14 +3,8 @@
     "code": "ATM",
     "created_at": "TIMESTAMP",
     "created_by": "claude",
-    "history": [
-      {
-        "action": "created",
-        "actor": "claude",
-        "at": "TIMESTAMP",
-        "id": "h1"
-      }
-    ],
+    "history": [],
+    "log_seq": 1,
     "name": "Agent Tasks Management",
     "next_task_n": 1,
     "updated_at": "TIMESTAMP",

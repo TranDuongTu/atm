@@ -5,12 +5,13 @@
     "created_by": "claude",
     "history": [
       {
-        "action": "created",
+        "action": "project.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "id": "h1"
+        "seq": 1
       }
     ],
+    "log_seq": 1,
     "name": "Agent Tasks Management",
     "next_task_n": 3,
     "updated_at": "TIMESTAMP",

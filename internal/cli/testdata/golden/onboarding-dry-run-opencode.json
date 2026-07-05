@@ -2,12 +2,9 @@
   "agent": "opencode",
   "argv": [
     "opencode",
-    "run",
-    "-f",
-    "/STORE/onboarding/FOO-RUNID.md",
     "--auto",
-    "--title",
-    "ATM onboarding: FOO (FOO-RUNID)"
+    "--prompt",
+    "Read the onboarding instructions in the file at /STORE/onboarding/FOO-RUNID.md and follow them exactly."
   ],
   "project": "FOO",
   "prompt_path": "/STORE/onboarding/FOO-RUNID.md",

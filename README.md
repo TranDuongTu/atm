@@ -70,6 +70,15 @@ atm init [--actor <id>]            # idempotent; creates labels.json + actors.js
 atm store path                     # print resolved store path
 ```
 
+### Audit log
+
+Every mutating operation is recorded in an event-sourced, append-only per-project
+audit log: a JSONL file at `$ATM_HOME/projects/<CODE>/log.jsonl`. State files
+(tasks, labels, project metadata) are derived caches rebuilt from this log.
+`atm store log <CODE> [--from N] [--to N]` reads it back, `atm store verify
+[--repair]` checks cache/log consistency (exits 5 on integrity failure), and
+`atm store rebuild` regenerates the caches from the log.
+
 ### Projects
 
 A project owns a namespace prefix (`<CODE>:`) for its labels. Creation is

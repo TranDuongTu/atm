@@ -291,10 +291,13 @@ func (p *projectsModel) renderDetail() {
 		b.WriteString("\n")
 		b.WriteString(sectionDivider(p.m.styles, p.width, "History"))
 		b.WriteString("\n")
-		for _, h := range pr.History {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
-			if len(h.Meta) > 0 {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
+		hv := p.m.store.History(p.detail.code, store.Subject{Kind: "project", Code: p.detail.code})
+		if len(hv) == 0 {
+			b.WriteString(dashboardLine(p.width, " (no history)"))
+			b.WriteString("\n")
+		} else {
+			for _, e := range hv {
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
 			}
 		}
 	}

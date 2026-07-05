@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"atm/internal/store"
+
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +40,7 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "created project %s\n", p.Code)
 			})
 		},
@@ -82,8 +84,9 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
-				fmt.Fprintln(os.Stdout, renderProjectText(projectToJSON(p)))
+			hv := s.History(p.Code, store.Subject{Kind: "project", Code: p.Code})
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, hv)}, func() {
+				fmt.Fprintln(os.Stdout, renderProjectText(projectToJSON(p, hv)))
 			})
 		},
 	}
@@ -113,7 +116,7 @@ func newProjectSetNameCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p)}, func() {
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, nil)}, func() {
 				fmt.Fprintf(os.Stdout, "renamed project %s\n", p.Code)
 			})
 		},

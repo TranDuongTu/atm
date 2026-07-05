@@ -658,10 +658,13 @@ func (t *tasksModel) renderDetail() {
 
 	b.WriteString(sectionDivider(t.m.styles, t.width, "History"))
 	b.WriteString("\n")
-	for _, h := range tk.History {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf(" %-3s %s   %s     %s", h.ID, store.RFC3339UTC(h.At), h.Actor, h.Action)))
-		if len(h.Meta) > 0 {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("      meta: %s", metaJSON(h.Meta))))
+	hv := t.m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
+	if len(hv) == 0 {
+		b.WriteString(dashboardLine(t.width, " (no history)"))
+		b.WriteString("\n")
+	} else {
+		for _, e := range hv {
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
 		}
 	}
 	b.WriteString("\n")

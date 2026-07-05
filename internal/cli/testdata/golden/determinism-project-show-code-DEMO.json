@@ -5,18 +5,19 @@
     "created_by": "claude",
     "history": [
       {
-        "action": "created",
+        "action": "project.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "id": "h1"
+        "seq": 1
       },
       {
-        "action": "name-changed",
+        "action": "project.name-changed",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "id": "h2"
+        "seq": 22
       }
     ],
+    "log_seq": 22,
     "name": "Demo Project",
     "next_task_n": 2,
     "updated_at": "TIMESTAMP",

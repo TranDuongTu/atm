@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -37,29 +38,49 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 			Title:       title,
 			Description: description,
 			Labels:      append([]string(nil), labels...),
-			History: []HistoryEntry{
-				{ID: "h1", Action: "created", Actor: actor, At: ts, Meta: map[string]any{}},
-			},
-			CreatedAt: ts,
-			CreatedBy: actor,
-			UpdatedAt: ts,
-			UpdatedBy: actor,
+			CreatedAt:   ts,
+			CreatedBy:   actor,
+			UpdatedAt:   ts,
+			UpdatedBy:   actor,
 		}
 		sort.Strings(t.Labels)
-		if err := s.autoRegisterLabels(labels); err != nil {
+		// 1. Append label.upserted for any newly-registered labels (BEFORE the task event).
+		labelEntries, err := s.appendLabelUpsertsLocked(projectCode, labels, actor, ts)
+		if err != nil {
 			return err
 		}
+		_ = labelEntries
+		// 2. Append task.created.
+		entry, err := s.appendLogLocked(projectCode, LogEntry{
+			At:      ts,
+			Actor:   actor,
+			Action:  ActionTaskCreated,
+			Subject: Subject{Kind: "task", ID: id},
+			Payload: mustMarshal(t),
+		})
+		if err != nil {
+			return err
+		}
+		t.LogSeq = entry.Seq
+		// 3. Bump project counter and write project cache (mutation).
 		p.NextTaskN = n + 1
 		p.UpdatedAt = ts
 		p.UpdatedBy = actor
 		if err := WriteJSON(s.projectPath(projectCode), p); err != nil {
 			return err
 		}
+		// 4. Write task cache.
 		if err := os.MkdirAll(s.tasksDir(projectCode), 0o755); err != nil {
 			return err
 		}
 		if err := WriteJSON(s.taskPath(id), t); err != nil {
 			return err
+		}
+		// 5. Refresh derived labels.json if any new labels were registered.
+		if len(labelEntries) > 0 {
+			if err := s.refreshDerivedLabelsLocked(projectCode); err != nil {
+				return err
+			}
 		}
 		created = t
 		return nil
@@ -67,30 +88,170 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	return created, err
 }
 
-func (s *Store) GetTask(id string) (*Task, error) {
-	var t Task
-	if err := ReadJSON(s.taskPath(id), &t); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
-		}
+// appendLabelUpsertsLocked appends label.upserted for each label name not already
+// present in this project's log. Caller MUST hold the project lock.
+func (s *Store) appendLabelUpsertsLocked(code string, labels []string, actor string, at time.Time) ([]LogEntry, error) {
+	if len(labels) == 0 {
+		return nil, nil
+	}
+	present, err := s.labelsInLogLocked(code)
+	if err != nil {
 		return nil, err
 	}
+	var out []LogEntry
+	for _, name := range labels {
+		if present[name] {
+			continue
+		}
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      at,
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: Subject{Kind: "label", Name: name},
+			Payload: mustMarshal(Label{Name: name}),
+		})
+		if err != nil {
+			return out, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// labelsInLogLocked returns the set of label names that have an upserted event
+// (and no subsequent removed event) in this project's log.
+func (s *Store) labelsInLogLocked(code string) (map[string]bool, error) {
+	st, err := s.Replay(code)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(st.Labels))
+	for _, l := range st.Labels {
+		out[l.Name] = true
+	}
+	return out, nil
+}
+
+func (s *Store) GetTask(id string) (*Task, error) {
+	code, _, ok := ParseTaskID(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+	}
+	var t Task
+	cachePath := s.taskPath(id)
+	if err := ReadJSON(cachePath, &t); err != nil {
+		if !os.IsNotExist(err) {
+			// Corrupt cache → rebuild from log under the lock for safety.
+			if err := s.WithLock(code, func() error {
+				return s.rebuildTaskFromLog(id, code)
+			}); err != nil {
+				return nil, err
+			}
+			if err := ReadJSON(cachePath, &t); err != nil {
+				return nil, err
+			}
+			return &t, nil
+		}
+		// Missing cache → rebuild under lock.
+		if err := s.WithLock(code, func() error {
+			return s.rebuildTaskFromLog(id, code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &t); err != nil {
+			return nil, err
+		}
+		return &t, nil
+	}
+	// Cache present; check staleness.
+	last, lastErr := s.LastLogSeq(code)
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	if t.LogSeq > last {
+		return nil, fmt.Errorf("%w: task %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, id, t.LogSeq, last)
+	}
+	taskLast, err := s.lastTaskEventSeq(code, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.LogSeq < taskLast {
+		// Stale: rebuild under lock.
+		if err := s.WithLock(code, func() error {
+			return s.rebuildTaskFromLog(id, code)
+		}); err != nil {
+			return nil, err
+		}
+		if err := ReadJSON(cachePath, &t); err != nil {
+			return nil, err
+		}
+	}
 	return &t, nil
+}
+
+// lastTaskEventSeq returns the seq of the latest log entry for the given task subject.
+// An integrity error from ReadLog is propagated (a corrupt log must not be treated
+// as "cache is fresh").
+func (s *Store) lastTaskEventSeq(code, id string) (int, error) {
+	entries, err := s.ReadLog(code)
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for _, e := range entries {
+		if e.Subject.Kind == "task" && e.Subject.ID == id {
+			last = e.Seq
+		}
+	}
+	return last, nil
+}
+
+// rebuildTaskFromLog replays the task's events and rewrites the cache file.
+// Caller MUST hold the project lock.
+func (s *Store) rebuildTaskFromLog(id, code string) error {
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return err
+	}
+	var t *Task
+	lastSeq := 0
+	for _, e := range entries {
+		if e.Subject.Kind != "task" || e.Subject.ID != id {
+			continue
+		}
+		lastSeq = e.Seq
+		if e.Action == ActionTaskRemoved {
+			t = nil
+			continue
+		}
+		var tk Task
+		if err := json.Unmarshal(e.Payload, &tk); err == nil {
+			t = &tk
+		}
+	}
+	if t == nil {
+		return fmt.Errorf("%w: task %q", ErrNotFound, id)
+	}
+	t.LogSeq = lastSeq
+	if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
+		return err
+	}
+	return WriteJSON(s.taskPath(id), t)
 }
 
 func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
 		return fmt.Errorf("%w: title is required", ErrUsage)
 	}
-	return s.mutateTask(id, actor, "title-changed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		t.Title = title
-	}, map[string]any{})
+	}, ActionTaskTitleChanged)
 }
 
 func (s *Store) SetDescription(id, description, actor string) error {
-	return s.mutateTask(id, actor, "description-changed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		t.Description = description
-	}, map[string]any{})
+	}, ActionTaskDescChanged)
 }
 
 // Design note: the spec says both "auto-registers any supplied labels" (upsert)
@@ -129,19 +290,38 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 		}
 		t.Labels = append(t.Labels, label)
 		sort.Strings(t.Labels)
-		if err := s.autoRegisterLabels([]string{label}); err != nil {
+		// 1. Append label.upserted for the new label if not already in log.
+		labelEntries, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now())
+		if err != nil {
 			return err
 		}
+		// 2. Append task.label-added.
 		now := Now()
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
-		t.appendHistoryAt("label-added", actor, now, map[string]any{"label": label})
-		return WriteJSON(s.taskPath(id), t)
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionTaskLabelAdded,
+			Subject: Subject{Kind: "task", ID: id},
+			Payload: mustMarshal(t),
+		})
+		if err != nil {
+			return err
+		}
+		t.LogSeq = entry.Seq
+		if err := WriteJSON(s.taskPath(id), t); err != nil {
+			return err
+		}
+		if len(labelEntries) > 0 {
+			return s.refreshDerivedLabelsLocked(code)
+		}
+		return nil
 	})
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
-	return s.mutateTask(id, actor, "label-removed", func(t *Task, now time.Time) {
+	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
 		out := t.Labels[:0]
 		for _, l := range t.Labels {
 			if l != label {
@@ -149,7 +329,7 @@ func (s *Store) TaskLabelRemove(id, label, actor string) error {
 			}
 		}
 		t.Labels = out
-	}, map[string]any{"label": label})
+	}, ActionTaskLabelRemoved)
 }
 
 func (s *Store) RemoveTask(id, actor string) error {
@@ -161,14 +341,31 @@ func (s *Store) RemoveTask(id, actor string) error {
 		return fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
 	return s.WithLock(code, func() error {
-		if _, err := s.GetTask(id); err != nil {
+		t, err := s.GetTask(id)
+		if err != nil {
 			return err
 		}
+		now := Now()
+		t.UpdatedAt = now
+		t.UpdatedBy = actor
+		// 1. Append task.removed tombstone (payload = last state).
+		_, err = s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionTaskRemoved,
+			Subject: Subject{Kind: "task", ID: id},
+			Payload: mustMarshal(t),
+		})
+		if err != nil {
+			return err
+		}
+		// 2. Delete the cache file.
 		return os.Remove(s.taskPath(id))
 	})
 }
 
-func (s *Store) mutateTask(id, actor, action string, fn func(t *Task, now time.Time), meta map[string]any) error {
+// mutateTask is the log-first write-through helper for non-delete task mutations.
+func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), action string) error {
 	if actor == "" {
 		return fmt.Errorf("%w: actor is required", ErrUsage)
 	}
@@ -185,14 +382,17 @@ func (s *Store) mutateTask(id, actor, action string, fn func(t *Task, now time.T
 		fn(t, now)
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
-		t.appendHistoryAt(action, actor, now, meta)
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  action,
+			Subject: Subject{Kind: "task", ID: id},
+			Payload: mustMarshal(t),
+		})
+		if err != nil {
+			return err
+		}
+		t.LogSeq = entry.Seq
 		return WriteJSON(s.taskPath(id), t)
-	})
-}
-
-func (t *Task) appendHistoryAt(action, actor string, at time.Time, meta map[string]any) {
-	n := len(t.History) + 1
-	t.History = append(t.History, HistoryEntry{
-		ID: fmt.Sprintf("h%d", n), Action: action, Actor: actor, At: at, Meta: meta,
 	})
 }

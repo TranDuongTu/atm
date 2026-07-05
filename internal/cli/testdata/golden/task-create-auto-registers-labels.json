@@ -3,19 +3,13 @@
     "created_at": "TIMESTAMP",
     "created_by": "claude",
     "description": "",
-    "history": [
-      {
-        "action": "created",
-        "actor": "claude",
-        "at": "TIMESTAMP",
-        "id": "h1"
-      }
-    ],
+    "history": [],
     "id": "ATM-0001",
     "labels": [
       "ATM:priority:high",
       "ATM:type:feature"
     ],
+    "log_seq": 20,
     "project_code": "ATM",
     "title": "t",
     "updated_at": "TIMESTAMP",

@@ -12,19 +12,21 @@ import (
 type ErrorCode string
 
 const (
-	CodeSuccess  ErrorCode = "success"
-	CodeGeneric  ErrorCode = "generic"
-	CodeUsage    ErrorCode = "usage"
-	CodeNotFound ErrorCode = "not-found"
-	CodeConflict ErrorCode = "conflict"
+	CodeSuccess   ErrorCode = "success"
+	CodeGeneric   ErrorCode = "generic"
+	CodeUsage     ErrorCode = "usage"
+	CodeNotFound  ErrorCode = "not-found"
+	CodeConflict  ErrorCode = "conflict"
+	CodeIntegrity ErrorCode = "integrity"
 )
 
 const (
-	ExitSuccess  = 0
-	ExitGeneric  = 1
-	ExitUsage    = 2
-	ExitNotFound = 3
-	ExitConflict = 4
+	ExitSuccess   = 0
+	ExitGeneric   = 1
+	ExitUsage     = 2
+	ExitNotFound  = 3
+	ExitConflict  = 4
+	ExitIntegrity = 5
 )
 
 func CodeForError(err error) ErrorCode {
@@ -40,6 +42,9 @@ func CodeForError(err error) ErrorCode {
 	if errors.Is(err, ErrConflict) || errors.Is(err, store.ErrConflict) {
 		return CodeConflict
 	}
+	if errors.Is(err, store.ErrIntegrity) {
+		return CodeIntegrity
+	}
 	return CodeGeneric
 }
 
@@ -53,6 +58,8 @@ func ExitCodeForError(err error) int {
 		return ExitNotFound
 	case CodeConflict:
 		return ExitConflict
+	case CodeIntegrity:
+		return ExitIntegrity
 	default:
 		return ExitGeneric
 	}

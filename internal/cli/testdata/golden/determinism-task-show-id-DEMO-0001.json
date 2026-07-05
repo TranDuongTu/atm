@@ -5,16 +5,17 @@
     "description": "",
     "history": [
       {
-        "action": "created",
+        "action": "task.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "id": "h1"
+        "seq": 21
       }
     ],
     "id": "DEMO-0001",
     "labels": [
       "DEMO:status:open"
     ],
+    "log_seq": 21,
     "project_code": "DEMO",
     "title": "Demo task",
     "updated_at": "TIMESTAMP",

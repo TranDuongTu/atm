@@ -6,7 +6,8 @@
       "atm label list --project <CODE> — read every label's description first to learn the project's vocabulary before touching tasks",
       "atm task list --project <CODE> --label <CODE>:context:agent — get agent directions for working in this project",
       "atm task list --project <CODE> --label <CODE>:context:repository / :context:documentation — discover repository pointers and documentation",
-      "atm task list --project <CODE> --label <CODE>:status:open — get open work"
+      "atm task list --project <CODE> --label <CODE>:status:open — get open work",
+      "atm store log <CODE> — read the project's append-only audit log to observe recent activity"
     ],
     "code_of_conduct": [
       "Read before you write. Run atm label list --project <CODE> and read every label's description before introducing any new label.",
