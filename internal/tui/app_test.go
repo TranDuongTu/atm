@@ -667,7 +667,7 @@ func TestProjectDetailDoesNotRenderSummaryCharts(t *testing.T) {
 	body := m.projects.View()
 	mustContain(t, body, "Project ATM")
 	mustNotContain(t, body, "Project Summary")
-	mustNotContain(t, body, "Labels by namespace")
+	mustNotContain(t, body, "Activities by actor")
 }
 
 func TestProjectDetailDashboardSections(t *testing.T) {
@@ -701,26 +701,47 @@ func TestProjectPaneSplitHeights(t *testing.T) {
 	}
 }
 
-func TestLabelNamespaceCounts(t *testing.T) {
-	tasks := []*store.Task{
-		{Labels: []string{"ATM:status:open", "ATM:type:bug", "ATM:priority:high", "ATM:urgent"}},
-		{Labels: []string{"ATM:status:done", "ATM:type:bug", "ATM:type:refactor"}},
-		{Labels: []string{"ATM:context:agent"}},
+func TestActorActivityRowsSortAndPercent(t *testing.T) {
+	entries := []store.LogEntry{
+		{Actor: "codex"},
+		{Actor: "claude"},
+		{Actor: "codex"},
+		{Actor: "ttran"},
+		{Actor: "codex"},
+		{Actor: "claude"},
 	}
-	got := labelNamespaceCounts(tasks)
-	want := []namespaceCount{
-		{namespace: "type", count: 3},
-		{namespace: "status", count: 2},
-		{namespace: "context", count: 1},
-		{namespace: "priority", count: 1},
-		{namespace: "tags", count: 1},
+	got := actorActivityRows(entries, 10)
+	want := []actorActivityRow{
+		{actor: "codex", count: 3, percent: 50},
+		{actor: "claude", count: 2, percent: 33},
+		{actor: "ttran", count: 1, percent: 17},
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("labelNamespaceCounts() = %#v, want %#v", got, want)
+		t.Fatalf("actorActivityRows() = %#v, want %#v", got, want)
 	}
 }
 
-func TestActivityDayCountsIncludesProjectAndTaskHistory(t *testing.T) {
+func TestActorActivityRowsFoldsOthersAtLimit(t *testing.T) {
+	entries := []store.LogEntry{
+		{Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"},
+		{Actor: "b"}, {Actor: "b"}, {Actor: "b"}, {Actor: "b"},
+		{Actor: "c"}, {Actor: "c"}, {Actor: "c"},
+		{Actor: "d"}, {Actor: "d"},
+		{Actor: "e"},
+	}
+	got := actorActivityRows(entries, 4)
+	want := []actorActivityRow{
+		{actor: "a", count: 5, percent: 33},
+		{actor: "b", count: 4, percent: 27},
+		{actor: "c", count: 3, percent: 20},
+		{actor: "others", count: 3, percent: 20},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("actorActivityRows() = %#v, want %#v", got, want)
+	}
+}
+
+func TestActivityStripeDayCountsUsesOneWeekEndingToday(t *testing.T) {
 	mustTime := func(s string) time.Time {
 		t.Helper()
 		ts, err := time.Parse(time.RFC3339, s)
@@ -729,30 +750,25 @@ func TestActivityDayCountsIncludesProjectAndTaskHistory(t *testing.T) {
 		}
 		return ts
 	}
-	day1 := mustTime("2026-07-01T10:00:00Z")
-	day2 := mustTime("2026-07-02T10:00:00Z")
-	project := &store.Project{
-		History: []store.HistoryEntry{
-			{ID: "h1", Action: "created", Actor: "claude", At: day1},
-			{ID: "h2", Action: "name-changed", Actor: "claude", At: day2},
-		},
+	entries := []store.LogEntry{
+		{At: mustTime("2026-07-01T10:00:00Z")},
+		{At: mustTime("2026-07-03T10:00:00Z")},
+		{At: mustTime("2026-07-03T11:00:00Z")},
+		{At: mustTime("2026-07-05T10:00:00Z")},
 	}
-	tasks := []*store.Task{
-		{History: []store.HistoryEntry{
-			{ID: "h1", Action: "created", Actor: "claude", At: day1},
-			{ID: "h2", Action: "label-added", Actor: "claude", At: day2},
-		}},
-		{History: []store.HistoryEntry{
-			{ID: "h1", Action: "created", Actor: "claude", At: day2},
-		}},
-	}
-	got := activityDayCounts(project, tasks)
-	want := map[string]int{
-		"2026-07-01": 2,
-		"2026-07-02": 3,
+	today := mustTime("2026-07-08T22:00:00Z")
+	got := activityStripeDayCountsEnding(entries, 7, today)
+	want := []activityStripeDay{
+		{day: "2026-07-02", count: 0},
+		{day: "2026-07-03", count: 2},
+		{day: "2026-07-04", count: 0},
+		{day: "2026-07-05", count: 1},
+		{day: "2026-07-06", count: 0},
+		{day: "2026-07-07", count: 0},
+		{day: "2026-07-08", count: 0},
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("activityDayCounts() = %#v, want %#v", got, want)
+		t.Fatalf("activityStripeDayCountsEnding() = %#v, want %#v", got, want)
 	}
 	if activityDensityGlyph(0) != "·" || activityDensityGlyph(1) != "░" || activityDensityGlyph(3) != "▒" || activityDensityGlyph(6) != "▓" || activityDensityGlyph(10) != "█" {
 		t.Fatalf("activityDensityGlyph returned unexpected density marks")
@@ -767,14 +783,15 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Labels pie")
-	mustContain(t, body, "status")
-	mustContain(t, body, "type")
-	mustContain(t, body, "tags")
+	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "claude")
 	mustContain(t, body, "%")
-	mustContain(t, body, "Activity")
-	mustContain(t, body, "Keywords")
-	mustContain(t, body, "agent-generated keyword bubbles pending")
+	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "bubbles")
+	mustContain(t, body, "events")
+	mustContain(t, body, "agents")
+	mustNotContain(t, body, "Activities by actor")
+	mustNotContain(t, body, "Activity stripe")
 }
 
 func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
@@ -784,9 +801,9 @@ func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Labels pie")
-	mustContain(t, body, "Activity")
-	mustContain(t, body, "░")
+	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "█")
 }
 
 func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
@@ -797,9 +814,8 @@ func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.renderSummary(5)
 	mustContain(t, body, "Project Summary")
-	mustContain(t, body, "Labels pie")
-	mustContain(t, body, "Activity")
-	mustContain(t, body, "░")
+	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "activity stripe")
 }
 
 func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
@@ -818,8 +834,8 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	}
 	body := m.projects.View()
 	mustContain(t, body, "select a project to see summaries")
-	mustNotContain(t, body, "Labels pie")
-	mustNotContain(t, body, "Activity")
+	mustNotContain(t, body, "activity by actor")
+	mustNotContain(t, body, "activity stripe")
 }
 
 func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
@@ -844,75 +860,195 @@ func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "agent-generated keyword bubbles pending")
+	mustContain(t, body, "bubbles")
+	mustContain(t, body, "events")
+	mustContain(t, body, "agents")
 	if m.form != nil {
-		t.Fatalf("keyword placeholder opened form")
+		t.Fatalf("bubble placeholder opened form")
 	}
 	if m.confirm != confirmNone {
-		t.Fatalf("keyword placeholder opened confirm = %v", m.confirm)
+		t.Fatalf("bubble placeholder opened confirm = %v", m.confirm)
 	}
 }
 
-func TestRenderActivityDensityDeterministic(t *testing.T) {
-	counts := map[string]int{
-		"2026-07-01": 1,
-		"2026-07-02": 3,
-		"2026-07-03": 10,
+func TestRenderActivityStripeDeterministic(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 1},
+		{day: "2026-07-02", count: 3},
+		{day: "2026-07-03", count: 10},
 	}
-	got := renderActivityDensity(counts, 10)
+	got := renderActivityStripe(days)
 	want := "░▒█"
 	if got != want {
-		t.Fatalf("renderActivityDensity() = %q, want %q", got, want)
+		t.Fatalf("renderActivityStripe() = %q, want %q", got, want)
 	}
 }
 
-func TestRenderActivityDensityIncludesQuietDaysWithinWindow(t *testing.T) {
-	counts := map[string]int{
-		"2026-07-01": 1,
-		"2026-07-03": 3,
-	}
-	got := renderActivityDensity(counts, 10)
-	want := "░·▒"
-	if got != want {
-		t.Fatalf("renderActivityDensity() = %q, want %q", got, want)
-	}
-}
-
-func TestRenderLabelNamespaceChartShowsOverflowSummary(t *testing.T) {
+func TestRenderActorActivityChartShowsOverflowSummary(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	p := newProjectsModel(m)
 	p.SetSize(120, 40)
-	tasks := []*store.Task{
-		{Labels: []string{"ATM:a:one"}},
-		{Labels: []string{"ATM:b:one"}},
-		{Labels: []string{"ATM:c:one"}},
-		{Labels: []string{"ATM:d:one"}},
-		{Labels: []string{"ATM:e:one"}},
+	entries := []store.LogEntry{
+		{Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"},
+		{Actor: "b"}, {Actor: "b"}, {Actor: "b"}, {Actor: "b"},
+		{Actor: "c"}, {Actor: "c"}, {Actor: "c"},
+		{Actor: "d"}, {Actor: "d"},
+		{Actor: "e"},
 	}
-	lines := p.renderLabelNamespaceChart(tasks, 5)
+	lines := p.renderActorActivityChart(entries, 5)
 	got := strings.Join(lines, "\n")
+	mustContain(t, got, "activity by actor")
 	mustContain(t, got, "a")
 	mustContain(t, got, "b")
 	mustContain(t, got, "c")
-	mustContain(t, got, "... 2 more namespaces")
+	mustContain(t, got, "others")
 }
 
-func TestRenderLabelNamespaceChartUsesPieStyle(t *testing.T) {
+func TestRenderActorActivityChartUsesMeterStyle(t *testing.T) {
 	m := newTestModel(t)
 	p := newProjectsModel(m)
 	p.SetSize(80, 20)
-	tasks := []*store.Task{
-		{Labels: []string{"ATM:status:open", "ATM:type:bug"}},
-		{Labels: []string{"ATM:status:done"}},
+	entries := []store.LogEntry{
+		{Actor: "claude"}, {Actor: "claude"},
+		{Actor: "codex"},
 	}
-	got := strings.Join(p.renderLabelNamespaceChart(tasks, 4), "\n")
-	mustContain(t, got, "Labels pie")
-	mustContain(t, got, "status")
+	got := strings.Join(p.renderActorActivityChart(entries, 4), "\n")
+	mustContain(t, got, "activity by actor")
+	mustContain(t, got, "claude")
 	mustContain(t, got, "67%")
-	mustContain(t, got, "type")
+	mustContain(t, got, "codex")
 	mustContain(t, got, "33%")
-	mustNotContain(t, got, "█")
+	mustContain(t, got, "█")
+}
+
+func TestRenderActorActivityChartShowsFullActorName(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.SetSize(120, 20)
+	entries := []store.LogEntry{
+		{Actor: "very-long-agent-name-with-role"},
+	}
+	got := strings.Join(p.renderActorActivityChart(entries, 4), "\n")
+	mustContain(t, got, "very-long-agent-name-with-role")
+	mustNotContain(t, got, "very-lo...")
+}
+
+func TestProjectSummaryChartBoxesAreCentered(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	body := m.projects.View()
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "activity by actor") && strings.Contains(line, "╭") {
+			if strings.HasPrefix(line, "╭") {
+				t.Fatalf("chart box should be centered with left padding, got %q\n--- body ---\n%s", line, body)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing centered activity by actor box\n--- body ---\n%s", body)
+}
+
+func TestProjectSummaryChartBoxesUseNinetyFivePercentWidth(t *testing.T) {
+	if got := chartBoxWidth(100); got < 95 {
+		t.Fatalf("chartBoxWidth(100) = %d, want at least 95", got)
+	}
+}
+
+func TestProjectSummaryChartBoxesFillRemainingSummarySpace(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	body := m.projects.renderSummary(24)
+	lines := strings.Split(body, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("renderSummary(24) lines = %d, want 24\n--- body ---\n%s", len(lines), body)
+	}
+	if strings.TrimSpace(lines[len(lines)-1]) == "" {
+		t.Fatalf("summary should fill the last allocated line with chart content\n--- body ---\n%s", body)
+	}
+}
+
+func TestRenderChartBoxDimsBorderAndCentersContent(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.SetSize(80, 20)
+	got := p.renderChartBox("activity stripe", "█", 7)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 7 {
+		t.Fatalf("renderChartBox lines = %d, want 7\n%s", len(lines), got)
+	}
+	mustContain(t, got, "╭")
+	mustContain(t, got, "╰")
+	centerLine := lines[len(lines)/2]
+	if !strings.Contains(centerLine, "█") {
+		t.Fatalf("chart content should be vertically centered, got middle line %q\n%s", centerLine, got)
+	}
+}
+
+func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 1},
+		{day: "2026-07-02", count: 3},
+		{day: "2026-07-03", count: 10},
+		{day: "2026-07-04", count: 0},
+		{day: "2026-07-05", count: 0},
+		{day: "2026-07-06", count: 0},
+		{day: "2026-07-07", count: 0},
+	}
+	got := renderActivityStripeCanvas(days, 70)
+	if len(strings.Split(strings.TrimRight(got, "\n"), "\n")) < 2 {
+		t.Fatalf("renderActivityStripeCanvas() should render a multi-line canvas, got %q", got)
+	}
+	mustContain(t, got, "█")
+	mustContain(t, got, "▅")
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
+	if activityCanvasStyle(10).GetForeground() == nil {
+		t.Fatalf("activityCanvasStyle should configure foreground color")
+	}
+	barLine := strings.Split(got, "\n")[0]
+	if got := strings.Count(barLine, " "); got != 6 {
+		t.Fatalf("activity stripe should separate exactly 7 bars with 6 spaces, got %d spaces in %q", got, barLine)
+	}
+}
+
+func TestRenderSampleBubbleCanvasShowsPlaceholders(t *testing.T) {
+	got := renderSampleBubbleCanvas(28)
+	mustContain(t, got, "events")
+	mustContain(t, got, "agents")
+	mustContain(t, got, "tasks")
+	mustNotContain(t, got, "pending")
+}
+
+func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {
+	got := activityStripeDayCounts(nil, 7)
+	if len(got) != 7 {
+		t.Fatalf("activityStripeDayCounts(nil) len = %d, want 7", len(got))
+	}
+	for _, day := range got {
+		if day.count != 0 {
+			t.Fatalf("activityStripeDayCounts(nil) = %#v, want all zero counts", got)
+		}
+	}
+}
+
+func TestRenderActivityStripeIncludesQuietDaysWithinWindow(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 1},
+		{day: "2026-07-02", count: 0},
+		{day: "2026-07-03", count: 3},
+	}
+	got := renderActivityStripe(days)
+	want := "░·▒"
+	if got != want {
+		t.Fatalf("renderActivityStripe() = %q, want %q", got, want)
+	}
 }
 
 // TestProjectsListCursorVsSelectionIndependent verifies the cursor is
