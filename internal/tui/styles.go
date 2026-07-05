@@ -308,6 +308,17 @@ func sectionDivider(styles Styles, width int, title string) string {
 	return prefix + styles.HeaderLabel.Render(repeat("─", left)+label+repeat("─", right))
 }
 
+// sectionCaption renders a detail-page sub-section header as a bold/colored
+// label followed by a rule scoped to the label's own width (not the pane
+// width). Unlike sectionDivider (a full-width banner used for list-pane and
+// page-level headers), this is deliberately lightweight so multiple
+// sub-sections on one detail page don't compete for visual weight.
+func sectionCaption(styles Styles, width int, title string) string {
+	label := dashboardLine(width, styles.HeaderLabel.Render(title))
+	rule := dashboardLine(width, styles.HeaderLabel.Render(repeat("─", lipgloss.Width(title))))
+	return label + "\n" + rule
+}
+
 // relTime renders a human-readable relative timestamp from t to now.
 func relTime(t time.Time, now time.Time) string {
 	d := now.Sub(t)

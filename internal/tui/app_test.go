@@ -155,6 +155,27 @@ func TestDashboardContentUsesPaneWidthWithoutCentering(t *testing.T) {
 	}
 }
 
+func TestSectionCaptionRuleScopedToTitleWidth(t *testing.T) {
+	m := newTestModel(t)
+	out := sectionCaption(m.styles, 40, "FACTS")
+	lines := strings.Split(out, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("sectionCaption produced %d lines, want 2\n%q", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "FACTS") {
+		t.Fatalf("line 0 = %q, want it to contain FACTS", lines[0])
+	}
+	// The rule must be exactly as wide as the title ("FACTS" = 5 dashes), not
+	// the full 40-column pane width.
+	dashCount := strings.Count(lines[1], "─")
+	if dashCount != len("FACTS") {
+		t.Fatalf("rule has %d dashes, want %d\n%q", dashCount, len("FACTS"), lines[1])
+	}
+	if lipgloss.Width(lines[1]) >= 40 {
+		t.Fatalf("rule line width = %d, want it short (title-scoped), not pane-width\n%q", lipgloss.Width(lines[1]), lines[1])
+	}
+}
+
 func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
