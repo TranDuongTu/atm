@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
@@ -245,4 +246,143 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+func (s *Store) SetCommentBody(id, body, actor string) error {
+	if body == "" {
+		return fmt.Errorf("%w: body is required", ErrUsage)
+	}
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
+		c.Body = body
+	}, ActionCommentBodyChanged)
+}
+
+func (s *Store) CommentLabelRemove(id, label, actor string) error {
+	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
+		out := c.Labels[:0]
+		for _, l := range c.Labels {
+			if l != label {
+				out = append(out, l)
+			}
+		}
+		c.Labels = out
+	}, ActionCommentLabelRemoved)
+}
+
+func (s *Store) RemoveComment(id, actor string) error {
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	return s.WithLock(code, func() error {
+		c, err := s.GetComment(id)
+		if err != nil {
+			return err
+		}
+		now := Now()
+		c.UpdatedAt = now
+		c.UpdatedBy = actor
+		if _, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionCommentRemoved,
+			Subject: Subject{Kind: "comment", ID: id},
+			Payload: mustMarshal(c),
+		}); err != nil {
+			return err
+		}
+		return os.Remove(s.commentPath(id))
+	})
+}
+
+func (s *Store) CommentLabelAdd(id, label, actor string) error {
+	if err := ValidateLabelName(label); err != nil {
+		return err
+	}
+	if err := s.labelProjectExists(label); err != nil {
+		return err
+	}
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	return s.WithLock(code, func() error {
+		c, err := s.GetComment(id)
+		if err != nil {
+			return err
+		}
+		for _, l := range c.Labels {
+			if l == label {
+				return nil
+			}
+		}
+		c.Labels = append(c.Labels, label)
+		sort.Strings(c.Labels)
+		labelEntries, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now())
+		if err != nil {
+			return err
+		}
+		now := Now()
+		c.UpdatedAt = now
+		c.UpdatedBy = actor
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  ActionCommentLabelAdded,
+			Subject: Subject{Kind: "comment", ID: id},
+			Payload: mustMarshal(c),
+		})
+		if err != nil {
+			return err
+		}
+		c.LogSeq = entry.Seq
+		if err := WriteJSON(s.commentPath(id), c); err != nil {
+			return err
+		}
+		if len(labelEntries) > 0 {
+			return s.refreshDerivedLabelsLocked(code)
+		}
+		return nil
+	})
+}
+
+func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string) error {
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	return s.WithLock(code, func() error {
+		c, err := s.GetComment(id)
+		if err != nil {
+			return err
+		}
+		now := Now()
+		fn(c, now)
+		c.UpdatedAt = now
+		c.UpdatedBy = actor
+		entry, err := s.appendLogLocked(code, LogEntry{
+			At:      now,
+			Actor:   actor,
+			Action:  action,
+			Subject: Subject{Kind: "comment", ID: id},
+			Payload: mustMarshal(c),
+		})
+		if err != nil {
+			return err
+		}
+		c.LogSeq = entry.Seq
+		return WriteJSON(s.commentPath(id), c)
+	})
 }

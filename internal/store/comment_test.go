@@ -200,3 +200,109 @@ func TestParseReplayNextCommentNFromMetaChanged(t *testing.T) {
 		t.Fatalf("replay-derived NextCommentN = %d want 1", got.NextCommentN)
 	}
 }
+
+func TestSetCommentBodyAppendsAndUpdates(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "original", nil, "", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	if err := s.SetCommentBody(c.ID, "edited", "ttran"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+1 {
+		t.Fatalf("seq jumped %d → %d, want %d (comment.body-changed)", before, after, before+1)
+	}
+	got, _ := s.GetComment(c.ID)
+	if got.Body != "edited" {
+		t.Fatalf("body = %q want edited", got.Body)
+	}
+	if got.UpdatedBy != "ttran" {
+		t.Fatalf("updated_by = %q want ttran", got.UpdatedBy)
+	}
+	hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID})
+	if len(hv) != 2 || hv[1].Action != ActionCommentBodyChanged {
+		t.Fatalf("history = %+v", hv)
+	}
+}
+
+func TestCommentLabelAddAutoRegistersAndAppends(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "body", nil, "", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	if err := s.CommentLabelAdd(c.ID, "ATM:comment:clarification", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+2 {
+		t.Fatalf("seq jumped %d → %d, want %d (label.upserted + comment.label-added)", before, after, before+2)
+	}
+	if _, err := s.LabelShow("ATM:comment:clarification"); err != nil {
+		t.Fatalf("label not auto-registered: %v", err)
+	}
+}
+
+func TestCommentLabelAddDedup(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	_ = s.CommentLabelAdd(c.ID, "ATM:comment:open-question", "claude")
+	after, _ := s.LastLogSeq("ATM")
+	if after != before {
+		t.Fatalf("dup label add should append nothing, got %d → %d", before, after)
+	}
+}
+
+func TestCommentLabelRemoveDoesNotTouchRegistry(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	if err := s.CommentLabelRemove(c.ID, "ATM:comment:open-question", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+1 {
+		t.Fatalf("seq jumped %d → %d, want %d (comment.label-removed)", before, after, before+1)
+	}
+	if _, err := s.LabelShow("ATM:comment:open-question"); err != nil {
+		t.Fatalf("registry must still contain label: %v", err)
+	}
+}
+
+func TestRemoveCommentAppendsTombstoneAndDeletesCache(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	c, _ := s.CreateComment(tk.ID, "doomed", nil, "", "claude")
+	before, _ := s.LastLogSeq("ATM")
+	if err := s.RemoveComment(c.ID, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.LastLogSeq("ATM")
+	if after != before+1 {
+		t.Fatalf("seq jumped %d → %d, want %d (comment.removed tombstone)", before, after, before+1)
+	}
+	if _, err := s.GetComment(c.ID); !IsNotFound(err) {
+		t.Fatalf("GetComment after remove: %v want ErrNotFound", err)
+	}
+	if _, err := os.Stat(s.commentPath(c.ID)); !os.IsNotExist(err) {
+		t.Fatal("cache file must be deleted")
+	}
+	hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID})
+	if len(hv) == 0 || hv[len(hv)-1].Action != ActionCommentRemoved {
+		t.Fatalf("tombstone missing from history: %+v", hv)
+	}
+	st, _ := s.Replay("ATM")
+	for _, cc := range st.Comments {
+		if cc.ID == c.ID {
+			t.Fatal("tombstoned comment appeared in replay live set")
+		}
+	}
+}
