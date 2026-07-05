@@ -591,16 +591,10 @@ func TestProjectsListPopulated(t *testing.T) {
 	if strings.HasPrefix(body, "Projects\n") {
 		t.Fatalf("projects body repeats tab title\n--- body ---\n%s", body)
 	}
-	mustContain(t, body, "─ Overview ─")
-	lines := strings.Split(body, "\n")
-	if len(lines) < 2 {
-		t.Fatalf("projects body too short\n--- body ---\n%s", body)
-	}
-	if leadingSpaces(lines[1]) != leadingSpaces(lines[0]) {
-		t.Fatalf("summary should align with divider: divider=%q summary=%q", lines[0], lines[1])
-	}
+	mustNotContain(t, body, "─ Overview ─")
 	mustContain(t, body, "total projects: 2")
 	mustContain(t, body, "selected: none")
+	mustContain(t, body, "showing 1-2 of 2")
 	for _, col := range []string{"CODE", "NAME"} {
 		mustContain(t, v, col)
 	}
@@ -626,13 +620,14 @@ func TestProjectsListRendersSummaryRegionBelowList(t *testing.T) {
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	body := m.projects.View()
-	mustContain(t, body, "─ Overview ─")
-	mustContain(t, body, "─ Project Summary ─")
+	mustNotContain(t, body, "─ Overview ─")
+	mustContain(t, body, "total projects: 1")
+	mustContain(t, body, "Project Summary")
 	mustContain(t, body, "select a project to see summaries")
-	overviewIdx := strings.Index(body, "─ Overview ─")
-	summaryIdx := strings.Index(body, "─ Project Summary ─")
-	if overviewIdx < 0 || summaryIdx < 0 || summaryIdx <= overviewIdx {
-		t.Fatalf("summary should render below overview\n--- body ---\n%s", body)
+	captionIdx := strings.Index(body, "total projects: 1")
+	summaryIdx := strings.Index(body, "Project Summary")
+	if captionIdx < 0 || summaryIdx < 0 || summaryIdx <= captionIdx {
+		t.Fatalf("summary should render below the list caption\n--- body ---\n%s", body)
 	}
 }
 
@@ -658,7 +653,7 @@ func TestProjectsListOverflowSentinelRendersWithinHeight(t *testing.T) {
 		seedProject(t, m, code, fmt.Sprintf("Project %02d", i))
 	}
 	body := m.projects.View()
-	mustContain(t, body, "more projects")
+	mustContain(t, body, "showing ")
 	lines := strings.Split(body, "\n")
 	if len(lines) > 40 {
 		t.Fatalf("projects view has %d lines, want <= 40\n--- body ---\n%s", len(lines), body)
@@ -874,7 +869,6 @@ func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Overview")
 	mustContain(t, body, "Project Summary")
 	_ = m.View()
 }

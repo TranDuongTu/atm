@@ -384,27 +384,20 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 	if selected == "" {
 		selected = "none"
 	}
-	fmt.Fprintf(&b, "%s\n", sectionDivider(p.m.styles, p.width, "Overview"))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
 
-	availableRows := maxRows - 4
+	availableRows := maxRows - 4 // caption + header + rule + footer
 	if availableRows < 0 {
 		availableRows = 0
 	}
-	overflow := len(p.list) > availableRows
-	if overflow && availableRows > 0 {
-		availableRows--
+	end := len(p.list)
+	if end > availableRows {
+		end = availableRows
 	}
-	for i, r := range p.list {
-		if i >= availableRows {
-			remaining := len(p.list) - i
-			if remaining > 0 && overflow && availableRows > 0 {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("... %d more projects", remaining))))
-			}
-			break
-		}
+	for i := 0; i < end; i++ {
+		r := p.list[i]
 		var gutter string
 		if r.code == p.m.projectScope {
 			gutter = p.m.styles.GutterSelect.Render("▸")
@@ -418,6 +411,11 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 			line = gutter + " " + line
 		}
 		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
+	}
+	if end == 0 {
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
+	} else {
+		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing 1-%d of %d", end, len(p.list)))))
 	}
 	return b.String()
 }
