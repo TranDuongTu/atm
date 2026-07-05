@@ -48,14 +48,14 @@ func (co *commentOverlayModel) render(m *Model) {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("updated  %s by %s", store.RFC3339UTC(c.UpdatedAt), c.UpdatedBy)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("labels   %s", formatLabelsTUI(c.Labels))))
 	b.WriteString("\n")
-	b.WriteString(sectionDivider(m.styles, m.tasks.width, "Body"))
+	b.WriteString(sectionCaption(m.styles, m.tasks.width, "BODY"))
 	b.WriteString("\n")
 	for _, line := range strings.Split(c.Body, "\n") {
 		fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, line))
 	}
-	b.WriteString("\n")
 	if co.historyOpen {
-		b.WriteString(sectionDivider(m.styles, m.tasks.width, "History"))
+		b.WriteString("\n")
+		b.WriteString(sectionCaption(m.styles, m.tasks.width, "HISTORY"))
 		b.WriteString("\n")
 		code, _, _, _ := store.ParseCommentID(c.ID)
 		hv := m.store.History(code, store.Subject{Kind: "comment", ID: c.ID})
@@ -67,9 +67,7 @@ func (co *commentOverlayModel) render(m *Model) {
 				fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
 			}
 		}
-		b.WriteString("\n")
 	}
-	b.WriteString(dashboardLine(m.tasks.width, m.styles.KeyMenuDim.Render("[H] history   [Esc] back")))
 	co.lines = strings.Split(b.String(), "\n")
 }
 
@@ -154,8 +152,6 @@ func (ho *historyOverlayModel) render(m *Model, code, taskID string) {
 			fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(m.tasks.width, m.styles.KeyMenuDim.Render("[Esc] back")))
 	ho.lines = strings.Split(b.String(), "\n")
 }
 

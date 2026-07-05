@@ -216,3 +216,30 @@ func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
 		t.Fatalf("detail facts should reappear after closing history overlay:\n%s", view)
 	}
 }
+
+func TestCommentOverlayHasNoTrailingHintLine(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", "agent")
+	m.projectScope = "ATM"
+	m.tasks.openDetail(tk.ID)
+	m.tasks.handleDetailKey(keyMsg("enter"))
+	view := m.tasks.commentOverlay.view(m)
+	mustContain(t, view, "BODY")
+	mustNotContain(t, view, "[Esc] back")
+	mustNotContain(t, view, "[H] history")
+}
+
+func TestHistoryOverlayHasNoTrailingHintLine(t *testing.T) {
+	m := newTestModel(t)
+	_, _ = m.store.CreateProject("ATM", "x", "claude")
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	m.projectScope = "ATM"
+	m.SetSize(120, 70)
+	m.tasks.openDetail(tk.ID)
+	m.tasks.handleDetailKey(keyMsg("H"))
+	view := m.tasks.historyOverlay.view(m)
+	mustContain(t, view, "task.created")
+	mustNotContain(t, view, "[Esc] back")
+}
