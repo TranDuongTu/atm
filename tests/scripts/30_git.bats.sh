@@ -36,6 +36,19 @@ test_regen_version_deterministic() {
   rm -rf "$tmp"
 }
 
+test_preflight_version_valid() {
+  assert_exit 0 rel_preflight_version v0.1.0
+}
+test_preflight_version_invalid() {
+  assert_exit 1 rel_preflight_version v1.0.0-alpha
+}
+test_preflight_version_empty() {
+  assert_exit 1 rel_preflight_version ""
+}
+
 test_git_dirty_clean
 test_git_dirty_dirty
 test_regen_version_deterministic
+test_preflight_version_valid
+test_preflight_version_invalid
+test_preflight_version_empty

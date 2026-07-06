@@ -66,3 +66,7 @@ var Commit = "$commit"
 var Date = "$date"
 EOF
 }
+
+rel_preflight_version() {
+  rel_version_validate "$1"
+}
