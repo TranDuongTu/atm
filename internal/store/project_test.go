@@ -181,6 +181,43 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	// directory would not be removed.) The on-disk absence is the contract.
 }
 
+func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	// Advance NextTaskN past 1 so a silent duplicate project.created would be
+	// detectable (it resets NextTaskN back to 1 on replay).
+	if _, err := s.CreateTask("ATM", "t1", "", nil, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a cache-only loss of the project row: cache.db forgets the
+	// project, but projects/ATM/log.jsonl is untouched (still on disk).
+	db, err := s.cacheDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "second", "claude"); !IsConflict(err) {
+		t.Fatalf("expected conflict recreating %q after cache-only loss, got %v", "ATM", err)
+	}
+}
+
+func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveProject("ATM", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "second", "claude"); err != nil {
+		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
+	}
+}
+
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")

@@ -19,6 +19,17 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	}
 	var created *Project
 	err = s.WithLock(code, func() error {
+		// cache.db is documented as disposable and rebuildable from log.jsonl,
+		// so a cache-only miss does not mean the project doesn't exist: the
+		// authoritative check is whether the project's log file is still on
+		// disk. RemoveProject deletes the whole project directory (including
+		// log.jsonl), so logPath truly absent means the project was actually
+		// removed and recreation is allowed.
+		if _, err := os.Stat(s.logPath(code)); err == nil {
+			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 		if _, ok, err := cacheGetProject(db, code); err != nil {
 			return err
 		} else if ok {
