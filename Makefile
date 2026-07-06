@@ -95,6 +95,7 @@ install-smoke:
 	tests/scripts/install-smoke.sh
 
 ## version-bump: regenerate internal/version/version.go from git state (no commit).
+##   Pin REL_DATE/REL_COMMIT for deterministic output (tests/reproducible builds).
 version-bump:
 	scripts/release.sh VERSION=dev --phase=2 --no-preflight-tag
 

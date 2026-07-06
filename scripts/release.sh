@@ -241,6 +241,13 @@ phase8_upload() {
     echo "GITLAB_TOKEN (or GITHUB_TOKEN) required for upload" >&2
     exit 6
   fi
+  if [ -f dist/CHANGELOG.draft.md ]; then
+    desc=$(cat dist/CHANGELOG.draft.md)
+  else
+    prev=$(git tag --list 'v*' --sort=-v:refname | sed -n '2p' || true)
+    if [ -n "$prev" ]; then range="$prev..HEAD"; else range="--all"; fi
+    desc=$(git log "$range" --pretty=format:'- %s' 2>/dev/null || echo "")
+  fi
   forge=${FORGE:-gitlab}
   case "$forge" in
     gitlab)
@@ -251,7 +258,7 @@ phase8_upload() {
         exit 6
       fi
       body=$(jq -n --arg tag "$VERSION" --arg name "$VERSION" \
-        --arg desc "$(cat dist/CHANGELOG.draft.md)" \
+        --arg desc "$desc" \
         '{tag_name:$tag, name:$name, description:$desc, assets:{links:[]}}')
       curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
         --header "Content-Type: application/json" \
@@ -268,7 +275,7 @@ phase8_upload() {
       repo=${REPO:-}
       if [ -z "$repo" ]; then echo "REPO required for GitHub upload" >&2; exit 6; fi
       body=$(jq -n --arg tag "$VERSION" --arg name "$VERSION" \
-        --arg body "$(cat dist/CHANGELOG.draft.md)" \
+        --arg body "$desc" \
         '{tag_name:$tag, name:$name, body:$body}')
       curl -sf --header "Authorization: token $GITHUB_TOKEN" \
         --header "Content-Type: application/json" \
@@ -285,10 +292,10 @@ phase9_tail() {
   phase_banner 9 "tail"
   vstripped=$(rel_version_strip_v "$VERSION")
   echo "Release $VERSION produced:"
-  ls -la dist/*.tar.gz dist/SHA256SUMS
+  ls -la dist/*.tar.gz dist/SHA256SUMS 2>/dev/null || true
   echo
   echo "SHA256SUMS:"
-  cat dist/SHA256SUMS
+  cat dist/SHA256SUMS 2>/dev/null || true
   echo
   echo "Install (one line):"
   echo "  curl -fsSL https://<raw-host>/scripts/install.sh | FORGE=gitlab REPO=<slug> VERSION=$VERSION bash"

@@ -14,6 +14,10 @@ vg_path="internal/version/version.go"
 vg_snap=$(mktemp)
 cp "$vg_path" "$vg_snap"
 cl_had=0; [ -f CHANGELOG.md ] && cl_had=1
+if [ "$cl_had" = 1 ]; then
+  cl_snap=$(mktemp)
+  cp CHANGELOG.md "$cl_snap"
+fi
 
 scripts/release.sh VERSION=v0.0.0-smoke DRY_RUN=1 --no-edit --no-preflight-tag >/dev/null
 
@@ -23,7 +27,7 @@ cd dist
 python3 -m http.server "$port" >/dev/null 2>&1 &
 http_pid=$!
 cd "$REPO_ROOT"
-trap 'kill $http_pid 2>/dev/null || true; rm -rf "$tmp"; cp "$vg_snap" "$vg_path"; rm -f "$vg_snap"; [ "$cl_had" = 0 ] && rm -f CHANGELOG.md' EXIT
+trap 'kill $http_pid 2>/dev/null || true; rm -rf "$tmp"; cp "$vg_snap" "$vg_path"; rm -f "$vg_snap"; if [ "$cl_had" = 1 ]; then cp "$cl_snap" CHANGELOG.md; rm -f "$cl_snap"; else rm -f CHANGELOG.md; fi' EXIT
 sleep 0.5
 
 PREFIX="$tmp/bin"
