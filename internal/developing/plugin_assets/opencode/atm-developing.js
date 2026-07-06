@@ -17,7 +17,7 @@ Record intentions, progress, decisions, test results, commit references, blocker
 Use the atm-developing skill for the full ledger workflow and examples.
 Follow repo instructions, existing skills, harness rules, tool permissions, and user directions first; ATM records the work, it does not replace the workflow.
 More context: ${contextFile}
-To track work, dispatch the atm-manager subagent. The prompt is an optional \`hint: <word>\` line (feature, bug, design, spec, chore, investigation, decision, progress, blocker, handoff, question) followed by a freeform message. Note the reply and continue. Do not branch on it.
+To track work, dispatch the atm-manager subagent. The prompt is an optional \`hint: <word>\` line (feature, bug, design, spec, chore, investigation, decision, progress, blocker, handoff, question) followed by a freeform message. Note the reply and continue. Do not branch on it. If the manager is unavailable, note the track intent and continue; ledger hygiene is best-effort.
 </ATM_DEVELOPING_CONTEXT>`
 }
 

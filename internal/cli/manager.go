@@ -198,6 +198,12 @@ func runManager(st *cliState, l manager.Launcher, opts managerOpts) error {
 			ErrNotFound, opts.Project, opts.Project)
 	}
 
+	if home, err := os.UserHomeDir(); err == nil {
+		if ps := manager.PluginStatus(l.Name(), home); ps.State != "installed" {
+			fmt.Fprintf(st.stderr(), "warning: manager plugin %s for %s; subagent dispatch unavailable until 'atm manager plugin install %s'\n", ps.State, l.Name(), l.Name())
+		}
+	}
+
 	atmBin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve atm binary: %w", err)

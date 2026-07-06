@@ -19,6 +19,23 @@ func TestManagerCodexDryRunJSON(t *testing.T) {
 	compareGolden(t, "manager-dry-run-codex", got)
 }
 
+func TestManagerLaunchWarnsWhenPluginMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, stderrStr, code := h.run("manager", "codex", "--project", "FOO", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	for _, want := range []string{"warning: manager plugin", "atm manager plugin install"} {
+		if !strings.Contains(stderrStr, want) {
+			t.Errorf("stderr missing %q; got:\n%s", want, stderrStr)
+		}
+	}
+}
+
 func TestManagerMissingProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	_, stderrStr, code := h.run("manager", "codex", "--project", "NOPE", "--dry-run")

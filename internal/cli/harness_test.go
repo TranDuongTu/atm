@@ -35,6 +35,9 @@ type goldenHarness struct {
 
 func newGoldenHarness(t *testing.T) *goldenHarness {
 	t.Helper()
+	for _, k := range []string{"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE"} {
+		t.Setenv(k, "")
+	}
 	dir := t.TempDir()
 	st := &cliState{flags: globalFlags{output: outputJSON}}
 	buf := &bytes.Buffer{}
@@ -54,6 +57,9 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 
 func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	t.Helper()
+	for _, k := range []string{"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE"} {
+		t.Setenv(k, "")
+	}
 	st := &cliState{flags: globalFlags{output: outputJSON}}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
