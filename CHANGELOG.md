@@ -1,3 +1,11 @@
+## v1.1.0 - 2026-07-06
+
+### docs
+- Add ATM manager subagent implementation plan (ATM-0024)
+- Revise manager spec: add prompt appendix, dispatch contract, fast/thorough pacing
+- Add ATM manager subagent design spec (ATM-0024)
+
+
 ## v1.0.2 - 2026-07-06
 
 
