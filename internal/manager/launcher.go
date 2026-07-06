@@ -28,3 +28,16 @@ func LauncherFor(name string) (Launcher, bool) {
 		return nil, false
 	}
 }
+
+// OllamaLauncher execs `ollama launch <integration> --` for an interactive
+// manager session. Constructed directly by the CLI's ollama subcommand,
+// mirroring internal/onboard. LauncherFor stays ok=false for "ollama".
+type OllamaLauncher struct {
+	Integration string
+}
+
+func (l OllamaLauncher) Name() string         { return "ollama" }
+func (l OllamaLauncher) NotFoundHint() string { return "https://ollama.com" }
+func (l OllamaLauncher) BuildArgv() []string {
+	return []string{"ollama", "launch", l.Integration, "--"}
+}
