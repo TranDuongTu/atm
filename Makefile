@@ -6,7 +6,7 @@ PKG := ./...
 
 .PHONY: all build test lint vet fmt clean install help dogfood \
         scripts-test release release-upload release-smoke install-smoke \
-        version-bump install-release dist
+        version-bump install-release install-dist dist
 
 all: build
 
@@ -101,7 +101,11 @@ version-bump:
 
 ## install-release: convenience wrapper around scripts/install.sh.
 install-release:
-	scripts/install.sh FORGE=$(or $(FORGE),gitlab) REPO=$(or $(REPO),$(DEFAULT_REPO)) VERSION=$(VERSION)
+	FORGE=$(or $(FORGE),gitlab) REPO=$(or $(REPO),$(DEFAULT_REPO)) VERSION=$(VERSION) PREFIX=$(PREFIX) scripts/install.sh
+
+## install-dist: install from a local dist/ directory (no network). VERSION defaults to dist/LATEST.
+install-dist:
+	FORGE=dist VERSION=$(VERSION) PREFIX=$(PREFIX) scripts/install.sh
 
 ## dist: alias for release-smoke (produces dist/ without committing).
 dist: release-smoke
