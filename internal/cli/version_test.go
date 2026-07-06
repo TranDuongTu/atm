@@ -3,9 +3,22 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"atm/internal/version"
 )
 
+// pinDevVersion resets the version package vars to the canonical dev defaults
+// (the state a non-ldflags build sees) so the golden fixtures stay stable
+// regardless of what release.sh last regenerated version.go to.
+func pinDevVersion(t *testing.T) {
+	t.Helper()
+	version.Version = "dev"
+	version.Commit = ""
+	version.Date = ""
+}
+
 func TestVersionText(t *testing.T) {
+	pinDevVersion(t)
 	h := newGoldenHarness(t)
 	h.output = outputText
 	out, _, code := h.run("version")
@@ -23,6 +36,7 @@ func TestVersionText(t *testing.T) {
 }
 
 func TestVersionJSON(t *testing.T) {
+	pinDevVersion(t)
 	h := newGoldenHarness(t)
 	out, _, code := h.run("version")
 	if code != 0 {
