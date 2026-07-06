@@ -1,7 +1,6 @@
 package store
 
 import (
-	"os"
 	"testing"
 )
 
@@ -290,8 +289,9 @@ func TestRemoveCommentAppendsTombstoneAndDeletesCache(t *testing.T) {
 	if _, err := s.GetComment(c.ID); !IsNotFound(err) {
 		t.Fatalf("GetComment after remove: %v want ErrNotFound", err)
 	}
-	if _, err := os.Stat(s.commentPath(c.ID)); !os.IsNotExist(err) {
-		t.Fatal("cache file must be deleted")
+	db, _ := s.cacheDB()
+	if _, ok, _ := cacheGetComment(db, c.ID); ok {
+		t.Fatal("cache row must be deleted")
 	}
 	hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID})
 	if len(hv) == 0 || hv[len(hv)-1].Action != ActionCommentRemoved {
