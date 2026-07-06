@@ -12,6 +12,7 @@ NO_EDIT=0
 FROM_CI=0
 NO_PREFLIGHT_TAG=0
 PHASE_ONLY=
+FAIL_UPLOAD=${FAIL_UPLOAD:-0}
 
 for arg in "$@"; do
   case "$arg" in
@@ -220,10 +221,80 @@ phase6_tarballs() {
   cat "$sums"
 }
 
-# ---- Phases 7-9: stubs (implemented in Task 7) ----
-phase7_push()         { phase_banner 7 "push (stub)"; echo "TODO phase 7"; }
-phase8_upload()       { phase_banner 8 "upload (stub)"; echo "TODO phase 8"; }
-phase9_tail()         { phase_banner 9 "tail (stub)"; echo "TODO phase 9"; }
+# ---- Phase 7: push ----
+phase7_push() {
+  phase_banner 7 "push"
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  git push origin "$branch"
+  git push origin "$VERSION"
+  echo "push ok: $branch + $VERSION"
+}
+
+# ---- Phase 8: upload to GitLab Releases ----
+phase8_upload() {
+  phase_banner 8 "upload to GitLab Releases"
+  if [ "$FAIL_UPLOAD" = 1 ]; then
+    echo "FAIL_UPLOAD=1: simulating 401 from forge API" >&2
+    exit 42
+  fi
+  if [ -z "${GITLAB_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ] && [ "$DRY_RUN" = 0 ]; then
+    echo "GITLAB_TOKEN (or GITHUB_TOKEN) required for upload" >&2
+    exit 6
+  fi
+  forge=${FORGE:-gitlab}
+  case "$forge" in
+    gitlab)
+      api="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
+      project="${CI_PROJECT_ID:-}"
+      if [ -z "$project" ]; then
+        echo "CI_PROJECT_ID required for GitLab upload (or set --from-ci)" >&2
+        exit 6
+      fi
+      body=$(jq -n --arg tag "$VERSION" --arg name "$VERSION" \
+        --arg desc "$(cat dist/CHANGELOG.draft.md)" \
+        '{tag_name:$tag, name:$name, description:$desc, assets:{links:[]}}')
+      curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        --header "Content-Type: application/json" \
+        --data "$body" \
+        "$api/projects/$project/releases" >/dev/null
+      # Upload the 5 artifacts as package files and link them.
+      for f in dist/*.tar.gz dist/SHA256SUMS; do
+        curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+          --form "file=@$f" \
+          "$api/projects/$project/uploads" >/dev/null
+      done
+      ;;
+    github)
+      repo=${REPO:-}
+      if [ -z "$repo" ]; then echo "REPO required for GitHub upload" >&2; exit 6; fi
+      body=$(jq -n --arg tag "$VERSION" --arg name "$VERSION" \
+        --arg body "$(cat dist/CHANGELOG.draft.md)" \
+        '{tag_name:$tag, name:$name, body:$body}')
+      curl -sf --header "Authorization: token $GITHUB_TOKEN" \
+        --header "Content-Type: application/json" \
+        --data "$body" \
+        "https://api.github.com/repos/$repo/releases" >/dev/null
+      ;;
+    *) echo "unknown FORGE: $forge" >&2; exit 2 ;;
+  esac
+  echo "upload ok: $VERSION"
+}
+
+# ---- Phase 9: tail ----
+phase9_tail() {
+  phase_banner 9 "tail"
+  vstripped=$(rel_version_strip_v "$VERSION")
+  echo "Release $VERSION produced:"
+  ls -la dist/*.tar.gz dist/SHA256SUMS
+  echo
+  echo "SHA256SUMS:"
+  cat dist/SHA256SUMS
+  echo
+  echo "Install (one line):"
+  echo "  curl -fsSL https://<raw-host>/scripts/install.sh | FORGE=gitlab REPO=<slug> VERSION=$VERSION bash"
+  echo
+  echo "Next: record this release as a comment on ATM-0023 (or the active release task)."
+}
 
 # ---- Dispatch ----
 run_phase() {
