@@ -6,6 +6,7 @@
     "name": "ATM"
   },
   "skills": "./skills/",
+  "hooks": {},
   "interface": {
     "displayName": "ATM Developing",
     "shortDescription": "Use ATM tasks and comments as a development ledger",
