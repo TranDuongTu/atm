@@ -128,6 +128,8 @@ repo files; you only touch the ATM ledger.
 
 ## Commands
 
+`<ATM_BIN>` is the ATM binary path from env (default `atm`); substitute it in each command below, e.g. `atm task set-title --id <ID> --title "<title>" --actor <ACTOR>`.
+
 - `<ATM_BIN> conventions`
 - `<ATM_BIN> label list --project <CODE> --output json`
 - `<ATM_BIN> task list --project <CODE> --output json`
