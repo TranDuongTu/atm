@@ -221,3 +221,62 @@ func TestCachePresentLabels(t *testing.T) {
 		t.Fatalf("present = %v", present)
 	}
 }
+
+func TestCacheCommentUpsertGetWithLabels(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	now := Now()
+	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", CreatedAt: now, UpdatedAt: now})
+	c := &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "hi", Labels: []string{"ATM:tag:x"}, CreatedAt: now, UpdatedAt: now}
+	if err := cacheUpsertComment(db, c); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := cacheGetComment(db, "ATM-0001-c0001")
+	if err != nil || !ok || got.Body != "hi" || len(got.Labels) != 1 {
+		t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestCacheDeleteCommentRemovesLabels(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	now := Now()
+	c := &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "hi", Labels: []string{"ATM:tag:x"}, CreatedAt: now, UpdatedAt: now}
+	_ = cacheUpsertComment(db, c)
+	if err := cacheDeleteComment(db, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := cacheGetComment(db, c.ID); ok {
+		t.Fatal("comment row still present")
+	}
+}
+
+func TestCacheListCommentsSortedByID(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	now := Now()
+	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0002", TaskID: "ATM-0001", Body: "b", CreatedAt: now, UpdatedAt: now})
+	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "a", CreatedAt: now, UpdatedAt: now})
+	got, err := cacheListComments(db, "ATM-0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "ATM-0001-c0001" {
+		t.Fatalf("got = %+v", got)
+	}
+}
+
+func TestCacheListCommentIDsForProject(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	now := Now()
+	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", CreatedAt: now, UpdatedAt: now})
+	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "a", CreatedAt: now, UpdatedAt: now})
+	ids, err := cacheListCommentIDsForProject(db, "ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "ATM-0001-c0001" {
+		t.Fatalf("ids = %v", ids)
+	}
+}

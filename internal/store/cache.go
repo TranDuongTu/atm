@@ -393,3 +393,125 @@ func cachePresentLabels(db *sql.DB, names []string) (map[string]bool, error) {
 	}
 	return out, nil
 }
+
+// ---- comment cache ----
+
+func cacheUpsertComment(db *sql.DB, c *Comment) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`INSERT INTO comments (id, task_id, reply_to, body, log_seq, created_at, created_by, updated_at, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			body=excluded.body, log_seq=excluded.log_seq, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
+		c.ID, c.TaskID, c.ReplyTo, c.Body, c.LogSeq, RFC3339UTC(c.CreatedAt), c.CreatedBy, RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM comment_labels WHERE comment_id = ?`, c.ID); err != nil {
+		return err
+	}
+	for _, l := range c.Labels {
+		if _, err = tx.Exec(`INSERT INTO comment_labels (comment_id, label) VALUES (?, ?)`, c.ID, l); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func cacheGetComment(db *sql.DB, id string) (*Comment, bool, error) {
+	var c Comment
+	var createdAt, updatedAt string
+	err := db.QueryRow(`SELECT id, task_id, reply_to, body, log_seq, created_at, created_by, updated_at, updated_by
+		FROM comments WHERE id = ?`, id).
+		Scan(&c.ID, &c.TaskID, &c.ReplyTo, &c.Body, &c.LogSeq, &createdAt, &c.CreatedBy, &updatedAt, &c.UpdatedBy)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	c.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	c.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	rows, err := db.Query(`SELECT label FROM comment_labels WHERE comment_id = ? ORDER BY label`, id)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, false, err
+		}
+		c.Labels = append(c.Labels, l)
+	}
+	return &c, true, rows.Err()
+}
+
+func cacheDeleteComment(db *sql.DB, id string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM comment_labels WHERE comment_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM comments WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func cacheListComments(db *sql.DB, taskID string) ([]*Comment, error) {
+	rows, err := db.Query(`SELECT id FROM comments WHERE task_id = ? ORDER BY id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rerr := rows.Err()
+	rows.Close()
+	if rerr != nil {
+		return nil, rerr
+	}
+	out := make([]*Comment, 0, len(ids))
+	for _, id := range ids {
+		c, ok, err := cacheGetComment(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// cacheListCommentIDsForProject lists all comment IDs belonging to any task
+// in projectCode — used by VerifyProject to sweep orphan comment rows.
+func cacheListCommentIDsForProject(db *sql.DB, projectCode string) ([]string, error) {
+	rows, err := db.Query(`SELECT c.id FROM comments c JOIN tasks t ON t.id = c.task_id WHERE t.project_code = ?`, projectCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
