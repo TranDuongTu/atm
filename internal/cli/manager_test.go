@@ -87,6 +87,46 @@ func TestManagerEnvIncludesATMValues(t *testing.T) {
 	}
 }
 
+func TestManagerClaudeExtraArgsDryRunJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("manager", "claude", "--project", "FOO", "--dry-run", "--", "--dangerously-skip-permission")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "manager-dry-run-claude-extra", got)
+}
+
+func TestManagerOllamaDryRunJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "manager-dry-run-ollama", got)
+}
+
+func TestManagerOllamaRequiresIntegration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--dry-run")
+	if code != ExitGeneric {
+		t.Fatalf("exit = %d, want %d (generic; cobra required-flag error)", code, ExitGeneric)
+	}
+}
+
 func TestManagerRenderContextTextHasPrompt(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText

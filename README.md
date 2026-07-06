@@ -150,13 +150,46 @@ suggested seed namespaces.
 ```
 atm developing plugin install codex
 atm developing codex --project <CODE>
+atm developing ollama --project <CODE> --integration <name>
 ```
 
 `atm developing <opencode|codex|claude> --project <CODE>` launches the
 agent's normal interactive entrypoint with ATM environment variables and a
-rendered context file. Bootstrap plugins are installed explicitly with
-`atm developing plugin install`; the launcher never modifies agent config
-silently.
+rendered context file. `atm developing ollama --project <CODE> --integration <name>`
+launches an ollama-backed agent (the integration is one of ollama's supported
+hosts: opencode, codex, claude, etc.). Bootstrap plugins are installed
+explicitly with `atm developing plugin install`; the launcher never modifies
+agent config silently.
+
+To pass extra flags to the host agent (e.g. `codex --yolo`,
+`claude --dangerously-skip-permission`), append them after `--`:
+
+```
+atm developing codex --project <CODE> -- --yolo
+atm developing claude --project <CODE> -- --dangerously-skip-permission
+atm developing ollama --project <CODE> --integration codex -- --yolo --auto
+```
+
+Default per-agent args can also be set via the `ATM_<AGENT>_ARGS` environment
+variable (`ATM_OPENCODE_ARGS`, `ATM_CODEX_ARGS`, `ATM_CLAUDE_ARGS`,
+`ATM_OLLAMA_ARGS`). For ollama hosts, `ATM_<INTEGRATION>_ARGS` (e.g.
+`ATM_CODEX_ARGS`) takes precedence over `ATM_OLLAMA_ARGS`. Env args are
+applied first; `--` args append after them with no dedup. Args are passed
+through verbatim; ATM does not validate or sanitize them.
+
+### Manager sessions
+
+```
+atm manager plugin install opencode
+atm manager opencode --project <CODE>
+atm manager ollama --project <CODE> --integration <name>
+```
+
+`atm manager <host> --project <CODE>` launches an interactive ATM-ledger-owner
+session (see `docs/superpowers/specs/2026-07-06-atm-manager-subagent-design.md`).
+`--integration <name>` is required for the `ollama` host. Extra agent args pass
+through `--`, and `ATM_<AGENT>_ARGS` defaults apply the same way as
+`atm developing` (see above).
 
 ## Conventions
 
@@ -288,6 +321,8 @@ Flags:
 - `--prompt-version <v>` (default latest) — select an embedded prompt version.
 - `--dry-run` — render the prompt and print the launcher command without launching.
 - `--integration <name>` (ollama only, required) — passed through to `ollama launch`.
+- `-- <agent args...>` — everything after `--` is appended verbatim to the host agent's argv (e.g. `atm onboarding opencode --project FOO -- --yolo`).
+- `ATM_<AGENT>_ARGS` (env) — default args applied on every launch; for ollama, `ATM_<INTEGRATION>_ARGS` takes precedence over `ATM_OLLAMA_ARGS`.
 
 Re-running onboarding is idempotent: the agent reads existing tasks and updates
 rather than duplicating. Run it per repo to build a multi-repo context map for

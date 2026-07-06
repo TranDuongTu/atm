@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -110,4 +111,53 @@ func normalizeDevelopingOutput(s, storePath string) string {
 
 func normalizeHome(s, home string) string {
 	return strings.ReplaceAll(normalizeOutput(s), filepath.ToSlash(home), "/HOME")
+}
+
+func TestDevelopingCodexExtraArgsDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("developing", "codex", "--project", "FOO", "--dry-run", "--", "--yolo", "--auto")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeDevelopingOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "developing-dry-run-codex-extra", got)
+}
+
+func TestDevelopingOllamaDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("developing", "ollama", "--project", "FOO", "--integration", "codex", "--dry-run", "--", "--yolo")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeDevelopingOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "developing-dry-run-ollama", got)
+}
+
+func TestDevelopingCodexEnvArgsDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	prev := os.Getenv("ATM_CODEX_ARGS")
+	os.Setenv("ATM_CODEX_ARGS", "--yolo")
+	t.Cleanup(func() { os.Setenv("ATM_CODEX_ARGS", prev) })
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("developing", "codex", "--project", "FOO", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeDevelopingOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "developing-dry-run-codex-env", got)
+}
+
+func TestDevelopingOllamaRequiresIntegration(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("developing", "ollama", "--project", "FOO", "--dry-run")
+	if code != ExitGeneric {
+		t.Fatalf("exit = %d, want %d (generic; cobra required-flag error)", code, ExitGeneric)
+	}
 }

@@ -13,9 +13,11 @@ import (
 )
 
 type managerOpts struct {
-	Project string
-	Actor   string
-	DryRun  bool
+	Project     string
+	Actor       string
+	Integration string
+	DryRun      bool
+	ExtraArgs   []string
 }
 
 func newManagerCmd(st *cliState) *cobra.Command {
@@ -28,6 +30,7 @@ func newManagerCmd(st *cliState) *cobra.Command {
 	for _, name := range []string{"opencode", "codex", "claude"} {
 		cmd.AddCommand(newManagerAgentCmd(st, name))
 	}
+	cmd.AddCommand(newManagerOllamaCmd(st))
 	return cmd
 }
 
@@ -132,19 +135,44 @@ func newManagerAgentCmd(st *cliState, agent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   agent,
 		Short: "Launch " + agent + " with ATM manager context",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, ok := manager.LauncherFor(agent)
 			if !ok {
 				return fmt.Errorf("%w: unknown manager agent %q", ErrUsage, agent)
 			}
+			opts.ExtraArgs = args
 			opts.Actor = defaultManagerActor(l.Name(), st, opts.Actor)
-			return runManager(st, l, opts)
+			opts.Integration = ""
+			return runManager(st, l, agent, "", opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-manager)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
+	return cmd
+}
+
+func newManagerOllamaCmd(st *cliState) *cobra.Command {
+	var opts managerOpts
+	cmd := &cobra.Command{
+		Use:   "ollama",
+		Short: "Launch ollama-backed agent with ATM manager context",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.ExtraArgs = args
+			opts.Actor = defaultManagerActor("ollama", st, opts.Actor)
+			l := manager.OllamaLauncher{Integration: opts.Integration}
+			return runManager(st, l, "ollama", opts.Integration, opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
+	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-manager)")
+	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
+	_ = cmd.MarkFlagRequired("project")
+	_ = cmd.MarkFlagRequired("integration")
 	return cmd
 }
 
@@ -187,7 +215,7 @@ func newManagerRenderContextCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func runManager(st *cliState, l manager.Launcher, opts managerOpts) error {
+func runManager(st *cliState, l manager.Launcher, agent, integration string, opts managerOpts) error {
 	s, err := st.openStore()
 	if err != nil {
 		return err
@@ -227,7 +255,9 @@ func runManager(st *cliState, l manager.Launcher, opts managerOpts) error {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
-	argv := l.BuildArgv()
+	base := l.BuildArgv()
+	envArgs := agentEnvArgs(agent, integration)
+	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
 	envValues := managerEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "manager", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {

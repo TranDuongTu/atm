@@ -46,7 +46,7 @@ Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<n
 
 A fresh agent that does not yet know the project's namespaces runs the label-list step first and follows the descriptions.
 
-For day-to-day development, start the agent through ` + "`atm developing <agent> --project <CODE>`" + ` after installing the ATM developing plugin. The command preserves the agent's normal workflow and adds ATM ledger context for the session.
+For day-to-day development, start the agent through ` + "`atm developing <agent> --project <CODE>`" + ` after installing the ATM developing plugin. The command preserves the agent's normal workflow and adds ATM ledger context for the session. To pass per-agent flags (e.g. ` + "`codex --yolo`" + `, ` + "`claude --dangerously-skip-permission`" + `), append them after ` + "`--`" + ` (e.g. ` + "`atm developing codex --project <CODE> -- --yolo`" + `); default per-agent args can also be set via ` + "`ATM_<AGENT>_ARGS`" + ` (e.g. ` + "`ATM_CODEX_ARGS`" + `), and ` + "`atm developing ollama --project <CODE> --integration <name>`" + ` launches an ollama-backed host.
 
 ## Agent code-of-conduct (label hygiene)
 
@@ -69,6 +69,7 @@ Agents working in an ATM project follow these rules to keep the label substrate 
 
 - Plugins/skills: ` + "`atm developing plugin install`" + ` installs user-scoped bootstrap assets explicitly. ATM never installs them silently and never writes repo-local agent config.
 - Re-seeding defaults: ` + "`atm label seed --project <CODE>`" + ` or the Labels tab [S] key re-applies the default set idempotently — existing descriptions are preserved, and any new defaults introduced in a release are added.
+- Extra agent args: pass host-agent flags after ` + "`--`" + ` (e.g. ` + "`atm developing codex --project <CODE> -- --yolo`" + `); defaults may also be set via ` + "`ATM_<AGENT>_ARGS`" + `. ATM passes args through verbatim and does not validate them.
 
 Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.
 `
@@ -109,7 +110,7 @@ func conventionsStructured() map[string]any {
 			"atm store log <CODE> — read the project's append-only audit log to observe recent activity",
 			"atm task comment list --task <ID> — read the running narrative on a task before acting on it",
 		},
-		"day_to_day_development": "Start the agent through atm developing <agent> --project <CODE> after installing the ATM developing plugin. The command preserves the agent's normal workflow and adds ATM ledger context for the session.",
+		"day_to_day_development": "Start the agent through atm developing <agent> --project <CODE> after installing the ATM developing plugin. The command preserves the agent's normal workflow and adds ATM ledger context for the session. To pass per-agent flags (e.g. codex --yolo, claude --dangerously-skip-permission), append them after -- (e.g. atm developing codex --project <CODE> -- --yolo); defaults may also be set via ATM_<AGENT>_ARGS, and atm developing ollama --project <CODE> --integration <name> launches an ollama-backed host.",
 		"advisory":               "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
 	}
 }

@@ -50,3 +50,25 @@ func TestLauncherForUnknown(t *testing.T) {
 		t.Fatal("LauncherFor(ollama) returned ok=true")
 	}
 }
+
+func TestOllamaLauncherInteractiveArgv(t *testing.T) {
+	l := OllamaLauncher{Integration: "codex"}
+	if l.Name() != "ollama" {
+		t.Errorf("Name = %q, want ollama", l.Name())
+	}
+	if l.NotFoundHint() != "https://ollama.com" {
+		t.Errorf("NotFoundHint = %q, want https://ollama.com", l.NotFoundHint())
+	}
+	want := []string{"ollama", "launch", "codex", "--"}
+	if got := l.BuildArgv(); !reflect.DeepEqual(got, want) {
+		t.Errorf("OllamaLauncher BuildArgv = %v, want %v", got, want)
+	}
+}
+
+func TestOllamaLauncherBuildArgvDoesNotMutate(t *testing.T) {
+	l := OllamaLauncher{Integration: "opencode"}
+	_ = l.BuildArgv()
+	if l.Integration != "opencode" {
+		t.Errorf("BuildArgv mutated Integration: %q", l.Integration)
+	}
+}

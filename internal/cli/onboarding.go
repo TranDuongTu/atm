@@ -19,6 +19,7 @@ type onboardingOpts struct {
 	Actor         string
 	PromptVersion string
 	DryRun        bool
+	ExtraArgs     []string
 }
 
 func newOnboardingCmd(st *cliState) *cobra.Command {
@@ -36,10 +37,12 @@ func newOnboardingOpencodeCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "opencode",
 		Short: "Onboard via opencode run --auto",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l := onboard.OpencodeLauncher{}
+			opts.ExtraArgs = args
 			opts.Actor = defaultActor(l.Name(), st, opts.Actor)
-			return runOnboarding(st, l, opts)
+			return runOnboarding(st, l, "opencode", "", opts)
 		},
 	}
 	addOnboardingFlags(cmd, &opts)
@@ -52,10 +55,12 @@ func newOnboardingOllamaCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ollama",
 		Short: "Onboard via ollama launch <integration> -- run --auto",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l := onboard.OllamaLauncher{Integration: integration}
+			opts.ExtraArgs = args
 			opts.Actor = defaultActor(l.Name(), st, opts.Actor)
-			return runOnboarding(st, l, opts)
+			return runOnboarding(st, l, "ollama", integration, opts)
 		},
 	}
 	addOnboardingFlags(cmd, &opts)
@@ -88,7 +93,7 @@ func defaultActor(launcherName string, st *cliState, explicit string) string {
 // prompt, writes it to $ATM_HOME/onboarding/<run-id>.md, prints the header,
 // and (unless --dry-run) execs the launcher as a child. It prints the tail
 // summary after the child exits.
-func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error {
+func runOnboarding(st *cliState, l onboard.Launcher, agent, integration string, opts onboardingOpts) error {
 	s, err := st.openStore()
 	if err != nil {
 		return err
@@ -139,7 +144,9 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 		return fmt.Errorf("write prompt file %s: %w", promptPath, err)
 	}
 
-	argv := l.BuildArgv(promptPath, title)
+	base := l.BuildArgv(promptPath, title)
+	envArgs := agentEnvArgs(agent, integration)
+	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
 	if err := emitOnboardingHeader(st, l.Name(), opts.Project, runID, version, promptPath, argv); err != nil {
 		return err
 	}

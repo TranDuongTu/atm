@@ -95,3 +95,28 @@ func emitLaunchTail(st *cliState, role, project, runID, contextPath, agent strin
 		fmt.Fprintf(st.stdout(), "%s exited %d\n", agent, agentExit)
 	})
 }
+
+// agentEnvArgs returns env-derived extra args for a host agent.
+// For ollama hosts with an integration set, ATM_<INTEGRATION>_ARGS wins
+// over the generic ATM_OLLAMA_ARGS. Parsed with strings.Fields (no quoting).
+func agentEnvArgs(agent, integration string) []string {
+	if agent == "ollama" && integration != "" {
+		if v := os.Getenv("ATM_" + strings.ToUpper(integration) + "_ARGS"); v != "" {
+			return strings.Fields(v)
+		}
+	}
+	if v := os.Getenv("ATM_" + strings.ToUpper(agent) + "_ARGS"); v != "" {
+		return strings.Fields(v)
+	}
+	return nil
+}
+
+// appendAgentArgs returns base + envArgs + extraArgs with no dedup.
+// The host agent's flag parser resolves any conflicts.
+func appendAgentArgs(base, envArgs, extraArgs []string) []string {
+	out := make([]string, 0, len(base)+len(envArgs)+len(extraArgs))
+	out = append(out, base...)
+	out = append(out, envArgs...)
+	out = append(out, extraArgs...)
+	return out
+}

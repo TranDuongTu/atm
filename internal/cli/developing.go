@@ -13,9 +13,11 @@ import (
 )
 
 type developingOpts struct {
-	Project string
-	Actor   string
-	DryRun  bool
+	Project     string
+	Actor       string
+	Integration string
+	DryRun      bool
+	ExtraArgs   []string
 }
 
 func newDevelopingCmd(st *cliState) *cobra.Command {
@@ -27,6 +29,7 @@ func newDevelopingCmd(st *cliState) *cobra.Command {
 	for _, name := range []string{"opencode", "codex", "claude"} {
 		cmd.AddCommand(newDevelopingAgentCmd(st, name))
 	}
+	cmd.AddCommand(newDevelopingOllamaCmd(st))
 	return cmd
 }
 
@@ -131,19 +134,44 @@ func newDevelopingAgentCmd(st *cliState, agent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   agent,
 		Short: "Launch " + agent + " with ATM developing context",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, ok := developing.LauncherFor(agent)
 			if !ok {
 				return fmt.Errorf("%w: unknown developing agent %q", ErrUsage, agent)
 			}
+			opts.ExtraArgs = args
 			opts.Actor = defaultDevelopingActor(l.Name(), st, opts.Actor)
-			return runDeveloping(st, l, opts)
+			opts.Integration = ""
+			return runDeveloping(st, l, agent, "", opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-dev)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
+	return cmd
+}
+
+func newDevelopingOllamaCmd(st *cliState) *cobra.Command {
+	var opts developingOpts
+	cmd := &cobra.Command{
+		Use:   "ollama",
+		Short: "Launch ollama-backed agent with ATM developing context",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.ExtraArgs = args
+			opts.Actor = defaultDevelopingActor("ollama", st, opts.Actor)
+			l := developing.OllamaLauncher{Integration: opts.Integration}
+			return runDeveloping(st, l, "ollama", opts.Integration, opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
+	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-dev)")
+	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
+	_ = cmd.MarkFlagRequired("project")
+	_ = cmd.MarkFlagRequired("integration")
 	return cmd
 }
 
@@ -157,7 +185,7 @@ func defaultDevelopingActor(agent string, st *cliState, explicit string) string 
 	return agent + "-dev"
 }
 
-func runDeveloping(st *cliState, l developing.Launcher, opts developingOpts) error {
+func runDeveloping(st *cliState, l developing.Launcher, agent, integration string, opts developingOpts) error {
 	s, err := st.openStore()
 	if err != nil {
 		return err
@@ -191,7 +219,9 @@ func runDeveloping(st *cliState, l developing.Launcher, opts developingOpts) err
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
-	argv := l.BuildArgv()
+	base := l.BuildArgv()
+	envArgs := agentEnvArgs(agent, integration)
+	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
 	envValues := developingEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "developing", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
