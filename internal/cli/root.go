@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"atm/internal/store"
+	"atm/internal/version"
 
 	"github.com/spf13/cobra"
 )
@@ -109,7 +110,19 @@ func newVersionCmd(st *cliState) *cobra.Command {
 		Use:   "version",
 		Short: "Print the atm version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(st.stdout(), "atm version dev")
+			info := version.Info()
+			if st.isJSON() {
+				fmt.Fprint(st.stdout(), version.EmitJSON(info))
+				return
+			}
+			text := version.FormatText(map[string]string{
+				"version": version.Version,
+				"commit":  version.Commit,
+				"date":    version.Date,
+				"os":      info["os"].(string),
+				"arch":    info["arch"].(string),
+			})
+			fmt.Fprintln(st.stdout(), text)
 		},
 	}
 }

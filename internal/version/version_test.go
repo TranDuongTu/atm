@@ -1,7 +1,9 @@
 package version
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,7 +86,6 @@ func TestEmitJSONDeterministicContent(t *testing.T) {
 }
 
 func TestLdflagsOverride(t *testing.T) {
-	t.Skip("requires Task 2 wiring of newVersionCmd (internal/cli/root.go:107) to consume internal/version; un-skip in Task 2")
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not on PATH")
 	}
@@ -94,6 +95,7 @@ func TestLdflagsOverride(t *testing.T) {
 		"-X 'atm/internal/version.Date=2026-01-02T03:04:05Z'"
 	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", tmp,
 		"./cmd/atm")
+	cmd.Dir = repoRoot(t)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
@@ -111,5 +113,23 @@ func TestLdflagsOverride(t *testing.T) {
 	}
 	if !strings.Contains(got, "deadbeef") {
 		t.Fatalf("commit not baked in: %q", got)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found")
+		}
+		dir = parent
 	}
 }
