@@ -15,3 +15,7 @@ go.work.sum
 
 .superpowers
 .worktrees/
+
+# release artifacts
+dist/
+*.tar.gz

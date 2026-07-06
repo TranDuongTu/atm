@@ -8,10 +8,17 @@ PKG := ./...
 
 all: build
 
-## build: compile the atm binary into bin/
+GO_LDFLAGS :=
+ifneq ($(wildcard .git/),)
+  GO_LDFLAGS := -X 'atm/internal/version.Version=$(shell git describe --tags --dirty --always)' \
+                -X 'atm/internal/version.Commit=$(shell git rev-parse --short HEAD)' \
+                -X 'atm/internal/version.Date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
+endif
+
+## build: compile the atm binary into bin/ with ldflags-injected version
 build:
 	@mkdir -p $(BIN)
-	$(GO) build -o $(BINARY) ./cmd/atm
+	$(GO) build -trimpath -ldflags "$(GO_LDFLAGS)" -o $(BINARY) ./cmd/atm
 
 ## test: run all tests
 test:
