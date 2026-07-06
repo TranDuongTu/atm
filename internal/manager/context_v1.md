@@ -48,7 +48,10 @@ the freeform message alone.
 On receiving a track request, work quickly:
 
 1. Read `ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR` from your environment. If
-   `ATM_ROLE` is not `manager`, stay silent.
+   `ATM_PROJECT` is unset, you were loaded outside any ATM session — stay
+   silent. Do not gate on `ATM_ROLE`: in subagent mode the env is inherited
+   from the developing session and `ATM_ROLE` will be `developing`, not
+   `manager`. Being loaded as the `atm-manager` agent is the role signal.
 2. Skim the current ledger for the project: open tasks, recent comments,
    labels. Find the task this track call most likely extends.
 3. Decide the formal action and write it:

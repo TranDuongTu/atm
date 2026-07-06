@@ -21,15 +21,18 @@ func TestPluginAssetsExistForSupportedHosts(t *testing.T) {
 	}
 }
 
-func TestPluginAssetsCheckATMRole(t *testing.T) {
+func TestPluginAssetsCheckATMProject(t *testing.T) {
 	for _, host := range []string{"opencode", "claude", "codex"} {
 		assets, _ := PluginAssets(host)
 		joined := string(joinManagerAssetContents(assets))
-		if !strings.Contains(joined, "ATM_ROLE") {
-			t.Errorf("%s assets do not check ATM_ROLE", host)
-		}
 		if !strings.Contains(joined, "ATM_PROJECT") {
 			t.Errorf("%s assets do not reference ATM_PROJECT", host)
+		}
+		// The gate must be ATM_PROJECT-presence, NOT ATM_ROLE=manager.
+		// Subagent dispatch inherits ATM_ROLE=developing from the parent
+		// session; an ATM_ROLE gate would make the subagent always refuse.
+		if strings.Contains(joined, "ATM_ROLE` is not `manager") {
+			t.Errorf("%s assets gate on ATM_ROLE=manager; subagent dispatch cannot satisfy that", host)
 		}
 	}
 }

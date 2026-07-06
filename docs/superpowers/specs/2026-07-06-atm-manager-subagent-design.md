@@ -157,7 +157,14 @@ Claude and Codex use their equivalent subagent-dispatch mechanisms with
 the same prompt shape. The first line `hint: <word>` is optional; the
 remainder is the freeform track message. The manager subagent reads this
 prompt plus the ATM env vars inherited from the developing session
-(`ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR`, `ATM_ROLE=manager`) and acts.
+(`ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR`) and acts. It does **not** gate on
+`ATM_ROLE`: subagent dispatch inherits the parent's `ATM_ROLE=developing`,
+and there is no per-dispatch env override in the host's subagent
+mechanism. Being loaded as the `atm-manager` agent is the role signal;
+the prompt gates on `ATM_PROJECT` presence instead. The interactive
+launcher (`atm manager <host>`) still sets `ATM_ROLE=manager` in the
+child env for parity with the developing launcher, but the subagent
+prompt does not require it.
 
 The developing agent's bootstrap context (installed by
 `atm developing plugin install`) includes the dispatch contract:
@@ -338,12 +345,18 @@ with:
 Because a subagent definition is static markdown, v1 prefers
 **env-driven** bodies: the body tells the manager to read
 `ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR` from its environment and only act
-when `ATM_ROLE=manager` is present. This lets one installed
-`atm-manager.md` serve any project, matching how the developing plugin
-stays silent outside a developing session. `atm manager render-context`
-without `--project` prints this generic body; with `--project` it prints a
-project-pinned body for hosts that require a concrete project at install
-time.
+when `ATM_PROJECT` is present. It must **not** gate on
+`ATM_ROLE=manager`: subagent dispatch inherits the developing session's
+`ATM_ROLE=developing` (the developing plugin's `shell.env` hook
+propagates exactly that into every bash command the subagent runs), so
+an `ATM_ROLE` gate would make the subagent always refuse. The role
+signal for subagent mode is the agent file being loaded as
+`atm-manager`; `ATM_PROJECT` presence is the "is this an ATM session?"
+signal. This lets one installed `atm-manager.md` serve any project,
+matching how the developing plugin stays silent outside a developing
+session. `atm manager render-context` without `--project` prints this
+generic body; with `--project` it prints a project-pinned body for hosts
+that require a concrete project at install time.
 
 The developing agent's bootstrap context gains the dispatch contract
 described in [Track dispatch contract](#track-dispatch-contract). The
@@ -461,7 +474,8 @@ Unit and golden tests:
 - Child environment includes the ATM variables and preserves existing
   environment values.
 - Manager subagent definition templates stay silent without
-  `ATM_ROLE=manager`.
+  `ATM_PROJECT` (not `ATM_ROLE`; subagent dispatch inherits
+  `ATM_ROLE=developing`).
 - Manager subagent definition templates emit the manager role context
   with ATM env vars set.
 - `PluginStatus` reports `installed` / `partial` / `missing` correctly
@@ -579,7 +593,10 @@ the freeform message alone.
 On receiving a track request, work quickly:
 
 1. Read `ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR` from your environment. If
-   `ATM_ROLE` is not `manager`, stay silent.
+   `ATM_PROJECT` is unset, you were loaded outside any ATM session — stay
+   silent. Do not gate on `ATM_ROLE`: in subagent mode the env is inherited
+   from the developing session and `ATM_ROLE` will be `developing`, not
+   `manager`. Being loaded as the `atm-manager` agent is the role signal.
 2. Skim the current ledger for the project: open tasks, recent comments,
    labels. Find the task this track call most likely extends.
 3. Decide the formal action and write it:

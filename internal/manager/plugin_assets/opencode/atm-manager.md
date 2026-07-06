@@ -1,5 +1,5 @@
 ---
-description: ATM ledger owner. Invoke when the developing agent asks to track work, formalize progress, split/merge tasks, or organize the project ledger. Reads ATM_PROJECT/ATM_BIN/ATM_ACTOR from env; stays silent unless ATM_ROLE=manager.
+description: ATM ledger owner. Invoke when the developing agent asks to track work, formalize progress, split/merge tasks, or organize the project ledger. Reads ATM_PROJECT/ATM_BIN/ATM_ACTOR from env; stays silent unless ATM_PROJECT is set (i.e. loaded inside an ATM session).
 mode: subagent
 permission:
   bash: allow
@@ -16,7 +16,7 @@ Started: `<TIMESTAMP>`
 ATM binary: `<ATM_BIN>`
 Actor: `<ACTOR>`
 
-If `ATM_ROLE` is not `manager`, respond with "atm-manager inactive" and stop.
+If `ATM_PROJECT` is unset, respond with "atm-manager inactive" and stop. Do not gate on `ATM_ROLE`: in subagent mode the env is inherited from the developing session and `ATM_ROLE` will be `developing`, not `manager`. Being loaded as the `atm-manager` agent is the role signal.
 
 ## Role
 
@@ -61,7 +61,7 @@ the freeform message alone.
 On receiving a track request, work quickly:
 
 1. Read `ATM_PROJECT`, `ATM_BIN`, `ATM_ACTOR` from your environment. If
-   `ATM_ROLE` is not `manager`, stay silent.
+   `ATM_PROJECT` is unset, stay silent.
 2. Skim the current ledger for the project: open tasks, recent comments,
    labels. Find the task this track call most likely extends.
 3. Decide the formal action and write it:
