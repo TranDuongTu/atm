@@ -1,17 +1,23 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"sync"
 	"time"
 )
 
 type Store struct {
 	Root string
+
+	cacheOnce   sync.Once
+	cacheDBConn *sql.DB
+	cacheErr    error
 }
 
 func RFC3339UTC(t time.Time) string {
