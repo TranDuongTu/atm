@@ -73,6 +73,27 @@ func mustMarshal(v any) json.RawMessage {
 }
 
 func (s *Store) GetProject(code string) (*Project, error) {
+	return s.getProjectWithRebuild(code, func() error {
+		return s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) })
+	})
+}
+
+// getProjectLocked is identical to GetProject except that, on a cache
+// miss/stale hit, it calls rebuildProjectFromLog directly instead of
+// wrapping it in s.WithLock. Callers MUST already hold the project's lock
+// (i.e. be running inside their own s.WithLock(code, ...) closure) — calling
+// GetProject in that situation would re-enter the (non-reentrant) mutex and
+// deadlock.
+func (s *Store) getProjectLocked(code string) (*Project, error) {
+	return s.getProjectWithRebuild(code, func() error { return s.rebuildProjectFromLog(code) })
+}
+
+// getProjectWithRebuild contains the fast-path cache read + staleness check
+// shared by GetProject and getProjectLocked. It is parameterized only by how
+// the rebuild-from-log call itself gets invoked: wrapped in a fresh
+// s.WithLock (GetProject, for callers that do not already hold the lock) or
+// called directly (getProjectLocked, for callers that do).
+func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
@@ -82,7 +103,7 @@ func (s *Store) GetProject(code string) (*Project, error) {
 		return nil, err
 	}
 	if !ok {
-		if err := s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		p, ok, err = cacheGetProject(db, code)
@@ -106,7 +127,7 @@ func (s *Store) GetProject(code string) (*Project, error) {
 		return nil, err
 	}
 	if projLast > p.LogSeq {
-		if err := s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		p, ok, err = cacheGetProject(db, code)
@@ -196,7 +217,7 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 		return err
 	}
 	return s.WithLock(code, func() error {
-		p, err := s.GetProject(code)
+		p, err := s.getProjectLocked(code)
 		if err != nil {
 			return err
 		}
@@ -231,7 +252,7 @@ func (s *Store) RemoveProject(code, actor string) error {
 		if err := s.hasTasksGuard(code); err != nil {
 			return err
 		}
-		p, err := s.GetProject(code)
+		p, err := s.getProjectLocked(code)
 		if err != nil {
 			return err
 		}

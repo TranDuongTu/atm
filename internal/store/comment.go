@@ -46,7 +46,7 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 	}
 	var created *Comment
 	err = s.WithLock(code, func() error {
-		t, err := s.GetTask(taskID)
+		t, err := s.getTaskLocked(taskID)
 		if err != nil {
 			return err
 		}
@@ -115,6 +115,31 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
+	return s.getCommentWithRebuild(id, code, func() error {
+		return s.WithLock(code, func() error { return s.rebuildCommentFromLog(id, code) })
+	})
+}
+
+// getCommentLocked is identical to GetComment except that, on a cache
+// miss/stale hit, it calls rebuildCommentFromLog directly instead of
+// wrapping it in s.WithLock. Callers MUST already hold the comment's
+// project lock (i.e. be running inside their own s.WithLock(code, ...)
+// closure) — calling GetComment in that situation would re-enter the
+// (non-reentrant) mutex and deadlock.
+func (s *Store) getCommentLocked(id string) (*Comment, error) {
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	return s.getCommentWithRebuild(id, code, func() error { return s.rebuildCommentFromLog(id, code) })
+}
+
+// getCommentWithRebuild contains the fast-path cache read + staleness check
+// shared by GetComment and getCommentLocked. It is parameterized only by
+// how the rebuild-from-log call itself gets invoked: wrapped in a fresh
+// s.WithLock (GetComment, for callers that do not already hold the lock) or
+// called directly (getCommentLocked, for callers that do).
+func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
@@ -124,7 +149,7 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 		return nil, err
 	}
 	if !found {
-		if err := s.WithLock(code, func() error { return s.rebuildCommentFromLog(id, code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		c, found, err = cacheGetComment(db, id)
@@ -148,7 +173,7 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 		return nil, err
 	}
 	if c.LogSeq < commentLast {
-		if err := s.WithLock(code, func() error { return s.rebuildCommentFromLog(id, code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		c, found, err = cacheGetComment(db, id)
@@ -263,7 +288,7 @@ func (s *Store) RemoveComment(id, actor string) error {
 		return err
 	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}
@@ -302,7 +327,7 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 		return err
 	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}
@@ -347,7 +372,7 @@ func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Tim
 		return err
 	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}

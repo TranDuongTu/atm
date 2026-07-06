@@ -20,7 +20,7 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	}
 	var created *Task
 	err = s.WithLock(projectCode, func() error {
-		p, err := s.GetProject(projectCode)
+		p, err := s.getProjectLocked(projectCode)
 		if err != nil {
 			return err
 		}
@@ -28,7 +28,7 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 			if err := ValidateLabelName(l); err != nil {
 				return err
 			}
-			if err := s.labelProjectExists(l); err != nil {
+			if err := s.labelProjectExistsLocked(l); err != nil {
 				return err
 			}
 		}
@@ -125,6 +125,30 @@ func (s *Store) GetTask(id string) (*Task, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
+	return s.getTaskWithRebuild(id, code, func() error {
+		return s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) })
+	})
+}
+
+// getTaskLocked is identical to GetTask except that, on a cache miss/stale
+// hit, it calls rebuildTaskFromLog directly instead of wrapping it in
+// s.WithLock. Callers MUST already hold the task's project lock (i.e. be
+// running inside their own s.WithLock(code, ...) closure) — calling GetTask
+// in that situation would re-enter the (non-reentrant) mutex and deadlock.
+func (s *Store) getTaskLocked(id string) (*Task, error) {
+	code, _, ok := ParseTaskID(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+	}
+	return s.getTaskWithRebuild(id, code, func() error { return s.rebuildTaskFromLog(id, code) })
+}
+
+// getTaskWithRebuild contains the fast-path cache read + staleness check
+// shared by GetTask and getTaskLocked. It is parameterized only by how the
+// rebuild-from-log call itself gets invoked: wrapped in a fresh s.WithLock
+// (GetTask, for callers that do not already hold the lock) or called
+// directly (getTaskLocked, for callers that do).
+func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
@@ -134,7 +158,7 @@ func (s *Store) GetTask(id string) (*Task, error) {
 		return nil, err
 	}
 	if !found {
-		if err := s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		t, found, err = cacheGetTask(db, id)
@@ -158,7 +182,7 @@ func (s *Store) GetTask(id string) (*Task, error) {
 		return nil, err
 	}
 	if t.LogSeq < taskLast {
-		if err := s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) }); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
 		t, found, err = cacheGetTask(db, id)
@@ -267,7 +291,7 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 		return err
 	}
 	return s.WithLock(code, func() error {
-		t, err := s.GetTask(id)
+		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
 		}
@@ -324,7 +348,7 @@ func (s *Store) RemoveTask(id, actor string) error {
 		return err
 	}
 	return s.WithLock(code, func() error {
-		t, err := s.GetTask(id)
+		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
 		}
@@ -359,7 +383,7 @@ func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), ac
 		return err
 	}
 	return s.WithLock(code, func() error {
-		t, err := s.GetTask(id)
+		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
 		}

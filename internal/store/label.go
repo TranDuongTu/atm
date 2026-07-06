@@ -226,6 +226,21 @@ func (s *Store) labelProjectExists(name string) error {
 	return nil
 }
 
+// labelProjectExistsLocked is identical to labelProjectExists except that it
+// calls getProjectLocked instead of GetProject. It exists ONLY for callers
+// that already hold the label's project lock (i.e. are running inside their
+// own s.WithLock(code, ...) closure) — calling labelProjectExists in that
+// situation would re-enter the (non-reentrant) mutex via GetProject and
+// deadlock. Used by CreateTask, which validates supplied labels from inside
+// its own WithLock closure.
+func (s *Store) labelProjectExistsLocked(name string) error {
+	code := labelProject(name)
+	if _, err := s.getProjectLocked(code); err != nil {
+		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, code, name)
+	}
+	return nil
+}
+
 func labelProject(name string) string {
 	return strings.SplitN(name, ":", 2)[0]
 }
