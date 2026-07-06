@@ -121,6 +121,40 @@ func TestReplayLabelUpsertedAndRemoved(t *testing.T) {
 	}
 }
 
+// TestReplayStampsLogSeqFromEntrySeq is a regression test proving that
+// Replay() stamps each entity's LogSeq from the log entry's own seq (as
+// assigned by AppendLog), not from whatever LogSeq value happened to be
+// baked into the JSON payload at marshal time (which is always 0, since
+// payloads are marshaled before the entry's seq is known). For a task
+// updated multiple times, the final LogSeq must equal the seq of the LAST
+// matching event, not the first.
+func TestReplayStampsLogSeqFromEntrySeq(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	// task.created (payload LogSeq baked in as 0)
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	// task.title-changed (payload LogSeq still baked in as 0)
+	e3, _ := s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
+
+	st, err := s.Replay("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Project == nil {
+		t.Fatal("replay missing project")
+	}
+	if st.Project.LogSeq != 1 {
+		t.Fatalf("project LogSeq = %d want 1 (the project.created entry seq)", st.Project.LogSeq)
+	}
+	if len(st.Tasks) != 1 {
+		t.Fatalf("want 1 task, got %d", len(st.Tasks))
+	}
+	if st.Tasks[0].LogSeq != e3.Seq {
+		t.Fatalf("task LogSeq = %d want %d (the LAST matching entry seq, i.e. title-changed, not created)", st.Tasks[0].LogSeq, e3.Seq)
+	}
+}
+
 func TestHistoryProjection(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)

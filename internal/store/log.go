@@ -234,6 +234,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 			case ActionProjectCreated, ActionProjectNameChanged:
 				var p Project
 				if err := json.Unmarshal(e.Payload, &p); err == nil {
+					p.LogSeq = e.Seq
 					proj = &p
 				}
 			case ActionProjectRemoved:
@@ -242,6 +243,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		case "task":
 			var tk Task
 			_ = json.Unmarshal(e.Payload, &tk)
+			tk.LogSeq = e.Seq
 			switch e.Action {
 			case ActionTaskCreated, ActionTaskTitleChanged, ActionTaskDescChanged, ActionTaskLabelAdded, ActionTaskLabelRemoved, ActionTaskMetaChanged:
 				tasks[e.Subject.ID] = &tk
@@ -251,6 +253,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		case "comment":
 			var c Comment
 			_ = json.Unmarshal(e.Payload, &c)
+			c.LogSeq = e.Seq
 			switch e.Action {
 			case ActionCommentCreated, ActionCommentBodyChanged,
 				ActionCommentLabelAdded, ActionCommentLabelRemoved:
@@ -261,6 +264,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		case "label":
 			var l Label
 			_ = json.Unmarshal(e.Payload, &l)
+			l.LogSeq = e.Seq
 			switch e.Action {
 			case ActionLabelUpserted:
 				labels[e.Subject.Name] = l
