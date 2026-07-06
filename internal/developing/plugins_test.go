@@ -1,6 +1,10 @@
 package developing
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -67,6 +71,61 @@ func TestPluginAssetsContainManagerDispatchContract(t *testing.T) {
 			t.Errorf("%s assets do not mention dispatching the manager", agent)
 		}
 	}
+}
+
+func TestCodexHookCommandRunsWithClaudePluginRootFallback(t *testing.T) {
+	assets, _ := PluginAssets("codex")
+	command := codexHookCommand(t, assets)
+
+	pluginRoot := t.TempDir()
+	hookDir := filepath.Join(pluginRoot, "hooks")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatalf("mkdir hook dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hookDir, "session-start"), []byte("#!/bin/sh\nprintf 'hook ran\\n'\n"), 0o755); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Env = append(os.Environ(),
+		"CODEX_PLUGIN_ROOT=",
+		"CLAUDE_PLUGIN_ROOT="+pluginRoot,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("codex hook command failed with CLAUDE_PLUGIN_ROOT fallback: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if got := strings.TrimSpace(string(out)); got != "hook ran" {
+		t.Fatalf("hook output = %q, want hook ran", got)
+	}
+}
+
+func codexHookCommand(t *testing.T, assets []Asset) string {
+	t.Helper()
+	for _, asset := range assets {
+		if asset.Path != "hooks/hooks.json" {
+			continue
+		}
+		var config struct {
+			Hooks map[string][]struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"hooks"`
+		}
+		if err := json.Unmarshal(asset.Content, &config); err != nil {
+			t.Fatalf("parse codex hooks.json: %v", err)
+		}
+		for _, group := range config.Hooks["SessionStart"] {
+			for _, hook := range group.Hooks {
+				if hook.Command != "" {
+					return hook.Command
+				}
+			}
+		}
+	}
+	t.Fatal("codex SessionStart hook command not found")
+	return ""
 }
 
 func joinAssetContents(assets []Asset) []byte {
