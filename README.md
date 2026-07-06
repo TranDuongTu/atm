@@ -177,6 +177,20 @@ variable (`ATM_OPENCODE_ARGS`, `ATM_CODEX_ARGS`, `ATM_CLAUDE_ARGS`,
 applied first; `--` args append after them with no dedup. Args are passed
 through verbatim; ATM does not validate or sanitize them.
 
+### Manager sessions
+
+```
+atm manager plugin install opencode
+atm manager opencode --project <CODE>
+atm manager ollama --project <CODE> --integration <name>
+```
+
+`atm manager <host> --project <CODE>` launches an interactive ATM-ledger-owner
+session (see `docs/superpowers/specs/2026-07-06-atm-manager-subagent-design.md`).
+`--integration <name>` is required for the `ollama` host. Extra agent args pass
+through `--`, and `ATM_<AGENT>_ARGS` defaults apply the same way as
+`atm developing` (see above).
+
 ## Conventions
 
 v2's vision is that workflow lives outside the system — in agent prompts and
