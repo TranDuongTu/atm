@@ -244,7 +244,6 @@ It includes:
   - `atm task create ... --actor <ACTOR>`
   - `atm task comment add --task <ID> --body ... --actor <ACTOR>`
   - `atm task comment list --task <ID>`
-- Current task snapshot for the project, rendered compactly.
 - Comment guidance: use comments for progress, decisions, implementation
   notes, test results, commit SHAs, open questions, and handoff notes.
 

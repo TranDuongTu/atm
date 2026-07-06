@@ -181,15 +181,13 @@ func runDeveloping(st *cliState, l developing.Launcher, opts developingOpts) err
 		return fmt.Errorf("create developing dir: %w", err)
 	}
 
-	existing := s.ListTasks(store.QueryFilters{Project: opts.Project})
 	rendered := developing.RenderContext(developing.ContextData{
-		Code:          p.Code,
-		Name:          p.Name,
-		ATMBin:        atmBin,
-		Actor:         opts.Actor,
-		RunID:         runID,
-		Timestamp:     store.RFC3339UTC(time.Now().UTC()),
-		ExistingTasks: renderExistingTasksTable(existing),
+		Code:      p.Code,
+		Name:      p.Name,
+		ATMBin:    atmBin,
+		Actor:     opts.Actor,
+		RunID:     runID,
+		Timestamp: store.RFC3339UTC(time.Now().UTC()),
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)

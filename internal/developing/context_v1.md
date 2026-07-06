@@ -26,7 +26,3 @@ This is an ATM developing session. Use ATM project `<CODE>` as the visible work 
 - `<ATM_BIN> task create --project <CODE> --title "<title>" --label <CODE>:status:open --actor <ACTOR>`
 - `<ATM_BIN> task comment add --task <ID> --body "<progress note>" --actor <ACTOR>`
 - `<ATM_BIN> task comment list --task <ID> --output json`
-
-## Existing tasks at session start
-
-<EXISTING_TASKS>
