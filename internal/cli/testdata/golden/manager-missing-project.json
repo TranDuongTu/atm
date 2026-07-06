@@ -1,0 +1,1 @@
+{"error":{"code":"not-found","message":"not-found: project NOPE not found; create it first:\n  atm project create --code NOPE --name \"...\""}}

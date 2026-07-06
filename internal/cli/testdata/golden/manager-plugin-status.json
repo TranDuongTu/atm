@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "agent": "codex",
+      "path": "/HOME/.codex/agents/atm-manager.md",
+      "state": "missing"
+    }
+  ]
+}

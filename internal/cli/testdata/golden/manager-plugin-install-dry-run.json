@@ -1,0 +1,12 @@
+{
+  "installed": [
+    {
+      "agent": "opencode",
+      "dry_run": true,
+      "files": [
+        "/HOME/.config/opencode/agents/atm-manager.md"
+      ],
+      "path": "/HOME/.config/opencode/agents/atm-manager.md"
+    }
+  ]
+}

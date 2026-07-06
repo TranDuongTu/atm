@@ -1,0 +1,18 @@
+{
+  "agent": "codex",
+  "argv": [
+    "codex"
+  ],
+  "context_path": "/STORE/manager/FOO-RUNID.md",
+  "env": {
+    "ATM_ACTOR": "codex-manager",
+    "ATM_BIN": "/ATM_BIN",
+    "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
+    "ATM_PROJECT": "FOO",
+    "ATM_ROLE": "manager",
+    "ATM_RUN_ID": "FOO-RUNID"
+  },
+  "project": "FOO",
+  "role": "manager",
+  "run_id": "FOO-RUNID"
+}
