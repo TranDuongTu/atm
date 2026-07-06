@@ -1,3 +1,14 @@
+## v1.1.3 - 2026-07-06
+
+### docs
+- Add implementation plan: cache.db consolidation (ATM-0027 phase 1)
+- Add design spec: consolidate caches into SQLite + cross-machine sync
+- Add implementation plan: launcher extra agent args + ollama host
+- Refine launcher-args spec: construct OllamaLauncher directly (mirror onboarding)
+- Add design spec: launcher extra agent args + ollama host for developing/manager
+- fix manager logics
+
+
 ## v1.1.2 - 2026-07-06
 
 ### docs
