@@ -75,3 +75,32 @@ scripts-test:
 ## dogfood: bootstrap the ATM project + follow-on tasks in the machine-global store (idempotent, opt-in)
 dogfood: build
 	./scripts/dogfood.sh $(BINARY)
+
+## release: cut a release. Required: VERSION=vX.Y.Z. Optional: DRY_RUN=1, --no-edit, --from-ci.
+release:
+	@test -n "$(VERSION)" || { echo "VERSION=vX.Y.Z required"; exit 2; }
+	scripts/release.sh VERSION=$(VERSION) $(RELEASE_ARGS)
+
+## release-upload: retry the GitLab upload phase for an existing tag.
+release-upload:
+	@test -n "$(VERSION)" || { echo "VERSION=vX.Y.Z required"; exit 2; }
+	scripts/release.sh VERSION=$(VERSION) --phase=8
+
+## release-smoke: end-to-end DRY_RUN=1 release through dist/.
+release-smoke:
+	scripts/release.sh VERSION=v0.0.0-smoke DRY_RUN=1 --no-edit --no-preflight-tag
+
+## install-smoke: install.sh against a local http server serving dist/.
+install-smoke:
+	tests/scripts/install-smoke.sh
+
+## version-bump: regenerate internal/version/version.go from git state (no commit).
+version-bump:
+	scripts/release.sh VERSION=dev --phase=2 --no-preflight-tag
+
+## install-release: convenience wrapper around scripts/install.sh.
+install-release:
+	scripts/install.sh FORGE=$(or $(FORGE),gitlab) REPO=$(or $(REPO),$(DEFAULT_REPO)) VERSION=$(VERSION)
+
+## dist: alias for release-smoke (produces dist/ without committing).
+dist: release-smoke

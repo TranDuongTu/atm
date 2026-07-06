@@ -1,0 +1,21 @@
+image: golang:1.22-alpine
+
+stages: [verify, release]
+
+verify:
+  stage: verify
+  script:
+    - make verify
+
+release:
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-rc\.(0|[1-9]\d*))?$/
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - make release VERSION=$CI_COMMIT_TAG --from-ci
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 30 days
