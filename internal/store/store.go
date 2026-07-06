@@ -155,19 +155,8 @@ func (s *Store) Init(storePath string) error {
 	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
 		return err
 	}
-	return s.touchLabels()
-}
-
-func (s *Store) touchLabels() error {
-	p := s.labelsPath()
-	if _, err := os.Stat(p); err == nil {
-		return nil
-	}
-	// Legacy compat placeholder; cache.db is the source of truth for labels
-	// now. This whole helper (and labelsPath) is removed in Task 12.
-	return WriteJSON(p, struct {
-		Labels []Label `json:"labels"`
-	}{Labels: []Label{}})
+	_, err := s.cacheDB()
+	return err
 }
 
 func (s *Store) StorePath() string { return s.Root }
@@ -176,30 +165,6 @@ func (s *Store) projectsDir() string { return filepath.Join(s.Root, "projects") 
 func (s *Store) projectDir(code string) string {
 	return filepath.Join(s.projectsDir(), code)
 }
-func (s *Store) tasksDir(code string) string {
-	return filepath.Join(s.projectDir(code), "tasks")
-}
-func (s *Store) projectPath(code string) string {
-	return filepath.Join(s.projectsDir(), code+".json")
-}
-func (s *Store) taskPath(id string) string {
-	code, _, ok := ParseTaskID(id)
-	if !ok {
-		return ""
-	}
-	return filepath.Join(s.tasksDir(code), id+".json")
-}
-func (s *Store) commentsDir(code string) string {
-	return filepath.Join(s.projectDir(code), "comments")
-}
-func (s *Store) commentPath(id string) string {
-	code, _, _, ok := ParseCommentID(id)
-	if !ok {
-		return ""
-	}
-	return filepath.Join(s.commentsDir(code), id+".json")
-}
-func (s *Store) labelsPath() string { return filepath.Join(s.Root, "labels.json") }
 func (s *Store) lockPath(code string) string {
 	return filepath.Join(s.projectsDir(), code+".lock")
 }
