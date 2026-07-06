@@ -73,6 +73,29 @@ func TestPluginAssetsContainManagerDispatchContract(t *testing.T) {
 	}
 }
 
+func TestCodexPluginManifestSuppressesAutoDiscoveredHooks(t *testing.T) {
+	assets, _ := PluginAssets("codex")
+	var manifest struct {
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	for _, asset := range assets {
+		if asset.Path != ".codex-plugin/plugin.json" {
+			continue
+		}
+		if err := json.Unmarshal(asset.Content, &manifest); err != nil {
+			t.Fatalf("parse codex plugin manifest: %v", err)
+		}
+		if manifest.Hooks == nil {
+			t.Fatal("codex plugin manifest must declare hooks: {} to suppress hooks/hooks.json auto-discovery")
+		}
+		if len(manifest.Hooks) != 0 {
+			t.Fatalf("codex plugin manifest hooks = %#v, want empty object", manifest.Hooks)
+		}
+		return
+	}
+	t.Fatal("codex plugin manifest not found")
+}
+
 func TestCodexHookCommandRunsWithClaudePluginRootFallback(t *testing.T) {
 	assets, _ := PluginAssets("codex")
 	command := codexHookCommand(t, assets)
