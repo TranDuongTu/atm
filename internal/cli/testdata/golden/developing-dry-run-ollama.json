@@ -1,0 +1,22 @@
+{
+  "agent": "ollama",
+  "argv": [
+    "ollama",
+    "launch",
+    "codex",
+    "--",
+    "--yolo"
+  ],
+  "context_path": "/STORE/developing/FOO-RUNID.md",
+  "env": {
+    "ATM_ACTOR": "ollama-dev",
+    "ATM_BIN": "/ATM_BIN",
+    "ATM_CONTEXT_FILE": "/STORE/developing/FOO-RUNID.md",
+    "ATM_PROJECT": "FOO",
+    "ATM_ROLE": "developing",
+    "ATM_RUN_ID": "FOO-RUNID"
+  },
+  "project": "FOO",
+  "role": "developing",
+  "run_id": "FOO-RUNID"
+}

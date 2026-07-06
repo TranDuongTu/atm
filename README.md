@@ -150,13 +150,32 @@ suggested seed namespaces.
 ```
 atm developing plugin install codex
 atm developing codex --project <CODE>
+atm developing ollama --project <CODE> --integration <name>
 ```
 
 `atm developing <opencode|codex|claude> --project <CODE>` launches the
 agent's normal interactive entrypoint with ATM environment variables and a
-rendered context file. Bootstrap plugins are installed explicitly with
-`atm developing plugin install`; the launcher never modifies agent config
-silently.
+rendered context file. `atm developing ollama --project <CODE> --integration <name>`
+launches an ollama-backed agent (the integration is one of ollama's supported
+hosts: opencode, codex, claude, etc.). Bootstrap plugins are installed
+explicitly with `atm developing plugin install`; the launcher never modifies
+agent config silently.
+
+To pass extra flags to the host agent (e.g. `codex --yolo`,
+`claude --dangerously-skip-permission`), append them after `--`:
+
+```
+atm developing codex --project <CODE> -- --yolo
+atm developing claude --project <CODE> -- --dangerously-skip-permission
+atm developing ollama --project <CODE> --integration codex -- --yolo --auto
+```
+
+Default per-agent args can also be set via the `ATM_<AGENT>_ARGS` environment
+variable (`ATM_OPENCODE_ARGS`, `ATM_CODEX_ARGS`, `ATM_CLAUDE_ARGS`,
+`ATM_OLLAMA_ARGS`). For ollama hosts, `ATM_<INTEGRATION>_ARGS` (e.g.
+`ATM_CODEX_ARGS`) takes precedence over `ATM_OLLAMA_ARGS`. Env args are
+applied first; `--` args append after them with no dedup. Args are passed
+through verbatim; ATM does not validate or sanitize them.
 
 ## Conventions
 
