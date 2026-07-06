@@ -36,9 +36,13 @@ phase1_preflight() {
     echo "VERSION=vX.Y.Z required" >&2
     exit 2
   fi
-  if ! rel_preflight_version "$VERSION"; then
-    echo "VERSION does not match semver regex: $VERSION" >&2
-    exit 2
+  # --no-preflight-tag is the smoke/dev escape hatch: bypass both the
+  # version regex and the tag-exists check. Real releases keep full validation.
+  if [ "$NO_PREFLIGHT_TAG" = 0 ]; then
+    if ! rel_preflight_version "$VERSION"; then
+      echo "VERSION does not match semver regex: $VERSION" >&2
+      exit 2
+    fi
   fi
   if [ "$NO_PREFLIGHT_TAG" = 0 ]; then
     if git rev-parse --verify --quiet "refs/tags/$VERSION" >/dev/null; then
@@ -84,11 +88,139 @@ phase2_regen_version() {
   echo "regen ok: $out (version=$VERSION commit=$commit date=$date)"
 }
 
-# ---- Phases 3-9: stubs (implemented in Tasks 6-7) ----
-phase3_changelog()    { phase_banner 3 "changelog (stub)"; echo "TODO phase 3"; }
-phase4_commit_tag()   { phase_banner 4 "commit+tag (stub)"; echo "TODO phase 4"; }
-phase5_build_matrix() { phase_banner 5 "build matrix (stub)"; echo "TODO phase 5"; }
-phase6_tarballs()     { phase_banner 6 "tarballs+SHA256SUMS (stub)"; echo "TODO phase 6"; }
+# ---- Phase 3: changelog ----
+phase3_changelog() {
+  phase_banner 3 "changelog"
+  mkdir -p dist
+  draft="dist/CHANGELOG.draft.md"
+  prev=$(git tag --list 'v*' --sort=-v:refname | sed -n '2p' || true)
+  if [ -n "$prev" ]; then
+    range="$prev..HEAD"
+  else
+    range="--all"
+  fi
+  {
+    echo "## $VERSION - $(date -u +%Y-%m-%d)"
+    echo
+    for bucket in tui cli store docs misc; do
+      commits=$(git log "$range" --name-only --pretty=format: 2>/dev/null \
+        | awk -F/ -v b="$bucket" '
+            $1 == b { seen[$0]=1 }
+            END { for (f in seen) print f }')
+      if [ -n "$commits" ]; then
+        echo "### $bucket"
+        git log "$range" --pretty=format:'- %s' -- "$bucket" 2>/dev/null || true
+        echo
+        echo
+      fi
+    done
+  } > "$draft"
+
+  if [ "$NO_EDIT" = 0 ]; then
+    editor=${EDITOR:-vi}
+    empty_attempts=0
+    while :; do
+      "$editor" "$draft"
+      if [ -s "$draft" ]; then
+        break
+      fi
+      empty_attempts=$((empty_attempts + 1))
+      if [ "$empty_attempts" -ge 3 ]; then
+        echo "changelog curation required (3 empty saves); aborting" >&2
+        exit 4
+      fi
+      echo "draft empty; re-opening editor ($empty_attempts/3)" >&2
+    done
+  fi
+
+  if [ ! -f CHANGELOG.md ]; then
+    echo "# Changelog" > CHANGELOG.md
+    echo >> CHANGELOG.md
+  fi
+  {
+    cat "$draft"
+    echo
+    cat CHANGELOG.md
+  } > CHANGELOG.md.new
+  mv CHANGELOG.md.new CHANGELOG.md
+  echo "changelog ok: $(wc -l < CHANGELOG.md) lines"
+}
+
+# ---- Phase 4: commit + tag ----
+phase4_commit_tag() {
+  phase_banner 4 "commit + tag"
+  git add internal/version/version.go CHANGELOG.md
+  git commit -m "release $VERSION" >/dev/null
+  git tag -a "$VERSION" -m "release $VERSION"
+  echo "commit+tag ok: $VERSION"
+}
+
+# ---- Phase 5: build matrix ----
+phase5_build_matrix() {
+  phase_banner 5 "build matrix"
+  mkdir -p dist
+  vstripped=$(rel_version_strip_v "$VERSION")
+  commit=${REL_COMMIT:-$(git rev-parse --short HEAD)}
+  date=${REL_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  ldflags="-X 'atm/internal/version.Version=$VERSION' \
+           -X 'atm/internal/version.Commit=$commit' \
+           -X 'atm/internal/version.Date=$date'"
+  for pair in $(rel_target_matrix); do
+    os=${pair%/*}
+    arch=${pair#*/}
+    out="dist/atm_${vstripped}_${os}_${arch}"
+    echo "building $out"
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+      go build -trimpath -ldflags "$ldflags" -o "$out" ./cmd/atm
+    if [ "$os/$arch" = "$(uname -s | tr A-Z a-z)/$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')" ]; then
+      got=$("$out" version)
+      case "$got" in
+        *"$VERSION"*) ;;
+        *) echo "version mismatch in $out: $got" >&2; exit 5 ;;
+      esac
+    else
+      if ! strings "$out" | grep -q "$VERSION"; then
+        echo "version string not baked into $out" >&2
+        exit 5
+      fi
+    fi
+  done
+  echo "build matrix ok: 4 binaries"
+}
+
+# ---- Phase 6: tarballs + SHA256SUMS ----
+phase6_tarballs() {
+  phase_banner 6 "tarballs + SHA256SUMS"
+  vstripped=$(rel_version_strip_v "$VERSION")
+  commit=${REL_COMMIT:-$(git rev-parse --short HEAD)}
+  date=${REL_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  inst=$(cat scripts/INSTALL.txt.tmpl \
+    | sed "s/__VERSION__/$VERSION/g; s/__COMMIT__/$commit/g; s/__DATE__/$date/g")
+  sums="dist/SHA256SUMS"
+  : > "$sums"
+  for pair in $(rel_target_matrix); do
+    os=${pair%/*}
+    arch=${pair#*/}
+    bin="dist/atm_${vstripped}_${os}_${arch}"
+    tb=$(rel_tarball_name "$vstripped" "$os" "$arch")
+    staging=$(mktemp -d)
+    cp "$bin" "$staging/atm"
+    cp LICENSE "$staging/" 2>/dev/null || true
+    cp README.md "$staging/"
+    printf '%s\n' "$inst" > "$staging/INSTALL.txt"
+    files="atm README.md INSTALL.txt"
+    [ -f "$staging/LICENSE" ] && files="$files LICENSE"
+    tar -C "$staging" -czf "dist/$tb" $files
+    rm -rf "$staging"
+    hash=$(sha256sum "dist/$tb" | awk '{print $1}')
+    rel_sha_line "$hash" "$tb" >> "$sums"
+  done
+  echo "LATEST=$VERSION" > dist/LATEST
+  echo "tarballs ok:"
+  cat "$sums"
+}
+
+# ---- Phases 7-9: stubs (implemented in Task 7) ----
 phase7_push()         { phase_banner 7 "push (stub)"; echo "TODO phase 7"; }
 phase8_upload()       { phase_banner 8 "upload (stub)"; echo "TODO phase 8"; }
 phase9_tail()         { phase_banner 9 "tail (stub)"; echo "TODO phase 9"; }

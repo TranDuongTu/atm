@@ -1,0 +1,9 @@
+atm __VERSION__ (commit: __COMMIT__, built: __DATE__)
+
+Install with one line:
+
+  curl -fsSL https://<raw-host>/scripts/install.sh | FORGE=gitlab REPO=<slug> VERSION=__VERSION__ bash
+
+Verify checksum after download:
+
+  sha256sum -c SHA256SUMS --ignore-missing
