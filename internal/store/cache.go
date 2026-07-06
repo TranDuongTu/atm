@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -266,6 +268,127 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 		}
 		if ok {
 			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// ---- label cache ----
+
+func cacheUpsertLabel(db *sql.DB, l Label) error {
+	_, err := db.Exec(`INSERT INTO labels (name, description, log_seq) VALUES (?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET description=excluded.description, log_seq=excluded.log_seq`,
+		l.Name, l.Description, l.LogSeq)
+	return err
+}
+
+func cacheGetLabel(db *sql.DB, name string) (Label, bool, error) {
+	var l Label
+	err := db.QueryRow(`SELECT name, description, log_seq FROM labels WHERE name = ?`, name).
+		Scan(&l.Name, &l.Description, &l.LogSeq)
+	if err == sql.ErrNoRows {
+		return Label{}, false, nil
+	}
+	if err != nil {
+		return Label{}, false, err
+	}
+	return l, true, nil
+}
+
+func cacheDeleteLabel(db *sql.DB, name string) error {
+	_, err := db.Exec(`DELETE FROM labels WHERE name = ?`, name)
+	return err
+}
+
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label, error) {
+	query := `SELECT name, description, log_seq FROM labels WHERE 1=1`
+	var args []any
+	if projectPrefix != "" {
+		query += ` AND name LIKE ? ESCAPE '\'`
+		args = append(args, escapeLike(projectPrefix)+":%")
+	}
+	if namespacePrefix != "" {
+		query += ` AND name LIKE ? ESCAPE '\'`
+		args = append(args, escapeLike(projectPrefix)+":"+escapeLike(namespacePrefix)+":%")
+	}
+	query += ` ORDER BY name`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Label
+	for rows.Next() {
+		var l Label
+		if err := rows.Scan(&l.Name, &l.Description, &l.LogSeq); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// cacheLabelUsage counts tasks in projectCode carrying label — one indexed
+// query, replacing the old per-task GetTask scan (ATM-0027-c0003).
+func cacheLabelUsage(db *sql.DB, projectCode, label string) (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM task_labels tl JOIN tasks t ON t.id = tl.task_id
+		WHERE tl.label = ? AND t.project_code = ?`, label, projectCode).Scan(&count)
+	return count, err
+}
+
+func cacheCountTasksWithLabelGlobally(db *sql.DB, label string) (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM task_labels WHERE label = ?`, label).Scan(&count)
+	return count, err
+}
+
+func cacheNamespaces(db *sql.DB, code string) ([]string, error) {
+	prefix := code + ":"
+	rows, err := db.Query(`SELECT name FROM labels WHERE name LIKE ? ESCAPE '\'`, escapeLike(prefix)+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		rest := strings.TrimPrefix(name, prefix)
+		parts := strings.SplitN(rest, ":", 2)
+		if len(parts) == 2 && !seen[parts[0]] {
+			seen[parts[0]] = true
+			out = append(out, parts[0])
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// cachePresentLabels returns the subset of names that currently exist as
+// live label rows. Used by appendLabelUpsertsLocked to decide which labels
+// need a new label.upserted log entry (replaces the old full-log-Replay
+// based labelsInLogLocked).
+func cachePresentLabels(db *sql.DB, names []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		_, ok, err := cacheGetLabel(db, n)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[n] = true
 		}
 	}
 	return out, nil

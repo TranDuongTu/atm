@@ -140,3 +140,84 @@ func TestCacheListTaskIDsScopedByProjectAndSorted(t *testing.T) {
 		t.Fatalf("ids = %v", ids)
 	}
 }
+
+func TestCacheLabelUpsertGetDelete(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	if err := cacheUpsertLabel(db, Label{Name: "ATM:type:bug", Description: "d", LogSeq: 1}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := cacheGetLabel(db, "ATM:type:bug")
+	if err != nil || !ok || got.Description != "d" {
+		t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+	}
+	if err := cacheDeleteLabel(db, "ATM:type:bug"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := cacheGetLabel(db, "ATM:type:bug"); ok {
+		t.Fatal("label still present after delete")
+	}
+}
+
+func TestCacheListLabelsFiltersByProjectAndNamespace(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:type:bug"})
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:status:open"})
+	_ = cacheUpsertLabel(db, Label{Name: "OTH:type:bug"})
+	got, err := cacheListLabels(db, "ATM", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 ATM labels, got %d: %v", len(got), got)
+	}
+	got, _ = cacheListLabels(db, "ATM", "type")
+	if len(got) != 1 || got[0].Name != "ATM:type:bug" {
+		t.Fatalf("namespace filter = %v", got)
+	}
+}
+
+func TestCacheLabelUsageCountsOnlyMatchingProject(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	now := Now()
+	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "a", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now})
+	_ = cacheUpsertTask(db, &Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "b", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now})
+	_ = cacheUpsertTask(db, &Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "c", CreatedAt: now, UpdatedAt: now})
+	count, err := cacheLabelUsage(db, "ATM", "ATM:type:bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+}
+
+func TestCacheNamespacesDistinctSorted(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:type:bug"})
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:type:feature"})
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:status:open"})
+	ns, err := cacheNamespaces(db, "ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 2 || ns[0] != "status" || ns[1] != "type" {
+		t.Fatalf("namespaces = %v", ns)
+	}
+}
+
+func TestCachePresentLabels(t *testing.T) {
+	s := newTestStore(t)
+	db, _ := s.cacheDB()
+	_ = cacheUpsertLabel(db, Label{Name: "ATM:type:bug"})
+	present, err := cachePresentLabels(db, []string{"ATM:type:bug", "ATM:type:feature"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present["ATM:type:bug"] || present["ATM:type:feature"] {
+		t.Fatalf("present = %v", present)
+	}
+}
