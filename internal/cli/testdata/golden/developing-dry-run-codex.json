@@ -13,5 +13,6 @@
     "ATM_RUN_ID": "FOO-RUNID"
   },
   "project": "FOO",
+  "role": "developing",
   "run_id": "FOO-RUNID"
 }

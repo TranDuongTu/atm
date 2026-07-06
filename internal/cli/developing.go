@@ -3,9 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"atm/internal/developing"
@@ -194,31 +192,23 @@ func runDeveloping(st *cliState, l developing.Launcher, opts developingOpts) err
 	}
 
 	argv := l.BuildArgv()
-	envMap := developingEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
-	env := developingEnv(opts.Project, atmBin, opts.Actor, runID, contextPath)
-	if err := emitDevelopingHeader(st, l.Name(), opts.Project, runID, contextPath, argv, envMap); err != nil {
+	envValues := developingEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
+	env := assembleEnv(envValues)
+	if err := emitLaunchHeader(st, "developing", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
 	}
 	if opts.DryRun {
 		return nil
 	}
 
-	exitCode, runErr := runDevelopingChild(l, argv, env)
-	if err := emitDevelopingTail(st, l.Name(), opts.Project, runID, contextPath, exitCode); err != nil {
+	exitCode, runErr := runChild(l.Name(), argv, env, l.NotFoundHint())
+	if err := emitLaunchTail(st, "developing", opts.Project, runID, contextPath, l.Name(), exitCode); err != nil {
 		return err
 	}
 	if runErr != nil {
 		return fmt.Errorf("%s exited: %w", l.Name(), runErr)
 	}
 	return nil
-}
-
-func developingEnv(project, atmBin, actor, runID, contextPath string) []string {
-	env := os.Environ()
-	for key, value := range developingEnvValues(project, atmBin, actor, runID, contextPath) {
-		env = append(env, key+"="+value)
-	}
-	return env
 }
 
 func developingEnvValues(project, atmBin, actor, runID, contextPath string) map[string]string {
@@ -230,51 +220,4 @@ func developingEnvValues(project, atmBin, actor, runID, contextPath string) map[
 		"ATM_RUN_ID":       runID,
 		"ATM_CONTEXT_FILE": contextPath,
 	}
-}
-
-func runDevelopingChild(l developing.Launcher, argv []string, env []string) (int, error) {
-	bin, err := exec.LookPath(argv[0])
-	if err != nil {
-		return 0, fmt.Errorf("%s not found on PATH; install: %s", l.Name(), l.NotFoundHint())
-	}
-	cmd := exec.Command(bin, argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = env
-	err = cmd.Run()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode(), err
-		}
-		return 1, err
-	}
-	return 0, nil
-}
-
-func emitDevelopingHeader(st *cliState, launcherName, project, runID, contextPath string, argv []string, env map[string]string) error {
-	return st.emit(st.stdout(), map[string]any{
-		"run_id":       runID,
-		"project":      project,
-		"agent":        launcherName,
-		"context_path": contextPath,
-		"argv":         argv,
-		"env":          env,
-	}, func() {
-		fmt.Fprintf(st.stdout(), "developing %s  run=%s  agent=%s\n", project, runID, launcherName)
-		fmt.Fprintf(st.stdout(), "  context:  %s\n", contextPath)
-		fmt.Fprintf(st.stdout(), "  launching: %s\n", strings.Join(argv, " "))
-	})
-}
-
-func emitDevelopingTail(st *cliState, launcherName, project, runID, contextPath string, agentExit int) error {
-	return st.emit(st.stdout(), map[string]any{
-		"run_id":       runID,
-		"project":      project,
-		"agent":        launcherName,
-		"context_path": contextPath,
-		"agent_exit":   agentExit,
-	}, func() {
-		fmt.Fprintf(st.stdout(), "developing %s  run=%s\n", project, runID)
-		fmt.Fprintf(st.stdout(), "  context: %s\n", contextPath)
-		fmt.Fprintf(st.stdout(), "%s exited %d\n", launcherName, agentExit)
-	})
 }

@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -152,7 +150,7 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 
 	setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
 	before := len(existing)
-	exitCode, runErr := runChild(l, argv)
+	exitCode, runErr := runChild(l.Name(), argv, os.Environ(), l.NotFoundHint())
 	after := len(s.ListTasks(store.QueryFilters{Project: opts.Project}))
 	if err := emitOnboardingTail(st, l.Name(), opts.Project, runID, version, promptPath, before, after, exitCode); err != nil {
 		return err
@@ -161,25 +159,6 @@ func runOnboarding(st *cliState, l onboard.Launcher, opts onboardingOpts) error 
 		return fmt.Errorf("%s exited: %w", l.Name(), runErr)
 	}
 	return nil
-}
-
-// runChild execs the launcher as a child, inheriting the caller's stdio. It
-// returns the process exit code and error.
-func runChild(l onboard.Launcher, argv []string) (int, error) {
-	bin, err := exec.LookPath(argv[0])
-	if err != nil {
-		return 0, fmt.Errorf("%s not found on PATH; install: %s", l.Name(), l.NotFoundHint())
-	}
-	cmd := exec.Command(bin, argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err = cmd.Run()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode(), err
-		}
-		return 1, err
-	}
-	return 0, nil
 }
 
 func emitOnboardingHeader(st *cliState, launcherName, project, runID, version, promptPath string, argv []string) error {
@@ -231,21 +210,4 @@ func renderExistingTasksTable(tasks []*store.Task) string {
 		fmt.Fprintf(&b, "| %s | %s | %s |\n", t.ID, t.Title, labels)
 	}
 	return b.String()
-}
-
-func newRunID(code string) string {
-	return fmt.Sprintf("%s-%s-%s",
-		code,
-		time.Now().UTC().Format("20060102150405"),
-		shortUUID(),
-	)
-}
-
-// shortUUID returns a 6-char hex suffix for collision safety in run IDs.
-func shortUUID() string {
-	var b [3]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "000000"
-	}
-	return fmt.Sprintf("%x", b[:])
 }

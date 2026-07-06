@@ -34,8 +34,8 @@ func TestDevelopingTailSummaryJSON(t *testing.T) {
 	st := &cliState{flags: globalFlags{output: outputJSON}}
 	buf := &bytes.Buffer{}
 	st.out = buf
-	if err := emitDevelopingTail(st, "codex", "FOO", "FOO-RUNID", "/STORE/developing/FOO-RUNID.md", 0); err != nil {
-		t.Fatalf("emitDevelopingTail: %v", err)
+	if err := emitLaunchTail(st, "developing", "FOO", "FOO-RUNID", "/STORE/developing/FOO-RUNID.md", "codex", 0); err != nil {
+		t.Fatalf("emitLaunchTail: %v", err)
 	}
 	got := normalizeDevelopingOutput(buf.String(), "")
 	compareGolden(t, "developing-tail-summary", got)
@@ -66,7 +66,7 @@ func TestDevelopingPluginInstallDryRunJSON(t *testing.T) {
 }
 
 func TestDevelopingEnvIncludesATMValues(t *testing.T) {
-	got := developingEnv("FOO", "/bin/atm", "codex-dev", "FOO-RUNID", "/tmp/context.md")
+	got := assembleEnv(developingEnvValues("FOO", "/bin/atm", "codex-dev", "FOO-RUNID", "/tmp/context.md"))
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{
 		"ATM_ROLE=developing",
