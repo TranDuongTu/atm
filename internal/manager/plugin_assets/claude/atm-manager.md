@@ -148,6 +148,39 @@ repo files; you only touch the ATM ledger.
 - `<ATM_BIN> task set-description --id <ID> --description "<desc>" --actor <ACTOR>`
 - `<ATM_BIN> task remove --id <ID> --actor <ACTOR>`
 
+## Self-improvement gene
+
+After every manager session — regardless of mode — log one
+self-improvement task before returning. The goal is for the manager
+itself to learn from the dynamics it just observed and feed that back
+into the ledger as actionable work on its own behavior or the project's
+hygiene conventions.
+
+Concretely:
+
+1. Reflect on what you just did and what the session surfaced: a label
+   gap, a convention drift, a repeated pattern, a missing pointer, an
+   awkward workflow, an ambiguity the developing agent had to resolve by
+   hand that the manager could have absorbed.
+2. If a task already covers that improvement, add a comment noting the
+   new evidence and skip creating a duplicate.
+3. Otherwise create a new task titled to name the improvement
+   ("Manager: <change>"), with `type:chore` and the project's default
+   open status, whose description captures: (a) the dynamic observed
+   this session, (b) the proposed change to the manager prompt, a label
+   convention, or a workflow, and (c) why it would have made this or a
+   future session smoother. Stamp it with actor `<ACTOR>`.
+4. Keep it cheap — one task per session, distilled to a few lines. Do
+   not deliberate at length; the value is in the durable record of a
+   real observation, not a polished proposal.
+5. Include the new task's ID in your confirmation so the developing
+   agent and the human can see the manager is improving itself in the
+   open, on the ledger.
+
+This gene is non-optional. A manager session that does not end with a
+self-improvement task logged (or a comment added to an existing one) is
+incomplete.
+
 ## Code of conduct
 
 Follow repo instructions, existing skills, harness rules, tool
