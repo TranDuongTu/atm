@@ -130,6 +130,15 @@ ollama's base argv is the *interactive* form:
 append after the `--`, on the integration side of ollama's passthrough,
 which is the correct side per `ollama launch --help`.
 
+The CLI's ollama subcommand constructs `OllamaLauncher{Integration: ...}`
+directly in its `RunE`, mirroring how `internal/cli/onboarding.go` already
+constructs `onboard.OllamaLauncher{Integration: ...}`. `LauncherFor` stays
+returning ok=false for `"ollama"` in the developing and manager packages,
+because the integration is not known at factory time and the direct
+construction is the established onboarding pattern. The existing
+`LauncherFor("ollama")` == false assertions in those packages' tests
+stay unchanged.
+
 ### CLI layer owns arg assembly
 
 `internal/cli/launcher_shared.go` gains one shared helper:
@@ -219,8 +228,10 @@ because in the no-`--`/no-env case the merged argv equals the base argv.
 - `agentEnvArgs` empty env → nil.
 - Launcher `BuildArgv()` for new ollama developing/manager launchers returns
   the interactive `ollama launch <integration> --` base.
-- `LauncherFor("ollama")` returns ok=true for developing and manager (was
-  ok=false before; existing test asserting ok=false is updated).
+- `LauncherFor("ollama")` stays ok=false for developing and manager (ollama
+  is constructed directly by the CLI's ollama subcommand, mirroring
+  onboarding's pattern, since integration is not known at factory time).
+  Existing `launcher_test.go` assertions stay unchanged.
 
 ### Golden
 
@@ -247,9 +258,9 @@ because in the no-`--`/no-env case the merged argv equals the base argv.
 ### Existing goldens
 
 All existing developing/manager/onboarding dry-run goldens remain
-byte-identical (regression guard). The only test changes to existing files
-are the `LauncherFor("ollama")` assertions in developing/manager
-launcher_test.go, which flip from ok=false to ok=true.
+byte-identical (regression guard). No existing launcher_test.go assertions
+change; the `LauncherFor("ollama")` == false assertions stay, since ollama
+is constructed directly by the CLI (mirroring onboarding).
 
 ### Repository gate
 
@@ -272,11 +283,13 @@ launcher_test.go, which flip from ok=false to ok=true.
 ```
 internal/developing/launcher.go
   + OllamaLauncher{Integration string} (interactive form: no --auto/--prompt)
-  + LauncherFor("ollama") -> OllamaLauncher
+    constructed directly by the CLI's ollama subcommand (mirrors onboarding);
+    LauncherFor stays ok=false for "ollama"
 
 internal/manager/launcher.go
   + OllamaLauncher{Integration string} (interactive form)
-  + LauncherFor("ollama") -> OllamaLauncher
+    constructed directly by the CLI's ollama subcommand;
+    LauncherFor stays ok=false for "ollama"
 
 internal/onboard/launcher.go
   unchanged (OllamaLauncher already exists; onboarding-specific --auto/--prompt form)
@@ -327,9 +340,9 @@ This is purely additive:
 - Existing dry-run goldens remain byte-identical.
 - The `Launcher` interface and `BuildArgv()` / `BuildArgv(promptPath, title)`
   signatures are unchanged; the assembly happens in the CLI layer.
-- The only test-file edits to existing files are the two
-  `LauncherFor("ollama")` assertions (developing, manager) flipping from
-  ok=false to ok=true, matching the new supported-agent set.
+- No existing test files are edited: `LauncherFor("ollama")` assertions
+  (developing, manager) stay ok=false, since ollama is constructed directly
+  by the CLI (mirroring onboarding's pattern).
 
 ## Open Questions
 
