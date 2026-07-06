@@ -56,6 +56,19 @@ func TestOpenCodePluginAssetContainsLedgerBeforeSkillsAndLogging(t *testing.T) {
 	}
 }
 
+func TestPluginAssetsContainManagerDispatchContract(t *testing.T) {
+	for _, agent := range []string{"opencode", "claude", "codex"} {
+		assets, _ := PluginAssets(agent)
+		joined := string(joinAssetContents(assets))
+		if !strings.Contains(joined, "atm-manager") {
+			t.Errorf("%s assets do not mention the atm-manager subagent", agent)
+		}
+		if !strings.Contains(joined, "dispatch") {
+			t.Errorf("%s assets do not mention dispatching the manager", agent)
+		}
+	}
+}
+
 func joinAssetContents(assets []Asset) []byte {
 	var out []byte
 	for _, a := range assets {
