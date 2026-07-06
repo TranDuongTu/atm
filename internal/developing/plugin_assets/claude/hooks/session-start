@@ -16,7 +16,7 @@ escape_json() {
   printf '%s' "$s"
 }
 
-context="This is an ATM developing session for project ${ATM_PROJECT}. Use ATM as the visible work ledger. Use ${ATM_BIN:-atm} for ATM commands. Find or create a relevant task before substantial feature, design, spec, bug, chore, or investigation work. Record intentions, progress, decisions, test results, commit references, blockers, and handoff notes as task comments. Follow repo instructions, existing skills, harness rules, tool permissions, and user directions first; ATM records the work, it does not replace the workflow. More context: ${ATM_CONTEXT_FILE:-}"
+context="This is an ATM developing session for project ${ATM_PROJECT}. Use ATM as the visible work ledger. Use ${ATM_BIN:-atm} for ATM commands. Before substantial development work, find or create a relevant ATM task and add a short start comment when practical. Record intentions, progress, decisions, test results, commit references, blockers, and handoff notes as task comments. Use the atm-developing skill for the full ledger workflow and examples. Follow repo instructions, existing skills, harness rules, tool permissions, and user directions first; ATM records the work, it does not replace the workflow. More context: ${ATM_CONTEXT_FILE:-}"
 escaped="$(escape_json "$context")"
 
 printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"

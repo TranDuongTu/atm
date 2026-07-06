@@ -33,10 +33,26 @@ func TestPluginAssetsStaySilentWithoutATMRole(t *testing.T) {
 func TestPluginAssetsContainLedgerLanguage(t *testing.T) {
 	assets, _ := PluginAssets("claude")
 	joined := string(joinAssetContents(assets))
-	for _, want := range []string{"visible work ledger", "task comments", "ATM_CONTEXT_FILE"} {
+	for _, want := range []string{"visible work ledger", "task comments", "ATM_CONTEXT_FILE", "Use the atm-developing skill"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("Claude assets missing %q", want)
 		}
+	}
+	if strings.Contains(joined, "brainstorming/planning skills") {
+		t.Error("Claude assets should not depend on Superpowers-specific skill names")
+	}
+}
+
+func TestOpenCodePluginAssetContainsLedgerBeforeSkillsAndLogging(t *testing.T) {
+	assets, _ := PluginAssets("opencode")
+	joined := string(joinAssetContents(assets))
+	for _, want := range []string{"Use the atm-developing skill", "config.skills.paths", "bootstrap injected"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("OpenCode asset missing %q", want)
+		}
+	}
+	if strings.Contains(joined, "brainstorming/planning skills") {
+		t.Error("OpenCode asset should not depend on Superpowers-specific skill names")
 	}
 }
 
