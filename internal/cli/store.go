@@ -163,7 +163,7 @@ func (st *cliState) emitVerify(r *store.VerifyReport) error {
 	}
 	fmt.Fprintf(st.stdout(), "project: %s\nlog_entries: %d\nlog_ok: %t\ntruncated: %d\ndiverged: %t\n", r.Project, r.LogEntries, r.LogOK, r.Truncated, r.Diverged)
 	for _, c := range r.Caches {
-		fmt.Fprintf(st.stdout(), "  %s\t%s\tcache=%d last=%d\n", c.Status, c.Path, c.CacheLogSeq, c.LastEventSeq)
+		fmt.Fprintf(st.stdout(), "  %s\t%s:%s\tcache=%d last=%d\n", c.Status, c.Kind, c.ID, c.CacheLogSeq, c.LastEventSeq)
 	}
 	return nil
 }

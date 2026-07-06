@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 )
 
 func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
@@ -15,9 +13,15 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if actor == "" {
 		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
 	var created *Project
-	err := s.WithLock(code, func() error {
-		if _, err := os.Stat(s.projectPath(code)); err == nil {
+	err = s.WithLock(code, func() error {
+		if _, ok, err := cacheGetProject(db, code); err != nil {
+			return err
+		} else if ok {
 			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
 		}
 		now := Now()
@@ -47,11 +51,8 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 		if err := s.seedLabelsLocked(code, actor, now); err != nil {
 			return err
 		}
-		// 3. Write project cache.
-		if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
-			return err
-		}
-		if err := WriteJSON(s.projectPath(code), p); err != nil {
+		// 3. Write project cache row.
+		if err := cacheUpsertProject(db, p); err != nil {
 			return err
 		}
 		created = p
@@ -72,30 +73,26 @@ func mustMarshal(v any) json.RawMessage {
 }
 
 func (s *Store) GetProject(code string) (*Project, error) {
-	var p Project
-	cachePath := s.projectPath(code)
-	if err := ReadJSON(cachePath, &p); err != nil {
-		if !os.IsNotExist(err) {
-			// Corrupt cache → rebuild from log under the lock for safety.
-			if err := s.WithLock(code, func() error {
-				return s.rebuildProjectFromLog(code)
-			}); err != nil {
-				return nil, err
-			}
-			if err := ReadJSON(cachePath, &p); err != nil {
-				return nil, err
-			}
-			return &p, nil
-		}
-		if err := s.WithLock(code, func() error {
-			return s.rebuildProjectFromLog(code)
-		}); err != nil {
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	p, ok, err := cacheGetProject(db, code)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		if err := s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) }); err != nil {
 			return nil, err
 		}
-		if err := ReadJSON(cachePath, &p); err != nil {
+		p, ok, err = cacheGetProject(db, code)
+		if err != nil {
 			return nil, err
 		}
-		return &p, nil
+		if !ok {
+			return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
+		}
+		return p, nil
 	}
 	last, lastErr := s.LastLogSeq(code)
 	if lastErr != nil {
@@ -104,27 +101,26 @@ func (s *Store) GetProject(code string) (*Project, error) {
 	if p.LogSeq > last {
 		return nil, fmt.Errorf("%w: project %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, code, p.LogSeq, last)
 	}
-	// Project staleness only triggers on project.* events, not label events.
 	projLast, err := s.lastProjectEventSeq(code)
 	if err != nil {
 		return nil, err
 	}
 	if projLast > p.LogSeq {
-		if err := s.WithLock(code, func() error {
-			return s.rebuildProjectFromLog(code)
-		}); err != nil {
+		if err := s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) }); err != nil {
 			return nil, err
 		}
-		if err := ReadJSON(cachePath, &p); err != nil {
+		p, ok, err = cacheGetProject(db, code)
+		if err != nil {
 			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
 		}
 	}
-	return &p, nil
+	return p, nil
 }
 
 // lastProjectEventSeq returns the seq of the latest project.* log entry.
-// An integrity error from ReadLog is propagated (a corrupt log must not be
-// treated as "cache is fresh").
 func (s *Store) lastProjectEventSeq(code string) (int, error) {
 	entries, err := s.ReadLog(code)
 	if err != nil {
@@ -164,35 +160,40 @@ func (s *Store) rebuildProjectFromLog(code string) error {
 		return fmt.Errorf("%w: project %q", ErrNotFound, code)
 	}
 	p.LogSeq = lastSeq
-	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
+	db, err := s.cacheDB()
+	if err != nil {
 		return err
 	}
-	return WriteJSON(s.projectPath(code), p)
+	return cacheUpsertProject(db, p)
 }
 
 func (s *Store) ListProjects() []*Project {
-	entries, err := os.ReadDir(s.projectsDir())
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil
+	}
+	codes, err := cacheListProjectCodes(db)
 	if err != nil {
 		return nil
 	}
 	var out []*Project
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		p, err := s.GetProject(e.Name()[:len(e.Name())-len(".json")])
+	for _, code := range codes {
+		p, err := s.GetProject(code)
 		if err != nil {
 			continue
 		}
 		out = append(out, p)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
 }
 
 func (s *Store) SetProjectName(code, name, actor string) error {
 	if actor == "" {
 		return fmt.Errorf("%w: actor is required", ErrUsage)
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
 	}
 	return s.WithLock(code, func() error {
 		p, err := s.GetProject(code)
@@ -214,12 +215,16 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 			return err
 		}
 		p.LogSeq = entry.Seq
-		return WriteJSON(s.projectPath(code), p)
+		return cacheUpsertProject(db, p)
 	})
 }
 
 func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
+		return err
+	}
+	db, err := s.cacheDB()
+	if err != nil {
 		return err
 	}
 	return s.WithLock(code, func() error {
@@ -241,51 +246,22 @@ func (s *Store) RemoveProject(code, actor string) error {
 		})
 		// 2. Delete the project directory (including log.jsonl).
 		_ = os.RemoveAll(s.projectDir(code))
-		// 3. Delete the project cache file.
-		return os.Remove(s.projectPath(code))
+		// 3. Delete the project cache row.
+		return cacheDeleteProject(db, code)
 	})
 }
 
 func (s *Store) hasTasksGuard(code string) error {
-	entries, err := os.ReadDir(s.tasksDir(code))
+	db, err := s.cacheDB()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
-			return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
-		}
+	ids, err := cacheListTaskIDs(db, code)
+	if err != nil {
+		return err
+	}
+	if len(ids) > 0 {
+		return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
 	}
 	return nil
-}
-
-func (s *Store) mutateProject(code, actor string, fn func(p *Project)) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
-	}
-	return s.WithLock(code, func() error {
-		p, err := s.GetProject(code)
-		if err != nil {
-			return err
-		}
-		fn(p)
-		now := Now()
-		p.UpdatedAt = now
-		p.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectNameChanged, // callers use SetProjectName directly; mutateProject retained for symmetry
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		if err != nil {
-			return err
-		}
-		p.LogSeq = entry.Seq
-		return WriteJSON(s.projectPath(code), p)
-	})
 }

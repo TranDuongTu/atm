@@ -184,7 +184,8 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
-	_ = os.Remove(s.projectPath("ATM"))
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM")
 	got, err := s.GetProject("ATM")
 	if err != nil {
 		t.Fatalf("GetProject after cache delete: %v", err)

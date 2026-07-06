@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 )
@@ -23,7 +22,7 @@ func TestVerifyCleanStore(t *testing.T) {
 	}
 	for _, c := range report.Caches {
 		if c.Status != "ok" {
-			t.Errorf("cache %s status = %q want ok", c.Path, c.Status)
+			t.Errorf("cache %s:%s status = %q want ok", c.Kind, c.ID, c.Status)
 		}
 	}
 }
@@ -33,13 +32,8 @@ func TestVerifyDetectsStaleTaskCache(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	_ = s.SetTitle(tk.ID, "changed", "claude")
-	// Stomp the cache back to seq 1.
-	raw, _ := os.ReadFile(s.taskPath(tk.ID))
-	var tg Task
-	_ = json.Unmarshal(raw, &tg)
-	tg.LogSeq = 1
-	newRaw, _ := json.Marshal(tg)
-	_ = os.WriteFile(s.taskPath(tk.ID), newRaw, 0o644)
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID)
 	report, err := s.VerifyProject("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +56,8 @@ func TestVerifyDetectsMissingCache(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = os.Remove(s.taskPath(tk.ID))
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
 	report, _ := s.VerifyProject("ATM")
 	if !report.Diverged {
 		t.Fatal("Diverged=false with missing cache")
@@ -119,20 +114,15 @@ func TestVerifyReportsCommentCacheStale(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	c, _ := s.CreateComment(tk.ID, "x", nil, "", "claude")
-	// Stomp cache to a stale seq.
-	raw, _ := os.ReadFile(s.commentPath(c.ID))
-	var cc Comment
-	_ = json.Unmarshal(raw, &cc)
-	cc.LogSeq = 0
-	newRaw, _ := json.Marshal(cc)
-	_ = os.WriteFile(s.commentPath(c.ID), newRaw, 0o644)
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`UPDATE comments SET log_seq = 0 WHERE id = ?`, c.ID)
 	rep, err := s.VerifyProject("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
 	for _, ck := range rep.Caches {
-		if ck.Path == s.commentPath(c.ID) {
+		if ck.Kind == "comment" && ck.ID == c.ID {
 			if ck.Status == "stale" || ck.Status == "corrupt" {
 				found = true
 			}

@@ -1,9 +1,8 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 )
 
@@ -12,22 +11,27 @@ type VerifyReport struct {
 	LogEntries int
 	LogOK      bool
 	Truncated  int
-	SeqGaps    []int // seqs that are missing from an otherwise monotone sequence
+	SeqGaps    []int
 	Caches     []CacheCheck
 	Diverged   bool
 }
 
 type CacheCheck struct {
-	Path         string
+	Kind         string // "project" | "task" | "comment"
+	ID           string // project code | task id | comment id
 	Status       string // "ok" | "stale" | "missing" | "corrupt"
 	CacheLogSeq  int
 	LastEventSeq int
 }
 
 func (s *Store) Verify() ([]VerifyReport, error) {
+	codes, err := s.projectCodesOnDisk()
+	if err != nil {
+		return nil, err
+	}
 	var out []VerifyReport
-	for _, p := range s.ListProjects() {
-		r, err := s.VerifyProject(p.Code)
+	for _, code := range codes {
+		r, err := s.VerifyProject(code)
 		if err != nil {
 			return out, err
 		}
@@ -49,7 +53,6 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		}
 	}
 	report.LogEntries = len(entries)
-	// Detect seq gaps.
 	last := 0
 	for _, e := range entries {
 		if e.Seq != last+1 {
@@ -58,37 +61,29 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		}
 		last = e.Seq
 	}
-	// Replay to get the canonical live set.
 	st, _ := s.Replay(code)
-	// Verify project cache.
-	report.Caches = append(report.Caches, s.checkProjectCache(code, st))
-	// Verify each task cache.
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	report.Caches = append(report.Caches, s.checkProjectCache(db, code, st))
 	for _, t := range st.Tasks {
-		report.Caches = append(report.Caches, s.checkTaskCache(code, t.ID, t.LogSeq))
+		report.Caches = append(report.Caches, s.checkTaskCache(db, code, t.ID))
 	}
-	// Verify each comment cache.
 	for _, c := range st.Comments {
-		report.Caches = append(report.Caches, s.checkCommentCache(code, c.ID, c.LogSeq))
+		report.Caches = append(report.Caches, s.checkCommentCache(db, code, c.ID))
 	}
-	// Sweep orphan comment caches (no replay comment for the file).
-	commentEntries, _ := os.ReadDir(s.commentsDir(code))
-	for _, e := range commentEntries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		cid := e.Name()[:len(e.Name())-len(".json")]
-		live := false
-		for _, c := range st.Comments {
-			if c.ID == cid {
-				live = true
-				break
-			}
-		}
-		if !live {
-			report.Caches = append(report.Caches, CacheCheck{
-				Path:   filepath.Join(s.commentsDir(code), e.Name()),
-				Status: "corrupt",
-			})
+	cachedIDs, err := cacheListCommentIDsForProject(db, code)
+	if err != nil {
+		return nil, err
+	}
+	liveComments := map[string]bool{}
+	for _, c := range st.Comments {
+		liveComments[c.ID] = true
+	}
+	for _, id := range cachedIDs {
+		if !liveComments[id] {
+			report.Caches = append(report.Caches, CacheCheck{Kind: "comment", ID: id, Status: "corrupt"})
 			report.Diverged = true
 		}
 	}
@@ -100,61 +95,58 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 	return report, nil
 }
 
-func (s *Store) checkProjectCache(code string, st *ReplayState) CacheCheck {
-	path := s.projectPath(code)
-	var p Project
-	if err := ReadJSON(path, &p); err != nil {
-		if os.IsNotExist(err) {
-			return CacheCheck{Path: path, Status: "missing"}
-		}
-		return CacheCheck{Path: path, Status: "corrupt"}
+func (s *Store) checkProjectCache(db *sql.DB, code string, st *ReplayState) CacheCheck {
+	p, ok, err := cacheGetProject(db, code)
+	if err != nil {
+		return CacheCheck{Kind: "project", ID: code, Status: "corrupt"}
+	}
+	if !ok {
+		return CacheCheck{Kind: "project", ID: code, Status: "missing"}
 	}
 	last, _ := s.lastProjectEventSeq(code)
 	if p.LogSeq > last {
-		return CacheCheck{Path: path, Status: "corrupt", CacheLogSeq: p.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "project", ID: code, Status: "corrupt", CacheLogSeq: p.LogSeq, LastEventSeq: last}
 	}
 	if p.LogSeq < last {
-		return CacheCheck{Path: path, Status: "stale", CacheLogSeq: p.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "project", ID: code, Status: "stale", CacheLogSeq: p.LogSeq, LastEventSeq: last}
 	}
-	return CacheCheck{Path: path, Status: "ok", CacheLogSeq: p.LogSeq, LastEventSeq: last}
+	return CacheCheck{Kind: "project", ID: code, Status: "ok", CacheLogSeq: p.LogSeq, LastEventSeq: last}
 }
 
-func (s *Store) checkTaskCache(code, id string, expectedLogSeq int) CacheCheck {
-	path := s.taskPath(id)
-	var t Task
-	if err := ReadJSON(path, &t); err != nil {
-		if os.IsNotExist(err) {
-			return CacheCheck{Path: path, Status: "missing"}
-		}
-		return CacheCheck{Path: path, Status: "corrupt"}
+func (s *Store) checkTaskCache(db *sql.DB, code, id string) CacheCheck {
+	t, ok, err := cacheGetTask(db, id)
+	if err != nil {
+		return CacheCheck{Kind: "task", ID: id, Status: "corrupt"}
+	}
+	if !ok {
+		return CacheCheck{Kind: "task", ID: id, Status: "missing"}
 	}
 	last, _ := s.lastTaskEventSeq(code, id)
 	if t.LogSeq > last {
-		return CacheCheck{Path: path, Status: "corrupt", CacheLogSeq: t.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "task", ID: id, Status: "corrupt", CacheLogSeq: t.LogSeq, LastEventSeq: last}
 	}
 	if t.LogSeq < last {
-		return CacheCheck{Path: path, Status: "stale", CacheLogSeq: t.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "task", ID: id, Status: "stale", CacheLogSeq: t.LogSeq, LastEventSeq: last}
 	}
-	return CacheCheck{Path: path, Status: "ok", CacheLogSeq: t.LogSeq, LastEventSeq: last}
+	return CacheCheck{Kind: "task", ID: id, Status: "ok", CacheLogSeq: t.LogSeq, LastEventSeq: last}
 }
 
-func (s *Store) checkCommentCache(code, id string, expectedLogSeq int) CacheCheck {
-	path := s.commentPath(id)
-	var c Comment
-	if err := ReadJSON(path, &c); err != nil {
-		if os.IsNotExist(err) {
-			return CacheCheck{Path: path, Status: "missing"}
-		}
-		return CacheCheck{Path: path, Status: "corrupt"}
+func (s *Store) checkCommentCache(db *sql.DB, code, id string) CacheCheck {
+	c, ok, err := cacheGetComment(db, id)
+	if err != nil {
+		return CacheCheck{Kind: "comment", ID: id, Status: "corrupt"}
+	}
+	if !ok {
+		return CacheCheck{Kind: "comment", ID: id, Status: "missing"}
 	}
 	last, _ := s.lastCommentEventSeq(code, id)
 	if c.LogSeq > last {
-		return CacheCheck{Path: path, Status: "corrupt", CacheLogSeq: c.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "comment", ID: id, Status: "corrupt", CacheLogSeq: c.LogSeq, LastEventSeq: last}
 	}
 	if c.LogSeq < last {
-		return CacheCheck{Path: path, Status: "stale", CacheLogSeq: c.LogSeq, LastEventSeq: last}
+		return CacheCheck{Kind: "comment", ID: id, Status: "stale", CacheLogSeq: c.LogSeq, LastEventSeq: last}
 	}
-	return CacheCheck{Path: path, Status: "ok", CacheLogSeq: c.LogSeq, LastEventSeq: last}
+	return CacheCheck{Kind: "comment", ID: id, Status: "ok", CacheLogSeq: c.LogSeq, LastEventSeq: last}
 }
 
 func extractTruncatedBytes(err error) int {

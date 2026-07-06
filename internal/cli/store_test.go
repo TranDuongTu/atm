@@ -2,18 +2,15 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
-	"os"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"atm/internal/store"
-)
 
-func taskCachePath(root, code, id string) string {
-	return filepath.Join(root, "projects", code, "tasks", id+".json")
-}
+	_ "modernc.org/sqlite"
+)
 
 // Minimal test harness for the store subcommands. The package's golden harness
 // defaults to JSON output and is oriented around fixture comparison; these
@@ -136,22 +133,13 @@ func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
 	_, _ = st.store.CreateProject("ATM", "x", "claude")
 	tk, _ := st.store.CreateTask("ATM", "t", "", nil, "claude")
 	_ = st.store.SetTitle(tk.ID, "changed", "claude")
-	// Stomp the task cache back to seq 1 (stale) so verify detects divergence.
-	path := taskCachePath(st.store.StorePath(), "ATM", tk.ID)
-	raw, err := os.ReadFile(path)
+	// Stomp the task cache row back to seq 1 (stale) so verify detects divergence.
+	db, err := sql.Open("sqlite", filepath.Join(st.store.StorePath(), "cache.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tg store.Task
-	if err := json.Unmarshal(raw, &tg); err != nil {
-		t.Fatal(err)
-	}
-	tg.LogSeq = 1
-	newRaw, err := json.Marshal(tg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, newRaw, 0o644); err != nil {
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, _, code := runArgs(st, "store", "verify")

@@ -163,7 +163,11 @@ func (s *Store) touchLabels() error {
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
-	return WriteJSON(p, labelsFile{Labels: []Label{}})
+	// Legacy compat placeholder; cache.db is the source of truth for labels
+	// now. This whole helper (and labelsPath) is removed in Task 12.
+	return WriteJSON(p, struct {
+		Labels []Label `json:"labels"`
+	}{Labels: []Label{}})
 }
 
 func (s *Store) StorePath() string { return s.Root }
@@ -198,4 +202,26 @@ func (s *Store) commentPath(id string) string {
 func (s *Store) labelsPath() string { return filepath.Join(s.Root, "labels.json") }
 func (s *Store) lockPath(code string) string {
 	return filepath.Join(s.projectsDir(), code+".lock")
+}
+
+// projectCodesOnDisk enumerates project codes by the projects/<CODE>/
+// directory structure (which holds log.jsonl), independent of cache.db.
+// Used by Verify/Rebuild so a missing or fully-wiped cache.db doesn't hide
+// projects that still have logs on disk.
+func (s *Store) projectCodesOnDisk() ([]string, error) {
+	entries, err := os.ReadDir(s.projectsDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var codes []string
+	for _, e := range entries {
+		if e.IsDir() {
+			codes = append(codes, e.Name())
+		}
+	}
+	sort.Strings(codes)
+	return codes, nil
 }

@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 )
@@ -15,8 +14,12 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	if actor == "" {
 		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
 	var created *Task
-	err := s.WithLock(projectCode, func() error {
+	err = s.WithLock(projectCode, func() error {
 		p, err := s.GetProject(projectCode)
 		if err != nil {
 			return err
@@ -62,25 +65,16 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 			return err
 		}
 		t.LogSeq = entry.Seq
-		// 3. Bump project counter and write project cache (mutation).
+		// 3. Bump project counter and write project cache row.
 		p.NextTaskN = n + 1
 		p.UpdatedAt = ts
 		p.UpdatedBy = actor
-		if err := WriteJSON(s.projectPath(projectCode), p); err != nil {
+		if err := cacheUpsertProject(db, p); err != nil {
 			return err
 		}
-		// 4. Write task cache.
-		if err := os.MkdirAll(s.tasksDir(projectCode), 0o755); err != nil {
+		// 4. Write task cache row.
+		if err := cacheUpsertTask(db, t); err != nil {
 			return err
-		}
-		if err := WriteJSON(s.taskPath(id), t); err != nil {
-			return err
-		}
-		// 5. Refresh derived labels.json if any new labels were registered.
-		if len(labelEntries) > 0 {
-			if err := s.refreshDerivedLabelsLocked(projectCode); err != nil {
-				return err
-			}
 		}
 		created = t
 		return nil
@@ -88,13 +82,18 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	return created, err
 }
 
-// appendLabelUpsertsLocked appends label.upserted for each label name not already
-// present in this project's log. Caller MUST hold the project lock.
+// appendLabelUpsertsLocked appends label.upserted for each label name not
+// already live in cache.db, and write-throughs the new row immediately.
+// Caller MUST hold the project lock.
 func (s *Store) appendLabelUpsertsLocked(code string, labels []string, actor string, at time.Time) ([]LogEntry, error) {
 	if len(labels) == 0 {
 		return nil, nil
 	}
-	present, err := s.labelsInLogLocked(code)
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	present, err := cachePresentLabels(db, labels)
 	if err != nil {
 		return nil, err
 	}
@@ -113,21 +112,10 @@ func (s *Store) appendLabelUpsertsLocked(code string, labels []string, actor str
 		if err != nil {
 			return out, err
 		}
+		if err := cacheUpsertLabel(db, Label{Name: name, LogSeq: entry.Seq}); err != nil {
+			return out, err
+		}
 		out = append(out, entry)
-	}
-	return out, nil
-}
-
-// labelsInLogLocked returns the set of label names that have an upserted event
-// (and no subsequent removed event) in this project's log.
-func (s *Store) labelsInLogLocked(code string) (map[string]bool, error) {
-	st, err := s.Replay(code)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]bool, len(st.Labels))
-	for _, l := range st.Labels {
-		out[l.Name] = true
 	}
 	return out, nil
 }
@@ -137,33 +125,27 @@ func (s *Store) GetTask(id string) (*Task, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
-	var t Task
-	cachePath := s.taskPath(id)
-	if err := ReadJSON(cachePath, &t); err != nil {
-		if !os.IsNotExist(err) {
-			// Corrupt cache → rebuild from log under the lock for safety.
-			if err := s.WithLock(code, func() error {
-				return s.rebuildTaskFromLog(id, code)
-			}); err != nil {
-				return nil, err
-			}
-			if err := ReadJSON(cachePath, &t); err != nil {
-				return nil, err
-			}
-			return &t, nil
-		}
-		// Missing cache → rebuild under lock.
-		if err := s.WithLock(code, func() error {
-			return s.rebuildTaskFromLog(id, code)
-		}); err != nil {
-			return nil, err
-		}
-		if err := ReadJSON(cachePath, &t); err != nil {
-			return nil, err
-		}
-		return &t, nil
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
 	}
-	// Cache present; check staleness.
+	t, found, err := cacheGetTask(db, id)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		if err := s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) }); err != nil {
+			return nil, err
+		}
+		t, found, err = cacheGetTask(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+		}
+		return t, nil
+	}
 	last, lastErr := s.LastLogSeq(code)
 	if lastErr != nil {
 		return nil, lastErr
@@ -176,17 +158,18 @@ func (s *Store) GetTask(id string) (*Task, error) {
 		return nil, err
 	}
 	if t.LogSeq < taskLast {
-		// Stale: rebuild under lock.
-		if err := s.WithLock(code, func() error {
-			return s.rebuildTaskFromLog(id, code)
-		}); err != nil {
+		if err := s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) }); err != nil {
 			return nil, err
 		}
-		if err := ReadJSON(cachePath, &t); err != nil {
+		t, found, err = cacheGetTask(db, id)
+		if err != nil {
 			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
 		}
 	}
-	return &t, nil
+	return t, nil
 }
 
 // lastTaskEventSeq returns the seq of the latest log entry for the given task subject.
@@ -206,7 +189,7 @@ func (s *Store) lastTaskEventSeq(code, id string) (int, error) {
 	return last, nil
 }
 
-// rebuildTaskFromLog replays the task's events and rewrites the cache file.
+// rebuildTaskFromLog replays the task's events and rewrites the cache row.
 // Caller MUST hold the project lock.
 func (s *Store) rebuildTaskFromLog(id, code string) error {
 	entries, err := s.ReadLog(code)
@@ -233,10 +216,11 @@ func (s *Store) rebuildTaskFromLog(id, code string) error {
 		return fmt.Errorf("%w: task %q", ErrNotFound, id)
 	}
 	t.LogSeq = lastSeq
-	if err := os.MkdirAll(s.tasksDir(code), 0o755); err != nil {
+	db, err := s.cacheDB()
+	if err != nil {
 		return err
 	}
-	return WriteJSON(s.taskPath(id), t)
+	return cacheUpsertTask(db, t)
 }
 
 func (s *Store) SetTitle(id, title, actor string) error {
@@ -278,6 +262,10 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 	if !ok {
 		return fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
 	return s.WithLock(code, func() error {
 		t, err := s.GetTask(id)
 		if err != nil {
@@ -290,12 +278,9 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 		}
 		t.Labels = append(t.Labels, label)
 		sort.Strings(t.Labels)
-		// 1. Append label.upserted for the new label if not already in log.
-		labelEntries, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now())
-		if err != nil {
+		if _, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now()); err != nil {
 			return err
 		}
-		// 2. Append task.label-added.
 		now := Now()
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
@@ -310,13 +295,7 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 			return err
 		}
 		t.LogSeq = entry.Seq
-		if err := WriteJSON(s.taskPath(id), t); err != nil {
-			return err
-		}
-		if len(labelEntries) > 0 {
-			return s.refreshDerivedLabelsLocked(code)
-		}
-		return nil
+		return cacheUpsertTask(db, t)
 	})
 }
 
@@ -340,6 +319,10 @@ func (s *Store) RemoveTask(id, actor string) error {
 	if !ok {
 		return fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
 	return s.WithLock(code, func() error {
 		t, err := s.GetTask(id)
 		if err != nil {
@@ -348,7 +331,6 @@ func (s *Store) RemoveTask(id, actor string) error {
 		now := Now()
 		t.UpdatedAt = now
 		t.UpdatedBy = actor
-		// 1. Append task.removed tombstone (payload = last state).
 		_, err = s.appendLogLocked(code, LogEntry{
 			At:      now,
 			Actor:   actor,
@@ -359,8 +341,7 @@ func (s *Store) RemoveTask(id, actor string) error {
 		if err != nil {
 			return err
 		}
-		// 2. Delete the cache file.
-		return os.Remove(s.taskPath(id))
+		return cacheDeleteTask(db, id)
 	})
 }
 
@@ -372,6 +353,10 @@ func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), ac
 	code, _, ok := ParseTaskID(id)
 	if !ok {
 		return fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
 	}
 	return s.WithLock(code, func() error {
 		t, err := s.GetTask(id)
@@ -393,6 +378,6 @@ func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), ac
 			return err
 		}
 		t.LogSeq = entry.Seq
-		return WriteJSON(s.taskPath(id), t)
+		return cacheUpsertTask(db, t)
 	})
 }

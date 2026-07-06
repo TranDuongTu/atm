@@ -1,7 +1,6 @@
 package store
 
 import (
-	"os"
 	"testing"
 )
 
@@ -162,21 +161,32 @@ func TestLabelRemoveAppendsTombstone(t *testing.T) {
 	}
 }
 
-func TestRebuildRegeneratesLabelsJSON(t *testing.T) {
+func TestRebuildRegeneratesLabelCache(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	_ = s.LabelAdd("ATM:type:bug", "d", "claude")
-	// Hand-delete labels.json.
-	_ = os.Remove(s.labelsPath())
-	// Rebuild regenerates it from log events across all projects.
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM labels WHERE name = ?`, "ATM:type:bug")
 	if _, err := s.Rebuild(); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := os.Stat(s.labelsPath()); os.IsNotExist(err) {
-		t.Fatal("Rebuild did not regenerate labels.json")
 	}
 	l, _ := s.LabelShow("ATM:type:bug")
 	if l.Description != "d" {
 		t.Fatalf("rebuilt label desc = %q want %q", l.Description, "d")
+	}
+}
+
+func TestLabelUsageCountsOnlyProjectMatchingTasks(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk1, _ := s.CreateTask("ATM", "a", "", []string{"ATM:type:bug"}, "claude")
+	_, _ = s.CreateTask("ATM", "b", "", nil, "claude")
+	_ = tk1
+	n, err := s.LabelUsage("ATM", "ATM:type:bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("LabelUsage = %d, want 1", n)
 	}
 }
