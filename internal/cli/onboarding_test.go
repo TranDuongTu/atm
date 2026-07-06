@@ -34,6 +34,30 @@ func TestOnboardingOllamaDryRunJSON(t *testing.T) {
 	compareGolden(t, "onboarding-dry-run-ollama", got)
 }
 
+func TestOnboardingOpencodeExtraArgsDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("onboarding", "opencode", "--project", "FOO", "--dry-run", "--", "--foo")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeOnboardingOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "onboarding-dry-run-opencode-extra", got)
+}
+
+func TestOnboardingOllamaExtraArgsDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("onboarding", "ollama", "--project", "FOO", "--integration", "codex", "--dry-run", "--", "--bar")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeOnboardingOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "onboarding-dry-run-ollama-extra", got)
+}
+
 func TestOnboardingMissingProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.reset()

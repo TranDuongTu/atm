@@ -321,6 +321,8 @@ Flags:
 - `--prompt-version <v>` (default latest) — select an embedded prompt version.
 - `--dry-run` — render the prompt and print the launcher command without launching.
 - `--integration <name>` (ollama only, required) — passed through to `ollama launch`.
+- `-- <agent args...>` — everything after `--` is appended verbatim to the host agent's argv (e.g. `atm onboarding opencode --project FOO -- --yolo`).
+- `ATM_<AGENT>_ARGS` (env) — default args applied on every launch; for ollama, `ATM_<INTEGRATION>_ARGS` takes precedence over `ATM_OLLAMA_ARGS`.
 
 Re-running onboarding is idempotent: the agent reads existing tasks and updates
 rather than duplicating. Run it per repo to build a multi-repo context map for
