@@ -249,6 +249,10 @@ func TestCacheDeleteCommentRemovesLabels(t *testing.T) {
 	if _, ok, _ := cacheGetComment(db, c.ID); ok {
 		t.Fatal("comment row still present")
 	}
+	labels, _ := cacheCommentLabels(db, c.ID)
+	if len(labels) != 0 {
+		t.Fatalf("comment_labels rows not cleaned up: %v", labels)
+	}
 }
 
 func TestCacheListCommentsSortedByID(t *testing.T) {

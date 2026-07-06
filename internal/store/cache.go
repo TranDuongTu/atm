@@ -421,6 +421,23 @@ func cacheUpsertComment(db *sql.DB, c *Comment) error {
 	return tx.Commit()
 }
 
+func cacheCommentLabels(db *sql.DB, commentID string) ([]string, error) {
+	rows, err := db.Query(`SELECT label FROM comment_labels WHERE comment_id = ? ORDER BY label`, commentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
 func cacheGetComment(db *sql.DB, id string) (*Comment, bool, error) {
 	var c Comment
 	var createdAt, updatedAt string
@@ -435,19 +452,12 @@ func cacheGetComment(db *sql.DB, id string) (*Comment, bool, error) {
 	}
 	c.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	c.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	rows, err := db.Query(`SELECT label FROM comment_labels WHERE comment_id = ? ORDER BY label`, id)
+	labels, err := cacheCommentLabels(db, id)
 	if err != nil {
 		return nil, false, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var l string
-		if err := rows.Scan(&l); err != nil {
-			return nil, false, err
-		}
-		c.Labels = append(c.Labels, l)
-	}
-	return &c, true, rows.Err()
+	c.Labels = labels
+	return &c, true, nil
 }
 
 func cacheDeleteComment(db *sql.DB, id string) error {
