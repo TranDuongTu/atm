@@ -4,7 +4,9 @@ BIN := bin
 BINARY := $(BIN)/atm
 PKG := ./...
 
-.PHONY: all build test lint vet fmt clean install help dogfood
+.PHONY: all build test lint vet fmt clean install help dogfood \
+        scripts-test release release-upload release-smoke install-smoke \
+        version-bump install-release dist
 
 all: build
 
@@ -60,10 +62,15 @@ install: build
 help:
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-## verify: the AGENTS.md verify step - build + test
+## verify: the AGENTS.md verify step - build + test + scripts-test.
 verify:
 	$(MAKE) build
 	$(MAKE) test
+	$(MAKE) scripts-test
+
+## scripts-test: POSIX sh unit tests for scripts/_release_lib.sh.
+scripts-test:
+	tests/scripts/runner.sh
 
 ## dogfood: bootstrap the ATM project + follow-on tasks in the machine-global store (idempotent, opt-in)
 dogfood: build
