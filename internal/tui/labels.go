@@ -103,6 +103,7 @@ type labelsModel struct {
 	contentHeight int
 	rows          []labelRow
 	entries       []labelEntry
+	chartNS       string // active "tasks by label" chart namespace ("" = list view)
 	cursor        int
 	offset        int
 	pageSize      int
@@ -236,6 +237,12 @@ func (l *labelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
+	if l.activeChartNS() != "" {
+		if k.String() == "esc" {
+			l.chartNS = ""
+		}
+		return nil
+	}
 	switch k.String() {
 	case "j", "down":
 		if l.cursor < len(l.entries)-1 {
@@ -281,8 +288,20 @@ func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 		return l.seedDefaults()
 	case "enter":
-		if r, ok := l.selected(); ok {
-			l.detail = labelDetailState{row: r}
+		if l.cursor < 0 || l.cursor >= len(l.entries) {
+			return nil
+		}
+		e := l.entries[l.cursor]
+		switch e.kind {
+		case entryHeaderNS:
+			if l.m.projectScope == "" {
+				return nil
+			}
+			l.toggleNamespaceFacet(e.ns)
+		case entryHeaderTags:
+			// no-op: bare tags have no namespace to facet on.
+		case entryRow:
+			l.detail = labelDetailState{row: e.row}
 			l.view = lViewDetail
 		}
 	}
@@ -312,6 +331,36 @@ func (l *labelsModel) selected() (labelRow, bool) {
 		return labelRow{}, false
 	}
 	return e.row, true
+}
+
+// activeChartNS returns the namespace currently charted, self-healing to "" if
+// its facet token is no longer present in the Tasks filter (e.g. the user
+// edited or cleared the filter directly).
+func (l *labelsModel) activeChartNS() string {
+	if l.chartNS == "" {
+		return ""
+	}
+	if !filterHasToken(l.m.tasks.filter, facetToken(l.m.projectScope, l.chartNS)) {
+		l.chartNS = ""
+	}
+	return l.chartNS
+}
+
+// toggleNamespaceFacet toggles the ns wildcard facet in the Tasks filter and
+// the Labels chart view. If the facet is present it is removed and the chart
+// closes; otherwise it is added and the chart opens for ns. Refreshes the
+// Tasks pane so grouping updates immediately.
+func (l *labelsModel) toggleNamespaceFacet(ns string) {
+	token := facetToken(l.m.projectScope, ns)
+	if filterHasToken(l.m.tasks.filter, token) {
+		l.m.tasks.filter = filterRemoveToken(l.m.tasks.filter, token)
+		l.chartNS = ""
+	} else {
+		l.m.tasks.filter = filterAddToken(l.m.tasks.filter, token)
+		l.chartNS = ns
+	}
+	l.m.tasks.cursor = 0
+	l.m.tasks.refresh()
 }
 
 func (l *labelsModel) seedDefaults() tea.Cmd {

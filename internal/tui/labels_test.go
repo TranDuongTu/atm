@@ -293,6 +293,113 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	}
 }
 
+// cursorToNamespaceHeader moves the Labels cursor onto the first header entry
+// for ns and returns its index.
+func cursorToNamespaceHeader(t *testing.T, m *Model, ns string) {
+	t.Helper()
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderNS && e.ns == ns {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no namespace header entry for %q", ns)
+}
+
+func TestLabelsEnterOnNamespaceTogglesFacetAndChart(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.tasks.filter != "ATM:status:*" {
+		t.Fatalf("filter = %q want ATM:status:*", m.tasks.filter)
+	}
+	if m.labels.chartNS != "status" {
+		t.Fatalf("chartNS = %q want status", m.labels.chartNS)
+	}
+
+	// Enter again on the same namespace toggles it off. Esc back to the list
+	// first (chart mode is esc-only), preserving the filter, then Enter on
+	// the header removes the facet token.
+	update(t, m, "esc")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.tasks.filter != "" {
+		t.Fatalf("filter = %q want empty after toggle off", m.tasks.filter)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty after toggle off", m.labels.chartNS)
+	}
+}
+
+func TestLabelsEnterOnTagsHeaderIsNoop(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Add an unnamespaced tag so a tags header exists.
+	if err := m.store.LabelAdd("ATM:urgent", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+
+	found := false
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderTags {
+			m.labels.cursor = i
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no tags header entry")
+	}
+	update(t, m, "enter")
+	if m.tasks.filter != "" {
+		t.Fatalf("filter = %q want empty (tags header is a no-op)", m.tasks.filter)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty", m.labels.chartNS)
+	}
+}
+
+func TestLabelsChartSelfHealsWhenFilterEditedAway(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.labels.chartNS != "status" {
+		t.Fatalf("precondition: chartNS should be status")
+	}
+	// Simulate the user clearing the Tasks filter out from under the chart.
+	m.tasks.filter = ""
+	if got := m.labels.activeChartNS(); got != "" {
+		t.Fatalf("activeChartNS = %q want empty after filter cleared", got)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS should self-heal to empty")
+	}
+}
+
+func TestLabelsEscClosesChartWithoutClearingFilter(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	update(t, m, "esc")
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty after esc", m.labels.chartNS)
+	}
+	if m.tasks.filter != "ATM:status:*" {
+		t.Fatalf("filter = %q want ATM:status:* preserved after esc", m.tasks.filter)
+	}
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
