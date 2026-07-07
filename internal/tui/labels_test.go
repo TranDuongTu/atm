@@ -400,6 +400,26 @@ func TestLabelsEscClosesChartWithoutClearingFilter(t *testing.T) {
 	}
 }
 
+func TestLabelsChartShowsUsageBars(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Give status:open a usage count so a non-empty bar renders.
+	if _, err := m.store.CreateTask("ATM", "t1", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter") // open chart
+
+	v := m.labels.View()
+	mustContain(t, v, "chart: status")
+	mustContain(t, v, "namespace: status")
+	mustContain(t, v, "ATM:status:open")
+	mustContain(t, v, "█") // at least one filled meter cell
+	mustContain(t, v, "[Esc] back")
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })

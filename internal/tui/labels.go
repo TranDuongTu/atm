@@ -374,6 +374,9 @@ func (l *labelsModel) seedDefaults() tea.Cmd {
 }
 
 func (l *labelsModel) View() string {
+	if l.view == lViewList && l.activeChartNS() != "" {
+		return l.renderChart()
+	}
 	switch l.view {
 	case lViewList:
 		return l.renderList()
@@ -463,6 +466,56 @@ func (l *labelsModel) renderList() string {
 	} else {
 		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", firstOrd, lastOrd, len(l.rows)))))
 	}
+	return padToHeight(b.String(), l.contentHeight)
+}
+
+// renderChart renders the "tasks by label" bar chart for the active namespace:
+// one meter row per label carrying that namespace. Percentages are each
+// label's share of total usage within the namespace (matching the approved
+// mockup: shares sum to ~100%); counts are absolute project-wide usage.
+func (l *labelsModel) renderChart() string {
+	ns := l.chartNS
+	var rows []labelRow
+	total := 0
+	for _, e := range l.entries {
+		if e.kind == entryRow && strings.HasPrefix(e.row.suffix, ns+":") {
+			rows = append(rows, e.row)
+			total += e.row.usage
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("chart: %s", ns)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, l.m.styles.Muted.Render(fmt.Sprintf("project: %s   namespace: %s", l.m.projectScope, ns))))
+	b.WriteString("\n")
+
+	if len(rows) == 0 {
+		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("no labels in this namespace")))
+		b.WriteString("\n")
+	} else {
+		nameW := 0
+		for _, r := range rows {
+			if w := len(r.full); w > nameW {
+				nameW = w
+			}
+		}
+		meterW := l.width - nameW - 16
+		if meterW < 10 {
+			meterW = 10
+		}
+		for _, r := range rows {
+			percent := 0
+			if total > 0 {
+				percent = (r.usage*100 + total/2) / total
+			}
+			line := fmt.Sprintf(" %-*s %s %3d%% %4d", nameW, r.full, meterBar(percent, meterW), percent, r.usage)
+			b.WriteString(dashboardLine(l.width, line))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to list")))
 	return padToHeight(b.String(), l.contentHeight)
 }
 
