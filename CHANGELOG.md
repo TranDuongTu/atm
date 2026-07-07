@@ -1,3 +1,11 @@
+## v1.2.2 - 2026-07-07
+
+### docs
+- Toggle exact-label filter on row Enter; move label detail to i key (ATM-0041)
+- Add implementation plan for ATM-0041 labels namespace filtering
+- Add design spec for ATM-0041 labels namespace filtering
+
+
 ## v1.2.1 - 2026-07-07
 
 
