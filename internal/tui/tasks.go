@@ -217,6 +217,45 @@ func (t *tasksModel) hasWildcard() bool {
 
 func isWildcardTUI(l string) bool { return strings.HasSuffix(l, ":*") }
 
+// facetToken returns the full wildcard label used to facet the Tasks pane by
+// a namespace, e.g. facetToken("ATM","status") == "ATM:status:*".
+func facetToken(scope, ns string) string { return scope + ":" + ns + ":*" }
+
+// filterHasToken reports whether token is one of the space-separated fields of
+// filter.
+func filterHasToken(filter, token string) bool {
+	for _, f := range strings.Fields(filter) {
+		if f == token {
+			return true
+		}
+	}
+	return false
+}
+
+// filterAddToken appends token to filter (single-space separated) unless it is
+// already present.
+func filterAddToken(filter, token string) string {
+	if filterHasToken(filter, token) {
+		return filter
+	}
+	if strings.TrimSpace(filter) == "" {
+		return token
+	}
+	return filter + " " + token
+}
+
+// filterRemoveToken removes every occurrence of token from filter and rejoins
+// the remaining fields with single spaces.
+func filterRemoveToken(filter, token string) string {
+	var kept []string
+	for _, f := range strings.Fields(filter) {
+		if f != token {
+			kept = append(kept, f)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
 func wildcardTokens(labels []string) []string {
 	var out []string
 	for _, l := range labels {
@@ -390,6 +429,13 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 		t.filterEditing = true
 		t.filterEdit = t.filter
+	case "c":
+		if t.filter == "" {
+			return nil
+		}
+		t.filter = ""
+		t.cursor = 0
+		t.refresh()
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % 3
