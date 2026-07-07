@@ -77,6 +77,18 @@ func TestRebuildReconstructsNextTaskNPastRemovedTask(t *testing.T) {
 	if got.NextTaskN != 4 {
 		t.Fatalf("NextTaskN after Rebuild = %d want 4 (highest task N seen was 3, including the removed tombstone; must not reset to 1 or to live-task-count+1=3)", got.NextTaskN)
 	}
+	// End-to-end: the next task created after rebuild must not reuse the
+	// removed task's ID (ATM-0003).
+	next, err := s.CreateTask("ATM", "u", "", nil, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ID == last.ID {
+		t.Fatalf("new task %q collided with removed task's ID %q", next.ID, last.ID)
+	}
+	if next.ID != "ATM-0004" {
+		t.Fatalf("new task ID = %q, want ATM-0004", next.ID)
+	}
 }
 
 func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
