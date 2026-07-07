@@ -107,7 +107,7 @@ atm label add     --name <L> [--description <DESC>] [--actor <id>]   # upsert; a
 atm label remove  --name <L> [--actor <id>]                          # soft; reports retained_usage
 atm label list    [--project <CODE>] [--namespace <NS>]              # namespace requires --project
 atm label show    --name <L>
-atm label seed    --project <CODE> [--actor <id>]                    # (re)apply the 17 default labels; idempotent
+atm label seed    --project <CODE> [--actor <id>]                    # (re)apply the 22 default labels; idempotent
 ```
 
 Label name regex: `^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`.
@@ -207,7 +207,7 @@ but nothing in the store validates or special-cases these namespaces.
 
 ### Suggested seed namespaces
 
-A fresh project is auto-seeded with the 17 default labels below on
+A fresh project is auto-seeded with the 22 default labels below on
 `atm project create` (and re-applied idempotently by
 `atm label seed --project <CODE>` or the Labels tab `[S]` key). Templated
 namespaces (`repo:<name>`, `doc:<name>`, `claimed-by:<agent>`, `blocks:<ID>`,
@@ -216,13 +216,16 @@ and are NOT seeded as concrete labels.
 
 | Namespace             | Examples                          | Purpose                                                          |
 |-----------------------|-----------------------------------|------------------------------------------------------------------|
-| `status:`             | open, todo, in-progress, done, blocked, review | workflow states — labels only, no state machine        |
-| `type:`               | bug, feature, task, chore         | task categorization                                              |
+| `status:`             | open, todo, planned, in-progress, done, blocked, review, archived | workflow states — labels only, no state machine        |
+| `type:`               | bug, feature, task, chore, design | task categorization                                              |
 | `priority:`           | high, medium, low                 | optional prioritization                                          |
 | `context:documentation` | `ATM:context:documentation`     | the labeled task contains documentation about the project        |
 | `context:repository`  | `ATM:context:repository`          | the labeled task contains a pointer to a code repository         |
 | `context:agent`       | `ATM:context:agent`               | agent direction when navigating the project                     |
 | `context:fixit`       | `ATM:context:fixit`               | something on this task should be reviewed, updated, or altered   |
+| `context:question`    | `ATM:context:question`            | the task poses an open question or ambiguity about the project   |
+| `context:stale`       | `ATM:context:stale`               | a context resource on this task has drifted from reality; reconcile or replace |
+| `comment:<kind>`      | `ATM:comment:decision`, `ATM:comment:open-question` | classify a comment's role — created on demand, not seeded |
 | `repo:<name>`         | `ATM:repo:atm`                    | index task pointing at a repo — created on demand, not seeded   |
 | `doc:<name>`          | `ATM:doc:architecture`            | index task pointing at a doc/resource — created on demand, not seeded |
 | `claimed-by:<agent>`  | `ATM:claimed-by:claude`           | who's working on what — last-writer-wins, no conflict detection  |
@@ -261,7 +264,7 @@ legible for humans and other agents:
 
 1. `atm tui` (auto-inits the store)
 2. Create the project (Add in the Projects tab). Project create auto-seeds the
-   17 default labels with descriptions, so the Labels tab is populated from
+   22 default labels with descriptions, so the Labels tab is populated from
    the start.
 3. Create seed index tasks (`context:agent`, `context:repository`,
    `context:documentation`) and initial work tasks, labeling as you go. The

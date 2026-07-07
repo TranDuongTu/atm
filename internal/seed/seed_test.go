@@ -39,9 +39,9 @@ func TestLabelsDescriptionsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestLabelsCountIs18(t *testing.T) {
-	if len(Labels) != 18 {
-		t.Fatalf("seed.Labels has %d entries, want 18", len(Labels))
+func TestLabelsCountIs22(t *testing.T) {
+	if len(Labels) != 22 {
+		t.Fatalf("seed.Labels has %d entries, want 22", len(Labels))
 	}
 }
 
@@ -55,4 +55,19 @@ func TestContextQuestionLabelPresent(t *testing.T) {
 		}
 	}
 	t.Errorf("context:question label not found in seed.Labels")
+}
+
+func TestNewDefaultsPresent(t *testing.T) {
+	want := map[string]string{
+		"status:planned":  "workflow state: planned; task is scoped and intended but not yet queued for work",
+		"status:archived": "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters",
+		"type:design":     "task categorization: design; producing a spec or design document",
+		"context:stale":   "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement",
+	}
+	for _, l := range Labels {
+		delete(want, l.Suffix)
+	}
+	for suffix := range want {
+		t.Errorf("new default label %q missing from seed.Labels", suffix)
+	}
 }

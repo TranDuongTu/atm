@@ -9,6 +9,10 @@
       "name": "ATM:type:chore"
     },
     {
+      "description": "task categorization: design; producing a spec or design document",
+      "name": "ATM:type:design"
+    },
+    {
       "description": "",
       "name": "ATM:type:epic"
     },

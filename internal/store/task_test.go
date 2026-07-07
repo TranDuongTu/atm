@@ -199,8 +199,8 @@ func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
 	if got.Title != "changed" {
 		t.Fatalf("lazy miss did not rebuild: title = %q want %q", got.Title, "changed")
 	}
-	if got.LogSeq != 21 {
-		t.Fatalf("rebuilt LogSeq = %d, want 21 (seq of title-changed entry)", got.LogSeq)
+	if got.LogSeq != 25 {
+		t.Fatalf("rebuilt LogSeq = %d, want 25 (seq of title-changed entry)", got.LogSeq)
 	}
 }
 
