@@ -76,7 +76,7 @@ func TestLabelsListScrollsWithCursor(t *testing.T) {
 	if strings.Contains(m.labels.View(), last.full) {
 		t.Fatalf("expected %s to be scrolled out of view initially:\n%s", last.full, m.labels.View())
 	}
-	m.labels.cursor = len(rows) - 1
+	m.labels.cursor = len(m.labels.entries) - 1
 	view := m.labels.View()
 	if !strings.Contains(view, last.full) {
 		t.Fatalf("cursor on %s but it is not visible:\n%s", last.full, view)
@@ -108,6 +108,7 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
 	update(t, m, "3")
+	update(t, m, "j") // cursor 0 is a namespace header; step onto the first row
 	update(t, m, "enter")
 	v := m.View()
 	mustContain(t, v, "Label ")
@@ -122,6 +123,90 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	mustContain(t, v, "[d]esc")
 	mustContain(t, v, "[l]remove")
 	mustContain(t, v, "[Esc]back")
+}
+
+func TestLabelsEntriesIncludeNamespaceHeaders(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	if len(m.labels.entries) == 0 {
+		t.Fatalf("entries not built")
+	}
+	// The seeded set has a status: namespace; there must be a header entry for
+	// it that precedes its first row entry.
+	headerIdx, rowIdx := -1, -1
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderNS && e.ns == "status" && headerIdx == -1 {
+			headerIdx = i
+		}
+		if e.kind == entryRow && strings.HasPrefix(e.row.suffix, "status:") && rowIdx == -1 {
+			rowIdx = i
+		}
+	}
+	if headerIdx == -1 {
+		t.Fatalf("no status namespace header entry")
+	}
+	if rowIdx == -1 || rowIdx <= headerIdx {
+		t.Fatalf("status row (%d) should follow its header (%d)", rowIdx, headerIdx)
+	}
+	// entries must contain more items than rows (headers add slots).
+	if len(m.labels.entries) <= len(m.labels.rows) {
+		t.Fatalf("entries (%d) should exceed rows (%d) due to headers", len(m.labels.entries), len(m.labels.rows))
+	}
+}
+
+// TestLabelsCursorCanReachNamespaceHeader verifies the handleListKey cursor
+// clamp uses len(entries) (not len(rows)): with an unnamespaced tag appended,
+// the trailing tags: header sits at an entry index beyond len(rows)-1, so j
+// navigation can only reach it under the entries-based clamp.
+func TestLabelsCursorCanReachNamespaceHeader(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Add an unnamespaced tag so a tags: header appears at the tail of the
+	// entries list, at an index the pre-fix len(rows)-1 clamp would block.
+	if err := m.store.LabelAdd("ATM:urgent", "", "claude"); err != nil {
+		t.Fatalf("LabelAdd ATM:urgent: %v", err)
+	}
+	m.refreshAll()
+	update(t, m, "s")
+	update(t, m, "3")
+
+	tagsHeaderIdx := -1
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderTags {
+			tagsHeaderIdx = i
+			break
+		}
+	}
+	if tagsHeaderIdx == -1 {
+		t.Fatalf("no tags: header entry; entries=%d", len(m.labels.entries))
+	}
+	if tagsHeaderIdx <= len(m.labels.rows)-1 {
+		t.Fatalf("test setup error: tags header at %d must exceed len(rows)-1=%d to exercise the clamp", tagsHeaderIdx, len(m.labels.rows)-1)
+	}
+
+	// Drive j to saturation: the cursor must reach the last entry under the
+	// len(entries) clamp; the old len(rows)-1 clamp would stop it short.
+	for i := 0; i < len(m.labels.entries)+2; i++ {
+		prev := m.labels.cursor
+		update(t, m, "j")
+		if m.labels.cursor == prev {
+			break
+		}
+	}
+	if m.labels.cursor != len(m.labels.entries)-1 {
+		t.Fatalf("j saturation stopped at cursor %d, want %d (entries clamp)", m.labels.cursor, len(m.labels.entries)-1)
+	}
+	// Step up onto the tags: header and confirm it is selectable.
+	update(t, m, "k")
+	if m.labels.cursor != tagsHeaderIdx {
+		t.Fatalf("cursor %d, want tags header idx %d", m.labels.cursor, tagsHeaderIdx)
+	}
+	if got := m.labels.entries[m.labels.cursor].kind; got != entryHeaderTags {
+		t.Fatalf("cursor at entry kind %v, want entryHeaderTags", got)
+	}
 }
 
 func TestLabelsTabAddLabel(t *testing.T) {
