@@ -174,24 +174,38 @@ func (s *Store) rebuildProjectFromLog(code string) error {
 	}
 	var p *Project
 	lastSeq := 0
+	maxTaskN := 0
 	for _, e := range entries {
-		if e.Subject.Kind != "project" || e.Subject.Code != code {
-			continue
-		}
-		lastSeq = e.Seq
-		if e.Action == ActionProjectRemoved {
-			p = nil
-			continue
-		}
-		var proj Project
-		if err := json.Unmarshal(e.Payload, &proj); err == nil {
-			p = &proj
+		switch e.Subject.Kind {
+		case "project":
+			if e.Subject.Code != code {
+				continue
+			}
+			lastSeq = e.Seq
+			if e.Action == ActionProjectRemoved {
+				p = nil
+				continue
+			}
+			var proj Project
+			if err := json.Unmarshal(e.Payload, &proj); err == nil {
+				p = &proj
+			}
+		case "task":
+			// Track the highest task-ID N seen across ALL task.* entries
+			// (including task.removed tombstones) so NextTaskN can be
+			// reconstructed below without relying on a project.* log event
+			// that CreateTask never appends. A removed task's number must
+			// never be reused.
+			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
+				maxTaskN = n
+			}
 		}
 	}
 	if p == nil {
 		return fmt.Errorf("%w: project %q", ErrNotFound, code)
 	}
 	p.LogSeq = lastSeq
+	p.NextTaskN = max(p.NextTaskN, maxTaskN+1)
 	db, err := s.cacheDB()
 	if err != nil {
 		return err

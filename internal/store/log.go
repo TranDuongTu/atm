@@ -227,6 +227,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 	tasks := map[string]*Task{}
 	labels := map[string]Label{}
 	comments := map[string]*Comment{}
+	maxTaskN := 0
 	for _, e := range entries {
 		switch e.Subject.Kind {
 		case "project":
@@ -241,6 +242,14 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 				proj = nil
 			}
 		case "task":
+			// Track the highest task-ID N seen across ALL task.* entries
+			// (including task.removed tombstones) so NextTaskN can be
+			// reconstructed below without relying on a project.* log event
+			// that CreateTask never appends. A removed task's number must
+			// never be reused.
+			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
+				maxTaskN = n
+			}
 			var tk Task
 			_ = json.Unmarshal(e.Payload, &tk)
 			tk.LogSeq = e.Seq
@@ -272,6 +281,9 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 				delete(labels, e.Subject.Name)
 			}
 		}
+	}
+	if proj != nil {
+		proj.NextTaskN = max(proj.NextTaskN, maxTaskN+1)
 	}
 	st.Project = proj
 	for _, tk := range tasks {

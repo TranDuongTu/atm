@@ -155,6 +155,42 @@ func TestReplayStampsLogSeqFromEntrySeq(t *testing.T) {
 	}
 }
 
+// TestReplayReconstructsNextTaskNFromTaskLogEntriesNotProjectPayload pins the
+// exact NextTaskN reconstruction logic in Replay() independent of the cache
+// layer. The project.created payload here is intentionally stamped with a
+// stale NextTaskN=2 (as if it were never updated after task creation, which
+// is exactly what happens in production since CreateTask never appends a
+// project.* log event). Replay() must ignore that stale payload value and
+// instead derive NextTaskN from the highest task-ID N seen across ALL
+// task.* log entries for the project -- including a task.removed tombstone,
+// whose N must never be reused.
+func TestReplayReconstructsNextTaskNFromTaskLogEntriesNotProjectPayload(t *testing.T) {
+	s := newTestStore(t)
+	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
+	// project.created payload carries a stale NextTaskN=2.
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
+	// Remove the highest-numbered task (tombstone at N=3); its number must
+	// never be reused even though it no longer appears in st.Tasks.
+	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
+
+	st, err := s.Replay("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Project == nil {
+		t.Fatal("replay missing project")
+	}
+	if st.Project.NextTaskN != 4 {
+		t.Fatalf("Project.NextTaskN = %d want 4 (highest task N seen was 3 via the removed tombstone, stale payload said 2)", st.Project.NextTaskN)
+	}
+	if len(st.Tasks) != 2 {
+		t.Fatalf("want 2 live tasks (ATM-0003 removed), got %d", len(st.Tasks))
+	}
+}
+
 func TestHistoryProjection(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
