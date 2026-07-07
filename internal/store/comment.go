@@ -3,8 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"time"
 )
@@ -42,9 +40,13 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 			return nil, err
 		}
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
 	var created *Comment
-	err := s.WithLock(code, func() error {
-		t, err := s.GetTask(taskID)
+	err = s.WithLock(code, func() error {
+		t, err := s.getTaskLocked(taskID)
 		if err != nil {
 			return err
 		}
@@ -65,8 +67,7 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 			UpdatedAt: ts,
 			UpdatedBy: actor,
 		}
-		labelEntries, err := s.appendLabelUpsertsLocked(code, labels, actor, ts)
-		if err != nil {
+		if _, err := s.appendLabelUpsertsLocked(code, labels, actor, ts); err != nil {
 			return err
 		}
 		entry, err := s.appendLogLocked(code, LogEntry{
@@ -94,19 +95,11 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 			return err
 		}
 		t.LogSeq = metaEntry.Seq
-		if err := os.MkdirAll(s.commentsDir(code), 0o755); err != nil {
+		if err := cacheUpsertComment(db, c); err != nil {
 			return err
 		}
-		if err := WriteJSON(s.commentPath(id), c); err != nil {
+		if err := cacheUpsertTask(db, t); err != nil {
 			return err
-		}
-		if err := WriteJSON(s.taskPath(taskID), t); err != nil {
-			return err
-		}
-		if len(labelEntries) > 0 {
-			if err := s.refreshDerivedLabelsLocked(code); err != nil {
-				return err
-			}
 		}
 		created = c
 		return nil
@@ -122,29 +115,51 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
-	var c Comment
-	cachePath := s.commentPath(id)
-	if err := ReadJSON(cachePath, &c); err != nil {
-		if !os.IsNotExist(err) {
-			if err := s.WithLock(code, func() error {
-				return s.rebuildCommentFromLog(id, code)
-			}); err != nil {
-				return nil, err
-			}
-			if err := ReadJSON(cachePath, &c); err != nil {
-				return nil, err
-			}
-			return &c, nil
-		}
-		if err := s.WithLock(code, func() error {
-			return s.rebuildCommentFromLog(id, code)
-		}); err != nil {
+	return s.getCommentWithRebuild(id, code, func() error {
+		return s.WithLock(code, func() error { return s.rebuildCommentFromLog(id, code) })
+	})
+}
+
+// getCommentLocked is identical to GetComment except that, on a cache
+// miss/stale hit, it calls rebuildCommentFromLog directly instead of
+// wrapping it in s.WithLock. Callers MUST already hold the comment's
+// project lock (i.e. be running inside their own s.WithLock(code, ...)
+// closure) — calling GetComment in that situation would re-enter the
+// (non-reentrant) mutex and deadlock.
+func (s *Store) getCommentLocked(id string) (*Comment, error) {
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	return s.getCommentWithRebuild(id, code, func() error { return s.rebuildCommentFromLog(id, code) })
+}
+
+// getCommentWithRebuild contains the fast-path cache read + staleness check
+// shared by GetComment and getCommentLocked. It is parameterized only by
+// how the rebuild-from-log call itself gets invoked: wrapped in a fresh
+// s.WithLock (GetComment, for callers that do not already hold the lock) or
+// called directly (getCommentLocked, for callers that do).
+func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	c, found, err := cacheGetComment(db, id)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
-		if err := ReadJSON(cachePath, &c); err != nil {
+		c, found, err = cacheGetComment(db, id)
+		if err != nil {
 			return nil, err
 		}
-		return &c, nil
+		if !found {
+			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+		}
+		return c, nil
 	}
 	last, lastErr := s.LastLogSeq(code)
 	if lastErr != nil {
@@ -158,16 +173,18 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 		return nil, err
 	}
 	if c.LogSeq < commentLast {
-		if err := s.WithLock(code, func() error {
-			return s.rebuildCommentFromLog(id, code)
-		}); err != nil {
+		if err := rebuild(); err != nil {
 			return nil, err
 		}
-		if err := ReadJSON(cachePath, &c); err != nil {
+		c, found, err = cacheGetComment(db, id)
+		if err != nil {
 			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
 		}
 	}
-	return &c, nil
+	return c, nil
 }
 
 func (s *Store) lastCommentEventSeq(code, id string) (int, error) {
@@ -209,42 +226,28 @@ func (s *Store) rebuildCommentFromLog(id, code string) error {
 		return fmt.Errorf("%w: comment %q", ErrNotFound, id)
 	}
 	c.LogSeq = lastSeq
-	if err := os.MkdirAll(s.commentsDir(code), 0o755); err != nil {
+	db, err := s.cacheDB()
+	if err != nil {
 		return err
 	}
-	return WriteJSON(s.commentPath(id), c)
+	return cacheUpsertComment(db, c)
 }
 
 func (s *Store) ListComments(taskID string) ([]*Comment, error) {
-	code, _, ok := ParseTaskID(taskID)
-	if !ok {
+	if _, _, ok := ParseTaskID(taskID); !ok {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
 	}
-	entries, err := os.ReadDir(s.commentsDir(code))
+	db, err := s.cacheDB()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []*Comment{}, nil
-		}
 		return nil, err
 	}
-	prefix := taskID + "-c"
-	dir := s.commentsDir(code)
-	var out []*Comment
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if len(name) < len(prefix) || name[:len(prefix)] != prefix {
-			continue
-		}
-		var c Comment
-		if err := ReadJSON(filepath.Join(dir, name), &c); err != nil {
-			continue
-		}
-		out = append(out, &c)
+	out, err := cacheListComments(db, taskID)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if out == nil {
+		out = []*Comment{}
+	}
 	return out, nil
 }
 
@@ -280,8 +283,12 @@ func (s *Store) RemoveComment(id, actor string) error {
 	if !ok {
 		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}
@@ -297,7 +304,7 @@ func (s *Store) RemoveComment(id, actor string) error {
 		}); err != nil {
 			return err
 		}
-		return os.Remove(s.commentPath(id))
+		return cacheDeleteComment(db, id)
 	})
 }
 
@@ -315,8 +322,12 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	if !ok {
 		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}
@@ -327,8 +338,7 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 		}
 		c.Labels = append(c.Labels, label)
 		sort.Strings(c.Labels)
-		labelEntries, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now())
-		if err != nil {
+		if _, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now()); err != nil {
 			return err
 		}
 		now := Now()
@@ -345,13 +355,7 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 			return err
 		}
 		c.LogSeq = entry.Seq
-		if err := WriteJSON(s.commentPath(id), c); err != nil {
-			return err
-		}
-		if len(labelEntries) > 0 {
-			return s.refreshDerivedLabelsLocked(code)
-		}
-		return nil
+		return cacheUpsertComment(db, c)
 	})
 }
 
@@ -363,8 +367,12 @@ func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Tim
 	if !ok {
 		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
 	return s.WithLock(code, func() error {
-		c, err := s.GetComment(id)
+		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
 		}
@@ -383,6 +391,6 @@ func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Tim
 			return err
 		}
 		c.LogSeq = entry.Seq
-		return WriteJSON(s.commentPath(id), c)
+		return cacheUpsertComment(db, c)
 	})
 }

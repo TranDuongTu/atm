@@ -1,17 +1,23 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"sync"
 	"time"
 )
 
 type Store struct {
 	Root string
+
+	cacheOnce   sync.Once
+	cacheDBConn *sql.DB
+	cacheErr    error
 }
 
 func RFC3339UTC(t time.Time) string {
@@ -149,15 +155,8 @@ func (s *Store) Init(storePath string) error {
 	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
 		return err
 	}
-	return s.touchLabels()
-}
-
-func (s *Store) touchLabels() error {
-	p := s.labelsPath()
-	if _, err := os.Stat(p); err == nil {
-		return nil
-	}
-	return WriteJSON(p, labelsFile{Labels: []Label{}})
+	_, err := s.cacheDB()
+	return err
 }
 
 func (s *Store) StorePath() string { return s.Root }
@@ -166,30 +165,28 @@ func (s *Store) projectsDir() string { return filepath.Join(s.Root, "projects") 
 func (s *Store) projectDir(code string) string {
 	return filepath.Join(s.projectsDir(), code)
 }
-func (s *Store) tasksDir(code string) string {
-	return filepath.Join(s.projectDir(code), "tasks")
-}
-func (s *Store) projectPath(code string) string {
-	return filepath.Join(s.projectsDir(), code+".json")
-}
-func (s *Store) taskPath(id string) string {
-	code, _, ok := ParseTaskID(id)
-	if !ok {
-		return ""
-	}
-	return filepath.Join(s.tasksDir(code), id+".json")
-}
-func (s *Store) commentsDir(code string) string {
-	return filepath.Join(s.projectDir(code), "comments")
-}
-func (s *Store) commentPath(id string) string {
-	code, _, _, ok := ParseCommentID(id)
-	if !ok {
-		return ""
-	}
-	return filepath.Join(s.commentsDir(code), id+".json")
-}
-func (s *Store) labelsPath() string { return filepath.Join(s.Root, "labels.json") }
 func (s *Store) lockPath(code string) string {
 	return filepath.Join(s.projectsDir(), code+".lock")
+}
+
+// projectCodesOnDisk enumerates project codes by the projects/<CODE>/
+// directory structure (which holds log.jsonl), independent of cache.db.
+// Used by Verify/Rebuild so a missing or fully-wiped cache.db doesn't hide
+// projects that still have logs on disk.
+func (s *Store) projectCodesOnDisk() ([]string, error) {
+	entries, err := os.ReadDir(s.projectsDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var codes []string
+	for _, e := range entries {
+		if e.IsDir() {
+			codes = append(codes, e.Name())
+		}
+	}
+	sort.Strings(codes)
+	return codes, nil
 }

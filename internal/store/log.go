@@ -227,6 +227,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 	tasks := map[string]*Task{}
 	labels := map[string]Label{}
 	comments := map[string]*Comment{}
+	maxTaskN := 0
 	for _, e := range entries {
 		switch e.Subject.Kind {
 		case "project":
@@ -234,14 +235,24 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 			case ActionProjectCreated, ActionProjectNameChanged:
 				var p Project
 				if err := json.Unmarshal(e.Payload, &p); err == nil {
+					p.LogSeq = e.Seq
 					proj = &p
 				}
 			case ActionProjectRemoved:
 				proj = nil
 			}
 		case "task":
+			// Track the highest task-ID N seen across ALL task.* entries
+			// (including task.removed tombstones) so NextTaskN can be
+			// reconstructed below without relying on a project.* log event
+			// that CreateTask never appends. A removed task's number must
+			// never be reused.
+			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
+				maxTaskN = n
+			}
 			var tk Task
 			_ = json.Unmarshal(e.Payload, &tk)
+			tk.LogSeq = e.Seq
 			switch e.Action {
 			case ActionTaskCreated, ActionTaskTitleChanged, ActionTaskDescChanged, ActionTaskLabelAdded, ActionTaskLabelRemoved, ActionTaskMetaChanged:
 				tasks[e.Subject.ID] = &tk
@@ -251,6 +262,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		case "comment":
 			var c Comment
 			_ = json.Unmarshal(e.Payload, &c)
+			c.LogSeq = e.Seq
 			switch e.Action {
 			case ActionCommentCreated, ActionCommentBodyChanged,
 				ActionCommentLabelAdded, ActionCommentLabelRemoved:
@@ -261,6 +273,7 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		case "label":
 			var l Label
 			_ = json.Unmarshal(e.Payload, &l)
+			l.LogSeq = e.Seq
 			switch e.Action {
 			case ActionLabelUpserted:
 				labels[e.Subject.Name] = l
@@ -268,6 +281,9 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 				delete(labels, e.Subject.Name)
 			}
 		}
+	}
+	if proj != nil {
+		proj.NextTaskN = max(proj.NextTaskN, maxTaskN+1)
 	}
 	st.Project = proj
 	for _, tk := range tasks {

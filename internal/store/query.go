@@ -1,8 +1,6 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -28,13 +26,17 @@ func (s *Store) ListTasks(filters QueryFilters) []*Task {
 		}
 	}
 	restricting := restrictingTokens(filters.Labels)
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil
+	}
 	var out []*Task
 	for _, code := range codes {
-		for _, id := range s.listTaskIDs(code) {
-			t, err := s.GetTask(id)
-			if err != nil {
-				continue
-			}
+		tasks, err := cacheListTasksForProject(db, code)
+		if err != nil {
+			continue
+		}
+		for _, t := range tasks {
 			if !taskMatchesLabels(t, restricting) {
 				continue
 			}
@@ -61,7 +63,6 @@ func (s *Store) GroupTasks(filters QueryFilters) ([]LabelGroup, []*Task) {
 	buckets := map[string][]*Task{}
 	order := []string{}
 	for _, t := range inScope {
-		matched := false
 		for _, w := range wildcards {
 			for _, l := range t.Labels {
 				if labelMatchesWildcard(l, w) {
@@ -69,11 +70,9 @@ func (s *Store) GroupTasks(filters QueryFilters) ([]LabelGroup, []*Task) {
 						order = append(order, l)
 					}
 					buckets[l] = append(buckets[l], t)
-					matched = true
 				}
 			}
 		}
-		_ = matched
 	}
 	sort.Strings(order)
 	var groups []LabelGroup
@@ -145,17 +144,13 @@ func taskMatchesLabels(t *Task, labels []string) bool {
 }
 
 func (s *Store) listTaskIDs(code string) []string {
-	entries, err := os.ReadDir(s.tasksDir(code))
+	db, err := s.cacheDB()
 	if err != nil {
 		return nil
 	}
-	var ids []string
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		ids = append(ids, strings.TrimSuffix(e.Name(), ".json"))
+	ids, err := cacheListTaskIDs(db, code)
+	if err != nil {
+		return nil
 	}
-	SortTaskIDs(ids)
 	return ids
 }

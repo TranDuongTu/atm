@@ -1,8 +1,6 @@
 package store
 
 import (
-	"encoding/json"
-	"os"
 	"testing"
 )
 
@@ -119,8 +117,8 @@ func TestGetCommentLazyMissRebuildsFromLog(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	c, _ := s.CreateComment(tk.ID, "persist", nil, "", "claude")
-	// Hand-delete cache; next read must rebuild.
-	_ = os.Remove(s.commentPath(c.ID))
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM comments WHERE id = ?`, c.ID)
 	got, err := s.GetComment(c.ID)
 	if err != nil {
 		t.Fatalf("GetComment after cache delete: %v", err)
@@ -128,8 +126,8 @@ func TestGetCommentLazyMissRebuildsFromLog(t *testing.T) {
 	if got.Body != "persist" {
 		t.Fatalf("rebuilt comment body = %q want %q", got.Body, "persist")
 	}
-	if _, err := os.Stat(s.commentPath(c.ID)); os.IsNotExist(err) {
-		t.Fatal("cache file was not rewritten after lazy miss")
+	if _, ok, _ := cacheGetComment(db, c.ID); !ok {
+		t.Fatal("cache row was not rewritten after lazy miss")
 	}
 }
 
@@ -138,9 +136,8 @@ func TestGetCommentFutureLogSeqIntegrity(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	c, _ := s.CreateComment(tk.ID, "x", nil, "", "claude")
-	c.LogSeq = 9999
-	newRaw, _ := json.Marshal(c)
-	_ = os.WriteFile(s.commentPath(c.ID), newRaw, 0o644)
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`UPDATE comments SET log_seq = 9999 WHERE id = ?`, c.ID)
 	_, err := s.GetComment(c.ID)
 	if !IsIntegrity(err) {
 		t.Fatalf("expected ErrIntegrity, got %v", err)
@@ -190,8 +187,8 @@ func TestParseReplayNextCommentNFromMetaChanged(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	_, _ = s.CreateComment(tk.ID, "first", nil, "", "claude")
-	// Delete the task cache and let it rebuild from log; counter must come back.
-	_ = os.Remove(s.taskPath(tk.ID))
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
 	got, err := s.GetTask(tk.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -292,8 +289,9 @@ func TestRemoveCommentAppendsTombstoneAndDeletesCache(t *testing.T) {
 	if _, err := s.GetComment(c.ID); !IsNotFound(err) {
 		t.Fatalf("GetComment after remove: %v want ErrNotFound", err)
 	}
-	if _, err := os.Stat(s.commentPath(c.ID)); !os.IsNotExist(err) {
-		t.Fatal("cache file must be deleted")
+	db, _ := s.cacheDB()
+	if _, ok, _ := cacheGetComment(db, c.ID); ok {
+		t.Fatal("cache row must be deleted")
 	}
 	hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID})
 	if len(hv) == 0 || hv[len(hv)-1].Action != ActionCommentRemoved {

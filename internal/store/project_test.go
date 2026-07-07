@@ -181,10 +181,91 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	// directory would not be removed.) The on-disk absence is the contract.
 }
 
+func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	// Advance NextTaskN past 1 so a silent duplicate project.created would be
+	// detectable (it resets NextTaskN back to 1 on replay).
+	if _, err := s.CreateTask("ATM", "t1", "", nil, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a cache-only loss of the project row: cache.db forgets the
+	// project, but projects/ATM/log.jsonl is untouched (still on disk).
+	db, err := s.cacheDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "second", "claude"); !IsConflict(err) {
+		t.Fatalf("expected conflict recreating %q after cache-only loss, got %v", "ATM", err)
+	}
+}
+
+func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveProject("ATM", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "second", "claude"); err != nil {
+		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
+	}
+}
+
+// TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks is a
+// regression test for a bug where rebuildProjectFromLog derived NextTaskN
+// solely from the last project.* event's payload, which never advances past
+// its value at project-creation (or last name-change) time -- CreateTask
+// only bumps NextTaskN in the cache row, never in a log event. After a
+// cache-only loss of the project row, the lazy rebuild path (triggered here
+// via GetProject on a cache miss) must reconstruct NextTaskN as one past the
+// highest task-ID N ever created, not reset it to 1.
+func TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := s.CreateTask("ATM", "t", "", nil, "claude"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate a cache-only loss of the project row.
+	db, err := s.cacheDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProject("ATM")
+	if err != nil {
+		t.Fatalf("GetProject after cache-only loss: %v", err)
+	}
+	if got.NextTaskN != 4 {
+		t.Fatalf("NextTaskN after lazy rebuild = %d want 4 (3 tasks created, ATM-0001..ATM-0003)", got.NextTaskN)
+	}
+	// A subsequent CreateTask must not collide with any existing task ID.
+	newTask, err := s.CreateTask("ATM", "t4", "", nil, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newTask.ID != "ATM-0004" {
+		t.Fatalf("new task ID = %q want ATM-0004 (must not collide with existing tasks)", newTask.ID)
+	}
+}
+
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", "claude")
-	_ = os.Remove(s.projectPath("ATM"))
+	db, _ := s.cacheDB()
+	_, _ = db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM")
 	got, err := s.GetProject("ATM")
 	if err != nil {
 		t.Fatalf("GetProject after cache delete: %v", err)
