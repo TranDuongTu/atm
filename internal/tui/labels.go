@@ -301,6 +301,17 @@ func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		case entryHeaderTags:
 			// no-op: bare tags have no namespace to facet on.
 		case entryRow:
+			if l.m.projectScope == "" {
+				return nil
+			}
+			l.toggleLabelFacet(e.row.full)
+		}
+	case "i":
+		if l.cursor < 0 || l.cursor >= len(l.entries) {
+			return nil
+		}
+		e := l.entries[l.cursor]
+		if e.kind == entryRow {
 			l.detail = labelDetailState{row: e.row}
 			l.view = lViewDetail
 		}
@@ -358,6 +369,20 @@ func (l *labelsModel) toggleNamespaceFacet(ns string) {
 	} else {
 		l.m.tasks.filter = filterAddToken(l.m.tasks.filter, token)
 		l.chartNS = ns
+	}
+	l.m.tasks.cursor = 0
+	l.m.tasks.refresh()
+}
+
+// toggleLabelFacet toggles a label's exact filter token (e.g. ATM:status:open)
+// in the Tasks filter. The Labels pane stays on the flat list — exact-label
+// filtering does not open the chart. Refreshes the Tasks pane so the result
+// set updates immediately.
+func (l *labelsModel) toggleLabelFacet(full string) {
+	if filterHasToken(l.m.tasks.filter, full) {
+		l.m.tasks.filter = filterRemoveToken(l.m.tasks.filter, full)
+	} else {
+		l.m.tasks.filter = filterAddToken(l.m.tasks.filter, full)
 	}
 	l.m.tasks.cursor = 0
 	l.m.tasks.refresh()
@@ -547,7 +572,7 @@ func (l *labelsModel) statusHint() string {
 	if l.view == lViewDetail {
 		return "[d]esc [l]remove [Esc]back"
 	}
-	return "[a]dd [d]esc [l]remove [S]eed [Enter]select/detail [Esc]back [?]keys"
+	return "[a]dd [d]esc [l]remove [S]eed [Enter]filter [i]nspect [Esc]back [?]keys"
 }
 
 // --- describe form (used by [d] in list and detail) ---

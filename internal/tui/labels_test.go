@@ -109,7 +109,7 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "3")
 	update(t, m, "j") // cursor 0 is a namespace header; step onto the first row
-	update(t, m, "enter")
+	update(t, m, "i")  // open label detail
 	v := m.View()
 	mustContain(t, v, "Label ")
 	mustContain(t, v, "FACTS")
@@ -437,6 +437,78 @@ func TestLabelsListStatusHintShowsSelect(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "3")
 	mustContain(t, m.labels.statusHint(), "[Enter]")
+}
+
+// cursorToFirstRow moves the Labels cursor onto the first entryRow.
+func cursorToFirstRow(t *testing.T, m *Model) {
+	t.Helper()
+	for i, e := range m.labels.entries {
+		if e.kind == entryRow {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no row entry in labels entries")
+}
+
+func TestLabelsEnterOnRowTogglesExactLabelFilter(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToFirstRow(t, m)
+	firstRow := m.labels.entries[m.labels.cursor].row
+	update(t, m, "enter")
+	if !filterHasToken(m.tasks.filter, firstRow.full) {
+		t.Fatalf("filter = %q, want token %q after first Enter", m.tasks.filter, firstRow.full)
+	}
+	if m.labels.view != lViewList {
+		t.Fatalf("labels view = %v, want lViewList (no chart on exact-label toggle)", m.labels.view)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q, want empty (exact-label toggle does not chart)", m.labels.chartNS)
+	}
+
+	// Enter again on the same row toggles the exact token off.
+	cursorToFirstRow(t, m)
+	update(t, m, "enter")
+	if filterHasToken(m.tasks.filter, firstRow.full) {
+		t.Fatalf("filter = %q, want token %q removed after second Enter", m.tasks.filter, firstRow.full)
+	}
+}
+
+func TestLabelsIKeyOpensLabelDetail(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToFirstRow(t, m)
+	update(t, m, "i")
+	if m.labels.view != lViewDetail {
+		t.Fatalf("view = %v, want lViewDetail after i on a row", m.labels.view)
+	}
+	v := m.labels.View()
+	mustContain(t, v, "Label ")
+	mustContain(t, v, "FACTS")
+	mustContain(t, v, "usage")
+}
+
+func TestLabelsIKeyOnHeaderIsNoop(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	// Cursor 0 is a namespace header.
+	if m.labels.entries[0].kind != entryHeaderNS {
+		t.Fatalf("entry 0 is %v, want entryHeaderNS for this test", m.labels.entries[0].kind)
+	}
+	m.labels.cursor = 0
+	update(t, m, "i")
+	if m.labels.view != lViewList {
+		t.Fatalf("view = %v, want lViewList (i on a header is a no-op)", m.labels.view)
+	}
 }
 
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
