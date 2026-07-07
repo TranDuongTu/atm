@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -996,6 +997,55 @@ func TestRenderActorActivityChartShowsFullActorName(t *testing.T) {
 	got := strings.Join(p.renderActorActivityChart(entries, 4), "\n")
 	mustContain(t, got, "very-long-agent-name-with-role")
 	mustNotContain(t, got, "very-lo...")
+}
+
+// TestRenderActorActivityChartBarsAlignAcrossRows asserts that every actor
+// row's meter bar starts at the same display column, regardless of the count's
+// digit width. The chart box center-aligns each body line independently; if
+// rows have different widths (e.g. counts "200", "50", "5"), narrower rows get
+// shifted right and the bars no longer share a common left baseline.
+func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	p := newProjectsModel(m)
+	p.SetSize(120, 40)
+	// Counts with different digit widths: 200 (3d), 50 (2d), 5 (1d).
+	entries := make([]store.LogEntry, 0, 255)
+	for i := 0; i < 200; i++ {
+		entries = append(entries, store.LogEntry{Actor: "aaa"})
+	}
+	for i := 0; i < 50; i++ {
+		entries = append(entries, store.LogEntry{Actor: "bb"})
+	}
+	for i := 0; i < 5; i++ {
+		entries = append(entries, store.LogEntry{Actor: "c"})
+	}
+
+	lines := p.renderActorActivityChart(entries, 6)
+
+	ansiRe := regexp.MustCompile("\x1b\\[[0-9;]*m")
+	var barCols []int
+	for _, line := range lines {
+		s := ansiRe.ReplaceAllString(line, "")
+		// Body rows are bounded by box borders '│'. Skip border/title/blank rows.
+		if !strings.HasPrefix(s, "  │") {
+			continue
+		}
+		idx := strings.IndexAny(s, "█░")
+		if idx < 0 {
+			continue
+		}
+		barCols = append(barCols, idx)
+	}
+	if len(barCols) < 2 {
+		t.Fatalf("expected at least 2 bar rows, got %d (%v)\n--- body ---\n%s", len(barCols), barCols, strings.Join(lines, "\n"))
+	}
+	first := barCols[0]
+	for i, c := range barCols {
+		if c != first {
+			t.Fatalf("bar start column differs across rows: row 0 at col %d, row %d at col %d (all=%v)\n--- body ---\n%s", first, i, c, barCols, strings.Join(lines, "\n"))
+		}
+	}
 }
 
 func TestProjectSummaryChartBoxesAreCentered(t *testing.T) {
