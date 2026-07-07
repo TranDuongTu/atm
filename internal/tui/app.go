@@ -411,6 +411,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			m.labels.view = lViewList
 			return nil
 		}
+		if m.focused == paneLabels && m.labels.chartNS != "" {
+			m.labels.chartNS = ""
+			return nil
+		}
 		// No detail to leave: ignore.
 		return nil
 	}

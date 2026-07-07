@@ -185,3 +185,43 @@ func TestGroupLeafCountNested(t *testing.T) {
 		t.Errorf("groupLeafCount (collapsed) = %d want 3", got)
 	}
 }
+
+func TestFilterTokenHelpers(t *testing.T) {
+	if got := facetToken("ATM", "status"); got != "ATM:status:*" {
+		t.Fatalf("facetToken = %q want ATM:status:*", got)
+	}
+	if !filterHasToken("ATM:status:* ATM:type:*", "ATM:type:*") {
+		t.Fatalf("filterHasToken should find ATM:type:*")
+	}
+	if filterHasToken("ATM:status:*", "ATM:type:*") {
+		t.Fatalf("filterHasToken should not find absent token")
+	}
+	if got := filterAddToken("ATM:status:*", "ATM:type:*"); got != "ATM:status:* ATM:type:*" {
+		t.Fatalf("filterAddToken = %q want two tokens", got)
+	}
+	if got := filterAddToken("ATM:status:*", "ATM:status:*"); got != "ATM:status:*" {
+		t.Fatalf("filterAddToken should not duplicate, got %q", got)
+	}
+	if got := filterAddToken("", "ATM:status:*"); got != "ATM:status:*" {
+		t.Fatalf("filterAddToken onto empty = %q want ATM:status:*", got)
+	}
+	if got := filterRemoveToken("ATM:status:* ATM:type:*", "ATM:status:*"); got != "ATM:type:*" {
+		t.Fatalf("filterRemoveToken = %q want ATM:type:*", got)
+	}
+	if got := filterRemoveToken("ATM:status:*", "ATM:status:*"); got != "" {
+		t.Fatalf("filterRemoveToken last token = %q want empty", got)
+	}
+}
+
+func TestTasksClearFilterKey(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s") // select ATM
+	update(t, m, "2") // Tasks pane
+	m.tasks.filter = "ATM:status:*"
+	m.tasks.refresh()
+	update(t, m, "c") // clear filter
+	if m.tasks.filter != "" {
+		t.Fatalf("filter = %q want empty after clear", m.tasks.filter)
+	}
+}

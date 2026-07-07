@@ -76,7 +76,7 @@ func TestLabelsListScrollsWithCursor(t *testing.T) {
 	if strings.Contains(m.labels.View(), last.full) {
 		t.Fatalf("expected %s to be scrolled out of view initially:\n%s", last.full, m.labels.View())
 	}
-	m.labels.cursor = len(rows) - 1
+	m.labels.cursor = len(m.labels.entries) - 1
 	view := m.labels.View()
 	if !strings.Contains(view, last.full) {
 		t.Fatalf("cursor on %s but it is not visible:\n%s", last.full, view)
@@ -108,7 +108,8 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
 	update(t, m, "3")
-	update(t, m, "enter")
+	update(t, m, "j") // cursor 0 is a namespace header; step onto the first row
+	update(t, m, "i")  // open label detail
 	v := m.View()
 	mustContain(t, v, "Label ")
 	mustContain(t, v, "FACTS")
@@ -122,6 +123,90 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	mustContain(t, v, "[d]esc")
 	mustContain(t, v, "[l]remove")
 	mustContain(t, v, "[Esc]back")
+}
+
+func TestLabelsEntriesIncludeNamespaceHeaders(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	if len(m.labels.entries) == 0 {
+		t.Fatalf("entries not built")
+	}
+	// The seeded set has a status: namespace; there must be a header entry for
+	// it that precedes its first row entry.
+	headerIdx, rowIdx := -1, -1
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderNS && e.ns == "status" && headerIdx == -1 {
+			headerIdx = i
+		}
+		if e.kind == entryRow && strings.HasPrefix(e.row.suffix, "status:") && rowIdx == -1 {
+			rowIdx = i
+		}
+	}
+	if headerIdx == -1 {
+		t.Fatalf("no status namespace header entry")
+	}
+	if rowIdx == -1 || rowIdx <= headerIdx {
+		t.Fatalf("status row (%d) should follow its header (%d)", rowIdx, headerIdx)
+	}
+	// entries must contain more items than rows (headers add slots).
+	if len(m.labels.entries) <= len(m.labels.rows) {
+		t.Fatalf("entries (%d) should exceed rows (%d) due to headers", len(m.labels.entries), len(m.labels.rows))
+	}
+}
+
+// TestLabelsCursorCanReachNamespaceHeader verifies the handleListKey cursor
+// clamp uses len(entries) (not len(rows)): with an unnamespaced tag appended,
+// the trailing tags: header sits at an entry index beyond len(rows)-1, so j
+// navigation can only reach it under the entries-based clamp.
+func TestLabelsCursorCanReachNamespaceHeader(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Add an unnamespaced tag so a tags: header appears at the tail of the
+	// entries list, at an index the pre-fix len(rows)-1 clamp would block.
+	if err := m.store.LabelAdd("ATM:urgent", "", "claude"); err != nil {
+		t.Fatalf("LabelAdd ATM:urgent: %v", err)
+	}
+	m.refreshAll()
+	update(t, m, "s")
+	update(t, m, "3")
+
+	tagsHeaderIdx := -1
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderTags {
+			tagsHeaderIdx = i
+			break
+		}
+	}
+	if tagsHeaderIdx == -1 {
+		t.Fatalf("no tags: header entry; entries=%d", len(m.labels.entries))
+	}
+	if tagsHeaderIdx <= len(m.labels.rows)-1 {
+		t.Fatalf("test setup error: tags header at %d must exceed len(rows)-1=%d to exercise the clamp", tagsHeaderIdx, len(m.labels.rows)-1)
+	}
+
+	// Drive j to saturation: the cursor must reach the last entry under the
+	// len(entries) clamp; the old len(rows)-1 clamp would stop it short.
+	for i := 0; i < len(m.labels.entries)+2; i++ {
+		prev := m.labels.cursor
+		update(t, m, "j")
+		if m.labels.cursor == prev {
+			break
+		}
+	}
+	if m.labels.cursor != len(m.labels.entries)-1 {
+		t.Fatalf("j saturation stopped at cursor %d, want %d (entries clamp)", m.labels.cursor, len(m.labels.entries)-1)
+	}
+	// Step up onto the tags: header and confirm it is selectable.
+	update(t, m, "k")
+	if m.labels.cursor != tagsHeaderIdx {
+		t.Fatalf("cursor %d, want tags header idx %d", m.labels.cursor, tagsHeaderIdx)
+	}
+	if got := m.labels.entries[m.labels.cursor].kind; got != entryHeaderTags {
+		t.Fatalf("cursor at entry kind %v, want entryHeaderTags", got)
+	}
 }
 
 func TestLabelsTabAddLabel(t *testing.T) {
@@ -205,6 +290,224 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	// The removed label is back.
 	if _, err := m.store.LabelShow("ATM:context:fixit"); err != nil {
 		t.Errorf("ATM:context:fixit not restored after seed: %v", err)
+	}
+}
+
+// cursorToNamespaceHeader moves the Labels cursor onto the first header entry
+// for ns and returns its index.
+func cursorToNamespaceHeader(t *testing.T, m *Model, ns string) {
+	t.Helper()
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderNS && e.ns == ns {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no namespace header entry for %q", ns)
+}
+
+func TestLabelsEnterOnNamespaceTogglesFacetAndChart(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.tasks.filter != "ATM:status:*" {
+		t.Fatalf("filter = %q want ATM:status:*", m.tasks.filter)
+	}
+	if m.labels.chartNS != "status" {
+		t.Fatalf("chartNS = %q want status", m.labels.chartNS)
+	}
+
+	// Enter again on the same namespace toggles it off. Esc back to the list
+	// first (chart mode is esc-only), preserving the filter, then Enter on
+	// the header removes the facet token.
+	update(t, m, "esc")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.tasks.filter != "" {
+		t.Fatalf("filter = %q want empty after toggle off", m.tasks.filter)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty after toggle off", m.labels.chartNS)
+	}
+}
+
+func TestLabelsEnterOnTagsHeaderIsNoop(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Add an unnamespaced tag so a tags header exists.
+	if err := m.store.LabelAdd("ATM:urgent", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+
+	found := false
+	for i, e := range m.labels.entries {
+		if e.kind == entryHeaderTags {
+			m.labels.cursor = i
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no tags header entry")
+	}
+	update(t, m, "enter")
+	if m.tasks.filter != "" {
+		t.Fatalf("filter = %q want empty (tags header is a no-op)", m.tasks.filter)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty", m.labels.chartNS)
+	}
+}
+
+func TestLabelsChartSelfHealsWhenFilterEditedAway(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	if m.labels.chartNS != "status" {
+		t.Fatalf("precondition: chartNS should be status")
+	}
+	// Simulate the user clearing the Tasks filter out from under the chart.
+	m.tasks.filter = ""
+	if got := m.labels.activeChartNS(); got != "" {
+		t.Fatalf("activeChartNS = %q want empty after filter cleared", got)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS should self-heal to empty")
+	}
+}
+
+func TestLabelsEscClosesChartWithoutClearingFilter(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	update(t, m, "esc")
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q want empty after esc", m.labels.chartNS)
+	}
+	if m.tasks.filter != "ATM:status:*" {
+		t.Fatalf("filter = %q want ATM:status:* preserved after esc", m.tasks.filter)
+	}
+}
+
+func TestLabelsChartShowsUsageBars(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Give status:open a usage count so a non-empty bar renders.
+	if _, err := m.store.CreateTask("ATM", "t1", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter") // open chart
+
+	v := m.labels.View()
+	mustContain(t, v, "chart: status")
+	mustContain(t, v, "namespace: status")
+	mustContain(t, v, "ATM:status:open")
+	mustContain(t, v, "█") // at least one filled meter cell
+	mustContain(t, v, "[Esc] back")
+}
+
+func TestLabelsChartStatusHint(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	hint := m.labels.statusHint()
+	mustContain(t, hint, "[Esc]back")
+}
+
+func TestLabelsListStatusHintShowsSelect(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	mustContain(t, m.labels.statusHint(), "[Enter]")
+}
+
+// cursorToFirstRow moves the Labels cursor onto the first entryRow.
+func cursorToFirstRow(t *testing.T, m *Model) {
+	t.Helper()
+	for i, e := range m.labels.entries {
+		if e.kind == entryRow {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no row entry in labels entries")
+}
+
+func TestLabelsEnterOnRowTogglesExactLabelFilter(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToFirstRow(t, m)
+	firstRow := m.labels.entries[m.labels.cursor].row
+	update(t, m, "enter")
+	if !filterHasToken(m.tasks.filter, firstRow.full) {
+		t.Fatalf("filter = %q, want token %q after first Enter", m.tasks.filter, firstRow.full)
+	}
+	if m.labels.view != lViewList {
+		t.Fatalf("labels view = %v, want lViewList (no chart on exact-label toggle)", m.labels.view)
+	}
+	if m.labels.chartNS != "" {
+		t.Fatalf("chartNS = %q, want empty (exact-label toggle does not chart)", m.labels.chartNS)
+	}
+
+	// Enter again on the same row toggles the exact token off.
+	cursorToFirstRow(t, m)
+	update(t, m, "enter")
+	if filterHasToken(m.tasks.filter, firstRow.full) {
+		t.Fatalf("filter = %q, want token %q removed after second Enter", m.tasks.filter, firstRow.full)
+	}
+}
+
+func TestLabelsIKeyOpensLabelDetail(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	cursorToFirstRow(t, m)
+	update(t, m, "i")
+	if m.labels.view != lViewDetail {
+		t.Fatalf("view = %v, want lViewDetail after i on a row", m.labels.view)
+	}
+	v := m.labels.View()
+	mustContain(t, v, "Label ")
+	mustContain(t, v, "FACTS")
+	mustContain(t, v, "usage")
+}
+
+func TestLabelsIKeyOnHeaderIsNoop(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	// Cursor 0 is a namespace header.
+	if m.labels.entries[0].kind != entryHeaderNS {
+		t.Fatalf("entry 0 is %v, want entryHeaderNS for this test", m.labels.entries[0].kind)
+	}
+	m.labels.cursor = 0
+	update(t, m, "i")
+	if m.labels.view != lViewList {
+		t.Fatalf("view = %v, want lViewList (i on a header is a no-op)", m.labels.view)
 	}
 }
 
