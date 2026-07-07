@@ -33,7 +33,7 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 		t.Fatalf("labels body repeats tab title\n--- body ---\n%s", body)
 	}
 	mustNotContain(t, body, "─ Overview ─")
-	mustContain(t, v, "total labels: 18")
+	mustContain(t, v, "total labels: 22")
 	mustNotContain(t, v, "─ Namespaces ─")
 	// Namespace headings for seeded namespaces.
 	mustContain(t, v, "context:")
@@ -199,8 +199,8 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "3")
 	update(t, m, "S") // seed key
-	if !strings.Contains(m.toastMsg, "seeded 18 labels into ATM") {
-		t.Fatalf("toast = %q, want seeded 18 labels into ATM", m.toastMsg)
+	if !strings.Contains(m.toastMsg, "seeded 22 labels into ATM") {
+		t.Fatalf("toast = %q, want seeded 22 labels into ATM", m.toastMsg)
 	}
 	// The removed label is back.
 	if _, err := m.store.LabelShow("ATM:context:fixit"); err != nil {

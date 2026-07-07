@@ -8,14 +8,14 @@
         "action": "task.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "seq": 24
+        "seq": 28
       }
     ],
     "id": "ATM-0002",
     "labels": [
       "ATM:context:agent"
     ],
-    "log_seq": 24,
+    "log_seq": 28,
     "project_code": "ATM",
     "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",

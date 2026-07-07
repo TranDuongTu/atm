@@ -49,7 +49,7 @@ else
   echo "dogfood: project ATM already exists"
 fi
 
-# 3. labels are auto-seeded by project create (v2.1: 17 default labels with
+# 3. labels are auto-seeded by project create (v2.1: 22 default labels with
 #    descriptions). To re-apply defaults after an upgrade, run:
 #      atm label seed --project ATM
 #    (idempotent; preserves edited descriptions).

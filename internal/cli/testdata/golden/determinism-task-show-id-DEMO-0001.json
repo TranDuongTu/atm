@@ -8,14 +8,14 @@
         "action": "task.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "seq": 21
+        "seq": 25
       }
     ],
     "id": "DEMO-0001",
     "labels": [
       "DEMO:status:open"
     ],
-    "log_seq": 21,
+    "log_seq": 25,
     "project_code": "DEMO",
     "title": "Demo task",
     "updated_at": "TIMESTAMP",

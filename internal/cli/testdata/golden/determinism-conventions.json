@@ -53,6 +53,14 @@
         "suffix": "status:review"
       },
       {
+        "description": "workflow state: planned; task is scoped and intended but not yet queued for work",
+        "suffix": "status:planned"
+      },
+      {
+        "description": "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters",
+        "suffix": "status:archived"
+      },
+      {
         "description": "task categorization: bug; a defect to fix",
         "suffix": "type:bug"
       },
@@ -67,6 +75,10 @@
       {
         "description": "task categorization: chore; maintenance, refactoring, tooling",
         "suffix": "type:chore"
+      },
+      {
+        "description": "task categorization: design; producing a spec or design document",
+        "suffix": "type:design"
       },
       {
         "description": "optional prioritization: high",
@@ -99,6 +111,10 @@
       {
         "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
         "suffix": "context:question"
+      },
+      {
+        "description": "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement",
+        "suffix": "context:stale"
       }
     ],
     "what_atm_is": "ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives outside the store, in agent prompts and human habits; the store only keeps the substrate legible.",
