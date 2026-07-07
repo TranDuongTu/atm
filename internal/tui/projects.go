@@ -541,7 +541,7 @@ func (p *projectsModel) renderActorActivityChart(entries []store.LogEntry, maxLi
 		if meterW < 10 {
 			meterW = 10
 		}
-		line := fmt.Sprintf("%-*s %s %3d%% %d", nameW, row.actor, meterBar(row.percent, meterW), row.percent, row.count)
+		line := fmt.Sprintf("%-*s %s %3d%% %3d", nameW, row.actor, meterBar(row.percent, meterW), row.percent, row.count)
 		body = append(body, line)
 	}
 	return strings.Split(p.renderChartBox("activity by actor", strings.Join(body, "\n"), maxLines), "\n")
