@@ -541,10 +541,13 @@ func (l *labelsModel) statusHint() string {
 	if l.m.projectScope == "" {
 		return "[?]keys"
 	}
+	if l.activeChartNS() != "" {
+		return "[Esc]back to list"
+	}
 	if l.view == lViewDetail {
 		return "[d]esc [l]remove [Esc]back"
 	}
-	return "[a]dd [d]esc [l]remove [S]eed [Enter]detail [?]keys"
+	return "[a]dd [d]esc [l]remove [S]eed [Enter]select/detail [Esc]back [?]keys"
 }
 
 // --- describe form (used by [d] in list and detail) ---

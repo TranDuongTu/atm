@@ -1071,7 +1071,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	hint := "[/]filter [s]sort [a]dd [Enter]detail [?]keys"
+	hint := "[/]filter [c]lear [s]ort [a]dd [Enter]detail [?]keys"
 	if t.filterEditing {
 		hint = "[Enter]apply [Esc]cancel"
 	}

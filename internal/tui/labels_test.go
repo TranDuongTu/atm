@@ -420,6 +420,25 @@ func TestLabelsChartShowsUsageBars(t *testing.T) {
 	mustContain(t, v, "[Esc] back")
 }
 
+func TestLabelsChartStatusHint(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceHeader(t, m, "status")
+	update(t, m, "enter")
+	hint := m.labels.statusHint()
+	mustContain(t, hint, "[Esc]back")
+}
+
+func TestLabelsListStatusHintShowsSelect(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+	update(t, m, "3")
+	mustContain(t, m.labels.statusHint(), "[Enter]")
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
