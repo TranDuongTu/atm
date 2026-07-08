@@ -1,3 +1,16 @@
+## v1.2.4 - 2026-07-08
+
+### docs
+- Reconcile TUI chart with spec: sort by weight, empty-state text, layout mockup (ATM-0028)
+- Update docs/smoke for manager onboarding + Ubiquitous Language (ATM-0028)
+- Implementation plan: manager knowledge-base owner + onboarding unification + Ubiquitous Language (ATM-0028)
+- Design spec: manager as knowledge-base owner (onboarding unification + Ubiquitous Language) (ATM-0028)
+- Implementation plan: persona activity in Projects pane + P overlay + p form (ATM-0054)
+- Design spec: persona activity in Projects pane + P overlay + p add-persona (ATM-0054)
+- Implementation plan: personas & actor activity (ATM-0052)
+- Design spec: personas & actor activity (ATM-0052)
+
+
 ## v1.2.3 - 2026-07-08
 
 ### docs
