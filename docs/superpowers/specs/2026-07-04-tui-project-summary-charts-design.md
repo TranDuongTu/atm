@@ -151,29 +151,28 @@ active.
 If there are no log entries, the chart renders seven empty/low bars ending
 today rather than a blank chart.
 
-## Chart 3: Sample Bubbles Placeholder
+## Chart 3: Ubiquitous Language
 
-The third chart is a placeholder for future agent-generated project bubbles.
-It renders only when a project is selected and shows deterministic sample
-bubbles such as `events`, `agents`, `tasks`, and `labels` inside a large
-centered box titled `bubbles`. Bubble labels use distinct colors.
+The third chart renders the selected project's ubiquitous language — the
+recurring domain terms mined from task titles, descriptions, and comments by
+the manager (the knowledge-base owner). It is no longer a placeholder: it
+reads `vocabulary.json` written by the manager and renders weighted bubbles
+inside a large centered box titled `ubiquitous language`.
 
-```text
-╭ bubbles ─────────╮
-│ (events) labels  │
-│    ((agents))    │
-│  (tasks)         │
-╰──────────────────╯
-```
+Each vocabulary term carries a weight in the range 1-10. The chart renders the
+top-N terms, capped at 12, sorted by weight descending then term ascending for
+ties. Bubble size reflects weight: heavier terms render as larger bubbles.
+Bubble labels use distinct colors through Lip Gloss styling. The renderer uses
+`github.com/NimbleMarkets/ntcharts/canvas` so bubbles are laid out inside the
+chart container without overflowing.
 
-No agent is invoked. No keyword extraction runs locally. No cache file or store
-field is added. The placeholder uses `github.com/NimbleMarkets/ntcharts/canvas`
-so the future integration can replace the static labels with real weighted
-terms without changing the chart container.
-
-A future design may add an agent integration that digests current project data
-and returns keyword bubbles. This spec only reserves the visual slot and keeps
-the user-facing expectation visible.
+When no vocabulary has been computed yet for the selected project, the chart
+renders a quiet empty state instead of the placeholder `events`/`agents`/
+`tasks` sample labels. Vocabulary recompute is explicit and owned by the
+manager: during onboarding, in an interactive manager session, or via a
+developing-agent track call with a `vocabulary` hint. See
+`docs/superpowers/specs/2026-07-08-manager-knowledge-base-onboarding-unification-design.md`
+for the manager knowledge-base design.
 
 ## Data Flow
 

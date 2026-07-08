@@ -339,46 +339,57 @@ context for the session.
 default set idempotently — existing descriptions are preserved, and any new
 defaults introduced in a release are added.
 
-## Onboarding
+## Manager onboarding
 
-`atm onboarding` launches a non-interactive agent that explores the current
-working directory and seeds an existing ATM project with context tasks. The
-agent runs under its own permission model; ATM is the prompt-renderer and
-process parent.
+`atm manager <host> --project <CODE> --onboard` launches a non-interactive
+agent that explores the current working directory and seeds the existing ATM
+project with context tasks AND computes the project vocabulary (ubiquitous
+language) in the same pass. The manager is the knowledge-base owner: it
+maintains the ledger, the context map, and the vocabulary.
 
 Prerequisite: the project must already exist.
 
 ```
 atm project create --code FOO --name "Foo"
 cd /path/to/repo-to-onboard
-atm onboarding opencode --project FOO
+atm manager opencode --project FOO --onboard
 ```
 
 For an ollama-backed agent:
 
 ```
-atm onboarding ollama --project FOO --integration opencode
+atm manager ollama --project FOO --integration opencode --onboard
 ```
 
-Flags:
+Without `--onboard`, `atm manager <host> --project <CODE>` opens an
+interactive human session to consult or steer the manager (ledger hygiene,
+vocabulary recompute, splits/merges, staleness review).
+
+Flags (onboard mode):
 
 - `--project <CODE>` (required) — the existing ATM project.
-- `--actor <id>` (default `<launcher>-onboard`) — stamped into history.
-- `--prompt-version <v>` (default latest) — select an embedded prompt version.
-- `--dry-run` — render the prompt and print the launcher command without launching.
+- `--onboard` — non-interactive onboarding run against cwd.
+- `--actor <id>` (default `<host>-manager`) — stamped into history.
+- `--dry-run` — render the context and print the launcher argv/env without launching.
 - `--integration <name>` (ollama only, required) — passed through to `ollama launch`.
-- `-- <agent args...>` — everything after `--` is appended verbatim to the host agent's argv (e.g. `atm onboarding opencode --project FOO -- --yolo`).
-- `ATM_<AGENT>_ARGS` (env) — default args applied on every launch; for ollama, `ATM_<INTEGRATION>_ARGS` takes precedence over `ATM_OLLAMA_ARGS`.
+- `-- <agent args...>` — everything after `--` is appended verbatim to the host agent's argv.
 
-Re-running onboarding is idempotent: the agent reads existing tasks and updates
-rather than duplicating. Run it per repo to build a multi-repo context map for
-a single project.
+## Vocabulary (ubiquitous language)
 
-A smoke script exercises dry-run + error paths against a temp store:
+`atm vocabulary` reads and writes a project's ubiquitous language — the
+recurring domain terms mined from task titles, descriptions, and comments
+by the manager.
 
 ```
-./scripts/onboard-smoke.sh /path/to/repo
+atm vocabulary show --project FOO
+atm vocabulary write --project FOO --actor <ACTOR> --terms '[{"term":"labels","weight":9}]'
 ```
+
+The TUI's third Projects-pane chart ("Ubiquitous Language") reads
+`vocabulary.json` and renders the terms as weighted bubbles. When no
+vocabulary has been computed yet, it shows a quiet empty state. Recompute
+is explicit: during onboarding, in an interactive manager session, or via
+a developing-agent track call with a `vocabulary` hint.
 
 ## TUI
 
