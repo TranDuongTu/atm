@@ -1,3 +1,15 @@
+## v1.2.3 - 2026-07-08
+
+### docs
+- Implementation plan: persona activity in Projects pane + P overlay + p form (ATM-0054)
+- Design spec: persona activity in Projects pane + P overlay + p add-persona (ATM-0054)
+- Implementation plan: personas & actor activity (ATM-0052)
+- Design spec: personas & actor activity (ATM-0052)
+- Toggle exact-label filter on row Enter; move label detail to i key (ATM-0041)
+- Add implementation plan for ATM-0041 labels namespace filtering
+- Add design spec for ATM-0041 labels namespace filtering
+
+
 ## Unreleased
 <!-- manual entry; release.sh prepends a dated section at cut — fold these bullets into the next release section and delete this block -->
 
