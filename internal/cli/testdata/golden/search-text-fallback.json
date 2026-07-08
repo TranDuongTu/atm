@@ -1,0 +1,16 @@
+{
+  "fallback_used": true,
+  "hits": [
+    {
+      "id": "FOO-0001",
+      "kind": "task",
+      "match": "text",
+      "score": 2,
+      "snippet": "",
+      "title": "label resolver refactor"
+    }
+  ],
+  "match": "text",
+  "model": "m",
+  "query": "label resolver"
+}

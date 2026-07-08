@@ -1,0 +1,9 @@
+{
+  "actor": "tester",
+  "cited_ids": [
+    "ATM-0001",
+    "ATM-0002"
+  ],
+  "project": "FOO",
+  "query": "label conflicts"
+}
