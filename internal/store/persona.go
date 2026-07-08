@@ -64,6 +64,9 @@ func (s *Store) CreatePersona(name, prompt, description, actor string) (*Persona
 }
 
 func (s *Store) GetPersona(name string) (*Persona, error) {
+	if err := ValidatePersonaName(name); err != nil {
+		return nil, err
+	}
 	var p Persona
 	if err := ReadJSON(s.personaPath(name), &p); err != nil {
 		if os.IsNotExist(err) {
@@ -94,6 +97,9 @@ func (s *Store) ListPersonas() []*Persona {
 }
 
 func (s *Store) EditPersona(name string, prompt, description *string, actor string) (*Persona, error) {
+	if err := ValidatePersonaName(name); err != nil {
+		return nil, err
+	}
 	if actor == "" {
 		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
 	}
@@ -121,6 +127,9 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 }
 
 func (s *Store) RemovePersona(name string) error {
+	if err := ValidatePersonaName(name); err != nil {
+		return err
+	}
 	return s.WithLock("personas", func() error {
 		if _, err := s.GetPersona(name); err != nil {
 			return err

@@ -47,6 +47,21 @@ func TestPersonaCRUD(t *testing.T) {
 	}
 }
 
+func TestPersonaNameTraversalRejected(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetPersona("../evil"); !IsUsage(err) {
+		t.Fatalf("GetPersona traversal should be ErrUsage, got %v", err)
+	}
+	newPrompt := "pwned"
+	if _, err := s.EditPersona("../evil", &newPrompt, nil, "tester"); !IsUsage(err) {
+		t.Fatalf("EditPersona traversal should be ErrUsage, got %v", err)
+	}
+	if err := s.RemovePersona("../evil"); !IsUsage(err) {
+		t.Fatalf("RemovePersona traversal should be ErrUsage, got %v", err)
+	}
+}
+
 func TestSeedPersonasIdempotent(t *testing.T) {
 	s := newTestStore(t)
 	added, err := s.SeedPersonas("seed")
