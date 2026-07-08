@@ -37,3 +37,21 @@ describing the observation instead of creating the task yourself.
 - `<ATM_BIN> task create --project <CODE> --title "<title>" --label <CODE>:status:open --actor <ACTOR>`
 - `<ATM_BIN> task comment add --task <ID> --body "<progress note>" --actor <ACTOR>`
 - `<ATM_BIN> task comment list --task <ID> --output json`
+
+## Retrieval
+
+You have two read surfaces into the project memory:
+
+- **Direct search:** `atm search --project <CODE> "query"`. The project's
+  declared embedding model is used automatically (you don't pick a model); ATM
+  runs cosine search over the shared index and returns ranked hits. If no index
+  exists or results are weak, ATM falls back to local text search
+  automatically. Discover the active model with `atm index models --project <CODE>`.
+- **Synthesized answer:** dispatch the `atm-manager` subagent with
+  `hint: question` followed by your question. The manager runs `atm search`
+  inside its session and returns a grounded answer citing the hit IDs. Use
+  this when you want synthesis, not just hits.
+
+Both are read-only; neither blocks your work. To keep the index fresh, someone
+runs `atm index --project <CODE>` once (it watches the log); you do not need to
+reindex yourself.
