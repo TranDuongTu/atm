@@ -171,6 +171,16 @@ func (s *Store) lockPath(code string) string {
 func (s *Store) configPath(code string) string {
 	return filepath.Join(s.projectDir(code), "config.json")
 }
+func (s *Store) vectorsDir(code string) string { return filepath.Join(s.projectDir(code), "vectors") }
+func (s *Store) vectorPath(code, slug string) string {
+	return filepath.Join(s.vectorsDir(code), slug+".jsonl")
+}
+func (s *Store) vectorMetaPath(code, slug string) string {
+	return filepath.Join(s.vectorsDir(code), slug+".meta.json")
+}
+func (s *Store) inquiryLogPath(code string) string {
+	return filepath.Join(s.projectDir(code), "inquiry-log.jsonl")
+}
 
 // projectCodesOnDisk enumerates project codes by the projects/<CODE>/
 // directory structure (which holds log.jsonl), independent of cache.db.
