@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func mkActorsOverlayTestModel(t *testing.T) *Model {
@@ -79,5 +81,40 @@ func TestActorsOverlayNoProjectToasts(t *testing.T) {
 	}
 	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
 		t.Fatalf("expected a 'select a project' toast, got %q", m.toastMsg)
+	}
+}
+
+func TestActorsOverlayDetailBarsAlignToWidth(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	m.actors.SetSize(96, 26)
+	m.actors.refresh()
+	m.actors.detail = true
+	view := m.actors.renderDetail(m.actors.groups[0])
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "█") || strings.Contains(line, "░") {
+			if w := lipgloss.Width(line); w != 96 {
+				t.Fatalf("detail bar line width = %d, want 96:\n%q", w, line)
+			}
+		}
+	}
+}
+
+func TestProjectsStatusHintMentionsPandp(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	m.focused = paneProjects
+	m.projectScope = "ATM"
+	m.refreshAll()
+	hint := m.statusHint()
+	if !strings.Contains(hint, "P") {
+		t.Fatalf("status hint should mention P (expand): %q", hint)
+	}
+	if !strings.Contains(hint, "p") {
+		t.Fatalf("status hint should mention p (add persona): %q", hint)
 	}
 }

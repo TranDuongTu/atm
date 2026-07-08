@@ -411,7 +411,7 @@ func (p *projectsModel) renderSummary(height int) string {
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	if remaining == 1 {
-		lines = append(lines, dashboardLine(p.width, "activity by persona"))
+		lines = append(lines, dashboardLine(p.width, "activity by persona  [P]expand"))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	if remaining == 2 {
@@ -474,18 +474,18 @@ func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, max
 		return nil
 	}
 	if maxLines < 3 {
-		return []string{dashboardLine(p.width, "activity by persona")}
+		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
 	}
 	entryCap := maxLines - 2
 	if entryCap <= 0 {
-		return []string{dashboardLine(p.width, "activity by persona")}
+		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
 	}
 	aliases, _ := p.m.store.LoadAliases()
 	groups := activity.Aggregate(activity.Build(entries, aliases), "persona")
 	body := []string{}
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
-		return strings.Split(p.renderChartBox("activity by persona", strings.Join(body, "\n"), 3), "\n")
+		return strings.Split(p.renderChartBox("activity by persona  [P]expand", strings.Join(body, "\n"), 3), "\n")
 	}
 	if len(groups) > entryCap {
 		groups = groups[:entryCap]
@@ -507,7 +507,7 @@ func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, max
 		line := fmt.Sprintf("%-*s %s %3d%% %3d", nameW, g.Key, meterBar(percent, meterW), percent, g.Count)
 		body = append(body, line)
 	}
-	return strings.Split(p.renderChartBox("activity by persona", strings.Join(body, "\n"), maxLines), "\n")
+	return strings.Split(p.renderChartBox("activity by persona  [P]expand", strings.Join(body, "\n"), maxLines), "\n")
 }
 
 func longestPersonaKeyWidth(groups []activity.Group) int {
@@ -833,11 +833,11 @@ func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
 		if len(p.list) == 0 {
-			return "[a]add [?]keys"
+			return "[a]add [p]ersona [?]keys"
 		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [?]keys"
+		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new [?]keys"
 	case pViewDetail:
-		return "[N]name [H]history [x]remove [Esc]back"
+		return "[N]ame [H]istory [x]remove [P]ersona [p]new [Esc]back"
 	}
 	return "[?]keys"
 }

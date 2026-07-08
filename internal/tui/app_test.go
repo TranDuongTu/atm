@@ -743,8 +743,8 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 	mustContain(t, v, "tasks")
 	mustNotContain(t, v, "Actions")
 	hint := m.projects.statusHint()
-	mustContain(t, hint, "[N]name")
-	mustContain(t, hint, "[H]history")
+	mustContain(t, hint, "[N]ame")
+	mustContain(t, hint, "[H]istory")
 	mustContain(t, hint, "[x]remove")
 }
 

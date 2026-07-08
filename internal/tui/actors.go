@@ -157,7 +157,8 @@ func writeBreakdown(b *strings.Builder, a *actorsModel, title string, counts map
 		total += v
 	}
 	sortKV(rows)
-	meterW := a.width - 24
+	// Format: "  %-14s %s %4d" = 2 + 14 + 1 + meter + 1 + 4 = 22 + meter.
+	meterW := a.width - 22
 	if meterW < 8 {
 		meterW = 8
 	}
