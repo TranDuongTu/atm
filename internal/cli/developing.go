@@ -16,6 +16,7 @@ type developingOpts struct {
 	Project     string
 	Actor       string
 	Integration string
+	Persona     string
 	DryRun      bool
 	ExtraArgs   []string
 }
@@ -141,13 +142,13 @@ func newDevelopingAgentCmd(st *cliState, agent string) *cobra.Command {
 				return fmt.Errorf("%w: unknown developing agent %q", ErrUsage, agent)
 			}
 			opts.ExtraArgs = args
-			opts.Actor = defaultDevelopingActor(l.Name(), st, opts.Actor)
 			opts.Integration = ""
 			return runDeveloping(st, l, agent, "", opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-dev)")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
 	return cmd
@@ -161,7 +162,6 @@ func newDevelopingOllamaCmd(st *cliState) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ExtraArgs = args
-			opts.Actor = defaultDevelopingActor("ollama", st, opts.Actor)
 			l := developing.OllamaLauncher{Integration: opts.Integration}
 			return runDeveloping(st, l, "ollama", opts.Integration, opts)
 		},
@@ -169,6 +169,7 @@ func newDevelopingOllamaCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-dev)")
 	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("integration")
@@ -196,6 +197,22 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 			ErrNotFound, opts.Project, opts.Project)
 	}
 
+	var personaPrompt string
+	if opts.Persona != "" {
+		pp, err := s.GetPersona(opts.Persona)
+		if err != nil {
+			return err
+		}
+		personaPrompt = pp.Prompt
+	}
+	if opts.Actor == "" {
+		if opts.Persona != "" {
+			opts.Actor = opts.Persona + "@" + l.Name()
+		} else {
+			opts.Actor = defaultDevelopingActor(l.Name(), st, "")
+		}
+	}
+
 	atmBin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve atm binary: %w", err)
@@ -208,12 +225,14 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	}
 
 	rendered := developing.RenderContext(developing.ContextData{
-		Code:      p.Code,
-		Name:      p.Name,
-		ATMBin:    atmBin,
-		Actor:     opts.Actor,
-		RunID:     runID,
-		Timestamp: store.RFC3339UTC(time.Now().UTC()),
+		Code:          p.Code,
+		Name:          p.Name,
+		ATMBin:        atmBin,
+		Actor:         opts.Actor,
+		RunID:         runID,
+		Timestamp:     store.RFC3339UTC(time.Now().UTC()),
+		Persona:       opts.Persona,
+		PersonaPrompt: personaPrompt,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
@@ -222,7 +241,7 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	base := l.BuildArgv()
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
-	envValues := developingEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
+	envValues := developingEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath, l.Name(), opts.Persona)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "developing", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
@@ -241,13 +260,18 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	return nil
 }
 
-func developingEnvValues(project, atmBin, actor, runID, contextPath string) map[string]string {
-	return map[string]string{
+func developingEnvValues(project, atmBin, actor, runID, contextPath, agent, persona string) map[string]string {
+	m := map[string]string{
 		"ATM_ROLE":         "developing",
 		"ATM_PROJECT":      project,
 		"ATM_BIN":          atmBin,
 		"ATM_ACTOR":        actor,
 		"ATM_RUN_ID":       runID,
 		"ATM_CONTEXT_FILE": contextPath,
+		"ATM_AGENT":        agent,
 	}
+	if persona != "" {
+		m["ATM_PERSONA"] = persona
+	}
+	return m
 }

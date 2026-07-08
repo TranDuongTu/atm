@@ -34,3 +34,21 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderContext_Persona(t *testing.T) {
+	out := RenderContext(ContextData{
+		Code: "ATM", Name: "ATM", ATMBin: "/atm", Actor: "staff@claude",
+		RunID: "R", Timestamp: "T", Persona: "staff", PersonaPrompt: "hold a high bar",
+	})
+	if !strings.Contains(out, "Persona: staff") || !strings.Contains(out, "hold a high bar") {
+		t.Fatalf("persona block missing:\n%s", out)
+	}
+	if !strings.Contains(out, "staff@claude:") {
+		t.Fatalf("actor convention guidance missing:\n%s", out)
+	}
+
+	out2 := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/atm", Actor: "claude-dev", RunID: "R", Timestamp: "T"})
+	if strings.Contains(out2, "## Persona") {
+		t.Fatalf("no-persona render should omit persona block:\n%s", out2)
+	}
+}

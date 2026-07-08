@@ -67,7 +67,7 @@ func TestDevelopingPluginInstallDryRunJSON(t *testing.T) {
 }
 
 func TestDevelopingEnvIncludesATMValues(t *testing.T) {
-	got := assembleEnv(developingEnvValues("FOO", "/bin/atm", "codex-dev", "FOO-RUNID", "/tmp/context.md"))
+	got := assembleEnv(developingEnvValues("FOO", "/bin/atm", "codex-dev", "FOO-RUNID", "/tmp/context.md", "codex", ""))
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{
 		"ATM_ROLE=developing",
@@ -76,6 +76,7 @@ func TestDevelopingEnvIncludesATMValues(t *testing.T) {
 		"ATM_ACTOR=codex-dev",
 		"ATM_RUN_ID=FOO-RUNID",
 		"ATM_CONTEXT_FILE=/tmp/context.md",
+		"ATM_AGENT=codex",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("developing env missing %q", want)
@@ -150,6 +151,26 @@ func TestDevelopingCodexEnvArgsDryRunJSON(t *testing.T) {
 	}
 	got := normalizeDevelopingOutput(h.stdout.String(), h.store.StorePath())
 	compareGolden(t, "developing-dry-run-codex-env", got)
+}
+
+func TestDeveloping_PersonaEnvAndActor(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("persona", "create", "--name", "staff", "--prompt", "high bar", "--actor", "ttran")
+	h.reset()
+	out, _, code := h.run("developing", "claude", "--project", "FOO", "--persona", "staff", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	for _, want := range []string{
+		`"ATM_PERSONA": "staff"`,
+		`"ATM_AGENT": "claude"`,
+		`"ATM_ACTOR": "staff@claude"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("persona launch env missing %q:\n%s", want, out)
+		}
+	}
 }
 
 func TestDevelopingOllamaRequiresIntegration(t *testing.T) {

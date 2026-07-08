@@ -2,6 +2,7 @@ package developing
 
 import (
 	_ "embed"
+	"fmt"
 	"strings"
 )
 
@@ -9,15 +10,22 @@ import (
 var contextV1 string
 
 type ContextData struct {
-	Code      string
-	Name      string
-	ATMBin    string
-	Actor     string
-	RunID     string
-	Timestamp string
+	Code          string
+	Name          string
+	ATMBin        string
+	Actor         string
+	RunID         string
+	Timestamp     string
+	Persona       string
+	PersonaPrompt string
 }
 
 func RenderContext(data ContextData) string {
+	personaBlock := ""
+	if data.Persona != "" {
+		personaBlock = fmt.Sprintf("## Persona: %s\n\n%s\n\nYou are operating as this persona. Hold to its principles throughout the session, alongside repo instructions and the working routine below.\n",
+			data.Persona, data.PersonaPrompt)
+	}
 	replacer := strings.NewReplacer(
 		"<CODE>", data.Code,
 		"<PROJECT_NAME>", data.Name,
@@ -25,6 +33,7 @@ func RenderContext(data ContextData) string {
 		"<ACTOR>", data.Actor,
 		"<RUN_ID>", data.RunID,
 		"<TIMESTAMP>", data.Timestamp,
+		"<PERSONA_BLOCK>", personaBlock,
 	)
 	return replacer.Replace(contextV1)
 }

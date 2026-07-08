@@ -5,10 +5,13 @@ Started: `<TIMESTAMP>`
 ATM binary: `<ATM_BIN>`
 Actor: `<ACTOR>`
 
+Stamp ATM commands with --actor <ACTOR>:<your-model> (e.g. staff-engineer@claude:opus-4.8), filling in the model you are actually running as. If unsure, use --actor <ACTOR>.
+
 ## Role
 
 This is an ATM developing session. Use ATM project `<CODE>` as the visible work ledger during normal software development. Follow repo instructions, existing skills, harness rules, tool permissions, and direct user requests first; ATM records the work, it does not replace the workflow.
 
+<PERSONA_BLOCK>
 ## Working routine
 
 1. Before feature, design, spec, bug, chore, or meaningful investigation work, find the relevant task or create one.

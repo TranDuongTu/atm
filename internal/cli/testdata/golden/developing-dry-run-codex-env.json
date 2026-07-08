@@ -7,6 +7,7 @@
   "context_path": "/STORE/developing/FOO-RUNID.md",
   "env": {
     "ATM_ACTOR": "codex-dev",
+    "ATM_AGENT": "codex",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/developing/FOO-RUNID.md",
     "ATM_PROJECT": "FOO",
