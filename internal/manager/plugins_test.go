@@ -44,11 +44,62 @@ func TestPluginAssetsContainManagerRole(t *testing.T) {
 		"ATM ledger owner",
 		"needs clarification",
 		"semantic search",
-		"atm task set-title",
+		"task set-title",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("OpenCode manager asset missing %q", want)
 		}
+	}
+}
+
+func TestManagerSubagentAssetResolvesRuntimeValuesFromEnv(t *testing.T) {
+	// ATM-0047 regression guard. The subagent asset is copied verbatim to
+	// ~/.claude/agents/atm-manager.md with NO per-dispatch render step, so any
+	// <ATM_BIN>/<CODE>/<ACTOR> template placeholder survives literally in the
+	// prompt. The model then substitutes a guessed default (e.g. a nonexistent
+	// ~/.local/bin/atm), every atm call fails, and — with no failure rule — the
+	// manager fabricates success. The subagent asset must resolve every runtime
+	// value from env with real shell variables and never carry a placeholder.
+	for _, host := range []string{"opencode", "claude", "codex"} {
+		assets, _ := PluginAssets(host)
+		body := string(joinManagerAssetContents(assets))
+		for _, placeholder := range []string{"<ATM_BIN>", "<CODE>", "<ACTOR>", "<PROJECT_NAME>", "<RUN_ID>", "<TIMESTAMP>"} {
+			if strings.Contains(body, placeholder) {
+				t.Errorf("%s subagent asset carries unrendered placeholder %s; subagent mode never renders it, so the model will guess a value", host, placeholder)
+			}
+		}
+		// Deterministic binary resolution from ATM_BIN, falling back to PATH.
+		if !strings.Contains(body, "${ATM_BIN:-atm}") {
+			t.Errorf("%s subagent asset does not resolve the binary via ${ATM_BIN:-atm}", host)
+		}
+		if strings.Contains(body, ".local/bin/atm") {
+			t.Errorf("%s subagent asset names a hardcoded binary path", host)
+		}
+		// Failure-surfacing: a failed atm call means the write did not happen.
+		if !strings.Contains(body, "did NOT happen") {
+			t.Errorf("%s subagent asset lacks the failure-surfacing rule (a failed atm call = write did NOT happen)", host)
+		}
+		// Read-back verification before claiming success.
+		if !strings.Contains(body, "read it back") {
+			t.Errorf("%s subagent asset lacks the read-back verification rule", host)
+		}
+	}
+}
+
+func TestClaudeManagerAssetToolsFrontmatterFormat(t *testing.T) {
+	// ATM-0047 root cause. Claude Code requires the subagent `tools:` frontmatter
+	// as a comma-separated string of capitalized canonical names
+	// (e.g. `tools: Bash, Read, Glob, Grep`). The old asset used a lowercase YAML
+	// block sequence (- bash / - read / ...), which Claude Code does not
+	// recognize, so the subagent spawned without a working Bash tool: it ran zero
+	// commands and fabricated ledger writes. Guard the correct format.
+	assets, _ := PluginAssets("claude")
+	body := string(joinManagerAssetContents(assets))
+	if !strings.Contains(body, "tools: Bash, Read, Glob, Grep") {
+		t.Errorf("claude asset missing the comma-separated capitalized tools frontmatter Claude Code requires")
+	}
+	if strings.Contains(body, "\n  - bash") || strings.Contains(body, "\n  - read") {
+		t.Errorf("claude asset uses an unrecognized YAML-list tools frontmatter; Claude Code spawns it without tools")
 	}
 }
 
