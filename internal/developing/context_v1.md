@@ -5,7 +5,7 @@ Started: `<TIMESTAMP>`
 ATM binary: `<ATM_BIN>`
 Actor: `<ACTOR>`
 
-Stamp ATM commands with --actor <ACTOR>:<your-model> (e.g. staff-engineer@claude:opus-4.8), filling in the model you are actually running as. If unsure, use --actor <ACTOR>.
+Stamp ATM commands with --actor <ACTOR>. If <ACTOR> already names a persona (the persona@agent form), append the model you are actually running as: --actor <ACTOR>:<your-model> (e.g. staff-engineer@claude:opus-4.8). If it does not, just use --actor <ACTOR>.
 
 ## Role
 
