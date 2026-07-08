@@ -7,6 +7,7 @@ import (
 	"atm/internal/activity"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // --- Actors pane model ---
@@ -127,9 +128,19 @@ func (a *actorsModel) renderDetail(g activity.Group) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", dashboardLine(a.width, fmt.Sprintf("persona: %s   (%d events)", g.Key, g.Count)))
 	b.WriteString("\n")
-	writeBreakdown(&b, a, "agents", g.Agents)
-	writeBreakdown(&b, a, "models", g.Models)
-	writeBreakdown(&b, a, "actions", g.Actions)
+	// Compute a shared label width across all three breakdowns so bars align
+	// across agents/models/actions rows (not just within one section).
+	nameW := 0
+	for _, counts := range []map[string]int{g.Agents, g.Models, g.Actions} {
+		for k := range counts {
+			if w := lipgloss.Width(k); w > nameW {
+				nameW = w
+			}
+		}
+	}
+	writeBreakdown(&b, a, "agents", g.Agents, nameW)
+	writeBreakdown(&b, a, "models", g.Models, nameW)
+	writeBreakdown(&b, a, "actions", g.Actions, nameW)
 	b.WriteString("\n")
 	b.WriteString(dashboardLine(a.width, a.m.styles.Muted.Render("[Esc] back")))
 	return padToHeight(b.String(), a.contentHeight)
@@ -142,7 +153,7 @@ type kvRow struct {
 	v int
 }
 
-func writeBreakdown(b *strings.Builder, a *actorsModel, title string, counts map[string]int) {
+func writeBreakdown(b *strings.Builder, a *actorsModel, title string, counts map[string]int, nameW int) {
 	b.WriteString(dashboardLine(a.width, a.m.styles.Muted.Render(title)))
 	b.WriteString("\n")
 	if len(counts) == 0 {
@@ -157,8 +168,8 @@ func writeBreakdown(b *strings.Builder, a *actorsModel, title string, counts map
 		total += v
 	}
 	sortKV(rows)
-	// Format: "  %-14s %s %4d" = 2 + 14 + 1 + meter + 1 + 4 = 22 + meter.
-	meterW := a.width - 22
+	// Format: "  %-*s %s %4d" = 2 + nameW + 1 + meter + 1 + 4 = nameW + meter + 8.
+	meterW := a.width - nameW - 8
 	if meterW < 8 {
 		meterW = 8
 	}
@@ -167,7 +178,7 @@ func writeBreakdown(b *strings.Builder, a *actorsModel, title string, counts map
 		if total > 0 {
 			percent = (r.v*100 + total/2) / total
 		}
-		line := fmt.Sprintf("  %-14s %s %4d", r.k, meterBar(percent, meterW), r.v)
+		line := fmt.Sprintf("  %-*s %s %4d", nameW, r.k, meterBar(percent, meterW), r.v)
 		b.WriteString(dashboardLine(a.width, line))
 		b.WriteString("\n")
 	}

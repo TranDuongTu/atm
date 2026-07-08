@@ -94,11 +94,29 @@ func TestActorsOverlayDetailBarsAlignToWidth(t *testing.T) {
 	m.actors.refresh()
 	m.actors.detail = true
 	view := m.actors.renderDetail(m.actors.groups[0])
+	ansiRe := strings.NewReplacer("\x1b[0m", "", "\x1b[1m", "")
+	var barCols []int
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "█") || strings.Contains(line, "░") {
-			if w := lipgloss.Width(line); w != 96 {
-				t.Fatalf("detail bar line width = %d, want 96:\n%q", w, line)
-			}
+		stripped := ansiRe.Replace(line)
+		if !strings.Contains(stripped, "█") && !strings.Contains(stripped, "░") {
+			continue
+		}
+		if w := lipgloss.Width(line); w != 96 {
+			t.Fatalf("detail bar line width = %d, want 96:\n%q", w, line)
+		}
+		idx := strings.IndexAny(stripped, "█░")
+		if idx < 0 {
+			continue
+		}
+		barCols = append(barCols, idx)
+	}
+	if len(barCols) < 2 {
+		t.Fatalf("expected at least 2 bar rows, got %d\n%s", len(barCols), view)
+	}
+	first := barCols[0]
+	for i, c := range barCols {
+		if c != first {
+			t.Fatalf("bar start column differs across rows: row 0 at col %d, row %d at col %d (all=%v)\n%s", first, i, c, barCols, view)
 		}
 	}
 }
