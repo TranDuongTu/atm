@@ -40,13 +40,6 @@ func (a *actorsModel) SetSize(w, h int) {
 	a.contentHeight = h
 }
 
-func (a *actorsModel) statusHint() string {
-	if a.detail {
-		return "[Esc]back"
-	}
-	return "[Enter]detail [↑/↓]move"
-}
-
 // refresh reloads activity for the current project scope.
 func (a *actorsModel) refresh() {
 	a.groups = nil

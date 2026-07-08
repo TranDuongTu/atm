@@ -160,6 +160,12 @@ func (p *projectsModel) refresh() {
 }
 
 func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "P":
+		return p.openActorsOverlay()
+	case "p":
+		return p.m.openPersonaCreateForm()
+	}
 	switch p.view {
 	case pViewList:
 		return p.handleListKey(k)
@@ -839,6 +845,19 @@ func (p *projectsModel) statusHint() string {
 // --- form openers ---
 
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
+
+// openActorsOverlay opens the P overlay showing persona activity for the
+// current project scope. Tosts and does nothing if no project is selected.
+func (p *projectsModel) openActorsOverlay() tea.Cmd {
+	if p.m.projectScope == "" {
+		p.m.showToast("select a project first")
+		return nil
+	}
+	p.m.actorsOverlay = true
+	p.m.actors.refresh()
+	p.m.sizeActorsToOverlay()
+	return nil
+}
 
 func (p *projectsModel) openCreateForm() {
 	codeValidator := func(field, value string) error {

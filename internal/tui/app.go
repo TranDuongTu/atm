@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -44,6 +45,7 @@ const (
 	formTaskLabelRemove // task detail: remove label
 	formProjectSetName  // project detail: set name
 	formCommentAdd      // task detail: add comment
+	formPersonaCreate   // Projects pane / overlay: add persona
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -75,6 +77,10 @@ type Model struct {
 	// It is a clean full-body replacement over the workspace (the workspace
 	// does not show through), unlike forms/confirms which layer on top.
 	helpOverlay helpOverlayKind
+
+	// actorsOverlay, when true, renders the persona activity list/detail as a
+	// centered modal over the workspace (opened by P in the Projects pane).
+	actorsOverlay bool
 
 	projects projectsModel
 	tasks    tasksModel
@@ -199,6 +205,37 @@ func (m *Model) helpBoxSize() (int, int) {
 		bh = 1
 	}
 	return bw, bh
+}
+
+// actorsOverlayBoxSize returns the outer dimensions of the centered modal that
+// hosts the P overlay. It mirrors helpBoxSize's ~80% sizing so the persona list
+// and detail breakdowns stay readable.
+func (m *Model) actorsOverlayBoxSize() (int, int) {
+	bw, bh := m.helpBoxSize()
+	return bw, bh
+}
+
+// sizeActorsToOverlay sizes the actors model to the overlay box's inner area.
+// titledBoxHeight draws a 1-cell border + title row + bottom row, so inner =
+// (bw-2) x (bh-2).
+func (m *Model) sizeActorsToOverlay() {
+	bw, bh := m.actorsOverlayBoxSize()
+	innerW := bw - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := bh - 2
+	if innerH < 1 {
+		innerH = 1
+	}
+	m.actors.SetSize(innerW, innerH)
+}
+
+// renderActorsOverlay renders the persona activity list/detail as a centered
+// modal box (the P overlay) sized like the help overlay.
+func (m *Model) renderActorsOverlay() string {
+	bw, bh := m.actorsOverlayBoxSize()
+	return titledBoxHeight(m.styles.DialogBody, bw, "Activity by persona", m.actors.View(), bh)
 }
 
 // openHelp activates the requested reference overlay and re-sizes the help
@@ -354,6 +391,31 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.handleFormKey(k)
 	}
 
+	// Actors overlay (P) consumes navigation + p (add persona) + Esc until closed.
+	if m.actorsOverlay {
+		switch k.String() {
+		case "esc":
+			if m.actors.detail {
+				m.actors.handleKey(k)
+				return nil
+			}
+			m.actorsOverlay = false
+			return nil
+		case "p":
+			return m.openPersonaCreateForm()
+		case "?":
+			m.openHelp(helpKeys)
+			return nil
+		case "C":
+			m.openHelp(helpConventions)
+			return nil
+		case "T":
+			m.cycleTheme()
+			return nil
+		}
+		return m.actors.handleKey(k)
+	}
+
 	if m.focused == paneTasks && m.tasks.filterEditing {
 		return m.tasks.handleKey(k)
 	}
@@ -491,6 +553,8 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doTaskLabelRemove(vals)
 	case formCommentAdd:
 		return m.doCommentAdd(vals)
+	case formPersonaCreate:
+		return m.doPersonaCreate(vals)
 	}
 	return nil
 }
@@ -513,11 +577,48 @@ func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
 	return nil
 }
 
+func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
+	name := vals["name"]
+	desc := vals["description"]
+	_, err := m.store.CreatePersona(name, "", desc, m.actor)
+	if err != nil {
+		if store.IsConflict(err) {
+			m.showToast(fmt.Sprintf("persona %s already exists", name))
+		} else {
+			m.showToast("error: " + err.Error())
+		}
+		return nil
+	}
+	m.showToast(fmt.Sprintf("created persona %s", name))
+	m.actors.refresh()
+	m.refreshAll()
+	return nil
+}
+
 // showToast records a transient toast message shown inline in the status
 // line. The toast is cleared on the next key press (any key) so the TUI
 // never locks the user out of the workspace behind a notification screen.
 func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
+}
+
+// openPersonaCreateForm opens the New persona form (name + description only).
+// The prompt is left empty; the user sets it later via CLI --prompt-file.
+func (m *Model) openPersonaCreateForm() tea.Cmd {
+	nameValidator := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		return store.ValidatePersonaName(value)
+	}
+	fields := []formField{
+		{Label: "name", Required: true, Hint: "lowercase slug, e.g. staff-engineer", Validator: nameValidator},
+		{Label: "description", Hint: "one-line summary (optional)"},
+	}
+	f := NewForm("New persona", fields)
+	m.form = f
+	m.formKind = formPersonaCreate
+	return nil
 }
 
 // View renders the full screen: workspace, status line, plus any active
@@ -545,6 +646,9 @@ func (m *Model) View() string {
 	}
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
+	}
+	if m.actorsOverlay {
+		out = m.placeOverlay(out, m.renderActorsOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

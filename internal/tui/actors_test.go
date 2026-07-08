@@ -3,15 +3,9 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
-// mkActorsTestModel builds a Model on top of the shared newTestModel harness,
-// seeding a project "ATM" with a couple of actor-stamped events (persona
-// "staff", agent "claude", model "opus-4.8" per the actor.Resolve convention
-// "persona@agent:model").
-func mkActorsTestModel(t *testing.T) *Model {
+func mkActorsOverlayTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
 	seedProjectAsActor(t, m, "ATM", "Acme Task Manager", "staff@claude:opus-4.8")
@@ -19,7 +13,6 @@ func mkActorsTestModel(t *testing.T) *Model {
 	return m
 }
 
-// seedProjectAsActor creates a project stamped with the given actor string.
 func seedProjectAsActor(t *testing.T, m *Model, code, name, actor string) {
 	t.Helper()
 	if _, err := m.store.CreateProject(code, name, actor); err != nil {
@@ -28,7 +21,6 @@ func seedProjectAsActor(t *testing.T, m *Model, code, name, actor string) {
 	m.refreshAll()
 }
 
-// seedTaskAsActor creates a task stamped with the given actor string.
 func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	t.Helper()
 	if _, err := m.store.CreateTask(projectCode, title, "", nil, actor); err != nil {
@@ -37,41 +29,55 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-func TestActorsPaneRendersChart(t *testing.T) {
-	m := mkActorsTestModel(t)
-	m.SetSize(80, 24)
+func TestActorsOverlayOpensAndShowsPersona(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	m.actors.SetSize(80, 24)
-	m.actors.refresh()
-	view := m.actors.View()
+	update(t, m, "P")
+	if !m.actorsOverlay {
+		t.Fatal("P should open actors overlay")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Activity by persona") {
+		t.Fatalf("overlay title missing:\n%s", view)
+	}
 	if !strings.Contains(view, "staff") {
-		t.Fatalf("actors view missing persona row:\n%s", view)
+		t.Fatalf("persona row missing:\n%s", view)
 	}
 }
 
-func TestTabReachesActorsPane(t *testing.T) {
-	m := mkActorsTestModel(t)
-	m.SetSize(80, 24)
-	update(t, m, "4")
-	if m.focused != paneProjects {
-		t.Fatalf("focused = %v, want paneProjects (4 is a no-op now)", m.focused)
-	}
-}
-
-func TestActorsBarsAlignToWidth(t *testing.T) {
-	m := mkActorsTestModel(t)
-	m.SetSize(80, 24)
+func TestActorsOverlayDrilldownAndEsc(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	m.actors.refresh()
-	m.actors.SetSize(80, 24)
-	view := m.actors.renderList()
-	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "staff") {
-			if w := lipgloss.Width(line); w != 80 {
-				t.Fatalf("persona row width = %d, want 80:\n%q", w, line)
-			}
-		}
+	update(t, m, "P")
+	update(t, m, "enter")
+	view := m.View()
+	if !strings.Contains(view, "persona: staff") && !strings.Contains(view, "agents") {
+		t.Fatalf("detail not shown:\n%s", view)
+	}
+	update(t, m, "esc")
+	if m.actors.detail {
+		t.Fatal("Esc should leave detail")
+	}
+	update(t, m, "esc")
+	if m.actorsOverlay {
+		t.Fatal("Esc should close overlay")
+	}
+}
+
+func TestActorsOverlayNoProjectToasts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.focused = paneProjects
+	m.projectScope = ""
+	update(t, m, "P")
+	if m.actorsOverlay {
+		t.Fatal("overlay must not open without a project")
+	}
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
+		t.Fatalf("expected a 'select a project' toast, got %q", m.toastMsg)
 	}
 }
