@@ -767,46 +767,6 @@ func TestProjectPaneSplitHeights(t *testing.T) {
 	}
 }
 
-func TestActorActivityRowsSortAndPercent(t *testing.T) {
-	entries := []store.LogEntry{
-		{Actor: "codex"},
-		{Actor: "claude"},
-		{Actor: "codex"},
-		{Actor: "ttran"},
-		{Actor: "codex"},
-		{Actor: "claude"},
-	}
-	got := actorActivityRows(entries, 10)
-	want := []actorActivityRow{
-		{actor: "codex", count: 3, percent: 50},
-		{actor: "claude", count: 2, percent: 33},
-		{actor: "ttran", count: 1, percent: 17},
-	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("actorActivityRows() = %#v, want %#v", got, want)
-	}
-}
-
-func TestActorActivityRowsFoldsOthersAtLimit(t *testing.T) {
-	entries := []store.LogEntry{
-		{Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"},
-		{Actor: "b"}, {Actor: "b"}, {Actor: "b"}, {Actor: "b"},
-		{Actor: "c"}, {Actor: "c"}, {Actor: "c"},
-		{Actor: "d"}, {Actor: "d"},
-		{Actor: "e"},
-	}
-	got := actorActivityRows(entries, 4)
-	want := []actorActivityRow{
-		{actor: "a", count: 5, percent: 33},
-		{actor: "b", count: 4, percent: 27},
-		{actor: "c", count: 3, percent: 20},
-		{actor: "others", count: 3, percent: 20},
-	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("actorActivityRows() = %#v, want %#v", got, want)
-	}
-}
-
 func TestActivityStripeDayCountsUsesOneWeekEndingToday(t *testing.T) {
 	mustTime := func(s string) time.Time {
 		t.Helper()
@@ -849,7 +809,7 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "activity by persona")
 	mustContain(t, body, "claude")
 	mustContain(t, body, "%")
 	mustContain(t, body, "activity stripe")
@@ -867,7 +827,7 @@ func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "activity by persona")
 	mustContain(t, body, "activity stripe")
 	mustContain(t, body, "█")
 }
@@ -880,7 +840,7 @@ func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.renderSummary(5)
 	mustContain(t, body, "Project Summary")
-	mustContain(t, body, "activity by actor")
+	mustContain(t, body, "activity by persona")
 	mustContain(t, body, "activity stripe")
 }
 
@@ -900,7 +860,7 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	}
 	body := m.projects.View()
 	mustContain(t, body, "select a project to see summaries")
-	mustNotContain(t, body, "activity by actor")
+	mustNotContain(t, body, "activity by persona")
 	mustNotContain(t, body, "activity stripe")
 }
 
@@ -961,13 +921,14 @@ func TestRenderActorActivityChartShowsOverflowSummary(t *testing.T) {
 		{Actor: "d"}, {Actor: "d"},
 		{Actor: "e"},
 	}
-	lines := p.renderActorActivityChart(entries, 5)
+	lines := p.renderPersonaActivityChart(entries, 5)
 	got := strings.Join(lines, "\n")
-	mustContain(t, got, "activity by actor")
+	mustContain(t, got, "activity by persona")
+	// entryCap = 3; the chart caps at 3 persona groups (no "others" fold).
 	mustContain(t, got, "a")
 	mustContain(t, got, "b")
 	mustContain(t, got, "c")
-	mustContain(t, got, "others")
+	mustNotContain(t, got, "others")
 }
 
 func TestRenderActorActivityChartUsesMeterStyle(t *testing.T) {
@@ -978,8 +939,8 @@ func TestRenderActorActivityChartUsesMeterStyle(t *testing.T) {
 		{Actor: "claude"}, {Actor: "claude"},
 		{Actor: "codex"},
 	}
-	got := strings.Join(p.renderActorActivityChart(entries, 4), "\n")
-	mustContain(t, got, "activity by actor")
+	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
+	mustContain(t, got, "activity by persona")
 	mustContain(t, got, "claude")
 	mustContain(t, got, "67%")
 	mustContain(t, got, "codex")
@@ -994,7 +955,7 @@ func TestRenderActorActivityChartShowsFullActorName(t *testing.T) {
 	entries := []store.LogEntry{
 		{Actor: "very-long-agent-name-with-role"},
 	}
-	got := strings.Join(p.renderActorActivityChart(entries, 4), "\n")
+	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
 	mustContain(t, got, "very-long-agent-name-with-role")
 	mustNotContain(t, got, "very-lo...")
 }
@@ -1021,7 +982,7 @@ func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
 		entries = append(entries, store.LogEntry{Actor: "c"})
 	}
 
-	lines := p.renderActorActivityChart(entries, 6)
+	lines := p.renderPersonaActivityChart(entries, 6)
 
 	ansiRe := regexp.MustCompile("\x1b\\[[0-9;]*m")
 	var barCols []int
@@ -1056,14 +1017,14 @@ func TestProjectSummaryChartBoxesAreCentered(t *testing.T) {
 	body := m.projects.View()
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "activity by actor") && strings.Contains(line, "╭") {
+		if strings.Contains(line, "activity by persona") && strings.Contains(line, "╭") {
 			if strings.HasPrefix(line, "╭") {
 				t.Fatalf("chart box should be centered with left padding, got %q\n--- body ---\n%s", line, body)
 			}
 			return
 		}
 	}
-	t.Fatalf("missing centered activity by actor box\n--- body ---\n%s", body)
+	t.Fatalf("missing centered activity by persona box\n--- body ---\n%s", body)
 }
 
 func TestProjectSummaryChartBoxesUseNinetyFivePercentWidth(t *testing.T) {

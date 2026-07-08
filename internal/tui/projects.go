@@ -3,10 +3,10 @@ package tui
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
+	"atm/internal/activity"
 	"atm/internal/store"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
@@ -51,12 +51,6 @@ type detailState struct {
 	historyOn bool
 }
 
-type actorActivityRow struct {
-	actor   string
-	count   int
-	percent int
-}
-
 type activityStripeDay struct {
 	day   string
 	count int
@@ -87,49 +81,6 @@ func projectPaneSplitHeights(total int) (int, int) {
 		}
 	}
 	return listH, summaryH
-}
-
-func actorActivityRows(entries []store.LogEntry, limit int) []actorActivityRow {
-	if limit <= 0 {
-		return nil
-	}
-	counts := map[string]int{}
-	total := 0
-	for _, e := range entries {
-		if e.Actor == "" {
-			continue
-		}
-		counts[e.Actor]++
-		total++
-	}
-	out := make([]actorActivityRow, 0, len(counts))
-	for actor, count := range counts {
-		out = append(out, actorActivityRow{actor: actor, count: count})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].count == out[j].count {
-			return out[i].actor < out[j].actor
-		}
-		return out[i].count > out[j].count
-	})
-	if len(out) > limit {
-		visible := limit - 1
-		if visible < 0 {
-			visible = 0
-		}
-		otherCount := 0
-		for _, row := range out[visible:] {
-			otherCount += row.count
-		}
-		out = out[:visible]
-		out = append(out, actorActivityRow{actor: "others", count: otherCount})
-	}
-	for i := range out {
-		if total > 0 {
-			out[i].percent = (out[i].count*100 + total/2) / total
-		}
-	}
-	return out
 }
 
 func activityStripeDayCounts(entries []store.LogEntry, days int) []activityStripeDay {
@@ -454,22 +405,22 @@ func (p *projectsModel) renderSummary(height int) string {
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	if remaining == 1 {
-		lines = append(lines, dashboardLine(p.width, "activity by actor"))
+		lines = append(lines, dashboardLine(p.width, "activity by persona"))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	if remaining == 2 {
-		lines = append(lines, p.renderActorActivityChart(entries, 2)...)
+		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	if remaining == 3 {
-		lines = append(lines, p.renderActorActivityChart(entries, 2)...)
+		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
 		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("activity stripe %s", p.renderActivityStripeChart(entries, 2))))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 
 	if remaining >= 9 {
 		actorH, stripeH, bubblesH := chartBoxHeights(remaining)
-		lines = append(lines, p.renderActorActivityChart(entries, actorH)...)
+		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
 		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
 		lines = append(lines, strings.Split(p.renderBubbleChart(bubblesH), "\n")...)
 		return padToHeight(strings.Join(lines, "\n"), height)
@@ -482,7 +433,7 @@ func (p *projectsModel) renderSummary(height int) string {
 		actorMax = remaining - 2
 	}
 	if actorMax > 0 {
-		lines = append(lines, p.renderActorActivityChart(entries, actorMax)...)
+		lines = append(lines, p.renderPersonaActivityChart(entries, actorMax)...)
 	}
 	if height-len(lines) >= 2 {
 		lines = append(lines,
@@ -512,45 +463,51 @@ func chartBoxHeights(total int) (int, int, int) {
 	return actor, stripe, bubbles
 }
 
-func (p *projectsModel) renderActorActivityChart(entries []store.LogEntry, maxLines int) []string {
+func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, maxLines int) []string {
 	if maxLines <= 0 {
 		return nil
 	}
 	if maxLines < 3 {
-		return []string{dashboardLine(p.width, "activity by actor")}
+		return []string{dashboardLine(p.width, "activity by persona")}
 	}
 	entryCap := maxLines - 2
 	if entryCap <= 0 {
-		return []string{dashboardLine(p.width, "activity by actor")}
+		return []string{dashboardLine(p.width, "activity by persona")}
 	}
-	if entryCap > 10 {
-		entryCap = 10
-	}
-	rows := actorActivityRows(entries, entryCap)
+	aliases, _ := p.m.store.LoadAliases()
+	groups := activity.Aggregate(activity.Build(entries, aliases), "persona")
 	body := []string{}
-	if len(rows) == 0 {
+	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
-		return strings.Split(p.renderChartBox("activity by actor", strings.Join(body, "\n"), 3), "\n")
+		return strings.Split(p.renderChartBox("activity by persona", strings.Join(body, "\n"), 3), "\n")
 	}
-	for i, row := range rows {
-		if i >= entryCap {
-			break
+	if len(groups) > entryCap {
+		groups = groups[:entryCap]
+	}
+	nameW := longestPersonaKeyWidth(groups)
+	meterW := chartBoxInnerWidth(p.width) - nameW - 10
+	if meterW < 10 {
+		meterW = 10
+	}
+	total := 0
+	for _, g := range groups {
+		total += g.Count
+	}
+	for _, g := range groups {
+		percent := 0
+		if total > 0 {
+			percent = (g.Count*100 + total/2) / total
 		}
-		nameW := longestActorNameWidth(rows)
-		meterW := chartBoxInnerWidth(p.width) - nameW - 10
-		if meterW < 10 {
-			meterW = 10
-		}
-		line := fmt.Sprintf("%-*s %s %3d%% %3d", nameW, row.actor, meterBar(row.percent, meterW), row.percent, row.count)
+		line := fmt.Sprintf("%-*s %s %3d%% %3d", nameW, g.Key, meterBar(percent, meterW), percent, g.Count)
 		body = append(body, line)
 	}
-	return strings.Split(p.renderChartBox("activity by actor", strings.Join(body, "\n"), maxLines), "\n")
+	return strings.Split(p.renderChartBox("activity by persona", strings.Join(body, "\n"), maxLines), "\n")
 }
 
-func longestActorNameWidth(rows []actorActivityRow) int {
+func longestPersonaKeyWidth(groups []activity.Group) int {
 	width := 0
-	for _, row := range rows {
-		if w := lipgloss.Width(row.actor); w > width {
+	for _, g := range groups {
+		if w := lipgloss.Width(g.Key); w > width {
 			width = w
 		}
 	}
