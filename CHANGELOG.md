@@ -1,4 +1,5 @@
 ## Unreleased
+<!-- manual entry; release.sh prepends a dated section at cut — fold these bullets into the next release section and delete this block -->
 
 ### docs
 - Document personas, actor convention (`persona@agent:model`), `atm actor migrate`/`alias`, `atm developing --persona`, and `atm activity` (ATM-0052)
