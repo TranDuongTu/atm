@@ -45,6 +45,9 @@ func newSearchCmd(st *cliState) *cobra.Command {
 					}
 					qv = vec
 					resolvedModel = cfg.Embedding.Model
+					if threshold == 0 {
+						threshold = cfg.Embedding.Threshold
+					}
 				}
 			}
 			if resolvedModel == "" {

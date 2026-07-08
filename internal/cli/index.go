@@ -14,10 +14,9 @@ import (
 
 func newIndexCmd(st *cliState) *cobra.Command {
 	var project string
-	var watch bool
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "Keep the project's vector index fresh from the log (run-once watcher; no --actor)",
+		Short: "Run-once foreground watcher: does the initial delta then watches the log (no --actor; Ctrl-C stops)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := st.openStore()
 			if err != nil {
@@ -36,24 +35,12 @@ func newIndexCmd(st *cliState) *cobra.Command {
 			client := embed.New(*cfg.Embedding)
 			embedFn := func(text, role string) ([]float64, error) { return client.Embed(text, role) }
 			progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
-			if !watch {
-				res, err := s.ReindexOnce(project, embedFn)
-				if err != nil {
-					return err
-				}
-				return st.emit(st.stdout(), map[string]any{
-					"project": project, "indexed": res.Indexed, "model": res.Model, "log_seq": res.LogSeq,
-				}, func() {
-					fmt.Fprintf(st.stdout(), "indexed %d (model=%s); index at log_seq %d\n", res.Indexed, res.Model, res.LogSeq)
-				})
-			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 			return s.Watch(ctx, project, embedFn, progress)
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project code")
-	cmd.Flags().BoolVar(&watch, "watch", false, "keep watching the log after the initial pass (default: run once and exit)")
 	_ = cmd.MarkFlagRequired("project")
 	cmd.AddCommand(newIndexReindexCmd(st))
 	cmd.AddCommand(newIndexStatusCmd(st))
@@ -64,6 +51,7 @@ func newIndexCmd(st *cliState) *cobra.Command {
 
 func newIndexReindexCmd(st *cliState) *cobra.Command {
 	var project string
+	var once bool
 	cmd := &cobra.Command{
 		Use:   "reindex",
 		Short: "One-shot batch reindex (CI/git-hooks); exits after the delta pass",
@@ -96,6 +84,7 @@ func newIndexReindexCmd(st *cliState) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().BoolVar(&once, "once", true, "single batch pass then exit (batch primitive; default true)")
 	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }

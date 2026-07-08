@@ -23,10 +23,6 @@ func newInquiryAddCmd(st *cliState) *cobra.Command {
 		Short: "Append an inquiry (query + cited hit IDs) to inquiry-log.jsonl",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
 			s, err := st.openStore()
 			if err != nil {
 				return err
@@ -42,7 +38,7 @@ func newInquiryAddCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{
-				"project": project, "query": query, "cited_ids": citedIDs, "actor": actor,
+				"project": project, "query": query, "cited_ids": citedIDs,
 			}, func() {
 				fmt.Fprintf(st.stdout(), "appended inquiry to %s: %s\n", project, query)
 			})

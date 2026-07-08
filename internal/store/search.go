@@ -38,6 +38,7 @@ func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error
 	if err != nil {
 		return nil, false, err
 	}
+	entries = dedupVectorsByID(entries)
 	if len(entries) > 0 && len(p.QueryVector) > 0 {
 		idxDim := entries[0].Dim
 		if len(p.QueryVector) != idxDim {
@@ -142,4 +143,18 @@ func snippet(s string, max int) string {
 		return s
 	}
 	return s[:max-1] + "…"
+}
+
+func dedupVectorsByID(entries []VectorEntry) []VectorEntry {
+	latest := map[string]VectorEntry{}
+	for _, e := range entries {
+		if cur, ok := latest[e.ID]; !ok || e.LogSeq > cur.LogSeq {
+			latest[e.ID] = e
+		}
+	}
+	out := make([]VectorEntry, 0, len(latest))
+	for _, e := range latest {
+		out = append(out, e)
+	}
+	return out
 }

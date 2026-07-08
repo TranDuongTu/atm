@@ -147,3 +147,26 @@ func TestSearchKindFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchDeduplicatesStaleEntries(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0, 1}, TextHash: "old", LogSeq: 1, Title: "old title", Snippet: "old"}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{1, 0}, TextHash: "new", LogSeq: 5, Title: "new title", Snippet: "new"}}, 5); err != nil {
+		t.Fatal(err)
+	}
+	hits, _, err := s.Search(SearchParams{Project: "ATM", Model: "m", QueryVector: []float64{1, 0}, QueryText: "new", K: 5, Threshold: 0.3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1 (deduplicated)", len(hits))
+	}
+	if hits[0].Title != "new title" {
+		t.Errorf("hit.Title = %q, want %q (latest entry)", hits[0].Title, "new title")
+	}
+}

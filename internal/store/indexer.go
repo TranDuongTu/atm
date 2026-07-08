@@ -126,11 +126,13 @@ func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log Pro
 	if log != nil && res.Indexed > 0 {
 		log(fmt.Sprintf("indexed %d (model=%s); index at log_seq %d", res.Indexed, res.Model, res.LogSeq))
 	}
-	const pollInterval = 1 * time.Second
+	const basePoll = 1 * time.Second
+	const maxPoll = 30 * time.Second
+	poll := basePoll
 	lastSeq := res.LogSeq
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
 	for {
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -144,9 +146,14 @@ func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log Pro
 				if log != nil {
 					log(fmt.Sprintf("index error: %v", err))
 				}
+				poll *= 2
+				if poll > maxPoll {
+					poll = maxPoll
+				}
 				continue
 			}
 			lastSeq = res.LogSeq
+			poll = basePoll
 			if log != nil && res.Indexed > 0 {
 				log(fmt.Sprintf("indexed %d (model=%s); index at log_seq %d", res.Indexed, res.Model, res.LogSeq))
 			}
