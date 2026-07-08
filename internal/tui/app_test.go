@@ -1890,3 +1890,55 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 		t.Errorf("GetTask after remove: err=%v, want ErrNotFound", err)
 	}
 }
+
+func TestPersonaCreateFormFromOverlay(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	if !m.actorsOverlay {
+		t.Fatal("overlay should be open")
+	}
+	update(t, m, "p")
+	if m.form == nil || m.formKind != formPersonaCreate {
+		t.Fatalf("persona form not open: form=%v kind=%v", m.form, m.formKind)
+	}
+	for _, r := range "reviewer" {
+		update(t, m, string(r))
+	}
+	update(t, m, "tab")
+	for _, r := range "holds a high bar" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+	if m.form != nil {
+		t.Fatalf("form should be closed after submit: %v", m.form)
+	}
+	p, err := m.store.GetPersona("reviewer")
+	if err != nil || p.Description != "holds a high bar" {
+		t.Fatalf("persona not created: %+v %v", p, err)
+	}
+	if !m.actorsOverlay {
+		t.Fatal("overlay should still be open after form submit")
+	}
+}
+
+func TestPersonaCreateFormEscReturnsToOverlay(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	update(t, m, "p")
+	if m.form == nil {
+		t.Fatal("form should be open")
+	}
+	update(t, m, "esc")
+	if m.form != nil {
+		t.Fatal("form should be closed on Esc")
+	}
+	if !m.actorsOverlay {
+		t.Fatal("overlay should still be open after form Esc (form was on top)")
+	}
+}
