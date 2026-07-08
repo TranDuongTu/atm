@@ -1,9 +1,0 @@
-{
-  "after": 12,
-  "agent_exit": 0,
-  "before": 3,
-  "project": "FOO",
-  "prompt_path": "/STORE/onboarding/FOO-RUNID.md",
-  "prompt_version": "v1",
-  "run_id": "FOO-RUNID"
-}
