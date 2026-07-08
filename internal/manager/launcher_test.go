@@ -2,6 +2,7 @@ package manager
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +63,27 @@ func TestOllamaLauncherInteractiveArgv(t *testing.T) {
 	want := []string{"ollama", "launch", "codex", "--"}
 	if got := l.BuildArgv(); !reflect.DeepEqual(got, want) {
 		t.Errorf("OllamaLauncher BuildArgv = %v, want %v", got, want)
+	}
+}
+
+func TestBuildArgvOnboardOpencode(t *testing.T) {
+	l, ok := LauncherFor("opencode")
+	if !ok {
+		t.Fatal("LauncherFor(opencode) not found")
+	}
+	got := l.BuildArgvOnboard("/tmp/ctx.md")
+	if len(got) < 4 || got[0] != "opencode" || got[1] != "--auto" || got[2] != "--prompt" {
+		t.Fatalf("opencode BuildArgvOnboard = %v, want [--auto --prompt <msg>]", got)
+	}
+	if !strings.Contains(got[3], "/tmp/ctx.md") {
+		t.Fatalf("opencode onboard prompt message should reference the context path; got %q", got[3])
+	}
+}
+
+func TestBuildArgvOnboardOllama(t *testing.T) {
+	l := OllamaLauncher{Integration: "opencode"}
+	got := l.BuildArgvOnboard("/tmp/ctx.md")
+	if len(got) < 6 || got[0] != "ollama" || got[1] != "launch" || got[2] != "opencode" || got[3] != "--" {
+		t.Fatalf("ollama BuildArgvOnboard = %v, want [ollama launch opencode -- --auto --prompt <msg>]", got)
 	}
 }

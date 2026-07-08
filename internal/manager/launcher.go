@@ -4,6 +4,7 @@ type Launcher interface {
 	Name() string
 	NotFoundHint() string
 	BuildArgv() []string
+	BuildArgvOnboard(contextPath string) []string
 }
 
 type staticLauncher struct {
@@ -15,6 +16,11 @@ type staticLauncher struct {
 func (l staticLauncher) Name() string         { return l.name }
 func (l staticLauncher) NotFoundHint() string { return l.hint }
 func (l staticLauncher) BuildArgv() []string  { return append([]string(nil), l.argv...) }
+
+func (l staticLauncher) BuildArgvOnboard(contextPath string) []string {
+	msg := managerMessagePrefix + contextPath + managerMessageSuffix
+	return []string{l.name, "--auto", "--prompt", msg}
+}
 
 func LauncherFor(name string) (Launcher, bool) {
 	switch name {
@@ -29,9 +35,6 @@ func LauncherFor(name string) (Launcher, bool) {
 	}
 }
 
-// OllamaLauncher execs `ollama launch <integration> --` for an interactive
-// manager session. Constructed directly by the CLI's ollama subcommand,
-// mirroring internal/onboard. LauncherFor stays ok=false for "ollama".
 type OllamaLauncher struct {
 	Integration string
 }
@@ -41,3 +44,14 @@ func (l OllamaLauncher) NotFoundHint() string { return "https://ollama.com" }
 func (l OllamaLauncher) BuildArgv() []string {
 	return []string{"ollama", "launch", l.Integration, "--"}
 }
+
+func (l OllamaLauncher) BuildArgvOnboard(contextPath string) []string {
+	msg := managerMessagePrefix + contextPath + managerMessageSuffix
+	return []string{"ollama", "launch", l.Integration, "--",
+		"--auto", "--prompt", msg}
+}
+
+const (
+	managerMessagePrefix = "Read the manager instructions in the file at "
+	managerMessageSuffix = " and follow them exactly."
+)
