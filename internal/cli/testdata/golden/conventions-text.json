@@ -24,6 +24,10 @@ Comments are the running narrative on a task: a clarification, an implementation
 
 Use labels as the filter. `atm task list --project <CODE> --label <CODE>:<ns>:<value>` returns tasks carrying that exact label. Wildcard labels (e.g. `<CODE>:status:*`) drive faceted grouping via `atm task list --facets`. Combine labels to narrow: `--label <CODE>:status:open --label <CODE>:type:bug` is open bugs.
 
+## Actor identity
+
+Every log entry and comment carries an actor string of the form `persona@agent:model` (e.g. `staff-engineer@claude:opus-4.8`). Personas are global, human- or agent-authored profiles (name + prompt + description) managed with `atm persona create|list|show|edit|remove`; the agent segment (`claude`, `codex`, `opencode`, `ollama`) and model are stamped by the host agent itself. An unset or unresolved persona renders as `(none)`. Start a session with a persona via `atm developing <agent> --project <CODE> --persona <name>`, which injects the persona's prompt into the session context and defaults the actor to `<persona>@<agent>` (an explicit `--actor` still wins). Legacy actor strings from before this convention are mapped to personas via `atm actor migrate [--dry-run]` (seeds the built-in `developer`/`manager` personas and records aliases) and curated by hand with `atm actor alias set|list|remove`. See who has been doing what with `atm activity --project <CODE> [--group-by persona|agent|model]`, or the TUI's `[4] Actors` pane.
+
 ## Agent first-contact sequence
 
 1. Read this guide, including the code-of-conduct below.

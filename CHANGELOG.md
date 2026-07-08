@@ -1,3 +1,9 @@
+## Unreleased
+
+### docs
+- Document personas, actor convention (`persona@agent:model`), `atm actor migrate`/`alias`, `atm developing --persona`, and `atm activity` (ATM-0052)
+
+
 ## v1.2.2 - 2026-07-07
 
 ### docs

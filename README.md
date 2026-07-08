@@ -191,6 +191,48 @@ session (see `docs/superpowers/specs/2026-07-06-atm-manager-subagent-design.md`)
 through `--`, and `ATM_<AGENT>_ARGS` defaults apply the same way as
 `atm developing` (see above).
 
+### Personas & actor activity
+
+```
+atm persona create --name <NAME> [--prompt <TEXT> | --prompt-file <PATH>] [--description <DESC>] [--actor <id>]
+atm persona list
+atm persona show   --name <NAME>
+atm persona edit   --name <NAME> [--prompt <TEXT> | --prompt-file <PATH>] [--description <DESC>] [--actor <id>]
+atm persona remove --name <NAME>
+
+atm actor migrate [--dry-run]
+atm actor alias set    <raw-actor> --persona <NAME> [--agent <AGENT>] [--model <MODEL>]
+atm actor alias list
+atm actor alias remove <raw-actor>
+
+atm activity --project <CODE> [--group-by persona|agent|model]
+```
+
+Personas are a global registry (name, prompt, description) — `atm persona
+create|list|show|edit|remove` manage them independently of any project.
+Actors follow the convention `persona@agent:model` (e.g.
+`staff-engineer@claude:opus-4.8`): the persona segment is chosen by whoever
+starts the session, the agent (`claude`, `codex`, `opencode`, `ollama`) and
+model segments are stamped by the host agent itself. An unset or unresolved
+persona renders as `(none)`.
+
+`atm developing <agent> --project <CODE> --persona <NAME>` injects the
+persona's prompt into the rendered session context, sets `ATM_PERSONA` and
+`ATM_AGENT` in the launched environment, and defaults `--actor` to
+`<persona>@<agent>` (an explicit `--actor` still wins).
+
+`atm actor migrate [--dry-run]` seeds the built-in `developer`/`manager`
+personas and scans existing project logs for legacy (pre-convention) actor
+strings, recording an alias (`<root>/actor-aliases.json`) mapping each one to
+a persona/agent/model. `atm actor alias set|list|remove` manage that alias
+table by hand.
+
+`atm activity --project <CODE> [--group-by persona|agent|model]` aggregates
+actor activity from the project's audit log into
+`{"groups":[{"key","count","agents","models","actions"}]}`. The TUI's
+`[4] Actors` pane (maximized) renders the same aggregation as a persona
+activity chart with a per-persona agents/models/actions breakdown.
+
 ## Conventions
 
 v2's vision is that workflow lives outside the system — in agent prompts and
