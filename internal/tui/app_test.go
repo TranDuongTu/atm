@@ -220,10 +220,6 @@ func TestPaneFocusKeys(t *testing.T) {
 	if m.focused != paneLabels {
 		t.Fatalf("after 3: focus = %v want paneLabels", m.focused)
 	}
-	update(t, m, "4")
-	if m.focused != paneActors {
-		t.Fatalf("after 4: focus = %v want paneActors", m.focused)
-	}
 	update(t, m, "1")
 	if m.focused != paneProjects {
 		t.Fatalf("after 1: focus = %v want paneProjects", m.focused)

@@ -15,10 +15,9 @@ const (
 	paneProjects workspacePane = iota
 	paneTasks
 	paneLabels
-	paneActors
 )
 
-const numPanes = 4
+const numPanes = 3
 
 // helpOverlayKind identifies which read-only reference overlay is open.
 type helpOverlayKind int
@@ -161,7 +160,6 @@ func (m *Model) SetSize(w, h int) {
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
 	m.labels.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
-	m.actors.SetSize(innerPaneWidth(m.width), innerPaneHeight(m.contentHeight))
 	if m.helpOverlay != helpNone {
 		bw, bh := m.helpBoxSize()
 		m.help.SetSize(bw, bh)
@@ -378,10 +376,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "3":
 		m.focused = paneLabels
 		return nil
-	case "4":
-		m.focused = paneActors
-		m.actors.refresh()
-		return nil
 	case "?":
 		m.openHelp(helpKeys)
 		return nil
@@ -423,10 +417,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			m.labels.chartNS = ""
 			return nil
 		}
-		if m.focused == paneActors && m.actors.detail {
-			m.actors.detail = false
-			return nil
-		}
 		// No detail to leave: ignore.
 		return nil
 	}
@@ -438,8 +428,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	case paneLabels:
 		return m.labels.handleKey(k)
-	case paneActors:
-		return m.actors.handleKey(k)
 	}
 	return nil
 }
@@ -564,9 +552,6 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderWorkspace() string {
-	if m.focused == paneActors {
-		return m.renderPane(paneActors, m.width, m.contentHeight, "[4] Actors", m.actors.View())
-	}
 	leftW, rightW := splitWorkspaceWidths(m.width)
 	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 
@@ -595,8 +580,6 @@ func (m *Model) statusHint() string {
 		return m.tasks.statusHint()
 	case paneLabels:
 		return m.labels.statusHint()
-	case paneActors:
-		return m.actors.statusHint()
 	}
 	return "[?]keys [C]conventions"
 }

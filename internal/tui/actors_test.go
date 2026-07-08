@@ -41,7 +41,8 @@ func TestActorsPaneRendersChart(t *testing.T) {
 	m := mkActorsTestModel(t)
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
-	m.focused = paneActors
+	m.focused = paneProjects
+	m.actors.SetSize(80, 24)
 	m.actors.refresh()
 	view := m.actors.View()
 	if !strings.Contains(view, "staff") {
@@ -53,8 +54,8 @@ func TestTabReachesActorsPane(t *testing.T) {
 	m := mkActorsTestModel(t)
 	m.SetSize(80, 24)
 	update(t, m, "4")
-	if m.focused != paneActors {
-		t.Fatalf("focused = %v, want paneActors", m.focused)
+	if m.focused != paneProjects {
+		t.Fatalf("focused = %v, want paneProjects (4 is a no-op now)", m.focused)
 	}
 }
 
@@ -62,7 +63,7 @@ func TestActorsBarsAlignToWidth(t *testing.T) {
 	m := mkActorsTestModel(t)
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
-	m.focused = paneActors
+	m.focused = paneProjects
 	m.actors.refresh()
 	m.actors.SetSize(80, 24)
 	view := m.actors.renderList()
