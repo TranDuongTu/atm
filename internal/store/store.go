@@ -168,6 +168,9 @@ func (s *Store) projectDir(code string) string {
 func (s *Store) lockPath(code string) string {
 	return filepath.Join(s.projectsDir(), code+".lock")
 }
+func (s *Store) configPath(code string) string {
+	return filepath.Join(s.projectDir(code), "config.json")
+}
 
 // projectCodesOnDisk enumerates project codes by the projects/<CODE>/
 // directory structure (which holds log.jsonl), independent of cache.db.
