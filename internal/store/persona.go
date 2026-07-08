@@ -157,3 +157,12 @@ func (s *Store) SeedPersonas(actor string) ([]string, error) {
 	sort.Strings(added)
 	return added, nil
 }
+
+// seedPersonas returns the built-in persona names (order-independent).
+func seedPersonas() []string {
+	names := make([]string, 0, len(seed.Personas))
+	for _, sp := range seed.Personas {
+		names = append(names, sp.Name)
+	}
+	return names
+}
