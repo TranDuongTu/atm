@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // mkActorsTestModel builds a Model on top of the shared newTestModel harness,
@@ -53,5 +55,22 @@ func TestTabReachesActorsPane(t *testing.T) {
 	update(t, m, "4")
 	if m.focused != paneActors {
 		t.Fatalf("focused = %v, want paneActors", m.focused)
+	}
+}
+
+func TestActorsBarsAlignToWidth(t *testing.T) {
+	m := mkActorsTestModel(t)
+	m.SetSize(80, 24)
+	m.projectScope = "ATM"
+	m.focused = paneActors
+	m.actors.refresh()
+	m.actors.SetSize(80, 24)
+	view := m.actors.renderList()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "staff") {
+			if w := lipgloss.Width(line); w != 80 {
+				t.Fatalf("persona row width = %d, want 80:\n%q", w, line)
+			}
+		}
 	}
 }

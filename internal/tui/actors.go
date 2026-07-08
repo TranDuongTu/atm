@@ -86,7 +86,7 @@ func (a *actorsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 
 func (a *actorsModel) View() string {
 	if a.m.projectScope == "" {
-		return padToHeight(dashboardLine(a.width, a.m.styles.Muted.Render("select a project (pane 1) to see actor activity")), a.contentHeight)
+		return padToHeight(dashboardLine(a.width, a.m.styles.Muted.Render("select a project to see actor activity")), a.contentHeight)
 	}
 	if a.detail && a.cursor < len(a.groups) {
 		return a.renderDetail(a.groups[a.cursor])
@@ -110,7 +110,7 @@ func (a *actorsModel) renderList() string {
 			nameW = len(g.Key)
 		}
 	}
-	meterW := a.width - nameW - 16
+	meterW := a.width - nameW - 12
 	if meterW < 10 {
 		meterW = 10
 	}
