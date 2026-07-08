@@ -59,6 +59,45 @@ func TestGoldenProjectSetName(t *testing.T) {
 	compareGolden(t, "project-set-name", out)
 }
 
+func TestGoldenProjectSetEmbedding(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "tester")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	out, _, code := h.run("project", "set-embedding", "--store", sp, "--project", "FOO", "--model", "nomic-embed-text", "--endpoint", "http://localhost:11434/v1", "--dim", "768", "--threshold", "0.55", "--actor", "tester", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	compareGolden(t, "project-set-embedding", out)
+}
+
+func TestGoldenProjectSetEmbeddingRequiresActor(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "tester")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	_, _, code := h.run("project", "set-embedding", "--store", sp, "--project", "FOO", "--model", "m", "--endpoint", "http://x", "--dim", "4", "--threshold", "0.5")
+	if code != ExitUsage {
+		t.Errorf("exit=%d, want %d (missing actor)", code, ExitUsage)
+	}
+}
+
+func TestGoldenProjectShowEmbedding(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "tester")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	h.run("project", "set-embedding", "--store", sp, "--project", "FOO", "--model", "nomic-embed-text", "--endpoint", "http://localhost:11434/v1", "--dim", "768", "--threshold", "0.55", "--actor", "tester")
+	out, _, code := h.run("project", "show", "--store", sp, "--code", "FOO", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	compareGolden(t, "project-show-embedding", out)
+	if !strings.Contains(out, "embedding") {
+		t.Errorf("project show output missing embedding field: %s", out)
+	}
+}
+
 func TestGoldenProjectRemoveZeroTaskGuard(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()

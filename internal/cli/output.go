@@ -37,15 +37,16 @@ type jsonTask struct {
 }
 
 type jsonProject struct {
-	Code      string        `json:"code"`
-	Name      string        `json:"name"`
-	NextTaskN int           `json:"next_task_n"`
-	LogSeq    int           `json:"log_seq"`
-	History   []jsonHistory `json:"history"`
-	CreatedAt string        `json:"created_at"`
-	CreatedBy string        `json:"created_by"`
-	UpdatedAt string        `json:"updated_at"`
-	UpdatedBy string        `json:"updated_by"`
+	Code      string                 `json:"code"`
+	Name      string                 `json:"name"`
+	NextTaskN int                    `json:"next_task_n"`
+	LogSeq    int                    `json:"log_seq"`
+	History   []jsonHistory          `json:"history"`
+	CreatedAt string                 `json:"created_at"`
+	CreatedBy string                 `json:"created_by"`
+	UpdatedAt string                 `json:"updated_at"`
+	UpdatedBy string                 `json:"updated_by"`
+	Embedding *store.EmbeddingConfig `json:"embedding,omitempty"`
 }
 
 type jsonLabel struct {
