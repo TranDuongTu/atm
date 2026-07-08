@@ -33,6 +33,16 @@ continue. Do not branch on it. If the manager is unavailable, note the
 track intent in your own context and continue; ledger hygiene is
 best-effort.
 
+## Role boundaries
+
+Do not create `Manager: *` or self-improvement gene tasks. The
+self-improvement gene is the manager's responsibility: the `atm-manager`
+subagent logs one `Manager: <change>` / `type:chore` task per manager
+session to capture reusable cross-project practices. Developing agents do
+not run that gene. If you observe a management practice worth capturing,
+dispatch the `atm-manager` subagent with `hint: chore` describing the
+observation instead of creating the task yourself.
+
 ## Commands
 
 Use `${ATM_BIN}` when available, otherwise use `atm`.

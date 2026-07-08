@@ -28,6 +28,7 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 		"ATM binary: `/usr/local/bin/atm`",
 		"Actor: `codex-dev`",
 		"atm task comment add --task <ID>",
+		"self-improvement gene",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)

@@ -73,6 +73,19 @@ func TestPluginAssetsContainManagerDispatchContract(t *testing.T) {
 	}
 }
 
+func TestPluginAssetsForbidSelfImprovementGeneTasks(t *testing.T) {
+	for _, agent := range []string{"opencode", "claude", "codex"} {
+		assets, _ := PluginAssets(agent)
+		joined := string(joinAssetContents(assets))
+		if !strings.Contains(joined, "self-improvement gene") {
+			t.Errorf("%s developing assets do not mention the self-improvement gene boundary", agent)
+		}
+		if !strings.Contains(joined, "Manager:") {
+			t.Errorf("%s developing assets do not forbid Manager: gene tasks by name", agent)
+		}
+	}
+}
+
 func TestCodexPluginManifestSuppressesAutoDiscoveredHooks(t *testing.T) {
 	assets, _ := PluginAssets("codex")
 	var manifest struct {

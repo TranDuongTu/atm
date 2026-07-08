@@ -20,6 +20,14 @@ This is an ATM developing session. Use ATM project `<CODE>` as the visible work 
 4. Prefer comments on the relevant task over private-only chat summaries.
 5. If instructions conflict, preserve the normal agent/repo instruction hierarchy and use ATM where compatible.
 
+## Role boundaries
+
+Do not create `Manager: *` or self-improvement gene tasks. The
+self-improvement gene is the manager's responsibility, not the
+developing agent's. If you observe a management practice worth
+capturing, dispatch the `atm-manager` subagent with `hint: chore`
+describing the observation instead of creating the task yourself.
+
 ## Commands
 
 - `<ATM_BIN> conventions`

@@ -129,10 +129,18 @@ below).
 
 Plugin installation is explicit and user-scoped, mirroring developing:
 
-- `atm manager plugin status` reports `installed` / `partial` / `missing`
-  per host. `partial` means the `atm-manager` subagent definition is present
-  but the developing bootstrap plugin is not installed, so the developing
-  agent does not know to dispatch `atm-manager`.
+- `atm manager plugin status` reports `installed` / `partial` / `stale` /
+  `missing` per host. `partial` means the `atm-manager` subagent definition
+  is present but the developing bootstrap plugin is not installed, so the
+  developing agent does not know to dispatch `atm-manager`. `stale` means
+  the deployed file no longer matches the embedded asset (e.g. a previous
+  version was installed and never reinstalled after a prompt fix); the user
+  should rerun `atm manager plugin install <host>` to refresh it. This
+  state exists because of ATM-0047: the claude/codex deployed plugins
+  drifted after the ATM-0032 gate fix was only reinstalled for OpenCode,
+  and `PluginStatus` reported "installed" because it only checked file
+  presence. `PluginStatus` now compares deployed content against the
+  embedded asset and reports `stale` on mismatch.
 - `atm manager plugin install <host|all>` writes the manager subagent
   definition to the host's user-level agents directory and prints exactly
   what changed and how to uninstall. It does not write repo-local config.
@@ -176,6 +184,24 @@ The developing agent's bootstrap context (installed by
 > continue. Do not branch on it. If the manager is unavailable, note the
 > track intent in your own context and continue; ledger hygiene is
 > best-effort in v1.
+
+The developing bootstrap also carries a **role boundary** forbidding
+`Manager: *` / self-improvement gene tasks:
+
+> Do not create `Manager: *` or self-improvement gene tasks. The
+> self-improvement gene is the manager's responsibility: the `atm-manager`
+> subagent logs one `Manager: <change>` / `type:chore` task per manager
+> session to capture reusable cross-project practices. Developing agents
+> do not run that gene. If you observe a management practice worth
+> capturing, dispatch the `atm-manager` subagent with `hint: chore`
+> describing the observation instead of creating the task yourself.
+
+This boundary exists because of ATM-0061: without it, developing agents
+observed `Manager: *` / `type:chore` tasks in the ledger, absorbed the
+convention, and created their own gene tasks during normal dev sessions —
+13 of 18 such tasks were created by `*-dev` actors, not the manager. The
+gene is a manager-only responsibility by design; the developing prompt
+now says so explicitly.
 
 ## Two Runtime Modes
 
@@ -390,13 +416,17 @@ printing a clear warning from `atm manager plugin status codex`.
 ## Plugin Install UX
 
 Identical shape to `atm developing plugin`, with `installed` / `partial`
-/ `missing` states:
+/ `stale` / `missing` states:
 
 - `installed`: the `atm-manager` subagent definition is present in the
-  host's user-level agents area and the developing bootstrap plugin is
-  installed, so the developing agent knows to dispatch `atm-manager`.
+  host's user-level agents area, its content matches the embedded asset,
+  and the developing bootstrap plugin is installed, so the developing
+  agent knows to dispatch `atm-manager`.
 - `partial`: the subagent definition exists but the developing bootstrap
   plugin is absent.
+- `stale`: the subagent definition exists but its content no longer
+  matches the embedded asset (a previous version was deployed and never
+  reinstalled after a prompt fix). Reinstall to refresh.
 - `missing`: no subagent definition found.
 
 `atm manager plugin install <host|all>` writes the subagent definition
@@ -478,11 +508,14 @@ Unit and golden tests:
   `ATM_ROLE=developing`).
 - Manager subagent definition templates emit the manager role context
   with ATM env vars set.
-- `PluginStatus` reports `installed` / `partial` / `missing` correctly
-  per host, including the partial case where the developing plugin is
-  absent.
+- `PluginStatus` reports `installed` / `partial` / `stale` / `missing`
+  correctly per host, including the partial case where the developing
+  plugin is absent and the stale case where the deployed file content no
+  longer matches the embedded asset.
 - `InstallPlugin` writes the expected files to the user-level agents
   directory and is idempotent.
+- Developing plugin assets contain the self-improvement gene boundary
+  forbidding `Manager: *` tasks by developing agents.
 
 Manual smoke tests:
 

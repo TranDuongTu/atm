@@ -104,6 +104,36 @@ func TestPluginStatusInstalledRequiresDevelopingPlugin(t *testing.T) {
 	}
 }
 
+func TestPluginStatusDetectsStaleDeployedFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Install both plugins so the manager status would otherwise be "installed".
+	if _, err := developing.InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := PluginStatus("claude", home); got.State != "installed" {
+		t.Fatalf("PluginStatus(claude) after fresh install = %q, want installed", got.State)
+	}
+	// Corrupt the deployed manager file so it no longer matches the embedded asset.
+	root, _ := PluginInstallRoot("claude", home)
+	if err := os.WriteFile(root, []byte("stale content from a previous version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := PluginStatus("claude", home); got.State != "stale" {
+		t.Errorf("PluginStatus(claude) with stale content = %q, want stale", got.State)
+	}
+	// Reinstalling must clear the stale state.
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := PluginStatus("claude", home); got.State != "installed" {
+		t.Errorf("PluginStatus(claude) after reinstall = %q, want installed", got.State)
+	}
+}
+
 func TestInstallPluginWritesSubagentDefinition(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -95,6 +96,22 @@ func PluginStatus(agent, home string) Status {
 	devStatus := developing.PluginStatus(agent, home)
 	if devStatus.State != "installed" {
 		return Status{Agent: agent, State: "partial", Path: root}
+	}
+	// Detect stale deployed content: if the installed file no longer matches
+	// the embedded asset (e.g. a previous version was installed and never
+	// reinstalled after a prompt fix), report stale so the user knows to
+	// reinstall. This is how ATM-0047 (claude manager subagent inactive) went
+	// undetected: the file was present but still carried the old ATM_ROLE gate.
+	assets, ok := PluginAssets(agent)
+	if !ok || len(assets) == 0 {
+		return Status{Agent: agent, State: "installed", Path: root}
+	}
+	deployed, err := os.ReadFile(root)
+	if err != nil {
+		return Status{Agent: agent, State: "partial", Path: root}
+	}
+	if !bytes.Equal(deployed, assets[0].Content) {
+		return Status{Agent: agent, State: "stale", Path: root}
 	}
 	return Status{Agent: agent, State: "installed", Path: root}
 }
