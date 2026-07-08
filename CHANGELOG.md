@@ -1,3 +1,13 @@
+## v1.2.5 - 2026-07-08
+
+### docs
+- Fix ATM-0047 + ATM-0061: manager plugin staleness detection + developing gene boundary
+- Reconcile TUI chart with spec: sort by weight, empty-state text, layout mockup (ATM-0028)
+- Update docs/smoke for manager onboarding + Ubiquitous Language (ATM-0028)
+- Implementation plan: manager knowledge-base owner + onboarding unification + Ubiquitous Language (ATM-0028)
+- Design spec: manager as knowledge-base owner (onboarding unification + Ubiquitous Language) (ATM-0028)
+
+
 ## v1.2.4 - 2026-07-08
 
 ### docs
