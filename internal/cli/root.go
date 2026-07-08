@@ -72,7 +72,6 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newActivityCmd(st))
 	root.AddCommand(newTaskCmd(st))
 	root.AddCommand(newVocabularyCmd(st))
-	root.AddCommand(newOnboardingCmd(st))
 	root.AddCommand(newDevelopingCmd(st))
 	root.AddCommand(newManagerCmd(st))
 	root.AddCommand(newTUICmd(st))
