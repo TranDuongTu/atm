@@ -169,6 +169,28 @@ non-interactively; do not ask the human questions.
 No `<EXISTING_TASKS>` snapshot is embedded in your prompt; the live
 `<ATM_BIN> task list --output json` is your reconciliation baseline.
 
+## Inquiry responsibility
+
+When a track request arrives with `hint: question` (or clearly asks "what do
+I know about X / has this been done / what blocked last time"), answer from the
+knowledge base:
+
+1. Run `<ATM_BIN> search --project <CODE> "question" --output json`. The
+   project's declared embedding model is used automatically; text fallback fires
+   if no index exists or results are weak.
+2. Read the ranked hits. Drill into specific ones with `<ATM_BIN> task show
+   --id <ID> --output json` or `<ATM_BIN> task comment list --task <ID>
+   --output json` if you need more detail.
+3. Synthesize a grounded answer that cites the hit IDs you used. If
+   `fallback_used` is true or no hits came back, say so explicitly and answer
+   from text results or from your general knowledge of the project.
+4. Append the inquiry as future eval ground truth:
+   `<ATM_BIN> inquiry add --project <CODE> --query "<question>" --cited <id1,id2> --actor <ACTOR>`
+5. Return the answer to the developing agent. Do not block on a reply.
+
+This is the search/query capability the knowledge-base-owner role declared as
+forward-compatible. It is now built. Use it.
+
 ## Ledger hygiene
 
 - Use the project's label conventions consistently. Run
@@ -189,6 +211,19 @@ No `<EXISTING_TASKS>` snapshot is embedded in your prompt; the live
 - Surface priority when you see it. If a track call describes a blocker or
   a regression, add the appropriate priority label and name the task in
   your confirmation.
+- Your curation is retrieval preparation. Good titles, descriptions, and
+  labels are what make future `atm search` results relevant. When you touch a
+  task, write it so future search finds it: name the concept, not the
+  transient activity. Use consistent labels.
+- When you supersede a prior decision, mark the old comment with the label
+  `ATM:comment:superseded` so stale rulings do not surface at equal rank in
+  semantic search alongside the new ruling.
+- Prefer per-decision granularity: one decision per comment, or a numbered
+  per-decision structure within a single comment, so retrieval can cite
+  individual decisions rather than a multi-decision bundle.
+- Curation changes document text, which changes text_hash; the next `atm index`
+  delta re-embeds the affected items automatically. You do not reindex; the
+  indexer process does.
 
 ## Interactive mode (human → manager)
 
@@ -263,6 +298,15 @@ in each command below.
 - `<ATM_BIN> task remove --id <ID> --actor <ACTOR>`
 - `<ATM_BIN> vocabulary show --project <CODE> --output json`
 - `<ATM_BIN> vocabulary write --project <CODE> --actor <ACTOR> --terms <json>`
+- `<ATM_BIN> project set-embedding --project <CODE> --model <slug> --endpoint <url> [--dim <n>] [--threshold <f>] [--actor <ACTOR>]`
+- `<ATM_BIN> search --project <CODE> "query" [--kind task|comment|all] [--k 5] [--output json]`
+- `<ATM_BIN> index --project <CODE> [--watch]           # run once (default) or watch the log`
+- `<ATM_BIN> index reindex --project <CODE>             # one-shot batch (CI/hooks)`
+- `<ATM_BIN> index status --project <CODE>`
+- `<ATM_BIN> index drop --project <CODE> --model <slug>`
+- `<ATM_BIN> index models --project <CODE>`
+- `<ATM_BIN> inquiry add --project <CODE> --query "<q>" --cited <id,id> [--actor <ACTOR>]`
+- `<ATM_BIN> embed --project <CODE> [--role query|document] [--file <jsonl>|"text"]`
 
 ## Code of conduct
 

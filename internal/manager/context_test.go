@@ -70,3 +70,37 @@ func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderContextInquirySectionPresent(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
+	for _, frag := range []string{"Inquiry responsibility", "hint: question", "atm search"} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("prompt missing %q", frag)
+		}
+	}
+}
+
+func TestRenderContextWriteSideRepresentationPresent(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
+	for _, frag := range []string{"ATM:comment:superseded", "retrieval preparation"} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("prompt missing %q", frag)
+		}
+	}
+}
+
+func TestRenderContextNewCommandsInCheatSheet(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
+	for _, frag := range []string{"atm search", "atm index", "atm inquiry add", "atm project set-embedding"} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("cheat sheet missing %q", frag)
+		}
+	}
+}
+
+func TestRenderContextNoIndexingLoopSection(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
+	if strings.Contains(got, "Indexing responsibility") {
+		t.Errorf("prompt should NOT contain an Indexing responsibility section (indexing is a non-LLM process, R4); got one")
+	}
+}
