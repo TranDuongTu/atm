@@ -41,6 +41,8 @@ var keymapRows = []keyEntry{
 	{"N", "set name (project detail)", "-", "-", "-"},
 	{"M", "-", "-", "-", "add comment (task)"},
 	{"H", "toggle history (project detail)", "-", "-", "history overlay (task detail)"},
+	{"P", "expand activity by persona", "-", "-", "-"},
+	{"p", "add persona", "-", "-", "-"},
 	{"T", "cycle theme", "cycle theme", "cycle theme", "cycle theme"},
 	{"?", "open keys help", "open keys help", "open keys help", "close help overlay"},
 	{"C", "open conventions", "open conventions", "open conventions", "close help overlay"},

@@ -1,8 +1,15 @@
 ## Unreleased
 <!-- manual entry; release.sh prepends a dated section at cut — fold these bullets into the next release section and delete this block -->
 
+### tui
+- Replace Projects pane "activity by actor" chart with persona-grouped "activity by persona" (alias-resolved); fix bar-width alignment (ATM-0054)
+- Remove the `[4] Actors` maximized pane; `numPanes` back to 3 (ATM-0054)
+- Add `P` key in Projects pane to expand the persona activity chart into an overlay with per-persona agents/models/actions drilldown (ATM-0054)
+- Add `p` key in Projects pane to open a New persona form (name + description; prompt set via CLI) (ATM-0054)
+
 ### docs
 - Document personas, actor convention (`persona@agent:model`), `atm actor migrate`/`alias`, `atm developing --persona`, and `atm activity` (ATM-0052)
+- Update conventions/README to reference the `P` overlay + `p` add-persona instead of the removed `[4] Actors` pane (ATM-0054)
 
 
 ## v1.2.2 - 2026-07-07

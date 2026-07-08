@@ -229,9 +229,10 @@ table by hand.
 
 `atm activity --project <CODE> [--group-by persona|agent|model]` aggregates
 actor activity from the project's audit log into
-`{"groups":[{"key","count","agents","models","actions"}]}`. The TUI's
-`[4] Actors` pane (maximized) renders the same aggregation as a persona
-activity chart with a per-persona agents/models/actions breakdown.
+`{"groups":[{"key","count","agents","models","actions"}]}`. The Projects pane's
+"activity by persona" chart renders the same aggregation in-place; press `P`
+in the Projects pane to expand it into an overlay with a per-persona
+agents/models/actions breakdown. Press `p` to add a new persona.
 
 ## Conventions
 
