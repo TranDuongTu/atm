@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -654,7 +655,15 @@ func renderUbiquitousLanguageCanvas(width int, height int, terms []store.Vocabul
 	}
 	c := canvas.New(width, height)
 	colors := []lipgloss.Color{"39", "214", "82", "171", "203", "117"}
-	for i, term := range terms {
+	sorted := make([]store.VocabularyTerm, len(terms))
+	copy(sorted, terms)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Weight != sorted[j].Weight {
+			return sorted[i].Weight > sorted[j].Weight
+		}
+		return sorted[i].Term < sorted[j].Term
+	})
+	for i, term := range sorted {
 		if i >= 12 {
 			break
 		}
@@ -675,7 +684,7 @@ func (p *projectsModel) renderUbiquitousLanguageChart(vocab *store.Vocabulary, m
 	innerH := maxLines - 2
 	var body string
 	if vocab == nil || len(vocab.Terms) == 0 {
-		body = p.m.styles.Muted.Render("no vocabulary yet")
+		body = p.m.styles.Muted.Render("no vocabulary yet — manager has not computed it")
 	} else {
 		body = renderUbiquitousLanguageCanvas(innerW, innerH, vocab.Terms)
 	}

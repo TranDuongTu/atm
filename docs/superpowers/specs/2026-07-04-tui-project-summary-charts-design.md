@@ -72,11 +72,10 @@ Inside the Projects pane body, list mode splits vertically:
 │ │ 7d ago                  Yesterday Today │ │
 │ ╰──────────────────────────────────╯ │
 │                                      │
-│ ╭ bubbles ─────────────────────────╮ │
-│ │ (events)                  labels │ │
-│ │          ((agents))              │ │
-│ │    (tasks)                       │ │
-│ ╰──────────────────────────────────╯ │
+│ ╭ ubiquitous language ─────────────╮ │
+│ │ no vocabulary yet — manager has │ │
+│ │ not computed it                 │ │
+│ ╰─────────────────────────────────╯ │
 └──────────────────────────────────────┘
 ```
 
@@ -161,8 +160,9 @@ inside a large centered box titled `ubiquitous language`.
 
 Each vocabulary term carries a weight in the range 1-10. The chart renders the
 top-N terms, capped at 12, sorted by weight descending then term ascending for
-ties. Bubble size reflects weight: heavier terms render as larger bubbles.
-Bubble labels use distinct colors through Lip Gloss styling. The renderer uses
+ties. Weight is reflected via bold + color: heavier terms are bold when
+weight >= 7 and use distinct colors (a text canvas does not support size
+scaling cleanly). Bubble labels use distinct colors through Lip Gloss styling. The renderer uses
 `github.com/NimbleMarkets/ntcharts/canvas` so bubbles are laid out inside the
 chart container without overflowing.
 

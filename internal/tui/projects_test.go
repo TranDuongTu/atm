@@ -98,3 +98,28 @@ func TestRenderUbiquitousLanguageChartShowsTerms(t *testing.T) {
 	mustContain(t, got, "persona")
 	mustNotContain(t, got, "no vocabulary yet")
 }
+
+func TestRenderUbiquitousLanguageChartSortsByWeightDescending(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one")
+	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
+		Actor: "opencode-manager",
+		Terms: []store.VocabularyTerm{
+			{Term: "alpha", Weight: 5},
+			{Term: "beta", Weight: 9},
+			{Term: "gamma", Weight: 7},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.SetSize(120, 24)
+	m.projectScope = "ATM"
+	m.refreshAll()
+	got := m.projects.renderSummary(20)
+	mustContain(t, got, "beta")
+	mustContain(t, got, "alpha")
+	if strings.Index(got, "beta") >= strings.Index(got, "alpha") {
+		t.Fatalf("beta (weight 9) should appear before alpha (weight 5):\n%s", got)
+	}
+}
