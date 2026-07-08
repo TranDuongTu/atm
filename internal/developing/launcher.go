@@ -33,9 +33,9 @@ func LauncherFor(name string) (Launcher, bool) {
 // developing session. The `--` separator is ollama launch's documented
 // passthrough; extra agent args append after it (on the integration side).
 // ATM does not validate the integration name; unknown values fail at
-// `ollama launch`'s door. Constructed directly by the CLI's ollama subcommand,
-// mirroring internal/onboard. LauncherFor stays ok=false for "ollama" because
-// the integration is not known at factory time.
+// `ollama launch`'s door. Constructed directly by the CLI's ollama subcommand.
+// LauncherFor stays ok=false for "ollama" because the integration is not
+// known at factory time.
 type OllamaLauncher struct {
 	Integration string
 }

@@ -27,14 +27,35 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 		"Project: `ATM` (`Agent Tasks Management`)",
 		"ATM binary: `/usr/local/bin/atm`",
 		"Actor: `opencode-manager`",
-		"atm task comment add --task <ID>",
-		"atm task set-title --id <ID>",
+		"knowledge-base owner",
+		"ubiquitous language",
+		"vocabulary.json",
+		"onboarding",
+		"ATM_ONBOARD",
 		"needs clarification",
-		"semantic search",
+		"cross-project",
+		"atm vocabulary write",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)
 		}
+	}
+	for _, mustNot := range []string{
+		"agent-generated keyword bubbles pending",
+	} {
+		if strings.Contains(got, mustNot) {
+			t.Errorf("rendered context should not contain %q", mustNot)
+		}
+	}
+}
+
+func TestRenderContextOnboardingSectionIsEnvConditional(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", ATMBin: "/bin/atm"})
+	if !strings.Contains(got, "ATM_ONBOARD") {
+		t.Errorf("onboarding section must reference ATM_ONBOARD as its activation signal")
+	}
+	if !strings.Contains(got, "onboarding") {
+		t.Errorf("onboarding responsibility must be present in the prompt")
 	}
 }
 

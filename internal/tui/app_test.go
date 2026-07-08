@@ -809,9 +809,8 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	mustContain(t, body, "claude")
 	mustContain(t, body, "%")
 	mustContain(t, body, "activity stripe")
-	mustContain(t, body, "bubbles")
-	mustContain(t, body, "events")
-	mustContain(t, body, "agents")
+	mustContain(t, body, "Ubiquitous Language")
+	mustContain(t, body, "no vocabulary yet")
 	mustNotContain(t, body, "Activities by actor")
 	mustNotContain(t, body, "Activity stripe")
 }
@@ -881,9 +880,7 @@ func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "bubbles")
-	mustContain(t, body, "events")
-	mustContain(t, body, "agents")
+	mustContain(t, body, "Ubiquitous Language")
 	if m.form != nil {
 		t.Fatalf("bubble placeholder opened form")
 	}
@@ -1087,14 +1084,6 @@ func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
 	if got := strings.Count(barLine, " "); got != 6 {
 		t.Fatalf("activity stripe should separate exactly 7 bars with 6 spaces, got %d spaces in %q", got, barLine)
 	}
-}
-
-func TestRenderSampleBubbleCanvasShowsPlaceholders(t *testing.T) {
-	got := renderSampleBubbleCanvas(28)
-	mustContain(t, got, "events")
-	mustContain(t, got, "agents")
-	mustContain(t, got, "tasks")
-	mustNotContain(t, got, "pending")
 }
 
 func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {

@@ -6,11 +6,12 @@ import (
 	"os/exec"
 )
 
-// tmuxLabelTUI and tmuxLabelOnboarding are the labels shown in the
-// enclosing tmux window while the corresponding CLI surfaces run. They
-// are scoped to tmux: outside a tmux session setTmuxWindowLabel is a
-// no-op. tmux's automatic-rename and the next command run in the pane
-// reassert the usual name, so no restore is emitted on exit.
+// tmuxLabelTUI is the label shown in the enclosing tmux window while the
+// TUI runs. tmuxLabelOnboarding is set by `atm manager --onboard` (not a
+// separate `atm onboarding` command). These labels are scoped to tmux:
+// outside a tmux session setTmuxWindowLabel is a no-op. tmux's
+// automatic-rename and the next command run in the pane reassert the
+// usual name, so no restore is emitted on exit.
 const (
 	tmuxLabelTUI        = "\u2261 ATM TUI"
 	tmuxLabelOnboarding = "\u21bb ATM Onboarding"

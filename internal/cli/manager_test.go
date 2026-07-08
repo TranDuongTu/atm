@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"atm/internal/manager"
 )
 
 func TestManagerCodexDryRunJSON(t *testing.T) {
@@ -71,7 +73,7 @@ func TestManagerPluginInstallDryRunJSON(t *testing.T) {
 }
 
 func TestManagerEnvIncludesATMValues(t *testing.T) {
-	got := managerEnvValues("FOO", "/bin/atm", "codex-manager", "FOO-RUNID", "/tmp/context.md")
+	got := managerEnvValues("FOO", "/bin/atm", "codex-manager", "FOO-RUNID", "/tmp/context.md", false)
 	joined := strings.Join(gotToSlice(got), "\n")
 	for _, want := range []string{
 		"ATM_ROLE=manager",
@@ -135,7 +137,7 @@ func TestManagerRenderContextTextHasPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager session", "ledger owner", "needs clarification", "atm task set-title"} {
+	for _, want := range []string{"ATM manager session", "knowledge-base owner", "needs clarification", "task set-title"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("render-context output missing %q", want)
 		}
@@ -154,6 +156,57 @@ func TestManagerRenderContextGenericKeepsPlaceholders(t *testing.T) {
 		if !strings.Contains(got, placeholder) {
 			t.Errorf("generic render-context stripped %s", placeholder)
 		}
+	}
+}
+
+func TestManagerOnboardOpencodeDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("manager", "opencode", "--project", "FOO", "--onboard", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "manager-onboard-dry-run-opencode", got)
+}
+
+func TestManagerOnboardOllamaDryRunJSON(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.reset()
+	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--onboard", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	compareGolden(t, "manager-onboard-dry-run-ollama", got)
+}
+
+func TestManagerOnboardEnvHasATMOnboard(t *testing.T) {
+	got := managerEnvValues("FOO", "/bin/atm", "opencode-manager", "FOO-RUNID", "/tmp/ctx.md", true)
+	joined := strings.Join(gotToSlice(got), "\n")
+	if !strings.Contains(joined, "ATM_ONBOARD=1") {
+		t.Errorf("onboard env missing ATM_ONBOARD=1; got:\n%s", joined)
+	}
+}
+
+func TestManagerOnboardArgvUsesAutoPrompt(t *testing.T) {
+	l, ok := manager.LauncherFor("opencode")
+	if !ok {
+		t.Fatal("LauncherFor(opencode) not found")
+	}
+	argv := l.BuildArgvOnboard("/tmp/ctx.md")
+	if argv[1] != "--auto" || argv[2] != "--prompt" {
+		t.Fatalf("onboard argv = %v, want --auto --prompt <msg>", argv)
+	}
+}
+
+func TestOnboardingCommandRemoved(t *testing.T) {
+	h := newGoldenHarness(t)
+	_, _, code := h.run("onboarding", "opencode", "--project", "FOO", "--dry-run")
+	if code == ExitSuccess {
+		t.Fatalf("onboarding command should be removed; got exit 0")
 	}
 }
 

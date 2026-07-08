@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -399,7 +400,7 @@ func (p *projectsModel) renderSummary(height int) string {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	project, tasks, entries, ok := p.projectSummaryData()
+	project, tasks, entries, vocab, ok := p.projectSummaryData()
 	if !ok {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
 		return padToHeight(strings.Join(lines, "\n"), height)
@@ -428,7 +429,7 @@ func (p *projectsModel) renderSummary(height int) string {
 		actorH, stripeH, bubblesH := chartBoxHeights(remaining)
 		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
 		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
-		lines = append(lines, strings.Split(p.renderBubbleChart(bubblesH), "\n")...)
+		lines = append(lines, strings.Split(p.renderUbiquitousLanguageChart(vocab, bubblesH), "\n")...)
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 
@@ -645,49 +646,49 @@ func activityCanvasRune(count int) rune {
 	}
 }
 
-func renderSampleBubbleCanvas(width int, heights ...int) string {
+func renderUbiquitousLanguageCanvas(width int, height int, terms []store.VocabularyTerm) string {
 	if width < 18 {
 		width = 18
-	}
-	height := 3
-	if len(heights) > 0 && heights[0] > 0 {
-		height = heights[0]
 	}
 	if height < 3 {
 		height = 3
 	}
 	c := canvas.New(width, height)
-	labels := []struct {
-		text string
-		x    int
-		y    int
-		s    lipgloss.Style
-	}{
-		{"(events)", 2, 0, lipgloss.NewStyle().Foreground(lipgloss.Color("39"))},
-		{"((agents))", width/2 - 5, height / 2, lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)},
-		{"(tasks)", 4, height - 1, lipgloss.NewStyle().Foreground(lipgloss.Color("82"))},
-		{"labels", width - 10, 0, lipgloss.NewStyle().Foreground(lipgloss.Color("171"))},
-	}
-	for _, label := range labels {
-		if label.x < 0 {
-			label.x = 0
+	colors := []lipgloss.Color{"39", "214", "82", "171", "203", "117"}
+	sorted := make([]store.VocabularyTerm, len(terms))
+	copy(sorted, terms)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Weight != sorted[j].Weight {
+			return sorted[i].Weight > sorted[j].Weight
 		}
-		if label.y < 0 {
-			label.y = 0
+		return sorted[i].Term < sorted[j].Term
+	})
+	for i, term := range sorted {
+		if i >= 12 {
+			break
 		}
-		if label.y >= height {
-			label.y = height - 1
-		}
-		c.SetStringWithStyle(canvas.Point{X: label.x, Y: label.y}, label.text, label.s)
+		col := colors[i%len(colors)]
+		style := lipgloss.NewStyle().Foreground(col).Bold(term.Weight >= 7)
+		x := (i * 13) % width
+		y := i % height
+		c.SetStringWithStyle(canvas.Point{X: x, Y: y}, term.Term, style)
 	}
 	return c.View()
 }
 
-func (p *projectsModel) renderBubbleChart(maxLines int) string {
+func (p *projectsModel) renderUbiquitousLanguageChart(vocab *store.Vocabulary, maxLines int) string {
 	if maxLines < 3 {
-		return dashboardLine(p.width, "bubbles")
+		return dashboardLine(p.width, "Ubiquitous Language")
 	}
-	return p.renderChartBox("bubbles", renderSampleBubbleCanvas(chartBoxInnerWidth(p.width), maxLines-2), maxLines)
+	innerW := chartBoxInnerWidth(p.width)
+	innerH := maxLines - 2
+	var body string
+	if vocab == nil || len(vocab.Terms) == 0 {
+		body = p.m.styles.Muted.Render("no vocabulary yet — manager has not computed it")
+	} else {
+		body = renderUbiquitousLanguageCanvas(innerW, innerH, vocab.Terms)
+	}
+	return p.renderChartBox("Ubiquitous Language", body, maxLines)
 }
 
 func chartBoxWidth(width int) int {
@@ -784,21 +785,22 @@ func meterBar(percent int, width int) string {
 	return repeat("█", filled) + repeat("░", width-filled)
 }
 
-func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []store.LogEntry, bool) {
+func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []store.LogEntry, *store.Vocabulary, bool) {
 	code := p.m.projectScope
 	if code == "" {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	project, err := p.m.store.GetProject(code)
 	if err != nil {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	tasks := p.m.store.ListTasks(store.QueryFilters{Project: code})
 	entries, err := p.m.store.ReadLog(code)
 	if err != nil && !store.IsIntegrity(err) {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
-	return project, tasks, entries, true
+	vocab, _ := p.m.store.GetVocabulary(code)
+	return project, tasks, entries, vocab, true
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading

@@ -16,6 +16,7 @@ type managerOpts struct {
 	Project     string
 	Actor       string
 	Integration string
+	Onboard     bool
 	DryRun      bool
 	ExtraArgs   []string
 }
@@ -150,6 +151,7 @@ func newManagerAgentCmd(st *cliState, agent string) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-manager)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
+	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
 	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
@@ -171,6 +173,7 @@ func newManagerOllamaCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-manager)")
 	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
+	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("integration")
 	return cmd
@@ -255,11 +258,19 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
-	base := l.BuildArgv()
+	var base []string
+	if opts.Onboard {
+		base = l.BuildArgvOnboard(contextPath)
+	} else {
+		base = l.BuildArgv()
+	}
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
-	envValues := managerEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath)
+	envValues := managerEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath, opts.Onboard)
 	env := assembleEnv(envValues)
+	if opts.Onboard {
+		setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
+	}
 	if err := emitLaunchHeader(st, "manager", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
 	}
@@ -277,8 +288,8 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	return nil
 }
 
-func managerEnvValues(project, atmBin, actor, runID, contextPath string) map[string]string {
-	return map[string]string{
+func managerEnvValues(project, atmBin, actor, runID, contextPath string, onboard bool) map[string]string {
+	m := map[string]string{
 		"ATM_ROLE":         "manager",
 		"ATM_PROJECT":      project,
 		"ATM_BIN":          atmBin,
@@ -286,6 +297,10 @@ func managerEnvValues(project, atmBin, actor, runID, contextPath string) map[str
 		"ATM_RUN_ID":       runID,
 		"ATM_CONTEXT_FILE": contextPath,
 	}
+	if onboard {
+		m["ATM_ONBOARD"] = "1"
+	}
+	return m
 }
 
 func atmBinPath() string {
