@@ -26,11 +26,11 @@ func Build(entries []store.LogEntry, aliases actor.AliasMap) []Record {
 }
 
 type Group struct {
-	Key     string
-	Count   int
-	Agents  map[string]int
-	Models  map[string]int
-	Actions map[string]int
+	Key     string         `json:"key"`
+	Count   int            `json:"count"`
+	Agents  map[string]int `json:"agents"`
+	Models  map[string]int `json:"models"`
+	Actions map[string]int `json:"actions"`
 }
 
 func groupKey(r Record, groupBy string) (string, bool) {
