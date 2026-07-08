@@ -59,3 +59,42 @@ func TestRenderPersonaActivityChartEmpty(t *testing.T) {
 		t.Fatalf("degenerate title wrong:\n%s", view)
 	}
 }
+
+func TestRenderUbiquitousLanguageChartEmptyState(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one")
+	m.SetSize(80, 24)
+	m.projectScope = "ATM"
+	m.refreshAll()
+	got := m.projects.renderSummary(12)
+	mustContain(t, got, "Ubiquitous Language")
+	mustContain(t, got, "no vocabulary yet")
+	mustNotContain(t, got, "events")
+	mustNotContain(t, got, "(agents)")
+}
+
+func TestRenderUbiquitousLanguageChartShowsTerms(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "bug one")
+	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
+		Actor: "opencode-manager",
+		Terms: []store.VocabularyTerm{
+			{Term: "labels", Weight: 9},
+			{Term: "audit log", Weight: 7},
+			{Term: "persona", Weight: 5},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.SetSize(80, 24)
+	m.projectScope = "ATM"
+	m.refreshAll()
+	got := m.projects.renderSummary(14)
+	mustContain(t, got, "Ubiquitous Language")
+	mustContain(t, got, "labels")
+	mustContain(t, got, "audit log")
+	mustContain(t, got, "persona")
+	mustNotContain(t, got, "no vocabulary yet")
+}
