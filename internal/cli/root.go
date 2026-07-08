@@ -68,6 +68,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newProjectCmd(st))
 	root.AddCommand(newLabelCmd(st))
 	root.AddCommand(newPersonaCmd(st))
+	root.AddCommand(newActorCmd(st))
 	root.AddCommand(newTaskCmd(st))
 	root.AddCommand(newOnboardingCmd(st))
 	root.AddCommand(newDevelopingCmd(st))
