@@ -7,13 +7,15 @@ import (
 )
 
 type VerifyReport struct {
-	Project    string
-	LogEntries int
-	LogOK      bool
-	Truncated  int
-	SeqGaps    []int
-	Caches     []CacheCheck
-	Diverged   bool
+	Project       string
+	LogEntries    int
+	LogOK         bool
+	Truncated     int
+	SeqGaps       []int
+	Caches        []CacheCheck
+	Diverged      bool
+	VectorIndexes []VectorIndexInfo `json:"vector_indexes,omitempty"`
+	InquiryCount  int               `json:"inquiry_count"`
 }
 
 type CacheCheck struct {
@@ -22,6 +24,12 @@ type CacheCheck struct {
 	Status       string // "ok" | "stale" | "missing" | "corrupt"
 	CacheLogSeq  int
 	LastEventSeq int
+}
+
+type VectorIndexInfo struct {
+	Model      string `json:"model"`
+	Count      int    `json:"count"`
+	LastLogSeq int    `json:"last_log_seq"`
 }
 
 func (s *Store) Verify() ([]VerifyReport, error) {
@@ -91,6 +99,19 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		if c.Status != "ok" {
 			report.Diverged = true
 		}
+	}
+	if models, err := s.ListVectorModels(code); err == nil {
+		for _, slug := range models {
+			info := VectorIndexInfo{Model: slug}
+			if meta, _ := s.VectorMeta(code, slug); meta != nil {
+				info.Count = meta.Count
+				info.LastLogSeq = meta.LastLogSeq
+			}
+			report.VectorIndexes = append(report.VectorIndexes, info)
+		}
+	}
+	if inq, _ := s.ReadInquiries(code); inq != nil {
+		report.InquiryCount = len(inq)
 	}
 	return report, nil
 }
