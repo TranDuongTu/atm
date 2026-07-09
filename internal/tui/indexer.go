@@ -111,10 +111,15 @@ func (p *indexerPlugin) Reset(m *Model) { resetIndexer(m) }
 
 func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd {
 	im := p.model(m)
-	_ = im
+	if im.editMode {
+		return p.handleEditKey(k, m)
+	}
 	switch k.String() {
 	case "S":
 		return p.handleStartStop(m)
+	case "e":
+		p.openEdit(m)
+		return nil
 	case "j", "down", "pgdown":
 		im.logOffset = scrollDown(im.logs, im.logOffset)
 		return nil
@@ -152,6 +157,23 @@ func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
 	b.WriteString(sectionDivider(m.styles, w, "Config"))
 	b.WriteString("\n")
 	im := p.model(m)
+	if im.editMode {
+		for i, f := range im.editFields {
+			active := i == im.editCursor
+			label := m.styles.FieldLabel.Render(f.Label + ":")
+			val := m.styles.FieldValue.Render(f.Value)
+			if active {
+				val += m.styles.FieldValue.Underline(true).Render(" ")
+			}
+			b.WriteString(dashboardLine(w, fmt.Sprintf("%s %s", label, val)))
+			b.WriteString("\n")
+			if f.Hint != "" {
+				b.WriteString(dashboardLine(w, m.styles.FieldHint.Render("  " + f.Hint)))
+				b.WriteString("\n")
+			}
+		}
+		return b.String()
+	}
 	if im.cfg == nil {
 		b.WriteString(dashboardLine(w, m.styles.Muted.Render("Embedding model: (none — press [e] to configure)")))
 		return b.String()
@@ -267,6 +289,126 @@ func (p *indexerPlugin) handleStartStop(m *Model) tea.Cmd {
 	}
 	resetIndexer(m)
 	return nil
+}
+
+func (p *indexerPlugin) openEdit(m *Model) {
+	im := p.model(m)
+	var model, endpoint, dim, threshold, qp, dp string
+	if im.cfg != nil {
+		model = im.cfg.Model
+		endpoint = im.cfg.Endpoint
+		dim = fmt.Sprintf("%d", im.cfg.Dim)
+		threshold = fmt.Sprintf("%.2f", im.cfg.Threshold)
+		qp = im.cfg.QueryPrefix
+		dp = im.cfg.DocPrefix
+	}
+	im.editFields = []formField{
+		{Label: "model", Value: model, Required: true, Hint: "embedding model slug"},
+		{Label: "endpoint", Value: endpoint, Required: true, Hint: "OpenAI-compatible /v1/embeddings base URL"},
+		{Label: "dim", Value: dim, Hint: "vector dimension"},
+		{Label: "threshold", Value: threshold, Hint: "cosine threshold (0 = engine default)"},
+		{Label: "query_prefix", Value: qp, Hint: "applied to query text"},
+		{Label: "doc_prefix", Value: dp, Hint: "applied to document text"},
+	}
+	im.editCursor = 0
+	im.editMode = true
+}
+
+func (p *indexerPlugin) handleEditKey(k tea.KeyMsg, m *Model) tea.Cmd {
+	im := p.model(m)
+	switch k.String() {
+	case "esc":
+		im.editMode = false
+		return nil
+	case "p":
+		p.applyNomicPreset(im)
+		return nil
+	case "s":
+		return p.saveConfig(m)
+	case "tab", "down":
+		im.editCursor = (im.editCursor + 1) % len(im.editFields)
+		return nil
+	case "shift+tab", "up":
+		im.editCursor = (im.editCursor - 1 + len(im.editFields)) % len(im.editFields)
+		return nil
+	case "backspace":
+		f := &im.editFields[im.editCursor]
+		if len(f.Value) > 0 {
+			f.Value = f.Value[:len(f.Value)-1]
+		}
+		return nil
+	case " ":
+		im.editFields[im.editCursor].Value += " "
+		return nil
+	}
+	if k.Type == tea.KeyRunes {
+		im.editFields[im.editCursor].Value += string(k.Runes)
+	}
+	return nil
+}
+
+func (p *indexerPlugin) applyNomicPreset(im *indexerModel) {
+	set := func(label, val string) {
+		for i := range im.editFields {
+			if im.editFields[i].Label == label {
+				im.editFields[i].Value = val
+				return
+			}
+		}
+	}
+	set("model", "nomic-embed-text")
+	set("endpoint", "http://localhost:11434/v1")
+	set("dim", "768")
+	set("threshold", "0.55")
+	set("query_prefix", "search_query: ")
+	set("doc_prefix", "search_document: ")
+}
+
+func (p *indexerPlugin) saveConfig(m *Model) tea.Cmd {
+	im := p.model(m)
+	vals := editFieldValues(im)
+	if vals["model"] == "" || vals["endpoint"] == "" {
+		m.showToast("model and endpoint are required")
+		return nil
+	}
+	dim := 0
+	if vals["dim"] != "" {
+		if _, err := fmt.Sscanf(vals["dim"], "%d", &dim); err != nil {
+			m.showToast("dim must be an integer")
+			return nil
+		}
+	}
+	threshold := 0.0
+	if vals["threshold"] != "" {
+		if _, err := fmt.Sscanf(vals["threshold"], "%f", &threshold); err != nil {
+			m.showToast("threshold must be a number")
+			return nil
+		}
+	}
+	cfg := store.EmbeddingConfig{
+		Model:       vals["model"],
+		Endpoint:    vals["endpoint"],
+		QueryPrefix: vals["query_prefix"],
+		DocPrefix:   vals["doc_prefix"],
+		Dim:         dim,
+		Threshold:   threshold,
+	}
+	if err := m.store.SetEmbeddingConfig(m.projectScope, cfg, m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	im.editMode = false
+	im.refreshStatus()
+	m.showToast("embedding config saved")
+	return nil
+}
+
+func editFieldValues(im *indexerModel) map[string]string {
+	out := map[string]string{}
+	for _, f := range im.editFields {
+		out[f.Label] = f.Value
+	}
+	return out
 }
 
 func scrollDown(logs []string, offset int) int {

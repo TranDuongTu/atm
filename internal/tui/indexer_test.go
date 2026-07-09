@@ -329,3 +329,128 @@ func TestIndexerOverlayLogScroll(t *testing.T) {
 		t.Fatalf("G should reset logOffset to -1 (tail), got %d", im.logOffset)
 	}
 }
+
+func TestIndexerEditPrefillsFromCurrentConfig(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("e"), m)
+	if !im.editMode {
+		t.Fatal("e should toggle edit mode on")
+	}
+	if len(im.editFields) == 0 {
+		t.Fatal("edit fields should be populated")
+	}
+	vals := editFieldValues(im)
+	if vals["model"] != "m" {
+		t.Errorf("prefill model = %q, want m", vals["model"])
+	}
+	if vals["endpoint"] != "http://x" {
+		t.Errorf("prefill endpoint = %q, want http://x", vals["endpoint"])
+	}
+}
+
+func TestIndexerEditNomicPresetFillsDefaults(t *testing.T) {
+	m := newIndexerTestModel(t)
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("e"), m)
+	p.HandleKey(keyMsg("p"), m)
+	vals := editFieldValues(im)
+	if vals["model"] != "nomic-embed-text" {
+		t.Errorf("preset model = %q, want nomic-embed-text", vals["model"])
+	}
+	if vals["endpoint"] != "http://localhost:11434/v1" {
+		t.Errorf("preset endpoint = %q", vals["endpoint"])
+	}
+	if vals["dim"] != "768" {
+		t.Errorf("preset dim = %q, want 768", vals["dim"])
+	}
+	if vals["threshold"] != "0.55" {
+		t.Errorf("preset threshold = %q, want 0.55", vals["threshold"])
+	}
+	if vals["query_prefix"] != "search_query: " {
+		t.Errorf("preset query_prefix = %q", vals["query_prefix"])
+	}
+	if vals["doc_prefix"] != "search_document: " {
+		t.Errorf("preset doc_prefix = %q", vals["doc_prefix"])
+	}
+}
+
+func TestIndexerEditSaveWritesConfig(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("e"), m)
+	setEditField(t, im, "model", "newmodel")
+	cmd := p.HandleKey(keyMsg("s"), m)
+	_ = cmd
+	if im.editMode {
+		t.Fatal("s should exit edit mode")
+	}
+	cfg, _ := m.store.GetProjectConfig("ATM")
+	if cfg.Embedding.Model != "newmodel" {
+		t.Errorf("after save: model = %q, want newmodel", cfg.Embedding.Model)
+	}
+}
+
+func TestIndexerEditCancelReverts(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("e"), m)
+	setEditField(t, im, "model", "discarded")
+	p.HandleKey(keyMsg("esc"), m)
+	if im.editMode {
+		t.Fatal("Esc should exit edit mode")
+	}
+	cfg, _ := m.store.GetProjectConfig("ATM")
+	if cfg.Embedding.Model != "m" {
+		t.Errorf("after cancel: model = %q, want m (unchanged)", cfg.Embedding.Model)
+	}
+}
+
+func TestIndexerEditSaveRequiredValidation(t *testing.T) {
+	m := newIndexerTestModel(t)
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("e"), m)
+	setEditField(t, im, "model", "")
+	p.HandleKey(keyMsg("s"), m)
+	if !im.editMode {
+		t.Fatal("s with empty model should stay in edit mode (validation fail)")
+	}
+	cfg, _ := m.store.GetProjectConfig("ATM")
+	if cfg != nil && cfg.Embedding != nil {
+		t.Fatal("validation fail should not write config")
+	}
+}
+
+func setEditField(t *testing.T, im *indexerModel, label, value string) {
+	t.Helper()
+	for i := range im.editFields {
+		if im.editFields[i].Label == label {
+			im.editFields[i].Value = value
+			return
+		}
+	}
+	t.Fatalf("edit field %q not found", label)
+}
