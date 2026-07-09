@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"atm/internal/store"
 
@@ -86,5 +90,132 @@ func TestIndexerStateStoppedWhenConfigPresent(t *testing.T) {
 	im.refreshStatus()
 	if p.State(m).(indexerState) != idxStopped {
 		t.Errorf("config present, not started -> state %v, want idxStopped", p.State(m))
+	}
+}
+
+// fakeEmbedFnBuilder returns an embedFn that yields deterministic 2-dim vectors.
+func fakeEmbedFnBuilder(vec []float64) func(*store.EmbeddingConfig) store.EmbedFunc {
+	return func(*store.EmbeddingConfig) store.EmbedFunc {
+		return func(text, role string) ([]float64, error) { return vec, nil }
+	}
+}
+
+func applyTick(m *Model) {
+	// Synchronously drain the channel + apply messages, mirroring Update's tick handler.
+	im := m.indexer
+	if im == nil {
+		return
+	}
+	for {
+		select {
+		case msg := <-im.msgCh:
+			applyIndexerMsg(m, msg)
+		default:
+			return
+		}
+	}
+}
+
+func TestStartIndexerTransitionsToIdleOnCaughtUp(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+
+	cmd := startIndexer(m, "ATM")
+	if cmd == nil {
+		t.Fatal("startIndexer should return a tick cmd")
+	}
+	if im.state != idxWorking {
+		t.Fatalf("after start: state %v, want idxWorking", im.state)
+	}
+	if im.cancel == nil || im.done == nil {
+		t.Fatal("start should set cancel + done")
+	}
+
+	// Drain: fire ticks until idle or timeout.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after drain: state %v, want idxIdle", im.state)
+	}
+
+	resetIndexer(m)
+	if im.state != idxStopped {
+		t.Fatalf("after reset: state %v, want idxStopped", im.state)
+	}
+	if im.cancel != nil || im.done != nil {
+		t.Fatal("reset should clear cancel + done")
+	}
+}
+
+func TestStartIndexerErrorsOnEmbedFailure(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	var calls int32
+	im.embedFnBuilder = func(*store.EmbeddingConfig) store.EmbedFunc {
+		return func(text, role string) ([]float64, error) {
+			atomic.AddInt32(&calls, 1)
+			return nil, errors.New("endpoint down")
+		}
+	}
+
+	startIndexer(m, "ATM")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxError {
+		t.Fatalf("after drain: state %v, want idxError", im.state)
+	}
+	if im.lastError == "" {
+		t.Fatal("lastError should record the endpoint error")
+	}
+	resetIndexer(m)
+	if im.state != idxStopped {
+		t.Fatalf("after reset: state %v, want idxStopped", im.state)
+	}
+}
+
+func TestStartIndexerNoConfigToasts(t *testing.T) {
+	m := newIndexerTestModel(t)
+	m.projectScope = "ATM"
+	p := newIndexerPlugin()
+	p.model(m) // initialize
+	cmd := startIndexer(m, "ATM")
+	if cmd != nil {
+		t.Fatal("no config -> startIndexer should return nil")
+	}
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no embedding") {
+		t.Fatalf("expected a 'no embedding' toast, got %q", m.toastMsg)
+	}
+}
+
+func TestStopIndexerBlocksUntilGoroutineReturns(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	startIndexer(m, "ATM")
+	// let it go idle
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	stopIndexer(m)
+	if im.cancel != nil || im.done != nil {
+		t.Fatal("stop should clear cancel + done")
 	}
 }

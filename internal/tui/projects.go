@@ -210,6 +210,9 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "s":
 		if r, ok := p.selected(); ok {
 			p.m.projectScope = r.code
+			if p.m.indexer != nil {
+				resetIndexer(p.m)
+			}
 			p.m.tasks.refresh()
 			p.m.labels.refresh()
 		}
@@ -956,6 +959,9 @@ func (m *Model) confirmYes() tea.Cmd {
 		}
 		if m.projectScope == code {
 			m.projectScope = ""
+			if m.indexer != nil {
+				resetIndexer(m)
+			}
 		}
 		m.projects.backToList()
 		m.refreshAll()

@@ -344,6 +344,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 		return m, nil
+	case pluginTickMsg:
+		im := m.indexer
+		if im == nil {
+			return m, nil
+		}
+		for {
+			select {
+			case msg := <-im.msgCh:
+				applyIndexerMsg(m, msg)
+			default:
+				goto drained
+			}
+		}
+	drained:
+		if m.pluginOverlay != -1 || im.cancel != nil {
+			return m, pluginTickCmd()
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
 	}
@@ -465,6 +483,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
+		if m.indexer != nil {
+			resetIndexer(m)
+		}
 		m.quitting = true
 		return tea.Quit
 	}

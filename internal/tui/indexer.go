@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"atm/internal/embed"
@@ -66,7 +68,7 @@ type indexerPlugin struct{}
 
 func newIndexerPlugin() *indexerPlugin { return &indexerPlugin{} }
 
-func (p *indexerPlugin) ID() string        { return "indexer" }
+func (p *indexerPlugin) ID() string         { return "indexer" }
 func (p *indexerPlugin) Icon() string       { return "⌬" }
 func (p *indexerPlugin) OverlayKey() string { return "1" }
 
@@ -160,6 +162,104 @@ func (im *indexerModel) refreshStatus() {
 	im.status = rows
 }
 
+type pluginTickMsg struct{}
+
+func pluginTickCmd() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return pluginTickMsg{} })
+}
+
+func startIndexer(m *Model, code string) tea.Cmd {
+	im := m.indexer
+	if im == nil {
+		im = newIndexerPlugin().model(m)
+	}
+	im.refreshStatus()
+	if im.cfg == nil {
+		m.showToast("no embedding configured; press e to edit")
+		return nil
+	}
+	if im.cancel != nil {
+		return nil // already running
+	}
+	embedFn := im.embedFnBuilder(im.cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	im.cancel = cancel
+	im.done = done
+	im.state = idxWorking
+	im.startedAt = time.Now()
+	send := func(kind indexerMsgKind, line string, st indexerState, err string) {
+		select {
+		case im.msgCh <- indexerMsg{kind: kind, line: line, state: st, err: err}:
+		default:
+			// drop-oldest on overflow
+			select {
+			case <-im.msgCh:
+			default:
+			}
+			select {
+			case im.msgCh <- indexerMsg{kind: kind, line: line, state: st, err: err}:
+			default:
+			}
+		}
+	}
+	progress := func(msg string) {
+		switch {
+		case isFreshDeltaLine(msg):
+			send(msgState, "", idxWorking, "")
+			send(msgProgress, msg, 0, "")
+		case isCaughtUpLine(msg):
+			send(msgState, "", idxIdle, "")
+			send(msgProgress, msg, 0, "")
+		default:
+			send(msgProgress, msg, 0, "")
+		}
+	}
+	go func() {
+		defer close(done)
+		send(msgState, "", idxWorking, "")
+		err := m.store.Watch(ctx, code, embedFn, progress)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			send(msgError, "", idxError, err.Error())
+			return
+		}
+		send(msgDone, "", idxStopped, "")
+	}()
+	return pluginTickCmd()
+}
+
+func applyIndexerMsg(m *Model, msg indexerMsg) {
+	im := m.indexer
+	if im == nil {
+		return
+	}
+	switch msg.kind {
+	case msgProgress:
+		im.logs = append(im.logs, msg.line)
+		if len(im.logs) > 1000 {
+			im.logs = im.logs[len(im.logs)-1000:]
+		}
+		if im.logOffset == -1 {
+			// stay tailed
+		}
+	case msgState:
+		im.state = msg.state
+	case msgError:
+		im.lastError = msg.err
+		im.state = idxError
+		if m.supervisor.recordError(newIndexerPlugin()) {
+			resetIndexer(m)
+			m.showToast("indexer reset after repeated errors: " + msg.err)
+		}
+	case msgDone:
+		if im.state != idxError {
+			im.state = idxStopped
+		}
+		im.cancel = nil
+		im.done = nil
+	}
+}
+
 func resetIndexer(m *Model) {
 	im := m.indexer
 	if im == nil {
@@ -170,6 +270,7 @@ func resetIndexer(m *Model) {
 	im.logOffset = -1
 	im.lastError = ""
 	im.state = idxStopped
+	m.supervisor.clear(newIndexerPlugin())
 	im.refreshStatus()
 }
 
@@ -195,4 +296,18 @@ func drainChannel(ch chan indexerMsg) {
 			return
 		}
 	}
+}
+
+// isCaughtUpLine reports whether a progress line indicates the watcher just
+// completed a pass and is caught up (idle until the next delta). The "wrote"
+// completion line and the no-op "nothing to do"/"index fresh" lines both count.
+func isCaughtUpLine(line string) bool {
+	return strings.Contains(line, "nothing to do") || strings.Contains(line, "index fresh") || strings.Contains(line, "wrote ")
+}
+
+// isFreshDeltaLine reports whether a progress line indicates the watcher just
+// started embedding new deltas (a pass that will write vectors). Used to flip
+// idxIdle -> idxWorking when new work arrives.
+func isFreshDeltaLine(line string) bool {
+	return strings.HasPrefix(line, "indexing ") || strings.Contains(line, "embedding ")
 }
