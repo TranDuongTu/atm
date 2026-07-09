@@ -39,9 +39,16 @@ func (s *Store) CreatePersona(name, prompt, description, actor string) (*Persona
 	if err := ValidatePersonaName(name); err != nil {
 		return nil, err
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
+	return s.createPersonaLocked(name, prompt, description, actor)
+}
+
+// createPersonaLocked writes the persona file. It performs NO actor validation
+// and is the path used by SeedPersonas during bootstrap (the built-in personas
+// cannot satisfy validateActor until they exist).
+func (s *Store) createPersonaLocked(name, prompt, description, actor string) (*Persona, error) {
 	var created *Persona
 	err := s.WithLock("personas", func() error {
 		if _, err := os.Stat(s.personaPath(name)); err == nil {
@@ -100,8 +107,8 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 	if err := ValidatePersonaName(name); err != nil {
 		return nil, err
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
 	var updated *Persona
 	err := s.WithLock("personas", func() error {
@@ -149,7 +156,7 @@ func (s *Store) RemovePersona(name string) error {
 func (s *Store) SeedPersonas(actor string) ([]string, error) {
 	var added []string
 	for _, sp := range seed.Personas {
-		_, err := s.CreatePersona(sp.Name, sp.Prompt, sp.Description, actor)
+		_, err := s.createPersonaLocked(sp.Name, sp.Prompt, sp.Description, actor)
 		if err == nil {
 			added = append(added, sp.Name)
 			continue

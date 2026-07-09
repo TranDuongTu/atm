@@ -11,8 +11,8 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 	if body == "" {
 		return nil, fmt.Errorf("%w: body is required", ErrUsage)
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
 	code, _, ok := ParseTaskID(taskID)
 	if !ok {
@@ -255,8 +255,8 @@ func (s *Store) SetCommentBody(id, body, actor string) error {
 	if body == "" {
 		return fmt.Errorf("%w: body is required", ErrUsage)
 	}
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
 		c.Body = body
@@ -276,8 +276,8 @@ func (s *Store) CommentLabelRemove(id, label, actor string) error {
 }
 
 func (s *Store) RemoveComment(id, actor string) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, _, ok := ParseCommentID(id)
 	if !ok {
@@ -315,8 +315,8 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	if err := s.labelProjectExists(label); err != nil {
 		return err
 	}
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, _, ok := ParseCommentID(id)
 	if !ok {
@@ -360,8 +360,8 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 }
 
 func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, _, ok := ParseCommentID(id)
 	if !ok {

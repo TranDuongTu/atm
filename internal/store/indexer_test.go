@@ -8,10 +8,10 @@ import (
 
 func TestPendingIndexEmptyWhenFresh(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	realTask, err := s.GetTask("ATM-0001")
@@ -34,13 +34,13 @@ func TestPendingIndexEmptyWhenFresh(t *testing.T) {
 
 func TestPendingIndexDetectsNew(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "audit log", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "audit log", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := s.PendingIndex("ATM", "m")
@@ -54,14 +54,14 @@ func TestPendingIndexDetectsNew(t *testing.T) {
 
 func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, "tester")
+	task, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, "tester"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) {
@@ -82,13 +82,13 @@ func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 
 func TestReindexOnceEmbedErrorAborts(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "label resolver", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, "tester"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) {
@@ -101,10 +101,10 @@ func TestReindexOnceEmbedErrorAborts(t *testing.T) {
 
 func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "t", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
@@ -116,13 +116,13 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 
 func TestWatchTriggersOnNewLogAppend(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "first task", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "first task", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, "tester"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
@@ -131,7 +131,7 @@ func TestWatchTriggersOnNewLogAppend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Watch(ctx, "ATM", fake, progress) }()
-	if _, err := s.CreateTask("ATM", "second task", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "second task", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	cancel()

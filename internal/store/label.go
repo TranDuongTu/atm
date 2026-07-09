@@ -21,8 +21,8 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	if err := s.labelProjectExists(name); err != nil {
 		return err
@@ -63,8 +63,8 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	if err := s.labelProjectExists(name); err != nil {
 		return err
@@ -138,8 +138,8 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 	if err := ValidateLabelName(name); err != nil {
 		return nil, err
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
 	db, err := s.cacheDB()
 	if err != nil {

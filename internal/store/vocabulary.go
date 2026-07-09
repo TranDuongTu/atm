@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -39,8 +38,8 @@ func (s *Store) GetVocabulary(code string) (*Vocabulary, error) {
 // WriteVocabulary stamps UpdatedAt and writes vocabulary.json under the
 // project's per-project lock. Actor is required.
 func (s *Store) WriteVocabulary(code string, v *Vocabulary) error {
-	if v.Actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(v.Actor); err != nil {
+		return err
 	}
 	v.UpdatedAt = Now()
 	return s.WithLock(code, func() error {

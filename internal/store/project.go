@@ -10,8 +10,8 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err := ValidateProjectCode(code); err != nil {
 		return nil, err
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
 	db, err := s.cacheDB()
 	if err != nil {
@@ -234,8 +234,8 @@ func (s *Store) ListProjects() []*Project {
 }
 
 func (s *Store) SetProjectName(code, name, actor string) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	db, err := s.cacheDB()
 	if err != nil {

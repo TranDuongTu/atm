@@ -32,8 +32,8 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 }
 
 func (s *Store) SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor string) error {
-	if actor == "" {
-		return ErrUsage
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	if cfg.Model == "" || cfg.Endpoint == "" {
 		return ErrUsage

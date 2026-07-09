@@ -9,7 +9,7 @@ import (
 func TestCreateProjectValidatesCode(t *testing.T) {
 	s := newTestStore(t)
 	for _, bad := range []string{"", "AT", "ATM1", "atm", "TOOLONG", "A-B"} {
-		if _, err := s.CreateProject(bad, "x", "claude"); err == nil {
+		if _, err := s.CreateProject(bad, "x", testActor); err == nil {
 			t.Fatalf("expected error for code %q", bad)
 		}
 	}
@@ -17,10 +17,10 @@ func TestCreateProjectValidatesCode(t *testing.T) {
 
 func TestCreateProjectRejectsDuplicate(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "first", testActor); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.CreateProject("ATM", "second", "claude")
+	_, err := s.CreateProject("ATM", "second", testActor)
 	if !IsConflict(err) {
 		t.Fatalf("expected conflict, got %v", err)
 	}
@@ -28,10 +28,10 @@ func TestCreateProjectRejectsDuplicate(t *testing.T) {
 
 func TestSetProjectName(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "old", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "old", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectName("ATM", "new", "ttran"); err != nil {
+	if err := s.SetProjectName("ATM", "new", testActor); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := s.GetProject("ATM")
@@ -42,9 +42,9 @@ func TestSetProjectName(t *testing.T) {
 
 func TestRemoveProjectZeroTaskGuard(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	_, _ = s.CreateTask("ATM", "t", "", nil, "claude")
-	if err := s.RemoveProject("ATM", "claude"); !IsConflict(err) {
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_, _ = s.CreateTask("ATM", "t", "", nil, testActor)
+	if err := s.RemoveProject("ATM", testActor); !IsConflict(err) {
 		t.Fatalf("expected conflict (has tasks), got %v", err)
 	}
 }
@@ -62,11 +62,16 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+// testActor is the conforming actor (persona@agent:model with a registered
+// persona) used by store tests. Built-ins are seeded lazily by validateActor
+// on the first mutation, so admin is available without an explicit seed step.
+const testActor = "admin@cli:test"
+
 func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	// SeedLabels applies all 12 defaults (CreateProject seeding is wired in Task 3).
-	if err := s.SeedLabels("ATM", "claude"); err != nil {
+	if err := s.SeedLabels("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
@@ -81,7 +86,7 @@ func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
 
 func TestCreateProjectSeedsLabels(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
@@ -102,10 +107,10 @@ func TestCreateProjectSeedsLabels(t *testing.T) {
 
 func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	// Edit one label's description (human curates).
-	_ = s.LabelAdd("ATM:type:bug", "human edited", "claude")
-	if err := s.SeedLabels("ATM", "claude"); err != nil {
+	_ = s.LabelAdd("ATM:type:bug", "human edited", testActor)
+	if err := s.SeedLabels("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
 	l, _ := s.LabelShow("ATM:type:bug")
@@ -121,7 +126,7 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 
 func TestCreateProjectAppendsLogEntries(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := s.ReadLog("ATM")
@@ -141,10 +146,10 @@ func TestCreateProjectAppendsLogEntries(t *testing.T) {
 
 func TestSetProjectNameAppendsNameChanged(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "old", "claude")
+	_, _ = s.CreateProject("ATM", "old", testActor)
 	// Drop seed entries from the comparison: focus on entries after create.
 	before, _ := s.LastLogSeq("ATM")
-	_ = s.SetProjectName("ATM", "new", "ttran")
+	_ = s.SetProjectName("ATM", "new", testActor)
 	entries, _ := s.ReadLog("ATM")
 	var nameChange *LogEntry
 	for i := range entries {
@@ -165,8 +170,8 @@ func TestSetProjectNameAppendsNameChanged(t *testing.T) {
 
 func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	if err := s.RemoveProject("ATM", "claude"); err != nil {
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.RemoveProject("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
 	// Project file and log file are gone (project directory removed).
@@ -183,12 +188,12 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 
 func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "first", testActor); err != nil {
 		t.Fatal(err)
 	}
 	// Advance NextTaskN past 1 so a silent duplicate project.created would be
 	// detectable (it resets NextTaskN back to 1 on replay).
-	if _, err := s.CreateTask("ATM", "t1", "", nil, "claude"); err != nil {
+	if _, err := s.CreateTask("ATM", "t1", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate a cache-only loss of the project row: cache.db forgets the
@@ -200,20 +205,20 @@ func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject("ATM", "second", "claude"); !IsConflict(err) {
+	if _, err := s.CreateProject("ATM", "second", testActor); !IsConflict(err) {
 		t.Fatalf("expected conflict recreating %q after cache-only loss, got %v", "ATM", err)
 	}
 }
 
 func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "first", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "first", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RemoveProject("ATM", "claude"); err != nil {
+	if err := s.RemoveProject("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject("ATM", "second", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "second", testActor); err != nil {
 		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
 	}
 }
@@ -228,11 +233,11 @@ func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
 // highest task-ID N ever created, not reset it to 1.
 func TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		if _, err := s.CreateTask("ATM", "t", "", nil, "claude"); err != nil {
+		if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -252,7 +257,7 @@ func TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks(t *testing.T
 		t.Fatalf("NextTaskN after lazy rebuild = %d want 4 (3 tasks created, ATM-0001..ATM-0003)", got.NextTaskN)
 	}
 	// A subsequent CreateTask must not collide with any existing task ID.
-	newTask, err := s.CreateTask("ATM", "t4", "", nil, "claude")
+	newTask, err := s.CreateTask("ATM", "t4", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +268,7 @@ func TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks(t *testing.T
 
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM")
 	got, err := s.GetProject("ATM")

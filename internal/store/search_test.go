@@ -16,7 +16,7 @@ func TestCosineSimilarity(t *testing.T) {
 
 func TestSearchSemanticRankingFromDenormalized(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{
@@ -49,13 +49,13 @@ func TestSearchSemanticRankingFromDenormalized(t *testing.T) {
 
 func TestSearchTextFallbackWhenNoIndex(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver refactor", "hierarchical prefixes", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "label resolver refactor", "hierarchical prefixes", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "audit log redesign", "", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "audit log redesign", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	hits, fallback, err := s.Search(SearchParams{
@@ -78,10 +78,10 @@ func TestSearchTextFallbackWhenNoIndex(t *testing.T) {
 
 func TestSearchTextFallbackWhenWeakScore(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, "tester"); err != nil {
+	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{
@@ -107,7 +107,7 @@ func TestSearchTextFallbackWhenWeakScore(t *testing.T) {
 
 func TestSearchDimMismatchRejected(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {
@@ -124,7 +124,7 @@ func TestSearchDimMismatchRejected(t *testing.T) {
 
 func TestSearchKindFilter(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{
@@ -150,7 +150,7 @@ func TestSearchKindFilter(t *testing.T) {
 
 func TestSearchDeduplicatesStaleEntries(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0, 1}, TextHash: "old", LogSeq: 1, Title: "old title", Snippet: "old"}}, 1); err != nil {

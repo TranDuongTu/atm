@@ -7,8 +7,8 @@ import (
 
 func TestCreateTaskAutoRegistersLabels(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	if _, err := s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, "claude"); err != nil {
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if _, err := s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.LabelShow("ATM:type:bug"); err != nil {
@@ -18,8 +18,8 @@ func TestCreateTaskAutoRegistersLabels(t *testing.T) {
 
 func TestCreateTaskNoAutoStatus(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	for _, l := range tk.Labels {
 		if l == "ATM:status:open" {
 			t.Fatal("create must not auto-assign ATM:status:open")
@@ -29,9 +29,9 @@ func TestCreateTaskNoAutoStatus(t *testing.T) {
 
 func TestCreateTaskAssignsNextId(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	a, _ := s.CreateTask("ATM", "a", "", nil, "claude")
-	b, _ := s.CreateTask("ATM", "b", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	a, _ := s.CreateTask("ATM", "a", "", nil, testActor)
+	b, _ := s.CreateTask("ATM", "b", "", nil, testActor)
 	if a.ID != "ATM-0001" || b.ID != "ATM-0002" {
 		t.Fatalf("ids = %s, %s", a.ID, b.ID)
 	}
@@ -39,9 +39,9 @@ func TestCreateTaskAssignsNextId(t *testing.T) {
 
 func TestTaskLabelAddAutoRegisters(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	if err := s.TaskLabelAdd(tk.ID, "ATM:type:bug", "claude"); err != nil {
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	if err := s.TaskLabelAdd(tk.ID, "ATM:type:bug", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.LabelShow("ATM:type:bug"); err != nil {
@@ -51,11 +51,11 @@ func TestTaskLabelAddAutoRegisters(t *testing.T) {
 
 func TestTaskLabelAddDedupSorted(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", "claude")
-	_ = s.TaskLabelAdd(tk.ID, "ATM:status:open", "claude")
-	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", "claude") // dup
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", testActor)
+	_ = s.TaskLabelAdd(tk.ID, "ATM:status:open", testActor)
+	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", testActor) // dup
 	got, _ := s.GetTask(tk.ID)
 	if len(got.Labels) != 2 || got.Labels[0] != "ATM:status:open" || got.Labels[1] != "ATM:type:bug" {
 		t.Fatalf("labels = %v", got.Labels)
@@ -64,9 +64,9 @@ func TestTaskLabelAddDedupSorted(t *testing.T) {
 
 func TestTaskLabelRemoveDoesNotTouchRegistry(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, "claude")
-	_ = s.TaskLabelRemove(tk.ID, "ATM:type:bug", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, testActor)
+	_ = s.TaskLabelRemove(tk.ID, "ATM:type:bug", testActor)
 	if _, err := s.LabelShow("ATM:type:bug"); err != nil {
 		t.Fatalf("registry must still contain label: %v", err)
 	}
@@ -74,9 +74,9 @@ func TestTaskLabelRemoveDoesNotTouchRegistry(t *testing.T) {
 
 func TestCreateTaskAppendsLogEntry(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	seqBefore, _ := s.LastLogSeq("ATM")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	entries, _ := s.ReadLog("ATM")
 	var created *LogEntry
 	for i := range entries {
@@ -97,9 +97,9 @@ func TestCreateTaskAppendsLogEntry(t *testing.T) {
 
 func TestSetTitleAppendsTitleChanged(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = s.SetTitle(tk.ID, "new", "ttran")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_ = s.SetTitle(tk.ID, "new", testActor)
 	hv := s.History("ATM", Subject{Kind: "task", ID: tk.ID})
 	if len(hv) != 2 || hv[1].Action != ActionTaskTitleChanged {
 		t.Fatalf("history = %+v", hv)
@@ -108,9 +108,9 @@ func TestSetTitleAppendsTitleChanged(t *testing.T) {
 
 func TestTaskLabelAddAppendsLabelAdded(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_ = s.TaskLabelAdd(tk.ID, "ATM:type:bug", testActor)
 	// Existing label (seeded) → only 1 entry (task.label-added). The label was already
 	// in the registry from the seed, so no label.upserted.
 	hv := s.History("ATM", Subject{Kind: "task", ID: tk.ID})
@@ -124,10 +124,10 @@ func TestTaskLabelAddAppendsLabelAdded(t *testing.T) {
 
 func TestTaskLabelAddNewLabelAppendsTwoEntries(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	before, _ := s.LastLogSeq("ATM")
-	_ = s.TaskLabelAdd(tk.ID, "ATM:madeup:thing", "claude")
+	_ = s.TaskLabelAdd(tk.ID, "ATM:madeup:thing", testActor)
 	after, _ := s.LastLogSeq("ATM")
 	if after != before+2 {
 		t.Fatalf("seq jumped %d → %d, want %d (label.upserted + task.label-added)", before, after, before+2)
@@ -136,10 +136,10 @@ func TestTaskLabelAddNewLabelAppendsTwoEntries(t *testing.T) {
 
 func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	before, _ := s.LastLogSeq("ATM")
-	_ = s.RemoveTask(tk.ID, "claude")
+	_ = s.RemoveTask(tk.ID, testActor)
 	after, _ := s.LastLogSeq("ATM")
 	if after != before+1 {
 		t.Fatalf("seq jumped %d → %d, want %d (task.removed tombstone)", before, after, before+1)
@@ -167,8 +167,8 @@ func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 
 func TestGetTaskLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	db, _ := s.cacheDB()
 	// Hand-delete the cache row. Next read must rebuild from log.
 	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
@@ -186,9 +186,9 @@ func TestGetTaskLazyMissRebuildsFromLog(t *testing.T) {
 
 func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = s.SetTitle(tk.ID, "changed", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_ = s.SetTitle(tk.ID, "changed", testActor)
 	wantSeq, _ := s.LastLogSeq("ATM")
 	// Stomp the cache back to an old LogSeq (simulate cache write failure after the log append).
 	db, _ := s.cacheDB()
@@ -207,8 +207,8 @@ func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
 
 func TestGetTaskFutureLogSeqIntegrity(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	db, _ := s.cacheDB()
 	// Hand-write a cache row that claims a seq higher than the log's last.
 	_, _ = db.Exec(`UPDATE tasks SET log_seq = 9999 WHERE id = ?`, tk.ID)

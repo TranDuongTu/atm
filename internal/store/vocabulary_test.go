@@ -16,11 +16,11 @@ func TestGetVocabularyMissingFileReturnsNilNil(t *testing.T) {
 
 func TestWriteVocabularyRoundTrips(t *testing.T) {
 	s := openTempStore(t)
-	if _, err := s.CreateProject("FOO", "Foo", "tester"); err != nil {
+	if _, err := s.CreateProject("FOO", "Foo", testActor); err != nil {
 		t.Fatal(err)
 	}
 	in := &Vocabulary{
-		Actor: "opencode-manager",
+		Actor: testActor,
 		Terms: []VocabularyTerm{
 			{Term: "labels", Weight: 9},
 			{Term: "audit log", Weight: 7},
@@ -46,7 +46,7 @@ func TestWriteVocabularyRoundTrips(t *testing.T) {
 
 func TestWriteVocabularyRequiresActor(t *testing.T) {
 	s := openTempStore(t)
-	if _, err := s.CreateProject("FOO", "Foo", "tester"); err != nil {
+	if _, err := s.CreateProject("FOO", "Foo", testActor); err != nil {
 		t.Fatal(err)
 	}
 	err := s.WriteVocabulary("FOO", &Vocabulary{Actor: "", Terms: []VocabularyTerm{{Term: "x", Weight: 1}}})
@@ -57,7 +57,7 @@ func TestWriteVocabularyRequiresActor(t *testing.T) {
 
 func TestGetVocabularyMalformedJSONReturnsError(t *testing.T) {
 	s := openTempStore(t)
-	if _, err := s.CreateProject("FOO", "Foo", "tester"); err != nil {
+	if _, err := s.CreateProject("FOO", "Foo", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(s.projectDir("FOO"), 0o755); err != nil {
