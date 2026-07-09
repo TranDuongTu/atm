@@ -50,6 +50,8 @@ func (h *helpModel) refresh() {
 		b.WriteString(sectionDivider(h.m.styles, h.width, "Global Keymap"))
 		b.WriteString("\n")
 		b.WriteString(dashboardBlock(h.width, keymapTable()))
+		b.WriteString("\n")
+		b.WriteString(dashboardBlock(h.width, "g <n> opens the nth plugin overlay (g 1 = indexer)."))
 		h.lines = strings.Split(b.String(), "\n")
 	}
 	h.clampOffset()

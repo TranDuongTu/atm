@@ -1997,3 +1997,32 @@ func TestEscClosesPluginOverlay(t *testing.T) {
 		t.Fatalf("Esc should close plugin overlay, got %d", m.pluginOverlay)
 	}
 }
+
+func TestKeymapHasPluginPrefixRows(t *testing.T) {
+	foundG := false
+	foundG1 := false
+	for _, r := range keymapRows {
+		if r.Key == "g" {
+			foundG = true
+		}
+		if r.Key == "g 1" {
+			foundG1 = true
+		}
+	}
+	if !foundG {
+		t.Error("keymapRows missing 'g' (plugin prefix)")
+	}
+	if !foundG1 {
+		t.Error("keymapRows missing 'g 1' (indexer overlay)")
+	}
+}
+
+func TestHelpMentionsPluginOverlays(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.openHelp(helpKeys)
+	content := strings.Join(m.help.lines, "\n")
+	if !strings.Contains(content, "g ") {
+		t.Errorf("keys help should mention 'g <n>' plugin overlays\n--- content ---\n%s", content)
+	}
+}
