@@ -137,7 +137,7 @@ func TestManagerRenderContextTextHasPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking request", "Onboarding"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking request", "Onboarding", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("render-context output missing %q", want)
 		}

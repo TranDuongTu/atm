@@ -1,7 +1,10 @@
 ---
-name: atm-manager
 description: ATM ledger owner. Invoke when the developing agent asks to track work, formalize progress, split/merge tasks, or organize the project ledger. Reads ATM_PROJECT/ATM_BIN/ATM_ACTOR from env; stays silent unless ATM_PROJECT is set.
-tools: Bash, Read, Glob, Grep
+mode: subagent
+permission:
+  bash: allow
+  edit: deny
+  write: deny
 ---
 
 <!-- Thin, stable pointer. All manager logic lives in the atm binary and is printed by `atm manager render-context`; this file only bootstraps and defers to it, so enhancing the manager never requires re-installing this plugin. -->

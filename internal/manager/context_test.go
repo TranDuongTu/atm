@@ -22,6 +22,7 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 		"Project `ATM` (`Agent Tasks Management`)",
 		"atm `/usr/local/bin/atm`",
 		"autonomous owner",
+		"conventions",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)

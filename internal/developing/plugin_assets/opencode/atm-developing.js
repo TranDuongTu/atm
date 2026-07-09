@@ -6,7 +6,6 @@ const bootstrap = () => {
   const project = process.env.ATM_PROJECT
   if (role !== "developing" || !project) return null
 
-  const atm = process.env.ATM_BIN || "atm"
   const contextFile = process.env.ATM_CONTEXT_FILE || ""
   return `<ATM_DEVELOPING_CONTEXT>
 This is an ATM developing session for project ${project}.
