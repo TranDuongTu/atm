@@ -1,58 +1,10 @@
 ---
 name: atm-developing
-description: Use when ATM_ROLE=developing, the user mentions atm developing, ATM ledger, ATM tasks, task comments, or work visibility for an ATM project.
+description: Use EAGERLY at the start of and throughout any ATM development session (ATM_ROLE=developing) — before creative, design, implementation, or investigation work, and whenever you make progress. Loads the session's ATM ledger instructions so the work stays visible.
 ---
 
 # ATM Developing
 
-This session was launched through `atm developing` when `ATM_ROLE=developing`
-and `ATM_PROJECT` is set. Use ATM as the visible work ledger for meaningful
-development work.
+You are in an ATM-tracked session; ATM is the visible ledger for this work.
 
-## Workflow
-
-1. Before substantial investigation, planning, implementation, or review, find
-   the relevant task in the current ATM project. Create one only if no suitable
-   task exists.
-2. Add a short start comment when practical, then proceed with the normal repo
-   and harness workflow.
-3. Record meaningful progress as task comments: decisions, files changed, test
-   results, blockers, commit references, handoff notes, and open questions.
-4. Keep using repo instructions, user directions, harness rules, permissions,
-   and other skills normally. ATM records the work; it does not replace the
-   development workflow.
-
-## Tracking work via the manager
-
-To track work, dispatch the `atm-manager` subagent. The prompt is an
-optional `hint: <word>` line (`feature`, `bug`, `design`, `spec`,
-`chore`, `investigation`, `decision`, `progress`, `blocker`, `handoff`,
-`question`) followed by a freeform message describing what you just did,
-are about to do, decided, blocked on, or noticed. Note the reply and
-continue. Do not branch on it. If the manager is unavailable, note the
-track intent in your own context and continue; ledger hygiene is
-best-effort.
-
-## Role boundaries
-
-Do not create `Manager: *` or self-improvement gene tasks. The
-self-improvement gene is the manager's responsibility: the `atm-manager`
-subagent logs one `Manager: <change>` / `type:chore` task per manager
-session to capture reusable cross-project practices. Developing agents do
-not run that gene. If you observe a management practice worth capturing,
-dispatch the `atm-manager` subagent with `hint: chore` describing the
-observation instead of creating the task yourself.
-
-## Commands
-
-Use `${ATM_BIN}` when available, otherwise use `atm`.
-
-```sh
-atm task list --project "$ATM_PROJECT" --output json
-atm task show --id ATM-0000 --output json
-atm task create --project "$ATM_PROJECT" --title "..." --label "$ATM_PROJECT:status:open" --actor "$ATM_ACTOR"
-atm task comment add --task ATM-0000 --body "..." --actor "$ATM_ACTOR"
-```
-
-If `ATM_CONTEXT_FILE` is set, read it for session-specific project context and
-the rendered command cheat sheet.
+Read `$ATM_CONTEXT_FILE` for the session's rendered instructions and follow them. If it is unset, run `atm conventions`.

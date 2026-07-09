@@ -37,7 +37,7 @@ func TestPluginAssetsStaySilentWithoutATMRole(t *testing.T) {
 func TestPluginAssetsContainLedgerLanguage(t *testing.T) {
 	assets, _ := PluginAssets("claude")
 	joined := string(joinAssetContents(assets))
-	for _, want := range []string{"visible work ledger", "task comments", "ATM_CONTEXT_FILE", "Use the atm-developing skill"} {
+	for _, want := range []string{"visible ledger", "ATM_CONTEXT_FILE", "Use the atm-developing skill"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("Claude assets missing %q", want)
 		}
@@ -57,32 +57,6 @@ func TestOpenCodePluginAssetContainsLedgerBeforeSkillsAndLogging(t *testing.T) {
 	}
 	if strings.Contains(joined, "brainstorming/planning skills") {
 		t.Error("OpenCode asset should not depend on Superpowers-specific skill names")
-	}
-}
-
-func TestPluginAssetsContainManagerDispatchContract(t *testing.T) {
-	for _, agent := range []string{"opencode", "claude", "codex"} {
-		assets, _ := PluginAssets(agent)
-		joined := string(joinAssetContents(assets))
-		if !strings.Contains(joined, "atm-manager") {
-			t.Errorf("%s assets do not mention the atm-manager subagent", agent)
-		}
-		if !strings.Contains(joined, "dispatch") {
-			t.Errorf("%s assets do not mention dispatching the manager", agent)
-		}
-	}
-}
-
-func TestPluginAssetsForbidSelfImprovementGeneTasks(t *testing.T) {
-	for _, agent := range []string{"opencode", "claude", "codex"} {
-		assets, _ := PluginAssets(agent)
-		joined := string(joinAssetContents(assets))
-		if !strings.Contains(joined, "self-improvement gene") {
-			t.Errorf("%s developing assets do not mention the self-improvement gene boundary", agent)
-		}
-		if !strings.Contains(joined, "Manager:") {
-			t.Errorf("%s developing assets do not forbid Manager: gene tasks by name", agent)
-		}
 	}
 }
 

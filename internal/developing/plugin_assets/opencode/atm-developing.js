@@ -10,14 +10,8 @@ const bootstrap = () => {
   const contextFile = process.env.ATM_CONTEXT_FILE || ""
   return `<ATM_DEVELOPING_CONTEXT>
 This is an ATM developing session for project ${project}.
-Use ATM as the visible work ledger for feature, design, spec, bug, chore, and investigation work.
-Use ${atm} for ATM commands.
-Before substantial development work, find or create a relevant ATM task and add a short start comment when practical.
-Record intentions, progress, decisions, test results, commit references, blockers, and handoff notes as task comments.
-Use the atm-developing skill for the full ledger workflow and examples.
-Follow repo instructions, existing skills, harness rules, tool permissions, and user directions first; ATM records the work, it does not replace the workflow.
-More context: ${contextFile}
-To track work, dispatch the atm-manager subagent. The prompt is an optional \`hint: <word>\` line (feature, bug, design, spec, chore, investigation, decision, progress, blocker, handoff, question) followed by a freeform message. Note the reply and continue. Do not branch on it. If the manager is unavailable, note the track intent and continue; ledger hygiene is best-effort.
+ATM is the visible ledger for this work.
+Use the atm-developing skill and your rendered context file (${contextFile}) for your instructions; keep the ledger current.
 </ATM_DEVELOPING_CONTEXT>`
 }
 
