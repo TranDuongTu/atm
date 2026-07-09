@@ -26,6 +26,9 @@ Today the indexer is a foreground CLI only: `atm index --project <CODE>` runs `s
 | D11 | **Actor segment removed from the TUI status bar.** The `m.actor` field stays on `Model` (still stamps `"default"` on mutations pending ATM-0072); we just stop rendering it. The "Activity by persona" overlay keeps working unchanged — it reads `log.actor` + `actor.Resolve`, not the TUI field. |
 | D12 | **Dock shows the keybind hint next to the icon.** Each dock segment is `<icon> <state> <keyhint>` where `<keyhint>` = `g` + the plugin's `OverlayKey()` (indexer: `g1`), rendered in `KeyMenuDim` (muted) so it reads as a discoverability hint distinct from the state. The hint is always shown (even in `off`/`error`) so the user learns the keybind without opening help. |
 | D13 | **Log pane is bottom-anchored.** The log content sits at the *bottom* of its allocated pane height — blank lines are padded *above* the log lines, not below — so a few log lines read at the bottom of the modal (where the `[Esc] close` hint lives), not collapsed at the middle. `Render` measures the config/status/action sections' line counts, computes the remaining log-pane height, and top-pads the log block to fill it. |
+| D14 | **The dock is always visible.** It renders whenever the TUI is running, even with no project selected — in that case the state word is `off` and the `g1` hint is still shown (so the user discovers the keybind from the first launch, before they ever select a project). Selecting a project then flips the state to `stopped`/`on`/`running`/`error` as usual. |
+| D15 | **The indexer auto-starts on project selection.** When the user selects a project (`s` in the Projects pane sets `projectScope`) AND that project has embedding config, the TUI starts the watcher immediately — no manual `S` required. Re-selecting the same project (or a project whose watcher is already running) is a no-op. Switching to a project with no embedding config does **not** start a watcher; instead the TUI auto-opens the indexer overlay (`g1`) showing the Config block as `(none — press [e] to configure)` so the user can configure it in place. Supersedes the earlier "out of scope: auto-starting on launch" note — auto-start is now in scope, triggered by project selection rather than launch. |
+| D16 | **Auto-start failure opens the indexer overlay with the error.** If the watcher starts but its first delta errors (endpoint down, etc.), the TUI auto-opens the indexer overlay with: the Status block showing `⌬ error`, the error message in red (`error: <msg>`), and the failure line in the log pane. The user reads the error, fixes config in-place (`e`), then presses `S` to retry. The same overlay the user would open manually via `g1` — no separate error modal. (The 3-strikes supervisor from D9 still runs: after 3 errors in 30s it `resetIndexer`s and the overlay, if open, shows the halted state.) |
 
 ## Section 1: Architecture
 
@@ -110,10 +113,12 @@ The watcher goroutine runs `store.Watch(ctx, code, embedFn, progressFn)`:
 
 Lifecycle hooks on the root model:
 
-- `startIndexer(code)`: if `code == ""` or no embedding config → toast + return. Build `embedFn`, create ctx (`cancel` + `done`), spin goroutine. Set `state→idxWorking` (initial pass), `startedAt = Now()`. The goroutine's first `ReindexOnce` flips to `idxIdle` or reports `idxError`.
+- `startIndexer(code)`: if `code == ""` or no embedding config → return false (no toast here; the caller decides what to show). Build `embedFn`, create ctx (`cancel` + `done`), spin goroutine. Set `state→idxWorking` (initial pass), `startedAt = Now()`. The goroutine's first `ReindexOnce` flips to `idxIdle` or reports `idxError`. Returns true on start, false on a no-op (no config / already running).
+- `autoStartIndexer(code)`: the project-selection entry point (D15). Calls `refreshIndexerStatus()`; if config present and no watcher is running, calls `startIndexer(code)`; if no config, opens the indexer overlay (`pluginOverlay = 0`, `Open`) so the user sees `(none — press [e] to configure)`. Idempotent: re-selecting a project whose watcher is already running is a no-op.
 - `stopIndexer()`: cancel ctx; block on `done`; drain `msgCh`; set `state→idxStopped`, `cancel = nil`.
 - `resetIndexer()`: `stopIndexer()` + clear `logs`, `state→idxStopped`, `lastError→""`, keep `cfg`/`status` snapshots. Called by the supervisor on 3-strikes, by project switch, by quit, and by `S` when stopping.
 - `refreshIndexerStatus()`: re-read `GetProjectConfig`, `ListVectorModels`, `VectorMeta`, `LastLogSeq`. Called on project selection, on overlay `Open`, after `s` save, after `r` reindex, after `d` drop, and on the periodic tick while the overlay is open.
+- **Auto-open on error (D16):** when `applyIndexerMsg` receives an `error` msg (and the 3-strikes supervisor hasn't already reset), if no plugin overlay is currently open the TUI auto-opens the indexer overlay (`pluginOverlay = 0`, `Open`) so the user sees `⌬ error` + the red error line + the failure in the log pane. If an overlay is already open (any plugin), it does not steal focus — the dock's `⌬ error` state still surfaces the problem.
 
 ### Key invariant preserved
 
@@ -121,11 +126,11 @@ The storage/search/index engine never calls a model; only `embed.New` does, and 
 
 ## Section 2: Status bar
 
-Right-aligned plugin dock. When `m.projectScope == ""` the dock is empty. Otherwise, for the indexer plugin, each segment is `<icon> <state> <keyhint>` (D12) — e.g. `⌬ on  g1` — where the state word is color-coded and the `g1` hint is `KeyMenuDim` (muted):
+Right-aligned plugin dock, **always visible** (D14). For the indexer plugin, each segment is `<icon> <state> <keyhint>` (D12) — e.g. `⌬ on  g1` — where the state word is color-coded and the `g1` hint is `KeyMenuDim` (muted). With no project selected the state is `off` and the `g1` hint is still shown:
 
 | `indexerModel.state` | dock segment | meaning |
 |---|---|---|
-| `idxOff` | `<icon> off  g1` | no `embedding` block in config.json |
+| `idxOff` | `<icon> off  g1` | no project selected, or selected project has no `embedding` block |
 | `idxStopped` | `<icon> stopped  g1` | config present, watcher not started |
 | `idxIdle` | `<icon> on  g1` | watcher running, caught up |
 | `idxWorking` | `<icon> running  g1` | watcher running, embedding in progress |
@@ -137,7 +142,7 @@ The `actor:` segment is removed from `renderStatusLine` (D11). The `m.actor` fie
 
 ## Section 3: Plugin keybinds
 
-`g` is a leader key at the root level (no overlay/form/confirm/actors active). `g` sets `pluginPrefixActive`; the next key either matches a plugin's `OverlayKey` (opens that plugin's overlay) or clears the flag. Indexer `OverlayKey()` returns `"1"`, so `g 1` opens the indexer overlay.
+`g` is a leader key at the root level (no overlay/form/confirm/actors active). `g` sets `pluginPrefixActive`; the next key either matches a plugin's `OverlayKey` (opens that plugin's overlay) or clears the flag. Indexer `OverlayKey()` returns `"1"`, so `g 1` opens the indexer overlay. **The overlay opens even with no project selected** (D14) — it shows the `off` state + `(none — press [e] to configure)` so the user can configure a project after selecting one; there is no "select a project first" toast for `g 1`.
 
 Inside the indexer overlay, no prefix — single-letter keys route to the plugin's `HandleKey`:
 
@@ -163,7 +168,7 @@ Inside the indexer overlay, no prefix — single-letter keys route to the plugin
 
 ## Section 4: Indexer overlay layout
 
-Opened by `g 1`. Refuses to open with a toast "select a project first" when `m.projectScope == ""`. Centered modal sized like `helpBoxSize` (~80% of workspace). Title: `Indexer — <CODE>`. Four regions, top to bottom:
+Opened by `g 1`, or auto-opened by `autoStartIndexer` on a no-config project (D15) / by `applyIndexerMsg` on a watcher error (D16). Opens even with no project selected (shows the `off` state). Centered modal sized like `helpBoxSize` (~80% of workspace). Title: `Indexer — <CODE>` when a project is selected, `Indexer — (no project)` when none is. Four regions, top to bottom:
 
 ```
 ┌ Indexer — ATM ─────────────────────────────────────────────────┐
@@ -332,6 +337,6 @@ Same layered structure as the existing TUI tests (`app_test.go`, `actors_test.go
 - **Changing what actor the TUI stamps on mutations** (ATM-0072). This spec only hides the segment.
 - **CLI `atm index` changes.** The CLI watcher is unchanged; the TUI runs its own in-process watcher. They share `store.Watch`.
 - **TUI search UI.** Still CLI-only (`atm search`), per the substrate spec's out-of-scope.
-- **Auto-starting the watcher on TUI launch.** The user starts it explicitly with `S`. (A future "auto-start on project select" is a one-line follow-up if desired.)
-- **Multiple concurrent per-project watchers.** One watcher per selected project; switching projects resets and (if the user re-presses `S`) starts the new project's watcher.
+- **Auto-starting the watcher on TUI launch.** Auto-start fires on *project selection* (D15), not on bare launch with no project selected. Launching `atm tui` with no project selected shows the dock at `off`; the user selects a project and auto-start kicks in.
+- **Multiple concurrent per-project watchers.** One watcher per selected project; switching projects resets the old watcher and auto-starts the new one (or opens the overlay if the new project has no config).
 - **Folding the actors overlay into the plugin registry.** It stays a pane-level drill-down (`P` in Projects). A later refactor can register it as a plugin if desired.

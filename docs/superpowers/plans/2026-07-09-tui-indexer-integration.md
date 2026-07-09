@@ -524,10 +524,9 @@ Then, immediately after that `switch` block, add the prefix-resolution logic:
         m.pluginPrefixActive = false
         for i, p := range m.plugins {
             if k.String() == p.OverlayKey() {
-                if m.projectScope == "" {
-                    m.showToast("select a project first")
-                    return nil
-                }
+                // The overlay opens even with no project selected (D14):
+                // it shows the `off` state + "(none — press [e] to
+                // configure)". No "select a project first" toast.
                 m.pluginOverlay = i
                 p.Open(m)
                 return nil
@@ -1079,17 +1078,65 @@ func TestStartIndexerErrorsOnEmbedFailure(t *testing.T) {
 	}
 }
 
-func TestStartIndexerNoConfigToasts(t *testing.T) {
+func TestStartIndexerNoConfigIsNoOp(t *testing.T) {
 	m := newIndexerTestModel(t)
 	m.projectScope = "ATM"
 	p := newIndexerPlugin()
-	p.model(m) // initialize
+	im := p.model(m) // initialize
+	im.refreshStatus()
 	cmd := startIndexer(m, "ATM")
 	if cmd != nil {
-		t.Fatal("no config -> startIndexer should return nil")
+		t.Fatal("no config -> startIndexer should return nil (no-op)")
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no embedding") {
-		t.Fatalf("expected a 'no embedding' toast, got %q", m.toastMsg)
+	if im.state != idxOff {
+		t.Fatalf("no config -> state %v, want idxOff", im.state)
+	}
+}
+
+func TestAutoStartStartsWatcherWhenConfigPresent(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	autoStartIndexer(m, "ATM")
+	if im.state != idxWorking {
+		t.Fatalf("autoStart with config: state %v, want idxWorking", im.state)
+	}
+	if im.cancel == nil {
+		t.Fatal("autoStart should have started the goroutine")
+	}
+	// let it settle
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after settle: state %v, want idxIdle", im.state)
+	}
+	// re-selecting the same project is a no-op (watcher already running)
+	autoStartIndexer(m, "ATM")
+	// still running, no second goroutine
+	if im.cancel == nil {
+		t.Fatal("re-select should not stop the watcher")
+	}
+	resetIndexer(m)
+}
+
+func TestAutoStartNoConfigOpensOverlay(t *testing.T) {
+	m := newIndexerTestModel(t)
+	// no embedding config
+	p := newIndexerPlugin()
+	p.model(m)
+	autoStartIndexer(m, "ATM")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("autoStart with no config should open the overlay, got %d", m.pluginOverlay)
+	}
+	view := m.View()
+	if !strings.Contains(view, "(none") {
+		t.Errorf("overlay should show '(none — press [e] to configure)':\n%s", view)
 	}
 }
 
@@ -1163,7 +1210,8 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	}
 	im.refreshStatus()
 	if im.cfg == nil {
-		m.showToast("no embedding configured; press e to edit")
+		// No config: no-op. The caller (autoStartIndexer or handleStartStop)
+		// decides what to show — autoStart opens the overlay; S toasts.
 		return nil
 	}
 	if im.cancel != nil {
@@ -1226,6 +1274,11 @@ func applyIndexerMsg(m *Model, msg indexerMsg) {
 		if m.supervisor.recordError(newIndexerPlugin()) {
 			resetIndexer(m)
 			m.showToast("indexer reset after repeated errors: " + msg.err)
+		} else if m.pluginOverlay == -1 {
+			// D16: auto-open the indexer overlay so the user sees the error
+			// (don't steal focus if another plugin overlay is already open).
+			m.pluginOverlay = 0
+			newIndexerPlugin().Open(m)
 		}
 	case msgDone:
 		if im.state != idxError {
@@ -1315,7 +1368,34 @@ Also, in `handleKey`, add `g`-prefix Start handling — actually Start is `S` in
 
 (Find the existing `if k.String() == "q"` block later in `handleKey` — it currently sets `quitting` + `tea.Quit`. Move the `resetIndexer` call there, and remove this duplicate. The existing `q` block is after the overlay/form checks, so it only fires when nothing else is active — which is correct.)
 
-For project switch: in `projects.go`, find where `p.m.projectScope = r.code` is set (line ~212) and where `m.projectScope = ""` on removal (line ~958). Add `if p.m.indexer != nil { resetIndexer(p.m) }` right after each assignment. (These are in `projects.go` `handleKey` and the select/remove paths — locate them with grep in the task; the assignment lines are stable.)
+For project switch (D15): in `projects.go`, find where `p.m.projectScope = r.code` is set (the `s` select-project path, line ~212). Right after that assignment, call `autoStartIndexer(p.m, r.code)` instead of just `resetIndexer`. Where `m.projectScope = ""` on removal (line ~958), call `resetIndexer(p.m)` (no auto-start with no project). Add `autoStartIndexer` to `internal/tui/indexer.go`:
+
+```go
+// autoStartIndexer is the project-selection entry point (D15). It refreshes
+// status, then either starts the watcher (config present, not already running)
+// or opens the indexer overlay so the user can configure (no config). It is
+// idempotent: re-selecting a project whose watcher is already running is a
+// no-op. The previous project's watcher must have been reset by the caller
+// before setting the new projectScope.
+func autoStartIndexer(m *Model, code string) {
+	im := newIndexerPlugin().model(m)
+	im.refreshStatus()
+	if im.cfg == nil {
+		// No config: open the overlay so the user sees "(none — press [e])".
+		if m.pluginOverlay == -1 {
+			m.pluginOverlay = 0
+			newIndexerPlugin().Open(m)
+		}
+		return
+	}
+	if im.cancel != nil {
+		return // already running
+	}
+	startIndexer(m, code)
+}
+```
+
+So the project-selection site in `projects.go` becomes: `p.m.projectScope = r.code` then `autoStartIndexer(p.m, r.code)`. The removal site (`m.projectScope = ""`) calls `resetIndexer(p.m)` only.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1352,17 +1432,21 @@ git commit -m "tui: indexer watcher lifecycle (start/stop/reset) + drain tick"
 Append to `internal/tui/indexer_test.go`:
 
 ```go
-func TestIndexerOverlayRefusesWithoutProject(t *testing.T) {
+func TestIndexerOverlayOpensWithoutProjectShowsOff(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(100, 30)
 	m.projectScope = ""
 	update(t, m, "g")
 	update(t, m, "1")
-	if m.pluginOverlay != -1 {
-		t.Fatal("overlay must not open without a project")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("overlay should open even with no project (D14), got %d", m.pluginOverlay)
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
-		t.Fatalf("expected 'select a project' toast, got %q", m.toastMsg)
+	view := m.View()
+	if !strings.Contains(view, "(no project)") {
+		t.Errorf("title should show '(no project)' when none selected:\n%s", view)
+	}
+	if !strings.Contains(view, "(none") {
+		t.Errorf("config block should show '(none — press [e] to configure)':\n%s", view)
 	}
 }
 
@@ -1533,7 +1617,15 @@ func (p *indexerPlugin) Render(m *Model) string {
 	b.WriteString(actionRow)
 	b.WriteString("\n")
 	b.WriteString(logBlock)
-	return titledBoxHeight(m.styles.DialogBody, bw, "Indexer — "+m.projectScope, b.String(), bh)
+	return titledBoxHeight(m.styles.DialogBody, bw, indexerTitle(m), b.String(), bh)
+}
+
+// indexerTitle returns the overlay title, handling the no-project case (D14).
+func indexerTitle(m *Model) string {
+	if m.projectScope == "" {
+		return "Indexer — (no project)"
+	}
+	return "Indexer — " + m.projectScope
 }
 
 func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
@@ -2466,6 +2558,9 @@ git commit -m "tui: keymap + help entries for g-prefix plugin overlays"
 - D11 (actor hidden) → Task 3. ✓
 - D12 (dock keybind hint) → Task 2 (`dockSegments` appends `g`+OverlayKey) + Task 3 (test). ✓
 - D13 (log pane bottom-anchored) → Task 6 (`Render` measures sections; `renderLogPane` top-pads). ✓
+- D14 (dock always visible) → Task 3 (`renderStatusLine` renders the dock regardless of projectScope) + Task 4 (`refreshStatus` leaves `idxOff` when no project) + Task 6 (overlay opens with no project, `indexerTitle`). ✓
+- D15 (auto-start on project selection) → Task 5 (`autoStartIndexer` + projects.go hook). ✓
+- D16 (auto-open overlay on error) → Task 5 (`applyIndexerMsg` msgError branch). ✓
 - Section 4 (overlay layout) → Task 6. ✓
 - Section 5 (data flow) → Tasks 5-8. ✓
 - Section 6 (error handling) → Tasks 5-8. ✓
