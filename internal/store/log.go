@@ -110,7 +110,7 @@ func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
 // re-entrancy-safe variant of AppendLog for write-first paths that already
 // run inside WithLock.
 func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
-	last, err := s.LastLogSeq(code)
+	last, err := s.lastLogSeqLocked(code)
 	if err != nil {
 		return e, err
 	}
@@ -137,6 +137,16 @@ func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
 	if err := f.Sync(); err != nil {
 		return e, err
 	}
+	// Write-through the per-project last-log-seq cache row in the same
+	// locked critical section as the file append. LastLogSeq reads this
+	// row (O(1)) instead of re-scanning log.jsonl on every staleness
+	// check.
+	if err := s.setLastLogSeqLocked(code, e.Seq); err != nil {
+		return e, err
+	}
+	// Invalidate any in-memory log snapshot for this project so the next
+	// ReadLogCached re-scans and picks up this append.
+	s.invalidateLogSnapshot(code)
 	return e, nil
 }
 
@@ -207,14 +217,111 @@ func (s *Store) detectPartialTail(code string) *partialTailError {
 }
 
 func (s *Store) LastLogSeq(code string) (int, error) {
+	// No WithLock here: callers (getProjectWithRebuild, getTaskWithRebuild)
+	// already hold the project lock, and WithLock is non-reentrant. The
+	// cache.db read is process-serialized by MaxOpenConns(1) + WAL; the
+	// file-scan fallback only runs on a cache miss (fresh cache.db), where
+	// contention with concurrent appenders is not a concern (the cache row
+	// gets populated and subsequent calls are O(1)).
+	return s.lastLogSeqLocked(code)
+}
+
+// lastLogSeqLocked returns the project's last log seq. Caller MUST hold the
+// project lock when invoked from a write path (appendLogLocked), but the
+// public LastLogSeq calls this directly without a lock because cache.db
+// access is process-serialized. Reads the O(1) cache.db meta row first; on
+// cache miss it scans log.jsonl, returns the right number, and write-throughs
+// the meta row so subsequent calls stay O(1).
+func (s *Store) lastLogSeqLocked(code string) (int, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return 0, err
+	}
+	if v, ok, err := cacheGetLastLogSeq(db, code); err != nil {
+		return 0, err
+	} else if ok {
+		return v, nil
+	}
+	// Cache miss: scan the file, then populate the cache.
 	entries, err := s.ReadLog(code)
 	if err != nil && !IsIntegrity(err) {
 		return 0, err
 	}
-	if len(entries) == 0 {
-		return 0, nil
+	last := 0
+	if len(entries) > 0 {
+		last = entries[len(entries)-1].Seq
 	}
-	return entries[len(entries)-1].Seq, nil
+	if err := cacheSetLastLogSeq(db, code, last); err != nil {
+		return 0, err
+	}
+	return last, nil
+}
+
+// setLastLogSeqLocked write-throughs the per-project last-log-seq cache row.
+// Caller MUST hold the project lock.
+func (s *Store) setLastLogSeqLocked(code string, seq int) error {
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
+	return cacheSetLastLogSeq(db, code, seq)
+}
+
+// ReadLogCached returns the project's log entries, memoizing the parsed
+// result in memory for the Store's lifetime. The snapshot is invalidated in
+// two ways:
+//   - locally: appendLogLocked calls invalidateLogSnapshot after every append,
+//     so the next ReadLogCached re-scans;
+//   - across processes: before serving, the cached snapshot's builtSeq is
+//     compared against LastLogSeq (now O(1) from cache.db). If the cached
+//     last_seq advanced (another process appended + bumped the meta row), the
+//     snapshot is dropped and rebuilt.
+//
+// This keeps the TUI's per-frame renderSummary path from re-parsing
+// log.jsonl on every keystroke while staying fresh under external mutation.
+func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
+	s.logSnapMu.Lock()
+	if s.logSnapshots == nil {
+		s.logSnapshots = map[string]logSnapshot{}
+	}
+	snap, ok := s.logSnapshots[code]
+	s.logSnapMu.Unlock()
+
+	// Cross-process freshness: if the cached last_seq advanced, drop the
+	// snapshot. LastLogSeq is O(1) when the meta row is present.
+	if ok {
+		cur, err := s.LastLogSeq(code)
+		if err != nil && !IsIntegrity(err) {
+			return nil, err
+		}
+		if cur <= snap.builtSeq {
+			return snap.entries, nil
+		}
+		s.logSnapMu.Lock()
+		delete(s.logSnapshots, code)
+		s.logSnapMu.Unlock()
+	}
+
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return nil, err
+	}
+	builtSeq := 0
+	if len(entries) > 0 {
+		builtSeq = entries[len(entries)-1].Seq
+	}
+	s.logSnapMu.Lock()
+	s.logSnapshots[code] = logSnapshot{entries: entries, builtSeq: builtSeq}
+	s.logSnapMu.Unlock()
+	return entries, nil
+}
+
+// invalidateLogSnapshot drops the in-memory log snapshot for a project. Called
+// by appendLogLocked after a local append so the next ReadLogCached re-scans.
+func (s *Store) invalidateLogSnapshot(code string) {
+	s.logSnapMu.Lock()
+	delete(s.logSnapshots, code)
+	s.logSnapMu.Unlock()
 }
 
 func (s *Store) Replay(code string) (*ReplayState, error) {
@@ -298,6 +405,13 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 		st.Comments = append(st.Comments, c)
 	}
 	sort.Slice(st.Comments, func(i, j int) bool { return st.Comments[i].ID < st.Comments[j].ID })
+	// Replay is the cache.db-wiped recovery path: populate the per-project
+	// last-log-seq cache row so subsequent LastLogSeq calls stay O(1).
+	if len(entries) > 0 {
+		if db, err := s.cacheDB(); err == nil {
+			_ = cacheSetLastLogSeq(db, code, entries[len(entries)-1].Seq)
+		}
+	}
 	return st, nil
 }
 

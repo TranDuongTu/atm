@@ -259,3 +259,14 @@ func (s *Store) LabelUsage(projectCode, label string) (int, error) {
 	}
 	return cacheLabelUsage(db, projectCode, label)
 }
+
+// LabelUsageGrouped returns a map of label -> usage count (tasks + comments)
+// for every label in projectCode in two grouped queries instead of 2N
+// queries for N labels. Used by the TUI Labels pane refresh path.
+func (s *Store) LabelUsageGrouped(projectCode string) (map[string]int, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	return cacheLabelUsageGrouped(db, projectCode)
+}

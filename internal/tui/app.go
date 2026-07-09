@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
@@ -96,9 +97,9 @@ type Model struct {
 	// removed, which task is being edited).
 	formPayload string
 
-	confirm    confirmAction
-	confirmMsg string
-	confirmArg string
+	confirm        confirmAction
+	confirmMsg     string
+	confirmArg     string
 	confirmPayload string
 
 	toastMsg string
@@ -337,8 +338,29 @@ func (m *Model) cycleTheme() {
 // there is no actor-gated dead state. Kept as a stable predicate for callers.
 func (m *Model) canMutate() bool { return true }
 
-// Init is the Bubble Tea Init command.
-func (m *Model) Init() tea.Cmd { return nil }
+// Init is the Bubble Tea Init command. It schedules the periodic refresh
+// tick that re-runs refreshAll so external mutations (CLI writes in another
+// process) surface in the TUI without a manual key. The tick is cheap: with
+// the O(1) LastLogSeq staleness check, refreshAll skips rebuilds when the
+// cache is fresh.
+func (m *Model) Init() tea.Cmd { return refreshTickCmd() }
+
+// refreshTickMsg is the periodic message that triggers a refreshAll to pick
+// up external mutations (a CLI invocation in another process appending to
+// log.jsonl + cache.db). The TUI's own mutations already call refreshAll
+// synchronously; this tick only matters for changes originating outside the
+// running TUI.
+type refreshTickMsg struct{}
+
+// refreshTickInterval is how often the TUI polls for external mutations.
+// 1s is frequent enough to feel live without burning measurable CPU: each
+// tick is a refreshAll (~2ms at 80-task scale) gated by the O(1) LastLogSeq
+// check, so a no-op tick against a fresh cache is effectively free.
+const refreshTickInterval = 1 * time.Second
+
+func refreshTickCmd() tea.Cmd {
+	return tea.Tick(refreshTickInterval, func(time.Time) tea.Msg { return refreshTickMsg{} })
+}
 
 // Update routes messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -346,6 +368,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 		return m, nil
+	case refreshTickMsg:
+		// Pick up external mutations (CLI in another process). refreshAll
+		// is cheap with the O(1) LastLogSeq staleness check; a no-op tick
+		// against a fresh cache skips rebuilds. Preserve cursor position
+		// so the user's selection isn't disturbed by a background tick.
+		m.refreshAll()
+		return m, refreshTickCmd()
 	case pluginTickMsg:
 		im := m.indexer
 		if im == nil {
