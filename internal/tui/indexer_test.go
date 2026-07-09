@@ -186,17 +186,22 @@ func TestStartIndexerErrorsOnEmbedFailure(t *testing.T) {
 	}
 }
 
-func TestStartIndexerNoConfigToasts(t *testing.T) {
+func TestStartIndexerNoConfigIsNoOp(t *testing.T) {
 	m := newIndexerTestModel(t)
 	m.projectScope = "ATM"
 	p := newIndexerPlugin()
-	p.model(m) // initialize
+	im := p.model(m) // initialize
+	im.refreshStatus()
 	cmd := startIndexer(m, "ATM")
 	if cmd != nil {
-		t.Fatal("no config -> startIndexer should return nil")
+		t.Fatal("no config -> startIndexer should return nil (no-op)")
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no embedding") {
-		t.Fatalf("expected a 'no embedding' toast, got %q", m.toastMsg)
+	if im.state != idxOff {
+		t.Fatalf("no config -> state %v, want idxOff", im.state)
+	}
+	// startIndexer no longer toasts; the caller decides (handleStartStop toasts).
+	if m.toastMsg != "" {
+		t.Fatalf("startIndexer should not toast on no-config, got %q", m.toastMsg)
 	}
 }
 
@@ -220,17 +225,21 @@ func TestStopIndexerBlocksUntilGoroutineReturns(t *testing.T) {
 	}
 }
 
-func TestIndexerOverlayRefusesWithoutProject(t *testing.T) {
+func TestIndexerOverlayOpensWithoutProjectShowsOff(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(100, 30)
 	m.projectScope = ""
 	update(t, m, "g")
 	update(t, m, "1")
-	if m.pluginOverlay != -1 {
-		t.Fatal("overlay must not open without a project")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("overlay should open even with no project (D14), got %d", m.pluginOverlay)
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
-		t.Fatalf("expected 'select a project' toast, got %q", m.toastMsg)
+	view := m.View()
+	if !strings.Contains(view, "(no project)") {
+		t.Errorf("title should show '(no project)' when none selected:\n%s", view)
+	}
+	if !strings.Contains(view, "(none") {
+		t.Errorf("config block should show '(none — press [e] to configure)':\n%s", view)
 	}
 }
 
@@ -511,13 +520,19 @@ func TestIndexerReindexProgressRoutedThroughMsgCh(t *testing.T) {
 	}
 }
 
-func TestDockEmptyWhenNoProject(t *testing.T) {
+func TestDockAlwaysVisibleWithNoProject(t *testing.T) {
 	m := newIndexerTestModel(t)
 	m.projectScope = ""
 	m.SetSize(100, 30)
 	segs := dockSegments(m)
-	if len(segs) != 0 {
-		t.Fatalf("dock should be empty when no project selected, got %v", segs)
+	if len(segs) != 1 {
+		t.Fatalf("dock should always render (D14), got %d segments: %v", len(segs), segs)
+	}
+	if !strings.Contains(segs[0], "off") {
+		t.Errorf("no-project dock should show 'off' state, got %q", segs[0])
+	}
+	if !strings.Contains(segs[0], "g1") {
+		t.Errorf("dock should include the 'g1' keybind hint (D12), got %q", segs[0])
 	}
 }
 
@@ -584,4 +599,124 @@ func TestIndexerDropNoIndexToasts(t *testing.T) {
 	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no index") {
 		t.Fatalf("expected 'no index' toast, got %q", m.toastMsg)
 	}
+}
+
+func TestDockShowsKeybindHintWithProject(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	segs := dockSegments(m)
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	if !strings.Contains(segs[0], "stopped") {
+		t.Errorf("config present, not started -> want 'stopped' state, got %q", segs[0])
+	}
+	if !strings.Contains(segs[0], "g1") {
+		t.Errorf("dock missing 'g1' keybind hint (D12), got %q", segs[0])
+	}
+}
+
+func TestIndexerOverlayLogBottomAnchored(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.logs = []string{"only line"}
+	im.logOffset = -1
+	m.SetSize(100, 40)
+	m.pluginOverlay = 0
+	p.Open(m)
+	view := p.Render(m)
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	half := len(lines) / 2
+	found := -1
+	for i, l := range lines {
+		if strings.Contains(l, "only line") {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		t.Fatal("log line 'only line' not found in view")
+	}
+	if found < half {
+		t.Fatalf("log line at row %d of %d (above halfway) — log pane must be bottom-anchored (D13)", found, len(lines))
+	}
+}
+
+func TestAutoStartStartsWatcherWhenConfigPresent(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	autoStartIndexer(m, "ATM")
+	if im.state != idxWorking {
+		t.Fatalf("autoStart with config: state %v, want idxWorking", im.state)
+	}
+	if im.cancel == nil {
+		t.Fatal("autoStart should have started the goroutine")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after settle: state %v, want idxIdle", im.state)
+	}
+	// re-selecting the same project is a no-op (watcher already running)
+	autoStartIndexer(m, "ATM")
+	if im.cancel == nil {
+		t.Fatal("re-select should not stop the watcher")
+	}
+	resetIndexer(m)
+}
+
+func TestAutoStartNoConfigDoesNotHijack(t *testing.T) {
+	m := newIndexerTestModel(t)
+	p := newIndexerPlugin()
+	p.model(m)
+	autoStartIndexer(m, "ATM")
+	if m.pluginOverlay != -1 {
+		t.Fatalf("autoStart with no config should NOT open the overlay (dock shows off g1), got %d", m.pluginOverlay)
+	}
+	im := p.model(m)
+	if im.state != idxOff {
+		t.Fatalf("no config -> state %v, want idxOff", im.state)
+	}
+}
+
+func TestErrorAutoOpensOverlay(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = func(*store.EmbeddingConfig) store.EmbedFunc {
+		return func(text, role string) ([]float64, error) {
+			return nil, errors.New("endpoint down")
+		}
+	}
+	startIndexer(m, "ATM")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state != idxError {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxError {
+		t.Fatalf("after drain: state %v, want idxError", im.state)
+	}
+	if m.pluginOverlay != 0 {
+		t.Fatalf("error should auto-open the indexer overlay (D16), got %d", m.pluginOverlay)
+	}
+	view := m.View()
+	if !strings.Contains(view, "error") {
+		t.Errorf("overlay should show the error state:\n%s", view)
+	}
+	resetIndexer(m)
 }

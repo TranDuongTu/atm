@@ -143,15 +143,50 @@ func (p *indexerPlugin) Render(m *Model) string {
 	if innerW < 1 {
 		innerW = 1
 	}
+	innerH := bh - 2 // titledBoxHeight draws border + title + bottom row
+	if innerH < 1 {
+		innerH = 1
+	}
+	cfgBlock := p.renderConfigBlock(m, innerW)
+	statusBlock := p.renderStatusBlock(m, innerW)
+	actionRow := p.renderActionRow(m, innerW)
+	// Each section is separated by one blank line.
+	used := lineCount(cfgBlock) + 1 + lineCount(statusBlock) + 1 + lineCount(actionRow) + 1
+	logH := innerH - used
+	if logH < 1 {
+		logH = 1
+	}
+	logBlock := p.renderLogPane(m, innerW, logH)
 	var b strings.Builder
-	b.WriteString(p.renderConfigBlock(m, innerW))
+	b.WriteString(cfgBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderStatusBlock(m, innerW))
+	b.WriteString(statusBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderActionRow(m, innerW))
+	b.WriteString(actionRow)
 	b.WriteString("\n")
-	b.WriteString(p.renderLogPane(m, innerW))
-	return titledBoxHeight(m.styles.DialogBody, bw, "Indexer — "+m.projectScope, b.String(), bh)
+	b.WriteString(logBlock)
+	return titledBoxHeight(m.styles.DialogBody, bw, indexerTitle(m), b.String(), bh)
+}
+
+// indexerTitle returns the overlay title, handling the no-project case (D14).
+func indexerTitle(m *Model) string {
+	if m.projectScope == "" {
+		return "Indexer — (no project)"
+	}
+	return "Indexer — " + m.projectScope
+}
+
+// lineCount returns the number of newline-separated lines in s (a trailing
+// newline does not add an empty line).
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if strings.HasSuffix(s, "\n") {
+		return n
+	}
+	return n + 1
 }
 
 func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
@@ -233,34 +268,56 @@ func (p *indexerPlugin) renderActionRow(m *Model, w int) string {
 	return dashboardLine(w, m.styles.KeyMenu.Render("[e] edit config   [s] save   [S] start/stop   [r] reindex once   [d] drop model   [Esc] close"))
 }
 
-func (p *indexerPlugin) renderLogPane(m *Model, w int) string {
+// renderLogPane renders the log section bottom-anchored (D13): the divider
+// sits first, then blank lines pad ABOVE the log content so a few log lines
+// read at the BOTTOM of the pane (next to the [Esc] close footer), not
+// collapsed at the middle. `height` is the total pane height (including the
+// divider line).
+func (p *indexerPlugin) renderLogPane(m *Model, w, height int) string {
+	im := p.model(m)
+	var body strings.Builder
+	if len(im.logs) == 0 {
+		body.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
+	} else {
+		visible := im.logs
+		if im.logOffset != -1 {
+			off := im.logOffset
+			if off < 0 {
+				off = 0
+			}
+			if off > len(im.logs) {
+				off = len(im.logs)
+			}
+			visible = im.logs[off:]
+		} else {
+			// tail: show the last (height-1) lines — 1 line for the divider.
+			tail := height - 1
+			if tail < 1 {
+				tail = 1
+			}
+			if len(visible) > tail {
+				visible = visible[len(visible)-tail:]
+			}
+		}
+		for _, l := range visible {
+			body.WriteString(dashboardLine(w, fitLine(l, w)))
+			body.WriteString("\n")
+		}
+	}
+	logContentLines := lineCount(body.String())
+	dividerLines := 1
+	padAbove := height - dividerLines - logContentLines
+	if padAbove < 0 {
+		padAbove = 0
+	}
 	var b strings.Builder
 	b.WriteString(sectionDivider(m.styles, w, "log"))
 	b.WriteString("\n")
-	im := p.model(m)
-	if len(im.logs) == 0 {
-		b.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
-		return b.String()
-	}
-	visible := im.logs
-	if im.logOffset != -1 {
-		off := im.logOffset
-		if off < 0 {
-			off = 0
-		}
-		if off > len(im.logs) {
-			off = len(im.logs)
-		}
-		visible = im.logs[off:]
-	} else {
-		if len(visible) > 12 {
-			visible = visible[len(visible)-12:]
-		}
-	}
-	for _, l := range visible {
-		b.WriteString(dashboardLine(w, fitLine(l, w)))
+	for i := 0; i < padAbove; i++ {
+		b.WriteString(spaces(w))
 		b.WriteString("\n")
 	}
+	b.WriteString(body.String())
 	return b.String()
 }
 
@@ -547,7 +604,8 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	}
 	im.refreshStatus()
 	if im.cfg == nil {
-		m.showToast("no embedding configured; press e to edit")
+		// No config: no-op. The caller (autoStartIndexer or handleStartStop)
+		// decides what to show — autoStart opens the overlay; S toasts.
 		return nil
 	}
 	if im.cancel != nil {
@@ -588,6 +646,27 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	return pluginTickCmd()
 }
 
+// autoStartIndexer is the project-selection entry point (D15). It refreshes
+// status, then starts the watcher if the project has embedding config and no
+// watcher is already running. When the project has no embedding config it does
+// NOT auto-open the overlay — the dock's persistent `⌬ off  g1` hint surfaces
+// the not-configured state without hijacking project selection. (A runtime
+// start failure — endpoint down — is handled separately by applyIndexerMsg's
+// D16 auto-open on error.) Idempotent: re-selecting a project whose watcher is
+// already running is a no-op. The previous project's watcher must have been
+// reset by the caller before setting the new projectScope.
+func autoStartIndexer(m *Model, code string) {
+	im := newIndexerPlugin().model(m)
+	im.refreshStatus()
+	if im.cfg == nil {
+		return // no config: dock shows `off g1`; don't hijack selection
+	}
+	if im.cancel != nil {
+		return // already running
+	}
+	startIndexer(m, code)
+}
+
 func applyIndexerMsg(m *Model, msg indexerMsg) {
 	im := m.indexer
 	if im == nil {
@@ -610,6 +689,11 @@ func applyIndexerMsg(m *Model, msg indexerMsg) {
 		if m.supervisor.recordError(newIndexerPlugin()) {
 			resetIndexer(m)
 			m.showToast("indexer reset after repeated errors: " + msg.err)
+		} else if m.pluginOverlay == -1 {
+			// D16: auto-open the indexer overlay so the user sees the error
+			// (don't steal focus if another plugin overlay is already open).
+			m.pluginOverlay = 0
+			newIndexerPlugin().Open(m)
 		}
 	case msgDone:
 		if im.state != idxError {

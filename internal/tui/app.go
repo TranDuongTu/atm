@@ -520,10 +520,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.pluginPrefixActive = false
 		for i, p := range m.plugins {
 			if k.String() == p.OverlayKey() {
-				if m.projectScope == "" {
-					m.showToast("select a project first")
-					return nil
-				}
+				// D14: the overlay opens even with no project selected — it
+				// shows the `off` state + "(none — press [e] to configure)".
+				// No "select a project first" toast; the user can configure
+				// after selecting a project.
 				m.pluginOverlay = i
 				p.Open(m)
 				return nil

@@ -210,9 +210,16 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "s":
 		if r, ok := p.selected(); ok {
 			p.m.projectScope = r.code
+			// D15: auto-start the indexer for the newly-selected project
+			// (starts the watcher if config present; opens the overlay to
+			// configure if not). resetIndexer on the old project is handled
+			// inside autoStartIndexer's contract — the caller sets the new
+			// projectScope first, then autoStart refreshes against it. The
+			// old watcher, if any, is stopped here.
 			if p.m.indexer != nil {
 				resetIndexer(p.m)
 			}
+			autoStartIndexer(p.m, r.code)
 			p.m.tasks.refresh()
 			p.m.labels.refresh()
 		}

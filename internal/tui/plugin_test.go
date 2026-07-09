@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -83,7 +84,15 @@ func TestDockSegmentsRendersOnePerPlugin(t *testing.T) {
 	m.projectScope = "ATM"
 	m.plugins = []plugin{&fakePlugin{}}
 	segs := dockSegments(m)
-	if len(segs) != 1 || segs[0] != "# off" {
-		t.Fatalf("got %v, want [# off]", segs)
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	// D12: the segment is "<state-colored label>  <muted g1 hint>" — check
+	// both the label and the keybind hint appear (avoid brittle ANSI matching).
+	if !strings.Contains(segs[0], "# off") {
+		t.Errorf("segment %q missing label '# off'", segs[0])
+	}
+	if !strings.Contains(segs[0], "g1") {
+		t.Errorf("segment %q missing keybind hint 'g1' (D12)", segs[0])
 	}
 }

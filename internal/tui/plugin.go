@@ -78,12 +78,15 @@ func (sv *pluginSupervisor) clear(p plugin) {
 
 // dockSegments returns one rendered dock string per registered plugin, in
 // registration order. It is the right-aligned join target for the status line.
-// Per D5/Section 2, when no project is scoped (projectScope == "") the dock is
-// empty (no plugin segments render). When no plugins are registered it returns nil.
+//
+// Per D14 the dock is always visible — even with no project selected — so the
+// user discovers the plugin keybinds from the first launch. In that case the
+// indexer state is `off` and the segment reads `⌬ off  g1`.
+//
+// Per D12 each segment is `<state-colored label>  <muted g<OverlayKey> hint>`
+// so the keybind to open the plugin's overlay is readable right next to the
+// icon. When no plugins are registered it returns nil.
 func dockSegments(m *Model) []string {
-	if m.projectScope == "" {
-		return nil
-	}
 	if len(m.plugins) == 0 {
 		return nil
 	}
@@ -92,7 +95,8 @@ func dockSegments(m *Model) []string {
 		st := p.State(m)
 		label := p.DockLabel(st)
 		style := p.DockColor(st, m.styles)
-		out = append(out, style.Render(label))
+		hint := m.styles.KeyMenuDim.Render("g" + p.OverlayKey())
+		out = append(out, style.Render(label)+"  "+hint)
 	}
 	return out
 }
