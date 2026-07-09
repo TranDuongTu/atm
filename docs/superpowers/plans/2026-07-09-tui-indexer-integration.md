@@ -216,8 +216,16 @@ func TestDockSegmentsRendersOnePerPlugin(t *testing.T) {
 	m := newTestModel(t)
 	m.plugins = []plugin{&fakePlugin{}}
 	segs := dockSegments(m)
-	if len(segs) != 1 || segs[0] != "# off" {
-		t.Fatalf("got %v, want [# off]", segs)
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	// The segment is "<state-colored label>  <muted g1 hint>" — check the
+	// label and the keybind hint both appear (avoid brittle ANSI matching).
+	if !strings.Contains(segs[0], "# off") {
+		t.Errorf("segment %q missing label '# off'", segs[0])
+	}
+	if !strings.Contains(segs[0], "g1") {
+		t.Errorf("segment %q missing keybind hint 'g1'", segs[0])
 	}
 }
 ```
@@ -302,7 +310,8 @@ func dockSegments(m *Model) []string {
 		st := p.State(m)
 		label := p.DockLabel(st)
 		style := p.DockColor(st, m.styles)
-		out = append(out, style.Render(label))
+		hint := m.styles.KeyMenuDim.Render("g" + p.OverlayKey())
+		out = append(out, style.Render(label)+"  "+hint)
 	}
 	return out
 }
@@ -362,6 +371,19 @@ func TestStatusBarPluginDockEmptyWhenNoPlugins(t *testing.T) {
 	line := m.renderStatusLine()
 	if strings.Contains(line, "idx:") || strings.Contains(line, "IDX:") {
 		t.Errorf("empty dock should render no plugin segment, got %q", line)
+	}
+}
+
+func TestStatusBarPluginDockShowsKeybindHint(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = []plugin{newIndexerPlugin()}
+	m.indexer = nil // force State() to default idxOff
+	line := m.renderStatusLine()
+	// The dock segment must include the muted "g1" hint next to the icon
+	// so the keybind is discoverable from the status bar alone.
+	if !strings.Contains(line, "g1") {
+		t.Errorf("dock missing 'g1' keybind hint:\n%s", line)
 	}
 }
 
@@ -502,10 +524,9 @@ Then, immediately after that `switch` block, add the prefix-resolution logic:
         m.pluginPrefixActive = false
         for i, p := range m.plugins {
             if k.String() == p.OverlayKey() {
-                if m.projectScope == "" {
-                    m.showToast("select a project first")
-                    return nil
-                }
+                // The overlay opens even with no project selected (D14):
+                // it shows the `off` state + "(none — press [e] to
+                // configure)". No "select a project first" toast.
                 m.pluginOverlay = i
                 p.Open(m)
                 return nil
@@ -1057,17 +1078,65 @@ func TestStartIndexerErrorsOnEmbedFailure(t *testing.T) {
 	}
 }
 
-func TestStartIndexerNoConfigToasts(t *testing.T) {
+func TestStartIndexerNoConfigIsNoOp(t *testing.T) {
 	m := newIndexerTestModel(t)
 	m.projectScope = "ATM"
 	p := newIndexerPlugin()
-	p.model(m) // initialize
+	im := p.model(m) // initialize
+	im.refreshStatus()
 	cmd := startIndexer(m, "ATM")
 	if cmd != nil {
-		t.Fatal("no config -> startIndexer should return nil")
+		t.Fatal("no config -> startIndexer should return nil (no-op)")
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no embedding") {
-		t.Fatalf("expected a 'no embedding' toast, got %q", m.toastMsg)
+	if im.state != idxOff {
+		t.Fatalf("no config -> state %v, want idxOff", im.state)
+	}
+}
+
+func TestAutoStartStartsWatcherWhenConfigPresent(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	autoStartIndexer(m, "ATM")
+	if im.state != idxWorking {
+		t.Fatalf("autoStart with config: state %v, want idxWorking", im.state)
+	}
+	if im.cancel == nil {
+		t.Fatal("autoStart should have started the goroutine")
+	}
+	// let it settle
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after settle: state %v, want idxIdle", im.state)
+	}
+	// re-selecting the same project is a no-op (watcher already running)
+	autoStartIndexer(m, "ATM")
+	// still running, no second goroutine
+	if im.cancel == nil {
+		t.Fatal("re-select should not stop the watcher")
+	}
+	resetIndexer(m)
+}
+
+func TestAutoStartNoConfigOpensOverlay(t *testing.T) {
+	m := newIndexerTestModel(t)
+	// no embedding config
+	p := newIndexerPlugin()
+	p.model(m)
+	autoStartIndexer(m, "ATM")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("autoStart with no config should open the overlay, got %d", m.pluginOverlay)
+	}
+	view := m.View()
+	if !strings.Contains(view, "(none") {
+		t.Errorf("overlay should show '(none — press [e] to configure)':\n%s", view)
 	}
 }
 
@@ -1141,7 +1210,8 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	}
 	im.refreshStatus()
 	if im.cfg == nil {
-		m.showToast("no embedding configured; press e to edit")
+		// No config: no-op. The caller (autoStartIndexer or handleStartStop)
+		// decides what to show — autoStart opens the overlay; S toasts.
 		return nil
 	}
 	if im.cancel != nil {
@@ -1204,6 +1274,11 @@ func applyIndexerMsg(m *Model, msg indexerMsg) {
 		if m.supervisor.recordError(newIndexerPlugin()) {
 			resetIndexer(m)
 			m.showToast("indexer reset after repeated errors: " + msg.err)
+		} else if m.pluginOverlay == -1 {
+			// D16: auto-open the indexer overlay so the user sees the error
+			// (don't steal focus if another plugin overlay is already open).
+			m.pluginOverlay = 0
+			newIndexerPlugin().Open(m)
 		}
 	case msgDone:
 		if im.state != idxError {
@@ -1293,7 +1368,34 @@ Also, in `handleKey`, add `g`-prefix Start handling — actually Start is `S` in
 
 (Find the existing `if k.String() == "q"` block later in `handleKey` — it currently sets `quitting` + `tea.Quit`. Move the `resetIndexer` call there, and remove this duplicate. The existing `q` block is after the overlay/form checks, so it only fires when nothing else is active — which is correct.)
 
-For project switch: in `projects.go`, find where `p.m.projectScope = r.code` is set (line ~212) and where `m.projectScope = ""` on removal (line ~958). Add `if p.m.indexer != nil { resetIndexer(p.m) }` right after each assignment. (These are in `projects.go` `handleKey` and the select/remove paths — locate them with grep in the task; the assignment lines are stable.)
+For project switch (D15): in `projects.go`, find where `p.m.projectScope = r.code` is set (the `s` select-project path, line ~212). Right after that assignment, call `autoStartIndexer(p.m, r.code)` instead of just `resetIndexer`. Where `m.projectScope = ""` on removal (line ~958), call `resetIndexer(p.m)` (no auto-start with no project). Add `autoStartIndexer` to `internal/tui/indexer.go`:
+
+```go
+// autoStartIndexer is the project-selection entry point (D15). It refreshes
+// status, then either starts the watcher (config present, not already running)
+// or opens the indexer overlay so the user can configure (no config). It is
+// idempotent: re-selecting a project whose watcher is already running is a
+// no-op. The previous project's watcher must have been reset by the caller
+// before setting the new projectScope.
+func autoStartIndexer(m *Model, code string) {
+	im := newIndexerPlugin().model(m)
+	im.refreshStatus()
+	if im.cfg == nil {
+		// No config: open the overlay so the user sees "(none — press [e])".
+		if m.pluginOverlay == -1 {
+			m.pluginOverlay = 0
+			newIndexerPlugin().Open(m)
+		}
+		return
+	}
+	if im.cancel != nil {
+		return // already running
+	}
+	startIndexer(m, code)
+}
+```
+
+So the project-selection site in `projects.go` becomes: `p.m.projectScope = r.code` then `autoStartIndexer(p.m, r.code)`. The removal site (`m.projectScope = ""`) calls `resetIndexer(p.m)` only.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1330,17 +1432,21 @@ git commit -m "tui: indexer watcher lifecycle (start/stop/reset) + drain tick"
 Append to `internal/tui/indexer_test.go`:
 
 ```go
-func TestIndexerOverlayRefusesWithoutProject(t *testing.T) {
+func TestIndexerOverlayOpensWithoutProjectShowsOff(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(100, 30)
 	m.projectScope = ""
 	update(t, m, "g")
 	update(t, m, "1")
-	if m.pluginOverlay != -1 {
-		t.Fatal("overlay must not open without a project")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("overlay should open even with no project (D14), got %d", m.pluginOverlay)
 	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
-		t.Fatalf("expected 'select a project' toast, got %q", m.toastMsg)
+	view := m.View()
+	if !strings.Contains(view, "(no project)") {
+		t.Errorf("title should show '(no project)' when none selected:\n%s", view)
+	}
+	if !strings.Contains(view, "(none") {
+		t.Errorf("config block should show '(none — press [e] to configure)':\n%s", view)
 	}
 }
 
@@ -1439,6 +1545,37 @@ func TestIndexerOverlayLogScroll(t *testing.T) {
 		t.Fatalf("G should reset logOffset to -1 (tail), got %d", im.logOffset)
 	}
 }
+
+func TestIndexerOverlayLogBottomAnchored(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.logs = []string{"only line"}
+	im.logOffset = -1
+	m.SetSize(100, 40)
+	m.pluginOverlay = 0
+	p.Open(m)
+	view := p.Render(m)
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	// The modal is ~80% of 39 content rows. The single log line must sit in
+	// the BOTTOM few rows of the modal, not the middle. Assert the log line
+	// is below the halfway mark of the modal.
+	half := len(lines) / 2
+	found := -1
+	for i, l := range lines {
+		if strings.Contains(l, "only line") {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		t.Fatal("log line 'only line' not found in view")
+	}
+	if found < half {
+		t.Fatalf("log line at row %d of %d (above halfway) — log pane must be bottom-anchored", found, len(lines))
+	}
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1458,15 +1595,37 @@ func (p *indexerPlugin) Render(m *Model) string {
 	if innerW < 1 {
 		innerW = 1
 	}
+	innerH := bh - 2 // titledBoxHeight draws border + title + bottom row
+	if innerH < 1 {
+		innerH = 1
+	}
+	cfgBlock := p.renderConfigBlock(m, innerW)
+	statusBlock := p.renderStatusBlock(m, innerW)
+	actionRow := p.renderActionRow(m, innerW)
+	// Each section is separated by one blank line.
+	used := lineCount(cfgBlock) + 1 + lineCount(statusBlock) + 1 + lineCount(actionRow) + 1
+	logH := innerH - used
+	if logH < 1 {
+		logH = 1
+	}
+	logBlock := p.renderLogPane(m, innerW, logH)
 	var b strings.Builder
-	b.WriteString(p.renderConfigBlock(m, innerW))
+	b.WriteString(cfgBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderStatusBlock(m, innerW))
+	b.WriteString(statusBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderActionRow(m, innerW))
+	b.WriteString(actionRow)
 	b.WriteString("\n")
-	b.WriteString(p.renderLogPane(m, innerW))
-	return titledBoxHeight(m.styles.DialogBody, bw, "Indexer — "+m.projectScope, b.String(), bh)
+	b.WriteString(logBlock)
+	return titledBoxHeight(m.styles.DialogBody, bw, indexerTitle(m), b.String(), bh)
+}
+
+// indexerTitle returns the overlay title, handling the no-project case (D14).
+func indexerTitle(m *Model) string {
+	if m.projectScope == "" {
+		return "Indexer — (no project)"
+	}
+	return "Indexer — " + m.projectScope
 }
 
 func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
@@ -1532,37 +1691,66 @@ func (p *indexerPlugin) renderActionRow(m *Model, w int) string {
 	return dashboardLine(w, m.styles.KeyMenu.Render("[e] edit config   [s] save   [S] start/stop   [r] reindex once   [d] drop model   [Esc] close"))
 }
 
-func (p *indexerPlugin) renderLogPane(m *Model, w int) string {
+func (p *indexerPlugin) renderLogPane(m *Model, w, height int) string {
+	im := p.model(m)
+	var body strings.Builder
+	if len(im.logs) == 0 {
+		body.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
+	} else {
+		// Determine the visible window.
+		visible := im.logs
+		if im.logOffset != -1 {
+			off := im.logOffset
+			if off < 0 {
+				off = 0
+			}
+			if off > len(im.logs) {
+				off = len(im.logs)
+			}
+			visible = im.logs[off:]
+		} else {
+			// tail: show the last `height-1` lines (1 line for the divider).
+			if len(visible) > height-1 {
+				visible = visible[len(visible)-(height-1):]
+			}
+		}
+		for _, l := range visible {
+			body.WriteString(dashboardLine(w, fitLine(l, w)))
+			body.WriteString("\n")
+		}
+	}
+	// Bottom-anchor: the divider sits first, then blank-fill above the log
+	// lines so the content reads at the BOTTOM of the pane (next to the
+	// [Esc] close footer), not collapsed at the middle.
+	contentLines := lineCount(body.String())
+	logContentLines := contentLines // log lines (no divider)
+	dividerLine := 1
+	padAbove := height - dividerLine - logContentLines
+	if padAbove < 0 {
+		padAbove = 0
+	}
 	var b strings.Builder
 	b.WriteString(sectionDivider(m.styles, w, "log"))
 	b.WriteString("\n")
-	im := p.model(m)
-	if len(im.logs) == 0 {
-		b.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
-		return b.String()
-	}
-	// Determine the visible window.
-	visible := im.logs
-	if im.logOffset != -1 {
-		off := im.logOffset
-		if off < 0 {
-			off = 0
-		}
-		if off > len(im.logs) {
-			off = len(im.logs)
-		}
-		visible = im.logs[off:]
-	} else {
-		// tail: show the last ~12 lines (overlay log pane is ~40% of modal)
-		if len(visible) > 12 {
-			visible = visible[len(visible)-12:]
-		}
-	}
-	for _, l := range visible {
-		b.WriteString(dashboardLine(w, fitLine(l, w)))
+	for i := 0; i < padAbove; i++ {
+		b.WriteString(spaces(w))
 		b.WriteString("\n")
 	}
+	b.WriteString(body.String())
 	return b.String()
+}
+
+// lineCount returns the number of newline-separated lines in s (a trailing
+// newline does not add an empty line).
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if strings.HasSuffix(s, "\n") {
+		return n
+	}
+	return n + 1
 }
 
 func stateWord(s indexerState) string {
@@ -2368,6 +2556,11 @@ git commit -m "tui: keymap + help entries for g-prefix plugin overlays"
 - D9 (hard reset + 3-strikes) → Task 2 (supervisor) + Task 5 (reset on error). ✓
 - D10 (save vs start/stop separated) → Tasks 6-7. ✓
 - D11 (actor hidden) → Task 3. ✓
+- D12 (dock keybind hint) → Task 2 (`dockSegments` appends `g`+OverlayKey) + Task 3 (test). ✓
+- D13 (log pane bottom-anchored) → Task 6 (`Render` measures sections; `renderLogPane` top-pads). ✓
+- D14 (dock always visible) → Task 3 (`renderStatusLine` renders the dock regardless of projectScope) + Task 4 (`refreshStatus` leaves `idxOff` when no project) + Task 6 (overlay opens with no project, `indexerTitle`). ✓
+- D15 (auto-start on project selection) → Task 5 (`autoStartIndexer` + projects.go hook). ✓
+- D16 (auto-open overlay on error) → Task 5 (`applyIndexerMsg` msgError branch). ✓
 - Section 4 (overlay layout) → Task 6. ✓
 - Section 5 (data flow) → Tasks 5-8. ✓
 - Section 6 (error handling) → Tasks 5-8. ✓
@@ -2377,7 +2570,7 @@ git commit -m "tui: keymap + help entries for g-prefix plugin overlays"
 
 **2. Placeholder scan:** The plan has complete code in every code step; no "TBD"/"add appropriate error handling". The Task 6 Step 4 note about `nomic` test assertion is a known fix-up, not a placeholder. The Task 6 `SetSize` block is explicitly called out as "drop if unused" — that's a decision point, not a placeholder.
 
-**3. Type consistency:** `indexerState` consts (`idxOff`/`idxStopped`/`idxIdle`/`idxWorking`/`idxError`) used consistently across Tasks 4-8. `indexerModel.embedFnBuilder` field defined Task 4, used Tasks 5-8. `pluginTickMsg`/`pluginTickCmd` defined Task 5, used Task 5. `reindexResultMsg` defined Task 8, handled Task 8. `confirmDropIndex`/`confirmPayload` added Task 8, used Task 8. `startIndexer`/`stopIndexer`/`resetIndexer`/`refreshStatus` (called `refreshIndexerStatus` in the spec — the plan uses `refreshStatus` as the method name on `indexerModel`; the spec's `refreshIndexerStatus()` is the same thing) — consistent within the plan. `dockSegments` defined Task 2, used Task 3. `applyIndexerMsg` defined Task 5, used Task 5. `stateWord` defined Task 6. `scrollDown`/`scrollUp` defined Task 6.
+**3. Type consistency:** `indexerState` consts (`idxOff`/`idxStopped`/`idxIdle`/`idxWorking`/`idxError`) used consistently across Tasks 4-8. `indexerModel.embedFnBuilder` field defined Task 4, used Tasks 5-8. `pluginTickMsg`/`pluginTickCmd` defined Task 5, used Task 5. `reindexResultMsg` defined Task 8, handled Task 8. `confirmDropIndex`/`confirmPayload` added Task 8, used Task 8. `startIndexer`/`stopIndexer`/`resetIndexer`/`refreshStatus` (called `refreshIndexerStatus` in the spec — the plan uses `refreshStatus` as the method name on `indexerModel`; the spec's `refreshIndexerStatus()` is the same thing) — consistent within the plan. `dockSegments` defined Task 2, used Task 3. `applyIndexerMsg` defined Task 5, used Task 5. `stateWord` defined Task 6. `scrollDown`/`scrollUp` defined Task 6. `lineCount` defined Task 6, used Task 6 (`Render` + `renderLogPane`).
 
 One name to reconcile: the spec calls the refresh `refreshIndexerStatus()`; the plan's `indexerModel` method is `refreshStatus()` (called as `im.refreshStatus()`). This is fine — `refreshStatus` is a method on `indexerModel`, and the spec's `refreshIndexerStatus()` was a top-level helper; the plan folds it into the model. No conflict, just note it for the implementer.
 
