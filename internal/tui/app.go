@@ -100,6 +100,14 @@ type Model struct {
 	confirmArg string
 
 	toastMsg string
+
+	// plugins holds registered plugins in registration order. No plugins are
+	// registered yet; the indexer (Task 4) will be the first.
+	plugins []plugin
+	// pluginOverlay is the index into plugins of the currently open plugin
+	// overlay, or -1 when none is open. Initialized lazily; zero value (0) is
+	// unused until the first plugin is registered.
+	pluginOverlay int
 }
 
 // NewModelOpts are the inputs to NewModel.
