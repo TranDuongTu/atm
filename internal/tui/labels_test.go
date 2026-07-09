@@ -109,7 +109,7 @@ func TestLabelDetailDashboardSections(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "3")
 	update(t, m, "j") // cursor 0 is a namespace header; step onto the first row
-	update(t, m, "i")  // open label detail
+	update(t, m, "i") // open label detail
 	v := m.View()
 	mustContain(t, v, "Label ")
 	mustContain(t, v, "FACTS")

@@ -57,3 +57,15 @@ func TestConventionsIncludesMemorySubstrate(t *testing.T) {
 		}
 	}
 }
+
+func TestConventionsActorText(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.output = outputText
+	out, _, _ := h.run("conventions")
+	if strings.Contains(out, "actor migrate") || strings.Contains(out, "actor alias") {
+		t.Error("conventions still references the removed alias subsystem")
+	}
+	if !strings.Contains(out, "persona@agent:model") || !strings.Contains(out, "registered persona") {
+		t.Error("conventions does not describe the enforced actor convention")
+	}
+}

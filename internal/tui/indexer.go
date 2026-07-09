@@ -205,7 +205,7 @@ func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
 			b.WriteString(dashboardLine(w, fmt.Sprintf("%s %s", label, val)))
 			b.WriteString("\n")
 			if f.Hint != "" {
-				b.WriteString(dashboardLine(w, m.styles.FieldHint.Render("  " + f.Hint)))
+				b.WriteString(dashboardLine(w, m.styles.FieldHint.Render("  "+f.Hint)))
 				b.WriteString("\n")
 			}
 		}
