@@ -114,6 +114,9 @@ type Model struct {
 	pluginPrefixActive bool
 	// supervisor debounces per-plugin Reset calls (3-strikes/30s).
 	supervisor *pluginSupervisor
+	// indexer is the lazy-init model behind the indexer plugin; populated by
+	// indexerPlugin.model on first use.
+	indexer *indexerModel
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -155,7 +158,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.labels = newLabelsModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
-	m.plugins = nil
+	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
 	m.SetSize(m.width, m.height)
