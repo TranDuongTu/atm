@@ -1,3 +1,12 @@
+## v1.2.6 - 2026-07-09
+
+### docs
+- Refine ATM-0057 design: verified embedding backend, project-declared model, run-once watcher, eval deferred
+- Implementation plan: ATM memory substrate — retrieval + indexing + recall measurement (ATM-0057)
+- Design spec: ATM as memory substrate — retrieval surface + indexing model + manager cognition (ATM-0057)
+- Fix ATM-0047 + ATM-0061: manager plugin staleness detection + developing gene boundary
+
+
 ## v1.2.5 - 2026-07-08
 
 ### docs
