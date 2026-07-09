@@ -46,6 +46,8 @@ var keymapRows = []keyEntry{
 	{"T", "cycle theme", "cycle theme", "cycle theme", "cycle theme"},
 	{"?", "open keys help", "open keys help", "open keys help", "close help overlay"},
 	{"C", "open conventions", "open conventions", "open conventions", "close help overlay"},
+	{"g", "plugin prefix", "plugin prefix", "plugin prefix", "plugin prefix"},
+	{"g 1", "open indexer overlay", "open indexer overlay", "open indexer overlay", "open indexer overlay"},
 	{"q / ctrl+c", "quit", "quit", "quit", "quit"},
 	{"[ / ]", "prev/next page", "prev/next page", "prev/next page", "-"},
 	{"PgDn/Space", "-", "-", "-", "scroll down"},

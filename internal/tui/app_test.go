@@ -1931,3 +1931,98 @@ func TestPersonaCreateFormEscReturnsToOverlay(t *testing.T) {
 		t.Fatal("overlay should still be open after form Esc (form was on top)")
 	}
 }
+
+func TestStatusBarHasNoActorSegment(t *testing.T) {
+	m := newTestModelWithActor(t, "claude")
+	m.SetSize(100, 30)
+	view := m.View()
+	if strings.Contains(view, "actor:") {
+		t.Errorf("status bar still renders actor: segment\n--- view ---\n%s", view)
+	}
+}
+
+func TestStatusBarPluginDockEmptyWhenNoPlugins(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = nil
+	line := m.renderStatusLine()
+	if strings.Contains(line, "idx:") || strings.Contains(line, "IDX:") {
+		t.Errorf("empty dock should render no plugin segment, got %q", line)
+	}
+}
+
+func TestGPrefixSetsFlagAndG1OpensOverlay(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	seedProject(t, m, "TST", "Test")
+	m.projectScope = "TST"
+	m.plugins = []plugin{&fakePlugin{}}
+	update(t, m, "g")
+	if !m.pluginPrefixActive {
+		t.Fatal("g should set pluginPrefixActive")
+	}
+	update(t, m, "1")
+	if m.pluginOverlay != 0 {
+		t.Fatalf("g 1 should open plugin overlay 0, got %d", m.pluginOverlay)
+	}
+	if m.pluginPrefixActive {
+		t.Fatal("prefix flag should clear after opening")
+	}
+}
+
+func TestGPrefixNonMatchingKeyClearsFlag(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = []plugin{&fakePlugin{}}
+	update(t, m, "g")
+	if !m.pluginPrefixActive {
+		t.Fatal("g should set pluginPrefixActive")
+	}
+	update(t, m, "x")
+	if m.pluginPrefixActive {
+		t.Fatal("non-matching key should clear prefix flag")
+	}
+	if m.pluginOverlay != -1 {
+		t.Fatalf("non-matching key should not open overlay, got %d", m.pluginOverlay)
+	}
+}
+
+func TestEscClosesPluginOverlay(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = []plugin{&fakePlugin{}}
+	m.pluginOverlay = 0
+	update(t, m, "esc")
+	if m.pluginOverlay != -1 {
+		t.Fatalf("Esc should close plugin overlay, got %d", m.pluginOverlay)
+	}
+}
+
+func TestKeymapHasPluginPrefixRows(t *testing.T) {
+	foundG := false
+	foundG1 := false
+	for _, r := range keymapRows {
+		if r.Key == "g" {
+			foundG = true
+		}
+		if r.Key == "g 1" {
+			foundG1 = true
+		}
+	}
+	if !foundG {
+		t.Error("keymapRows missing 'g' (plugin prefix)")
+	}
+	if !foundG1 {
+		t.Error("keymapRows missing 'g 1' (indexer overlay)")
+	}
+}
+
+func TestHelpMentionsPluginOverlays(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.openHelp(helpKeys)
+	content := strings.Join(m.help.lines, "\n")
+	if !strings.Contains(content, "g ") {
+		t.Errorf("keys help should mention 'g <n>' plugin overlays\n--- content ---\n%s", content)
+	}
+}
