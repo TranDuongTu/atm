@@ -219,3 +219,113 @@ func TestStopIndexerBlocksUntilGoroutineReturns(t *testing.T) {
 		t.Fatal("stop should clear cancel + done")
 	}
 }
+
+func TestIndexerOverlayRefusesWithoutProject(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = ""
+	update(t, m, "g")
+	update(t, m, "1")
+	if m.pluginOverlay != -1 {
+		t.Fatal("overlay must not open without a project")
+	}
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
+		t.Fatalf("expected 'select a project' toast, got %q", m.toastMsg)
+	}
+}
+
+func TestIndexerOverlayShowsConfigAndStatus(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	p.model(m).refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	view := p.Render(m)
+	mustContain(t, view, "Indexer — ATM")
+	mustContain(t, view, "Embedding model:")
+	mustContain(t, view, "Embedding model:   m")
+	mustContain(t, view, "Endpoint:")
+	mustContain(t, view, "Status:")
+	mustContain(t, view, "[e] edit config")
+	mustContain(t, view, "[S] start/stop")
+	mustContain(t, view, "[Esc] close")
+}
+
+func TestIndexerOverlayNoConfigShowsNone(t *testing.T) {
+	m := newIndexerTestModel(t)
+	p := newIndexerPlugin()
+	p.model(m).refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	view := p.Render(m)
+	mustContain(t, view, "(none")
+	mustContain(t, view, "press [e] to configure")
+}
+
+func TestIndexerOverlaySTogglesRuntime(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	m.pluginOverlay = 0
+	p.Open(m)
+
+	// S from stopped -> start
+	cmd := p.HandleKey(keyMsg("S"), m)
+	if cmd == nil {
+		t.Fatal("S from stopped should start the watcher (return tick cmd)")
+	}
+	if im.state != idxWorking {
+		t.Fatalf("S from stopped: state %v, want idxWorking", im.state)
+	}
+	// let it settle
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking {
+		applyTick(m)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after settle: state %v, want idxIdle", im.state)
+	}
+	// S from running -> stop
+	p.HandleKey(keyMsg("S"), m)
+	if im.state != idxStopped {
+		t.Fatalf("S from running: state %v, want idxStopped", im.state)
+	}
+}
+
+func TestIndexerOverlaySNoConfigToasts(t *testing.T) {
+	m := newIndexerTestModel(t)
+	p := newIndexerPlugin()
+	p.model(m).refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("S"), m)
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no embedding") {
+		t.Fatalf("expected 'no embedding' toast, got %q", m.toastMsg)
+	}
+}
+
+func TestIndexerOverlayLogScroll(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.logs = []string{"line one", "line two", "line three"}
+	im.logOffset = -1
+	m.pluginOverlay = 0
+	p.Open(m)
+	// k pins offset away from tail
+	p.HandleKey(keyMsg("k"), m)
+	if im.logOffset == -1 {
+		t.Fatal("k should pin logOffset away from -1")
+	}
+	// G resets to tail
+	p.HandleKey(keyMsg("G"), m)
+	if im.logOffset != -1 {
+		t.Fatalf("G should reset logOffset to -1 (tail), got %d", im.logOffset)
+	}
+}

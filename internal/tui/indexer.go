@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -108,10 +109,193 @@ func (p *indexerPlugin) Open(m *Model)  { p.model(m).refreshStatus() }
 func (p *indexerPlugin) Close(m *Model) {}
 func (p *indexerPlugin) Reset(m *Model) { resetIndexer(m) }
 
-func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd { return nil }
+func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd {
+	im := p.model(m)
+	_ = im
+	switch k.String() {
+	case "S":
+		return p.handleStartStop(m)
+	case "j", "down", "pgdown":
+		im.logOffset = scrollDown(im.logs, im.logOffset)
+		return nil
+	case "k", "up", "pgup":
+		im.logOffset = scrollUp(im.logs, im.logOffset)
+		return nil
+	case "G":
+		im.logOffset = -1
+		return nil
+	}
+	return nil
+}
 
 func (p *indexerPlugin) Render(m *Model) string {
-	return titledBoxHeight(m.styles.DialogBody, m.width, "Indexer — "+m.projectScope, "(indexer overlay — Task 7 fills this in)", m.contentHeight)
+	im := p.model(m)
+	_ = im
+	bw, bh := m.helpBoxSize()
+	innerW := bw - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	var b strings.Builder
+	b.WriteString(p.renderConfigBlock(m, innerW))
+	b.WriteString("\n")
+	b.WriteString(p.renderStatusBlock(m, innerW))
+	b.WriteString("\n")
+	b.WriteString(p.renderActionRow(m, innerW))
+	b.WriteString("\n")
+	b.WriteString(p.renderLogPane(m, innerW))
+	return titledBoxHeight(m.styles.DialogBody, bw, "Indexer — "+m.projectScope, b.String(), bh)
+}
+
+func (p *indexerPlugin) renderConfigBlock(m *Model, w int) string {
+	var b strings.Builder
+	b.WriteString(sectionDivider(m.styles, w, "Config"))
+	b.WriteString("\n")
+	im := p.model(m)
+	if im.cfg == nil {
+		b.WriteString(dashboardLine(w, m.styles.Muted.Render("Embedding model: (none — press [e] to configure)")))
+		return b.String()
+	}
+	cfg := im.cfg
+	rows := []string{
+		fmt.Sprintf("Embedding model:   %s", cfg.Model),
+		fmt.Sprintf("Endpoint:          %s", cfg.Endpoint),
+		fmt.Sprintf("Dim / threshold:   %d / %.2f", cfg.Dim, cfg.Threshold),
+	}
+	if cfg.QueryPrefix != "" || cfg.DocPrefix != "" {
+		rows = append(rows, fmt.Sprintf("Prefixes:          %s / %s", cfg.QueryPrefix, cfg.DocPrefix))
+	}
+	for _, r := range rows {
+		b.WriteString(dashboardLine(w, r))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (p *indexerPlugin) renderStatusBlock(m *Model, w int) string {
+	var b strings.Builder
+	b.WriteString(sectionDivider(m.styles, w, "Status"))
+	b.WriteString("\n")
+	im := p.model(m)
+	stateWord := stateWord(im.state)
+	b.WriteString(dashboardLine(w, fmt.Sprintf("Status:    %s %s", p.Icon(), stateWord)))
+	b.WriteString("\n")
+	if im.cfg != nil && im.startedAt != (time.Time{}) {
+		cfg, _ := m.store.GetProjectConfig(m.projectScope)
+		if cfg != nil && cfg.UpdatedAt != "" {
+			if updated, err := time.Parse(time.RFC3339, cfg.UpdatedAt); err == nil && im.startedAt.Before(updated) {
+				b.WriteString(dashboardLine(w, m.styles.Muted.Render(fmt.Sprintf("           %s running (config changed — S to restart)", p.Icon()))))
+				b.WriteString("\n")
+			}
+		}
+	}
+	for _, r := range im.status {
+		line := fmt.Sprintf("Index:     %s  count=%d  last_log_seq=%d  behind=%d", r.Model, r.Count, r.Last, r.Behind)
+		b.WriteString(dashboardLine(w, line))
+		b.WriteString("\n")
+	}
+	if im.lastError != "" {
+		b.WriteString(dashboardLine(w, m.styles.Error.Render("error: "+im.lastError)))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (p *indexerPlugin) renderActionRow(m *Model, w int) string {
+	im := p.model(m)
+	if im.editMode {
+		return dashboardLine(w, m.styles.KeyMenu.Render("[Tab] next field   [s] save   [p] nomic preset   [Esc] cancel"))
+	}
+	return dashboardLine(w, m.styles.KeyMenu.Render("[e] edit config   [s] save   [S] start/stop   [r] reindex once   [d] drop model   [Esc] close"))
+}
+
+func (p *indexerPlugin) renderLogPane(m *Model, w int) string {
+	var b strings.Builder
+	b.WriteString(sectionDivider(m.styles, w, "log"))
+	b.WriteString("\n")
+	im := p.model(m)
+	if len(im.logs) == 0 {
+		b.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
+		return b.String()
+	}
+	visible := im.logs
+	if im.logOffset != -1 {
+		off := im.logOffset
+		if off < 0 {
+			off = 0
+		}
+		if off > len(im.logs) {
+			off = len(im.logs)
+		}
+		visible = im.logs[off:]
+	} else {
+		if len(visible) > 12 {
+			visible = visible[len(visible)-12:]
+		}
+	}
+	for _, l := range visible {
+		b.WriteString(dashboardLine(w, fitLine(l, w)))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func stateWord(s indexerState) string {
+	switch s {
+	case idxOff:
+		return "off"
+	case idxStopped:
+		return "stopped"
+	case idxIdle:
+		return "on"
+	case idxWorking:
+		return "running"
+	case idxError:
+		return "error"
+	}
+	return "?"
+}
+
+func (p *indexerPlugin) handleStartStop(m *Model) tea.Cmd {
+	im := p.model(m)
+	if im.cfg == nil {
+		m.showToast("no embedding configured; press e to edit")
+		return nil
+	}
+	if im.cancel == nil {
+		return startIndexer(m, m.projectScope)
+	}
+	resetIndexer(m)
+	return nil
+}
+
+func scrollDown(logs []string, offset int) int {
+	if offset == -1 {
+		return -1
+	}
+	off := offset + 1
+	if off >= len(logs) {
+		return -1
+	}
+	return off
+}
+
+func scrollUp(logs []string, offset int) int {
+	if offset == -1 {
+		if len(logs) == 0 {
+			return -1
+		}
+		start := len(logs) - 12
+		if start < 0 {
+			start = 0
+		}
+		return start
+	}
+	off := offset - 1
+	if off < 0 {
+		off = 0
+	}
+	return off
 }
 
 func (p *indexerPlugin) model(m *Model) *indexerModel {
