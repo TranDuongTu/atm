@@ -34,6 +34,7 @@ type Styles struct {
 	KeyMenuDim      lipgloss.Style
 	Status          lipgloss.Style
 	StatusLabel     lipgloss.Style
+	StatusOK        lipgloss.Style
 	Dialog          lipgloss.Style
 	DialogTitle     lipgloss.Style
 	DialogBody      lipgloss.Style
@@ -98,6 +99,7 @@ func buildStyles(themeName ThemeName) Styles {
 		KeyMenuDim:      lipgloss.NewStyle().Foreground(t.Muted),
 		Status:          lipgloss.NewStyle().Foreground(t.Muted),
 		StatusLabel:     lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
+		StatusOK:        lipgloss.NewStyle().Foreground(t.Success).Bold(true),
 		Dialog:          lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.Border).Padding(0, 1),
 		DialogTitle:     lipgloss.NewStyle().Foreground(t.Text).Bold(true).Padding(0, 1),
 		DialogBody:      lipgloss.NewStyle().Foreground(t.Text),
@@ -133,6 +135,7 @@ func buildStyles(themeName ThemeName) Styles {
 		s.HeaderLabel = lipgloss.NewStyle().Bold(true).Underline(true)
 		s.GroupHeader = lipgloss.NewStyle().Bold(true)
 		s.LabelChip = lipgloss.NewStyle().Reverse(true).Padding(0, 1)
+		s.StatusOK = lipgloss.NewStyle().Bold(true)
 	}
 	return s
 }
