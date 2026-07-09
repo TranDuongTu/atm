@@ -50,7 +50,7 @@ func (a *actorsModel) refresh() {
 	if code == "" {
 		return
 	}
-	entries, err := a.m.store.ReadLog(code)
+	entries, err := a.m.store.ReadLogCached(code)
 	if err != nil {
 		return
 	}

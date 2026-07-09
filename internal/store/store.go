@@ -18,6 +18,23 @@ type Store struct {
 	cacheOnce   sync.Once
 	cacheDBConn *sql.DB
 	cacheErr    error
+
+	// logSnapshot memoizes per-project parsed log entries for the TUI's
+	// lifetime, so the per-frame renderSummary path doesn't re-scan
+	// log.jsonl. Invalidated against the O(1) LastLogSeq cache row: when
+	// the cached last_seq advances (via an append in this or another
+	// process), the snapshot is dropped and re-scanned on the next call.
+	logSnapMu    sync.Mutex
+	logSnapshots map[string]logSnapshot
+}
+
+// logSnapshot holds the parsed log entries for one project plus the
+// last_log_seq value the snapshot was built against. When LastLogSeq(code)
+// returns a value greater than builtSeq, the snapshot is stale and must be
+// rebuilt.
+type logSnapshot struct {
+	entries  []LogEntry
+	builtSeq int
 }
 
 func RFC3339UTC(t time.Time) string {

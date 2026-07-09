@@ -810,7 +810,7 @@ func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []s
 		return nil, nil, nil, nil, false
 	}
 	tasks := p.m.store.ListTasks(store.QueryFilters{Project: code})
-	entries, err := p.m.store.ReadLog(code)
+	entries, err := p.m.store.ReadLogCached(code)
 	if err != nil && !store.IsIntegrity(err) {
 		return nil, nil, nil, nil, false
 	}

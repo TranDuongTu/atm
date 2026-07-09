@@ -67,9 +67,41 @@ CREATE TABLE IF NOT EXISTS comment_labels (
 	label TEXT NOT NULL,
 	PRIMARY KEY (comment_id, label)
 );
+
+CREATE TABLE IF NOT EXISTS meta (
+	key TEXT PRIMARY KEY,
+	value INTEGER NOT NULL
+);
 `
 
 func (s *Store) cachePath() string { return filepath.Join(s.Root, "cache.db") }
+
+// metaKey for the per-project last log seq cache row.
+func lastLogSeqMetaKey(code string) string { return "last_log_seq:" + code }
+
+// cacheSetLastLogSeq upserts the per-project last-log-seq row. Called inside
+// the same locked tx as appendLogLocked so the cache row and the log file
+// commit together.
+func cacheSetLastLogSeq(db *sql.DB, code string, seq int) error {
+	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		lastLogSeqMetaKey(code), seq)
+	return err
+}
+
+// cacheGetLastLogSeq returns the cached last-log-seq and a found flag. A
+// missing row returns (0, false) so the caller can fall back to a file scan.
+func cacheGetLastLogSeq(db *sql.DB, code string) (int, bool, error) {
+	var v int
+	err := db.QueryRow(`SELECT value FROM meta WHERE key = ?`, lastLogSeqMetaKey(code)).Scan(&v)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return v, true, nil
+}
 
 // cacheDB returns the store's single shared *sql.DB, opening and migrating it
 // on first use. WAL mode lets short-lived CLI invocations for different
@@ -256,21 +288,82 @@ func cacheListTaskIDs(db *sql.DB, projectCode string) ([]string, error) {
 }
 
 func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
-	ids, err := cacheListTaskIDs(db, projectCode)
+	// Single JOIN: one row per (task, label). Assemble labels in Go. This
+	// replaces the per-id N+1 (SELECT ids; then SELECT * + labels per id),
+	// which at 80 tasks issued ~160 round-trips. The query returns tasks
+	// with zero labels as a single NULL-label row (LEFT JOIN).
+	rows, err := db.Query(`SELECT t.id, t.project_code, t.title, t.description, t.log_seq,
+		t.created_at, t.created_by, t.updated_at, t.updated_by, t.next_comment_n,
+		tl.label
+		FROM tasks t
+		LEFT JOIN task_labels tl ON tl.task_id = t.id
+		WHERE t.project_code = ?
+		ORDER BY t.id, tl.label`, projectCode)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*Task, 0, len(ids))
-	for _, id := range ids {
-		t, ok, err := cacheGetTask(db, id)
-		if err != nil {
+	defer rows.Close()
+	byID := map[string]*Task{}
+	order := []string{}
+	for rows.Next() {
+		var (
+			id, projectCode, title, description, createdAt, createdBy, updatedAt, updatedBy string
+			logSeq, nextCommentN                                                            int
+			label                                                                           sql.NullString
+		)
+		if err := rows.Scan(&id, &projectCode, &title, &description, &logSeq,
+			&createdAt, &createdBy, &updatedAt, &updatedBy, &nextCommentN, &label); err != nil {
 			return nil, err
 		}
-		if ok {
-			out = append(out, t)
+		tk, ok := byID[id]
+		if !ok {
+			tk = &Task{
+				ID:           id,
+				ProjectCode:  projectCode,
+				Title:        title,
+				Description:  description,
+				LogSeq:       logSeq,
+				CreatedBy:    createdBy,
+				UpdatedBy:    updatedBy,
+				NextCommentN: nextCommentN,
+			}
+			tk.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+			tk.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+			byID[id] = tk
+			order = append(order, id)
+		}
+		if label.Valid && label.String != "" {
+			tk.Labels = append(tk.Labels, label.String)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// ORDER BY t.id, tl.label already gives id-asc + label-asc; the Go
+	// append preserves label ordering within each task. cacheListTaskIDs
+	// callers expect SortTaskIDs ordering, which for fixed-code IDs is
+	// numeric-asc — t.id ORDER BY in SQLite is lexicographic, so re-sort
+	// to guarantee numeric-asc parity with the N+1 path.
+	out := make([]*Task, 0, len(order))
+	for _, id := range order {
+		out = append(out, byID[id])
+	}
+	SortTaskIDsByFunc(out)
 	return out, nil
+}
+
+// SortTaskIDsByFunc sorts a slice of tasks by their ID using the canonical
+// (code-asc, numeric-asc) order, matching SortTaskIDs. Kept local to avoid
+// widening the store API.
+func SortTaskIDsByFunc(tasks []*Task) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		ci, ni, _ := ParseTaskID(tasks[i].ID)
+		cj, nj, _ := ParseTaskID(tasks[j].ID)
+		if ci != cj {
+			return ci < cj
+		}
+		return ni < nj
+	})
 }
 
 // ---- label cache ----
@@ -359,6 +452,60 @@ func cacheCountTasksWithLabelGlobally(db *sql.DB, label string) (int, error) {
 	var count int
 	err := db.QueryRow(`SELECT COUNT(*) FROM task_labels WHERE label = ?`, label).Scan(&count)
 	return count, err
+}
+
+// cacheLabelUsageGrouped returns a map of label -> usage count (tasks +
+// comments) for every label in projectCode, in a single pair of grouped
+// queries instead of two COUNT queries per label. Used by the TUI Labels
+// pane refresh path, which previously fired 2N queries for N labels.
+func cacheLabelUsageGrouped(db *sql.DB, projectCode string) (map[string]int, error) {
+	out := map[string]int{}
+	// Task usage grouped by label, scoped to the project's tasks.
+	rows, err := db.Query(`SELECT tl.label, COUNT(*) FROM task_labels tl
+		JOIN tasks t ON t.id = tl.task_id
+		WHERE t.project_code = ?
+		GROUP BY tl.label`, projectCode)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var label string
+		var n int
+		if err := rows.Scan(&label, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out[label] += n
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	// Comment usage grouped by label, scoped to the project's tasks.
+	rows, err = db.Query(`SELECT cl.label, COUNT(*) FROM comment_labels cl
+		JOIN comments c ON c.id = cl.comment_id
+		JOIN tasks t ON t.id = c.task_id
+		WHERE t.project_code = ?
+		GROUP BY cl.label`, projectCode)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var label string
+		var n int
+		if err := rows.Scan(&label, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out[label] += n
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	return out, nil
 }
 
 func cacheNamespaces(db *sql.DB, code string) ([]string, error) {
@@ -489,34 +636,60 @@ func cacheDeleteComment(db *sql.DB, id string) error {
 }
 
 func cacheListComments(db *sql.DB, taskID string) ([]*Comment, error) {
-	rows, err := db.Query(`SELECT id FROM comments WHERE task_id = ? ORDER BY id`, taskID)
+	// Single JOIN: one row per (comment, label). Assemble labels in Go.
+	// Replaces the per-id N+1 (SELECT ids; then SELECT * + labels per id).
+	rows, err := db.Query(`SELECT c.id, c.task_id, c.reply_to, c.body, c.log_seq,
+		c.created_at, c.created_by, c.updated_at, c.updated_by, cl.label
+		FROM comments c
+		LEFT JOIN comment_labels cl ON cl.comment_id = c.id
+		WHERE c.task_id = ?
+		ORDER BY c.id, cl.label`, taskID)
 	if err != nil {
 		return nil, err
 	}
-	var ids []string
+	defer rows.Close()
+	byID := map[string]*Comment{}
+	order := []string{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+		var (
+			id, taskID, replyTo, body, createdAt, createdBy, updatedAt, updatedBy string
+			logSeq                                                                int
+			label                                                                 sql.NullString
+		)
+		if err := rows.Scan(&id, &taskID, &replyTo, &body, &logSeq,
+			&createdAt, &createdBy, &updatedAt, &updatedBy, &label); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
-	}
-	rerr := rows.Err()
-	rows.Close()
-	if rerr != nil {
-		return nil, rerr
-	}
-	out := make([]*Comment, 0, len(ids))
-	for _, id := range ids {
-		c, ok, err := cacheGetComment(db, id)
-		if err != nil {
-			return nil, err
+		c, ok := byID[id]
+		if !ok {
+			c = &Comment{
+				ID:        id,
+				TaskID:    taskID,
+				ReplyTo:   replyTo,
+				Body:      body,
+				LogSeq:    logSeq,
+				CreatedBy: createdBy,
+				UpdatedBy: updatedBy,
+			}
+			c.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+			c.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+			byID[id] = c
+			order = append(order, id)
 		}
-		if ok {
-			out = append(out, c)
+		if label.Valid && label.String != "" {
+			c.Labels = append(c.Labels, label.String)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]*Comment, 0, len(order))
+	for _, id := range order {
+		out = append(out, byID[id])
+	}
+	// ORDER BY c.id gives lexicographic ordering; comment IDs share the
+	// task prefix so lex == numeric-asc within a task. Caller (task detail
+	// render) expects id-asc; keep that.
 	return out, nil
 }
 

@@ -172,14 +172,15 @@ func (l *labelsModel) refresh() {
 		return
 	}
 	ls := l.m.store.LabelList(l.m.projectScope, "")
+	usage, _ := l.m.store.LabelUsageGrouped(l.m.projectScope)
 	for _, lab := range ls {
-		usage, _ := l.m.store.LabelUsage(l.m.projectScope, lab.Name)
+		n := usage[lab.Name]
 		suffix := strings.TrimPrefix(lab.Name, l.m.projectScope+":")
 		l.rows = append(l.rows, labelRow{
 			suffix:      suffix,
 			full:        lab.Name,
 			description: lab.Description,
-			usage:       usage,
+			usage:       n,
 		})
 	}
 	l.rebuildEntries()
