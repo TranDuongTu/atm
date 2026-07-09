@@ -201,10 +201,15 @@ func newManagerRenderContextCmd(st *cliState) *cobra.Command {
 			data := manager.ContextData{
 				Code:  opts.Project,
 				Actor: opts.Actor,
-				RunID: "RENDER",
 			}
 			if opts.Project != "" {
 				data.ATMBin = atmBinPath()
+				data.Name = opts.Project // fallback when the project isn't in the store
+				if s, err := st.openStore(); err == nil {
+					if p, err := s.GetProject(opts.Project); err == nil {
+						data.Name = p.Name
+					}
+				}
 			}
 			rendered := manager.RenderContext(data)
 			// Text mode: print raw markdown. JSON mode: wrap in an envelope.
