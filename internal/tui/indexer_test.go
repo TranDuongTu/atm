@@ -691,6 +691,57 @@ func TestAutoStartNoConfigDoesNotHijack(t *testing.T) {
 	}
 }
 
+// TestAutoStartReturnsTickCmd is the regression test for ATM-0077: the dock
+// stuck on "running" with an empty log pane after project selection. The bug
+// was that autoStartIndexer discarded startIndexer's returned pluginTickCmd,
+// so Update's pluginTickMsg handler — the only drainer of im.msgCh — was never
+// scheduled. State stayed idxWorking and no progress lines ever reached logs.
+//
+// This test drives the tick loop the way Bubble Tea does: it calls the cmd
+// returned by autoStartIndexer to produce a pluginTickMsg, feeds that msg back
+// through Update, takes the next cmd Update returns, and repeats. It must NOT
+// call applyTick — that helper bypasses the cmd-return contract under test.
+func TestAutoStartReturnsTickCmd(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+
+	cmd := autoStartIndexer(m, "ATM")
+	if cmd == nil {
+		t.Fatal("autoStartIndexer with config present must return a tick cmd; nil cmd reproduces ATM-0077 (dock stuck on running)")
+	}
+	if im.state != idxWorking {
+		t.Fatalf("autoStart with config: state %v, want idxWorking", im.state)
+	}
+	if im.cancel == nil {
+		t.Fatal("autoStart should have started the watcher goroutine")
+	}
+
+	// Drive the tick loop exactly like the Bubble Tea runtime: cmd -> msg ->
+	// Update -> next cmd. No applyTick — that would hide the bug.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && im.state == idxWorking && cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			break
+		}
+		mm, next := m.Update(msg)
+		m = mm.(*Model)
+		cmd = next
+		time.Sleep(10 * time.Millisecond)
+	}
+	if im.state != idxIdle {
+		t.Fatalf("after tick loop: state %v, want idxIdle (dock should settle off 'running')", im.state)
+	}
+	if len(im.logs) == 0 {
+		t.Fatal("after tick loop: im.logs is empty — progress lines never drained (ATM-0077 symptom)")
+	}
+	resetIndexer(m)
+}
+
 func TestErrorAutoOpensOverlay(t *testing.T) {
 	m := newIndexerTestModel(t)
 	seedTask(t, m, "ATM", "first task")

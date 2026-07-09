@@ -655,16 +655,23 @@ func startIndexer(m *Model, code string) tea.Cmd {
 // D16 auto-open on error.) Idempotent: re-selecting a project whose watcher is
 // already running is a no-op. The previous project's watcher must have been
 // reset by the caller before setting the new projectScope.
-func autoStartIndexer(m *Model, code string) {
+//
+// It returns the tea.Cmd from startIndexer (a pluginTickCmd) so the caller can
+// propagate it up the Update chain — that cmd is the only thing that schedules
+// the pluginTickMsg handler which drains im.msgCh. Discarding it (the original
+// ATM-0077 bug) leaves the dock stuck on "running" with an empty log pane,
+// because progress/state messages pile into msgCh and nothing ever applies
+// them. Returns nil when there is no config or a watcher is already running.
+func autoStartIndexer(m *Model, code string) tea.Cmd {
 	im := newIndexerPlugin().model(m)
 	im.refreshStatus()
 	if im.cfg == nil {
-		return // no config: dock shows `off g1`; don't hijack selection
+		return nil // no config: dock shows `off g1`; don't hijack selection
 	}
 	if im.cancel != nil {
-		return // already running
+		return nil // already running
 	}
-	startIndexer(m, code)
+	return startIndexer(m, code)
 }
 
 func applyIndexerMsg(m *Model, msg indexerMsg) {
