@@ -7,7 +7,7 @@
       "history": [],
       "id": "ATM-0001-c0001",
       "labels": [],
-      "log_seq": 29,
+      "log_seq": 19,
       "task_id": "ATM-0001",
       "updated_at": "TIMESTAMP",
       "updated_by": "claude"
@@ -21,7 +21,7 @@
       "labels": [
         "ATM:comment:clarification"
       ],
-      "log_seq": 32,
+      "log_seq": 22,
       "task_id": "ATM-0001",
       "updated_at": "TIMESTAMP",
       "updated_by": "claude"

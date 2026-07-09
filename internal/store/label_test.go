@@ -76,9 +76,9 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	_ = s.LabelAdd("ATM:custom:a", "", "claude")
 	_ = s.LabelAdd("ATM:custom:b", "", "claude")
 	_ = s.LabelAdd("SCY:custom:a", "", "claude")
-	// ATM has 22 seeded + 2 custom = 24.
-	if got := len(s.LabelList("ATM", "")); got != 24 {
-		t.Fatalf("ATM labels = %d want 24", got)
+	// ATM has 12 seeded + 2 custom = 14.
+	if got := len(s.LabelList("ATM", "")); got != 14 {
+		t.Fatalf("ATM labels = %d want 14", got)
 	}
 	// Filter to the custom namespace.
 	if got := len(s.LabelList("ATM", "custom")); got != 2 {
@@ -92,8 +92,8 @@ func TestNamespacesDistinctSorted(t *testing.T) {
 	_ = s.LabelAdd("ATM:hot", "", "claude") // unnamespaced tag
 	_ = s.LabelAdd("ATM:custom:x", "", "claude")
 	got := s.Namespaces("ATM")
-	want := []string{"context", "custom", "priority", "status", "type"}
-	if len(got) != 5 || got[0] != "context" || got[4] != "type" {
+	want := []string{"comment", "context", "custom", "priority", "status"}
+	if len(got) != 5 || got[0] != "comment" || got[4] != "status" {
 		t.Fatalf("Namespaces = %v want %v", got, want)
 	}
 }

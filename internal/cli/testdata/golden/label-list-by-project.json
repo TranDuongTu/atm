@@ -1,16 +1,24 @@
 {
   "labels": [
     {
+      "description": "task comment kind: a decision recorded during work",
+      "name": "ATM:comment:decision"
+    },
+    {
+      "description": "task comment kind: an open question raised during work",
+      "name": "ATM:comment:open-question"
+    },
+    {
+      "description": "task comment kind: a progress note during work",
+      "name": "ATM:comment:progress"
+    },
+    {
       "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
       "name": "ATM:context:agent"
     },
     {
       "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
       "name": "ATM:context:documentation"
-    },
-    {
-      "description": "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent",
-      "name": "ATM:context:fixit"
     },
     {
       "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
@@ -21,24 +29,8 @@
       "name": "ATM:context:repository"
     },
     {
-      "description": "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement",
-      "name": "ATM:context:stale"
-    },
-    {
-      "description": "optional prioritization: high",
+      "description": "optional prioritization: high; do this first, everything untagged is default priority",
       "name": "ATM:priority:high"
-    },
-    {
-      "description": "optional prioritization: low",
-      "name": "ATM:priority:low"
-    },
-    {
-      "description": "optional prioritization: medium",
-      "name": "ATM:priority:medium"
-    },
-    {
-      "description": "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters",
-      "name": "ATM:status:archived"
     },
     {
       "description": "workflow state: blocked; task cannot proceed pending something else",
@@ -57,40 +49,12 @@
       "name": "ATM:status:open"
     },
     {
-      "description": "workflow state: planned; task is scoped and intended but not yet queued for work",
-      "name": "ATM:status:planned"
-    },
-    {
-      "description": "workflow state: review; task is awaiting review/approval",
-      "name": "ATM:status:review"
-    },
-    {
-      "description": "workflow state: todo; task is queued for work",
-      "name": "ATM:status:todo"
-    },
-    {
       "description": "Bug fix",
       "name": "ATM:type:bug"
     },
     {
-      "description": "task categorization: chore; maintenance, refactoring, tooling",
-      "name": "ATM:type:chore"
-    },
-    {
-      "description": "task categorization: design; producing a spec or design document",
-      "name": "ATM:type:design"
-    },
-    {
       "description": "",
       "name": "ATM:type:epic"
-    },
-    {
-      "description": "task categorization: feature; new functionality to add",
-      "name": "ATM:type:feature"
-    },
-    {
-      "description": "task categorization: task; general work item",
-      "name": "ATM:type:task"
     }
   ]
 }

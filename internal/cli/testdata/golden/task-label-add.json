@@ -9,7 +9,7 @@
       "ATM:context:agent",
       "ATM:status:open"
     ],
-    "log_seq": 29,
+    "log_seq": 19,
     "project_code": "ATM",
     "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",

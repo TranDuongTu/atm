@@ -39,9 +39,9 @@ func TestLabelsDescriptionsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestLabelsCountIs22(t *testing.T) {
-	if len(Labels) != 22 {
-		t.Fatalf("seed.Labels has %d entries, want 22", len(Labels))
+func TestLabelsCountIs12(t *testing.T) {
+	if len(Labels) != 12 {
+		t.Fatalf("seed.Labels has %d entries, want 12", len(Labels))
 	}
 }
 
@@ -57,17 +57,35 @@ func TestContextQuestionLabelPresent(t *testing.T) {
 	t.Errorf("context:question label not found in seed.Labels")
 }
 
-func TestNewDefaultsPresent(t *testing.T) {
-	want := map[string]string{
-		"status:planned":  "workflow state: planned; task is scoped and intended but not yet queued for work",
-		"status:archived": "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters",
-		"type:design":     "task categorization: design; producing a spec or design document",
-		"context:stale":   "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement",
-	}
+func TestCommentLabelsPresent(t *testing.T) {
+	want := []string{"comment:progress", "comment:decision", "comment:open-question"}
+	have := map[string]bool{}
 	for _, l := range Labels {
-		delete(want, l.Suffix)
+		have[l.Suffix] = true
 	}
-	for suffix := range want {
-		t.Errorf("new default label %q missing from seed.Labels", suffix)
+	for _, suffix := range want {
+		if !have[suffix] {
+			t.Errorf("%q missing from seed.Labels", suffix)
+		}
+	}
+}
+
+func TestDroppedNamespacesAbsent(t *testing.T) {
+	// type:*, status:planned/todo/review/archived, context:fixit/stale,
+	// priority:medium/low were intentionally removed from the seed.
+	dropped := []string{
+		"type:bug", "type:feature", "type:task", "type:chore", "type:design",
+		"status:planned", "status:todo", "status:review", "status:archived",
+		"context:fixit", "context:stale",
+		"priority:medium", "priority:low",
+	}
+	have := map[string]bool{}
+	for _, l := range Labels {
+		have[l.Suffix] = true
+	}
+	for _, suffix := range dropped {
+		if have[suffix] {
+			t.Errorf("dropped label %q still present in seed.Labels", suffix)
+		}
 	}
 }

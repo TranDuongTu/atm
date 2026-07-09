@@ -28,17 +28,13 @@
       "create the project (Add in the Projects tab); project create auto-seeds the default labels with descriptions",
       "create seed index tasks (context:agent, context:repository, context:documentation) and initial work tasks, labeling as you go"
     ],
-    "how_to_narrate_progress": "Comments are the running narrative on a task: a clarification, an implementation PR/commit reference, a bug detected by QA, an open question, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with atm task comment add --task <ID> --body <text> --label <CODE>:<kind>. The label is the classification (ATM:comment:clarification, ATM:comment:implementation, ATM:comment:qa-bug, ATM:comment:open-question, ATM:comment:design-doc, ATM:comment:superseded — mark a decision comment that a newer comment supersedes, so stale rulings do not surface at equal rank in semantic search; advisory; the store treats these like any other label). Comments support --reply-to <COMMENT-ID> for threading within the same task. Edit a comment's body with atm task comment set-body; remove one with atm task comment remove.",
+    "how_to_narrate_progress": "Comments are the running narrative on a task: a progress note, a decision, an open question, a bug, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with atm task comment add --task <ID> --body <text> --label <CODE>:<kind>. The label is the classification (ATM:comment:progress, ATM:comment:decision, ATM:comment:open-question are the seeded kinds; invent others only when none fits). Comments support --reply-to <COMMENT-ID> for threading within the same task. Edit a comment's body with atm task comment set-body; remove one with atm task comment remove.",
     "how_to_read_a_task_and_its_labels": "A task is read as: its title (one line of intent), its description (the running narrative), and its labels (the faceted classification). The labels are the query surface; the description is the working memory. A context:agent task's description holds agent directions for this project. A context:repository task points at a repo to read. A context:documentation task points at a doc to read. status:open means not done; status:in-progress means someone is on it; status:done means stop. Labels are advisory — nothing in the store enforces them, but reading them is how you understand a task without re-reading its whole history.",
-    "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:type:bug is open bugs.",
+    "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:priority:high is high-priority open work.",
     "seeded_labels": [
       {
         "description": "workflow state: open; task is not started or is being considered",
         "suffix": "status:open"
-      },
-      {
-        "description": "workflow state: todo; task is queued for work",
-        "suffix": "status:todo"
       },
       {
         "description": "workflow state: in-progress; someone is actively working on this",
@@ -53,76 +49,40 @@
         "suffix": "status:blocked"
       },
       {
-        "description": "workflow state: review; task is awaiting review/approval",
-        "suffix": "status:review"
-      },
-      {
-        "description": "workflow state: planned; task is scoped and intended but not yet queued for work",
-        "suffix": "status:planned"
-      },
-      {
-        "description": "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters",
-        "suffix": "status:archived"
-      },
-      {
-        "description": "task categorization: bug; a defect to fix",
-        "suffix": "type:bug"
-      },
-      {
-        "description": "task categorization: feature; new functionality to add",
-        "suffix": "type:feature"
-      },
-      {
-        "description": "task categorization: task; general work item",
-        "suffix": "type:task"
-      },
-      {
-        "description": "task categorization: chore; maintenance, refactoring, tooling",
-        "suffix": "type:chore"
-      },
-      {
-        "description": "task categorization: design; producing a spec or design document",
-        "suffix": "type:design"
-      },
-      {
-        "description": "optional prioritization: high",
+        "description": "optional prioritization: high; do this first, everything untagged is default priority",
         "suffix": "priority:high"
-      },
-      {
-        "description": "optional prioritization: medium",
-        "suffix": "priority:medium"
-      },
-      {
-        "description": "optional prioritization: low",
-        "suffix": "priority:low"
-      },
-      {
-        "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-        "suffix": "context:documentation"
-      },
-      {
-        "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
-        "suffix": "context:repository"
       },
       {
         "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
         "suffix": "context:agent"
       },
       {
-        "description": "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent",
-        "suffix": "context:fixit"
+        "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
+        "suffix": "context:repository"
+      },
+      {
+        "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
+        "suffix": "context:documentation"
       },
       {
         "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
         "suffix": "context:question"
       },
       {
-        "description": "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement",
-        "suffix": "context:stale"
+        "description": "task comment kind: a progress note during work",
+        "suffix": "comment:progress"
+      },
+      {
+        "description": "task comment kind: a decision recorded during work",
+        "suffix": "comment:decision"
+      },
+      {
+        "description": "task comment kind: an open question raised during work",
+        "suffix": "comment:open-question"
       }
     ],
     "what_atm_is": "ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives outside the store, in agent prompts and human habits; the store only keeps the substrate legible.",
-    "where_labels_live": "Labels are global and per-project. The seeded defaults (status, type, priority, context) are written into every new project by atm project create and re-applied idempotently by atm label seed --project <CODE> / the Labels tab [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, run atm label list --project <CODE>. Each label carries a description; that description is the label's intention record.",
+    "where_labels_live": "Labels are global and per-project. The seeded defaults (status, priority, context, comment) are written into every new project by atm project create and re-applied idempotently by atm label seed --project <CODE> / the Labels tab [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, run atm label list --project <CODE>. Each label carries a description; that description is the label's intention record.",
     "where_tasks_live": "Tasks live in the store, one JSON file per task, scoped to a project. atm task list --project <CODE> lists them. Each task has an ID (<CODE>-<NNNN>), a title, a description, and a label set. The description is free-form text — agents write what they are doing, what they found, what they decided, so the next agent or human can pick up where they left off."
   }
 }

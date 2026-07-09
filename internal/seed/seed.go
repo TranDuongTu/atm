@@ -25,27 +25,25 @@ type Label struct {
 // claimed-by:<agent>, blocks:<ID>, related:<ID>) are intentionally NOT
 // seeded as concrete labels — they depend on project-specific values
 // and are created on demand.
+//
+// The seed is the minimum an agent needs to read on first-contact and
+// the minimum a fresh project needs to be queryable: status (the core
+// query axis), context (the bootstrapping substrate), comment (the
+// narrative kinds an agent writes), and a single priority flag for
+// "do this first". Everything else (type, fixit, stale, finer status
+// granularity, medium/low priority) is invented on demand when an
+// agent's intent genuinely diverges — per code-of-conduct rule #3.
 var Labels = []Label{
 	{"status:open", "workflow state: open; task is not started or is being considered"},
-	{"status:todo", "workflow state: todo; task is queued for work"},
 	{"status:in-progress", "workflow state: in-progress; someone is actively working on this"},
 	{"status:done", "workflow state: done; task is complete"},
 	{"status:blocked", "workflow state: blocked; task cannot proceed pending something else"},
-	{"status:review", "workflow state: review; task is awaiting review/approval"},
-	{"status:planned", "workflow state: planned; task is scoped and intended but not yet queued for work"},
-	{"status:archived", "workflow state: archived; task is no longer active and kept for historical reference; excluded from active-work filters"},
-	{"type:bug", "task categorization: bug; a defect to fix"},
-	{"type:feature", "task categorization: feature; new functionality to add"},
-	{"type:task", "task categorization: task; general work item"},
-	{"type:chore", "task categorization: chore; maintenance, refactoring, tooling"},
-	{"type:design", "task categorization: design; producing a spec or design document"},
-	{"priority:high", "optional prioritization: high"},
-	{"priority:medium", "optional prioritization: medium"},
-	{"priority:low", "optional prioritization: low"},
-	{"context:documentation", "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it"},
-	{"context:repository", "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient"},
+	{"priority:high", "optional prioritization: high; do this first, everything untagged is default priority"},
 	{"context:agent", "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know"},
-	{"context:fixit", "the task's description flags something that should be reviewed, updated, or altered; not a work item itself, a signal to a human or later agent"},
+	{"context:repository", "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient"},
+	{"context:documentation", "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it"},
 	{"context:question", "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding"},
-	{"context:stale", "the task's description references a context resource that has drifted from reality; needs reconciliation or replacement"},
+	{"comment:progress", "task comment kind: a progress note during work"},
+	{"comment:decision", "task comment kind: a decision recorded during work"},
+	{"comment:open-question", "task comment kind: an open question raised during work"},
 }

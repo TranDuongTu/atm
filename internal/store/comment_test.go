@@ -27,7 +27,7 @@ func TestCreateCommentAppendsLogEntriesInOrder(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	before, _ := s.LastLogSeq("ATM")
-	_, _ = s.CreateComment(tk.ID, "first", []string{"ATM:comment:open-question"}, "", "claude")
+	_, _ = s.CreateComment(tk.ID, "first", []string{"ATM:comment:custom-kind"}, "", "claude")
 	after, _ := s.LastLogSeq("ATM")
 	// 1 label.upserted + 1 comment.created + 1 task.meta-changed = 3 entries.
 	if after != before+3 {

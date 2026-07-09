@@ -8,7 +8,7 @@
     "labels": [
       "ATM:comment:open-question"
     ],
-    "log_seq": 32,
+    "log_seq": 21,
     "task_id": "ATM-0001",
     "updated_at": "TIMESTAMP",
     "updated_by": "claude"

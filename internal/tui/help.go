@@ -244,7 +244,7 @@ ATM (Agent Tasks Management) is a label-substrate task store for AI agents and t
 
 ## Where labels live
 
-Labels are global and per-project. The seeded defaults (status, type, priority, context) are written into every new project by ` + "`atm project create`" + ` and re-applied idempotently by ` + "`atm label seed --project <CODE>`" + ` / the Labels pane [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, open the Labels pane or run ` + "`atm label list --project <CODE>`" + `. Each label carries a description; that description is the label's intention record.
+Labels are global and per-project. The seeded defaults (status, priority, context, comment) are written into every new project by ` + "`atm project create`" + ` and re-applied idempotently by ` + "`atm label seed --project <CODE>`" + ` / the Labels pane [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, open the Labels pane or run ` + "`atm label list --project <CODE>`" + `. Each label carries a description; that description is the label's intention record.
 
 ## Where tasks live
 
@@ -256,7 +256,7 @@ A task is read as: its title (one line of intent), its description (the running 
 
 ## How to search
 
-Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. Wildcard labels (e.g. ` + "`<CODE>:status:*`" + `) drive faceted grouping in the Tasks pane and ` + "`atm task list --facets`" + ` on the CLI. In the TUI, press ` + "`/`" + ` in the Tasks pane to edit the filter. Combine labels to narrow: ` + "`--label <CODE>:status:open --label <CODE>:type:bug`" + ` is open bugs.
+Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. Wildcard labels (e.g. ` + "`<CODE>:status:*`" + `) drive faceted grouping in the Tasks pane and ` + "`atm task list --facets`" + ` on the CLI. In the TUI, press ` + "`/`" + ` in the Tasks pane to edit the filter. Combine labels to narrow: ` + "`--label <CODE>:status:open --label <CODE>:priority:high`" + ` is high-priority open work.
 
 ## Agent first-contact sequence
 
@@ -273,7 +273,7 @@ A fresh agent that does not yet know the project's namespaces runs the label-lis
 Agents working in an ATM project follow these rules to keep the label substrate legible for humans and other agents:
 
 1. Read before you write. Run ` + "`atm label list --project <CODE>`" + ` and read every label's description before introducing any new label. The existing labels are the project's vocabulary; reuse them whenever one fits your intent.
-2. Default setup is the baseline. The seeded labels (status, type, priority, context) cover the common cases. Prefer them. Do not reinvent ` + "`status:open`" + ` as ` + "`state:open`" + ` or ` + "`wf:open`" + `.
+2. Default setup is the baseline. The seeded labels (status, priority, context, comment) cover the common cases. Prefer them. Do not reinvent ` + "`status:open`" + ` as ` + "`state:open`" + ` or ` + "`wf:open`" + `.
 3. Invent only when nothing fits. If no existing label captures your intent, you may create a new one — agents are free to self-organize. But before you do, ask yourself: would a human reviewing the Labels pane understand why this label exists?
 4. State the intention in the label description. When you create a new label, also call ` + "`atm label add --name <CODE>:<ns>:<value> --description \"<one sentence: why this label exists>\"`" + `. The description is the intention record. A label with no description is a flag for human review: "agent introduced this but didn't explain why."
 5. One label, one meaning. Don't use the same label string to mean different things across tasks. If your intent diverges from an existing label's description, create a new label with a distinct name and a description that distinguishes it.

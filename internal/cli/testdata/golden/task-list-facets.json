@@ -13,7 +13,7 @@
             "ATM:status:open",
             "ATM:type:bug"
           ],
-          "log_seq": 27,
+          "log_seq": 17,
           "project_code": "ATM",
           "title": "Fix label reconciliation",
           "updated_at": "TIMESTAMP",
@@ -32,7 +32,7 @@
       "labels": [
         "ATM:context:agent"
       ],
-      "log_seq": 28,
+      "log_seq": 18,
       "project_code": "ATM",
       "title": "Seed index tasks",
       "updated_at": "TIMESTAMP",

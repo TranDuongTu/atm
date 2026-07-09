@@ -5,24 +5,8 @@
       "name": "ATM:type:bug"
     },
     {
-      "description": "task categorization: chore; maintenance, refactoring, tooling",
-      "name": "ATM:type:chore"
-    },
-    {
-      "description": "task categorization: design; producing a spec or design document",
-      "name": "ATM:type:design"
-    },
-    {
       "description": "",
       "name": "ATM:type:epic"
-    },
-    {
-      "description": "task categorization: feature; new functionality to add",
-      "name": "ATM:type:feature"
-    },
-    {
-      "description": "task categorization: task; general work item",
-      "name": "ATM:type:task"
     }
   ]
 }

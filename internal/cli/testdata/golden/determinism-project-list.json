@@ -16,7 +16,7 @@
       "created_at": "TIMESTAMP",
       "created_by": "claude",
       "history": [],
-      "log_seq": 26,
+      "log_seq": 16,
       "name": "Demo Project",
       "next_task_n": 2,
       "updated_at": "TIMESTAMP",

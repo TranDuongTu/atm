@@ -33,12 +33,12 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 		t.Fatalf("labels body repeats tab title\n--- body ---\n%s", body)
 	}
 	mustNotContain(t, body, "─ Overview ─")
-	mustContain(t, v, "total labels: 22")
+	mustContain(t, v, "total labels: 12")
 	mustNotContain(t, v, "─ Namespaces ─")
 	// Namespace headings for seeded namespaces.
+	mustContain(t, v, "comment:")
 	mustContain(t, v, "context:")
 	mustContain(t, v, "status:")
-	mustContain(t, v, "type:")
 	mustContain(t, v, "priority:")
 	// A seeded label's description is rendered.
 	mustContain(t, v, "workflow state: open")
@@ -279,17 +279,17 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	// Remove a seed label.
-	_, _ = m.store.LabelRemove("ATM:context:fixit", "claude")
+	_, _ = m.store.LabelRemove("ATM:context:question", "claude")
 	m.refreshAll()
 	update(t, m, "s")
 	update(t, m, "3")
 	update(t, m, "S") // seed key
-	if !strings.Contains(m.toastMsg, "seeded 22 labels into ATM") {
-		t.Fatalf("toast = %q, want seeded 22 labels into ATM", m.toastMsg)
+	if !strings.Contains(m.toastMsg, "seeded 12 labels into ATM") {
+		t.Fatalf("toast = %q, want seeded 12 labels into ATM", m.toastMsg)
 	}
 	// The removed label is back.
-	if _, err := m.store.LabelShow("ATM:context:fixit"); err != nil {
-		t.Errorf("ATM:context:fixit not restored after seed: %v", err)
+	if _, err := m.store.LabelShow("ATM:context:question"); err != nil {
+		t.Errorf("ATM:context:question not restored after seed: %v", err)
 	}
 }
 

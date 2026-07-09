@@ -14,10 +14,10 @@
         "action": "project.name-changed",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "seq": 26
+        "seq": 16
       }
     ],
-    "log_seq": 26,
+    "log_seq": 16,
     "name": "Demo Project",
     "next_task_n": 2,
     "updated_at": "TIMESTAMP",

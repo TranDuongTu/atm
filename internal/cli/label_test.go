@@ -95,16 +95,16 @@ func TestGoldenLabelSeed(t *testing.T) {
 	h.run("init", "--store", sp, "--actor", "claude")
 	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
 	// Remove one seed label, then re-seed to confirm idempotency.
-	h.run("label", "remove", "--store", sp, "--name", "ATM:context:fixit", "--actor", "claude")
+	h.run("label", "remove", "--store", sp, "--name", "ATM:context:question", "--actor", "claude")
 	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "claude")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, `"seeded": 22`) {
-		t.Fatalf("missing seeded: 22 in JSON output: %s", out)
+	if !strings.Contains(out, `"seeded": 12`) {
+		t.Fatalf("missing seeded: 12 in JSON output: %s", out)
 	}
-	if !strings.Contains(out, `"ATM:context:fixit"`) {
-		t.Fatalf("missing ATM:context:fixit in seed output: %s", out)
+	if !strings.Contains(out, `"ATM:context:question"`) {
+		t.Fatalf("missing ATM:context:question in seed output: %s", out)
 	}
 	compareGolden(t, "label-seed", out)
 }
@@ -119,7 +119,7 @@ func TestLabelSeedTextOutput(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, "seeded 22 labels into ATM") {
-		t.Fatalf("text output missing 'seeded 22 labels into ATM': %s", out)
+	if !strings.Contains(out, "seeded 12 labels into ATM") {
+		t.Fatalf("text output missing 'seeded 12 labels into ATM': %s", out)
 	}
 }

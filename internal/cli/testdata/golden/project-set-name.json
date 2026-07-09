@@ -4,7 +4,7 @@
     "created_at": "TIMESTAMP",
     "created_by": "claude",
     "history": [],
-    "log_seq": 29,
+    "log_seq": 19,
     "name": "Renamed Project",
     "next_task_n": 3,
     "updated_at": "TIMESTAMP",

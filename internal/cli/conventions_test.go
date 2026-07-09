@@ -51,7 +51,7 @@ func TestConventionsIncludesMemorySubstrate(t *testing.T) {
 	h.run("init", "--store", sp, "--actor", "tester")
 	h.output = outputText
 	out, _, _ := h.run("conventions", "--store", sp)
-	for _, frag := range []string{"ATM:comment:superseded", "atm search", "atm index", "atm project set-embedding"} {
+	for _, frag := range []string{"ATM:comment:open-question", "atm search", "atm index", "atm project set-embedding"} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("conventions text missing %q", frag)
 		}

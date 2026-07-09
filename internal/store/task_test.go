@@ -189,6 +189,7 @@ func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
 	_, _ = s.CreateProject("ATM", "x", "claude")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
 	_ = s.SetTitle(tk.ID, "changed", "claude")
+	wantSeq, _ := s.LastLogSeq("ATM")
 	// Stomp the cache back to an old LogSeq (simulate cache write failure after the log append).
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID)
@@ -199,8 +200,8 @@ func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
 	if got.Title != "changed" {
 		t.Fatalf("lazy miss did not rebuild: title = %q want %q", got.Title, "changed")
 	}
-	if got.LogSeq != 25 {
-		t.Fatalf("rebuilt LogSeq = %d, want 25 (seq of title-changed entry)", got.LogSeq)
+	if got.LogSeq != wantSeq {
+		t.Fatalf("rebuilt LogSeq = %d, want %d (seq of title-changed entry)", got.LogSeq, wantSeq)
 	}
 }
 

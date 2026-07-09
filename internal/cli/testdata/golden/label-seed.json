@@ -1,28 +1,18 @@
 {
   "labels": [
+    "ATM:comment:decision",
+    "ATM:comment:open-question",
+    "ATM:comment:progress",
     "ATM:context:agent",
     "ATM:context:documentation",
-    "ATM:context:fixit",
     "ATM:context:question",
     "ATM:context:repository",
-    "ATM:context:stale",
     "ATM:priority:high",
-    "ATM:priority:low",
-    "ATM:priority:medium",
-    "ATM:status:archived",
     "ATM:status:blocked",
     "ATM:status:done",
     "ATM:status:in-progress",
-    "ATM:status:open",
-    "ATM:status:planned",
-    "ATM:status:review",
-    "ATM:status:todo",
-    "ATM:type:bug",
-    "ATM:type:chore",
-    "ATM:type:design",
-    "ATM:type:feature",
-    "ATM:type:task"
+    "ATM:status:open"
   ],
   "project": "ATM",
-  "seeded": 22
+  "seeded": 12
 }

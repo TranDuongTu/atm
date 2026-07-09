@@ -8,12 +8,12 @@
         "action": "comment.created",
         "actor": "claude",
         "at": "TIMESTAMP",
-        "seq": 29
+        "seq": 19
       }
     ],
     "id": "ATM-0001-c0001",
     "labels": [],
-    "log_seq": 29,
+    "log_seq": 19,
     "task_id": "ATM-0001",
     "updated_at": "TIMESTAMP",
     "updated_by": "claude"

@@ -9,7 +9,7 @@
       "labels": [
         "DEMO:status:open"
       ],
-      "log_seq": 25,
+      "log_seq": 15,
       "project_code": "DEMO",
       "title": "Demo task",
       "updated_at": "TIMESTAMP",
