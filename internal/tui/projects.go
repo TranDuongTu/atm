@@ -215,13 +215,18 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			// configure if not). resetIndexer on the old project is handled
 			// inside autoStartIndexer's contract — the caller sets the new
 			// projectScope first, then autoStart refreshes against it. The
-			// old watcher, if any, is stopped here.
+			// old watcher, if any, is stopped here. autoStartIndexer returns
+			// the pluginTickCmd from startIndexer; returning it here lets the
+			// Bubble Tea runtime schedule the pluginTickMsg that drains
+			// im.msgCh — discarding it (ATM-0077) leaves the dock stuck on
+			// "running" with an empty log pane.
 			if p.m.indexer != nil {
 				resetIndexer(p.m)
 			}
-			autoStartIndexer(p.m, r.code)
+			cmd := autoStartIndexer(p.m, r.code)
 			p.m.tasks.refresh()
 			p.m.labels.refresh()
+			return cmd
 		}
 	case "a":
 		p.openCreateForm()
