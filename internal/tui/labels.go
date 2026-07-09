@@ -11,12 +11,13 @@ import (
 	"github.com/charmbracelet/bubbletea"
 )
 
-// pluralTasks returns "task"/"tasks" for the given count.
-func pluralTasks(n int) string {
+// pluralUses returns "use"/"uses" for the given count — neutral over tasks
+// and comments, since LabelUsage counts both kinds of entities.
+func pluralUses(n int) string {
 	if n == 1 {
-		return "task"
+		return "use"
 	}
-	return "tasks"
+	return "uses"
 }
 
 // labelSuffixRe validates the suffix the user types in the label add/remove
@@ -103,7 +104,7 @@ type labelsModel struct {
 	contentHeight int
 	rows          []labelRow
 	entries       []labelEntry
-	chartNS       string // active "tasks by label" chart namespace ("" = list view)
+	chartNS       string // active "usage by label" chart namespace ("" = list view)
 	cursor        int
 	offset        int
 	pageSize      int
@@ -459,7 +460,7 @@ func (l *labelsModel) renderList() string {
 			if desc == "" {
 				desc = l.m.styles.Warning.Render("needs description")
 			}
-			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralTasks(r.usage), desc)
+			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralUses(r.usage), desc)
 			if i == l.cursor {
 				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 				cursorLine = len(bodyLines)
@@ -494,10 +495,11 @@ func (l *labelsModel) renderList() string {
 	return padToHeight(b.String(), l.contentHeight)
 }
 
-// renderChart renders the "tasks by label" bar chart for the active namespace:
+// renderChart renders the "usage by label" bar chart for the active namespace:
 // one meter row per label carrying that namespace. Percentages are each
 // label's share of total usage within the namespace (matching the approved
-// mockup: shares sum to ~100%); counts are absolute project-wide usage.
+// mockup: shares sum to ~100%); counts are absolute project-wide usage
+// across tasks and comments.
 func (l *labelsModel) renderChart() string {
 	ns := l.chartNS
 	var rows []labelRow
@@ -553,7 +555,7 @@ func (l *labelsModel) renderDetail() string {
 	b.WriteString(sectionCaption(l.m.styles, l.width, "FACTS"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralTasks(r.usage))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	desc := r.description
 	if desc == "" {
 		desc = l.m.styles.Warning.Render("needs description")

@@ -245,11 +245,13 @@ func labelProject(name string) string {
 	return strings.SplitN(name, ":", 2)[0]
 }
 
-// LabelUsage counts tasks in the given project carrying the label. Exported
-// for the TUI's project-detail reconciliation surface (Screen 4: "(N tasks)"
-// suffix per label). Backed by one indexed COUNT query — see
-// docs/superpowers/specs/2026-07-06-atm-storage-sync-design.md and
-// ATM-0027-c0003 (this replaces the old per-task GetTask scan).
+// LabelUsage counts entities in the given project carrying the label —
+// tasks plus comments. Exported for the TUI's Labels pane "(N entities)"
+// suffix and the CLI's retained_usage report. A label like
+// <CODE>:comment:open-question can have zero tasks but many comments, so
+// counting only tasks understated real adoption. Backed by two indexed
+// COUNT queries — see docs/superpowers/specs/2026-07-06-atm-storage-sync-design.md
+// and ATM-0027-c0003.
 func (s *Store) LabelUsage(projectCode, label string) (int, error) {
 	db, err := s.cacheDB()
 	if err != nil {

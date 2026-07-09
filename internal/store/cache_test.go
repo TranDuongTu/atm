@@ -194,6 +194,22 @@ func TestCacheLabelUsageCountsOnlyMatchingProject(t *testing.T) {
 	}
 }
 
+func TestCacheLabelUsageCountsComments(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", "claude")
+	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateComment(tk.ID, "first", []string{"ATM:comment:open-question"}, "", "claude")
+	_, _ = s.CreateComment(tk.ID, "second", []string{"ATM:comment:open-question"}, "", "claude")
+	// No tasks carry the comment label; usage comes only from comments.
+	n, err := s.LabelUsage("ATM", "ATM:comment:open-question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("LabelUsage = %d, want 2 (comments)", n)
+	}
+}
+
 func TestCacheNamespacesDistinctSorted(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()

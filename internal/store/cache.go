@@ -333,13 +333,26 @@ func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label
 	return out, rows.Err()
 }
 
-// cacheLabelUsage counts tasks in projectCode carrying label — one indexed
-// query, replacing the old per-task GetTask scan (ATM-0027-c0003).
+// cacheLabelUsage counts entities in projectCode carrying label — tasks and
+// comments — via two indexed queries. Comments carry labels too (the
+// comment:* namespace), and a label like ATM:comment:open-question can have
+// zero tasks but many comments; counting only tasks showed "0 tasks" for
+// labels that are genuinely in use. The total is the sum of task usage and
+// comment usage so the Labels pane and `atm label list` reflect real
+// adoption across all entities.
 func cacheLabelUsage(db *sql.DB, projectCode, label string) (int, error) {
-	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM task_labels tl JOIN tasks t ON t.id = tl.task_id
-		WHERE tl.label = ? AND t.project_code = ?`, label, projectCode).Scan(&count)
-	return count, err
+	var taskCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM task_labels tl JOIN tasks t ON t.id = tl.task_id
+		WHERE tl.label = ? AND t.project_code = ?`, label, projectCode).Scan(&taskCount); err != nil {
+		return 0, err
+	}
+	var commentCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM comment_labels cl JOIN comments c ON c.id = cl.comment_id
+		JOIN tasks t ON t.id = c.task_id
+		WHERE cl.label = ? AND t.project_code = ?`, label, projectCode).Scan(&commentCount); err != nil {
+		return 0, err
+	}
+	return taskCount + commentCount, nil
 }
 
 func cacheCountTasksWithLabelGlobally(db *sql.DB, label string) (int, error) {
