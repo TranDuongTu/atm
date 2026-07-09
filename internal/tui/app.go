@@ -108,6 +108,12 @@ type Model struct {
 	// overlay, or -1 when none is open. Initialized lazily; zero value (0) is
 	// unused until the first plugin is registered.
 	pluginOverlay int
+	// pluginPrefixActive is set transiently after the `g` leader key is
+	// pressed; the next key resolves it to either opening a registered
+	// plugin's overlay (if it matches an OverlayKey) or clearing the flag.
+	pluginPrefixActive bool
+	// supervisor debounces per-plugin Reset calls (3-strikes/30s).
+	supervisor *pluginSupervisor
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -149,6 +155,9 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.labels = newLabelsModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
+	m.plugins = nil
+	m.pluginOverlay = -1
+	m.supervisor = newPluginSupervisor()
 	m.SetSize(m.width, m.height)
 	m.refreshAll()
 	return m, nil
@@ -424,6 +433,28 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.actors.handleKey(k)
 	}
 
+	// Plugin overlay consumes keys until closed (Esc). T/?/C still work so the
+	// global help/theme shortcuts remain reachable while a plugin overlay is
+	// open (mirrors the actors-overlay behavior above).
+	if m.pluginOverlay != -1 {
+		switch k.String() {
+		case "esc":
+			m.plugins[m.pluginOverlay].Close(m)
+			m.pluginOverlay = -1
+			return nil
+		case "T":
+			m.cycleTheme()
+			return nil
+		case "?":
+			m.openHelp(helpKeys)
+			return nil
+		case "C":
+			m.openHelp(helpConventions)
+			return nil
+		}
+		return m.plugins[m.pluginOverlay].HandleKey(k, m)
+	}
+
 	if m.focused == paneTasks && m.tasks.filterEditing {
 		return m.tasks.handleKey(k)
 	}
@@ -433,6 +464,30 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	if k.String() == "q" {
 		m.quitting = true
 		return tea.Quit
+	}
+
+	// `g` is a leader key: the key pressed immediately after `g` opens a
+	// registered plugin's overlay if it matches an OverlayKey, otherwise the
+	// prefix flag clears and the key falls through to normal pane routing.
+	// This resolution runs BEFORE the pane-focus switch below so that a
+	// plugin OverlayKey that collides with a pane-focus key (e.g. "1") is
+	// claimed by the pending prefix rather than switching panes. If `g` was
+	// just pressed, the case below sets the flag and returns, so the next
+	// key enters this block.
+	if m.pluginPrefixActive {
+		m.pluginPrefixActive = false
+		for i, p := range m.plugins {
+			if k.String() == p.OverlayKey() {
+				if m.projectScope == "" {
+					m.showToast("select a project first")
+					return nil
+				}
+				m.pluginOverlay = i
+				p.Open(m)
+				return nil
+			}
+		}
+		return nil
 	}
 
 	// Tab switching works in list/detail panes (not inside form/confirm).
@@ -454,6 +509,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "T":
 		m.cycleTheme()
+		return nil
+	case "g":
+		m.pluginPrefixActive = true
 		return nil
 	}
 
@@ -658,6 +716,9 @@ func (m *Model) View() string {
 	if m.actorsOverlay {
 		out = m.placeOverlay(out, m.renderActorsOverlay())
 	}
+	if m.pluginOverlay != -1 {
+		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))
+	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.
 	return out
@@ -722,20 +783,19 @@ func (m *Model) renderStatusLine() string {
 	if m.toastMsg != "" {
 		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
 	}
-	actor := "actor: " + m.actorOr()
-	// Right-align the actor segment.
 	left := strings.Join(parts, "  ")
+	right := strings.Join(dockSegments(m), "  ")
 	used := lipgloss.Width(left)
-	actorW := lipgloss.Width(actor)
-	need := used + 2 + actorW // 2 spaces gap
+	rightW := lipgloss.Width(right)
+	need := used + 2 + rightW
 	gap := 2
 	if need < m.width {
-		gap = m.width - used - actorW
+		gap = m.width - used - rightW
 	}
 	if gap < 1 {
 		gap = 1
 	}
-	line := left + spaces(gap) + m.styles.Status.Render(actor)
+	line := left + spaces(gap) + right
 	if lw := lipgloss.Width(line); lw < m.width {
 		line += spaces(m.width - lw)
 	}
