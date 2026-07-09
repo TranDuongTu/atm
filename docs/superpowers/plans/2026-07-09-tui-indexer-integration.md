@@ -1125,18 +1125,18 @@ func TestAutoStartStartsWatcherWhenConfigPresent(t *testing.T) {
 	resetIndexer(m)
 }
 
-func TestAutoStartNoConfigOpensOverlay(t *testing.T) {
+func TestAutoStartNoConfigDoesNotHijack(t *testing.T) {
 	m := newIndexerTestModel(t)
 	// no embedding config
 	p := newIndexerPlugin()
 	p.model(m)
 	autoStartIndexer(m, "ATM")
-	if m.pluginOverlay != 0 {
-		t.Fatalf("autoStart with no config should open the overlay, got %d", m.pluginOverlay)
+	if m.pluginOverlay != -1 {
+		t.Fatalf("autoStart with no config should NOT open the overlay (dock shows off g1), got %d", m.pluginOverlay)
 	}
-	view := m.View()
-	if !strings.Contains(view, "(none") {
-		t.Errorf("overlay should show '(none — press [e] to configure)':\n%s", view)
+	im := p.model(m)
+	if im.state != idxOff {
+		t.Fatalf("no config -> state %v, want idxOff", im.state)
 	}
 }
 
@@ -1372,21 +1372,19 @@ For project switch (D15): in `projects.go`, find where `p.m.projectScope = r.cod
 
 ```go
 // autoStartIndexer is the project-selection entry point (D15). It refreshes
-// status, then either starts the watcher (config present, not already running)
-// or opens the indexer overlay so the user can configure (no config). It is
-// idempotent: re-selecting a project whose watcher is already running is a
-// no-op. The previous project's watcher must have been reset by the caller
-// before setting the new projectScope.
+// status, then starts the watcher if the project has embedding config and no
+// watcher is already running. When the project has no embedding config it does
+// NOT auto-open the overlay — the dock's persistent `⌬ off  g1` hint surfaces
+// the not-configured state without hijacking project selection. (A runtime
+// start failure — endpoint down — is handled separately by applyIndexerMsg's
+// D16 auto-open on error.) Idempotent: re-selecting a project whose watcher is
+// already running is a no-op. The previous project's watcher must have been
+// reset by the caller before setting the new projectScope.
 func autoStartIndexer(m *Model, code string) {
 	im := newIndexerPlugin().model(m)
 	im.refreshStatus()
 	if im.cfg == nil {
-		// No config: open the overlay so the user sees "(none — press [e])".
-		if m.pluginOverlay == -1 {
-			m.pluginOverlay = 0
-			newIndexerPlugin().Open(m)
-		}
-		return
+		return // no config: dock shows `off g1`; don't hijack selection
 	}
 	if im.cancel != nil {
 		return // already running
