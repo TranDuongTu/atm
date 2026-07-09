@@ -1,12 +1,12 @@
 {
   "task": {
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "description": "",
     "history": [
       {
         "action": "task.created",
-        "actor": "claude",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 18
       }
@@ -19,6 +19,6 @@
     "project_code": "ATM",
     "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

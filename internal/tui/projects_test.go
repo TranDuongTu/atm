@@ -9,6 +9,7 @@ import (
 
 func TestRenderPersonaActivityChart(t *testing.T) {
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
+	seedStaffPersona(t, m)
 	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestRenderUbiquitousLanguageChartShowsTerms(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one")
 	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: "opencode-manager",
+		Actor: testActor,
 		Terms: []store.VocabularyTerm{
 			{Term: "labels", Weight: 9},
 			{Term: "audit log", Weight: 7},
@@ -95,7 +96,7 @@ func TestRenderUbiquitousLanguageChartSortsByWeightDescending(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one")
 	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: "opencode-manager",
+		Actor: testActor,
 		Terms: []store.VocabularyTerm{
 			{Term: "alpha", Weight: 5},
 			{Term: "beta", Weight: 9},

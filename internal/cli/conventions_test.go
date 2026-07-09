@@ -48,7 +48,7 @@ func TestConventionsJSON(t *testing.T) {
 func TestConventionsIncludesMemorySubstrate(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
 	h.output = outputText
 	out, _, _ := h.run("conventions", "--store", sp)
 	for _, frag := range []string{"ATM:comment:open-question", "atm search", "atm index", "atm project set-embedding"} {

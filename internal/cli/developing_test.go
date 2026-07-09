@@ -11,7 +11,7 @@ import (
 
 func TestDevelopingCodexDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("developing", "codex", "--project", "FOO", "--dry-run")
 	if code != ExitSuccess {
@@ -87,7 +87,7 @@ func TestDevelopingEnvIncludesATMValues(t *testing.T) {
 func TestDevelopingLauncherNotFound(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, stderrStr, code := h.run("developing", "codex", "--project", "FOO")
 	if code != ExitGeneric {
@@ -116,7 +116,7 @@ func normalizeHome(s, home string) string {
 
 func TestDevelopingCodexExtraArgsDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("developing", "codex", "--project", "FOO", "--dry-run", "--", "--yolo", "--auto")
 	if code != ExitSuccess {
@@ -128,7 +128,7 @@ func TestDevelopingCodexExtraArgsDryRunJSON(t *testing.T) {
 
 func TestDevelopingOllamaDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("developing", "ollama", "--project", "FOO", "--integration", "codex", "--dry-run", "--", "--yolo")
 	if code != ExitSuccess {
@@ -143,7 +143,7 @@ func TestDevelopingCodexEnvArgsDryRunJSON(t *testing.T) {
 	prev := os.Getenv("ATM_CODEX_ARGS")
 	os.Setenv("ATM_CODEX_ARGS", "--yolo")
 	t.Cleanup(func() { os.Setenv("ATM_CODEX_ARGS", prev) })
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("developing", "codex", "--project", "FOO", "--dry-run")
 	if code != ExitSuccess {
@@ -155,8 +155,8 @@ func TestDevelopingCodexEnvArgsDryRunJSON(t *testing.T) {
 
 func TestDeveloping_PersonaEnvAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
-	h.run("persona", "create", "--name", "staff", "--prompt", "high bar", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("persona", "create", "--name", "staff", "--prompt", "high bar", "--actor", "admin@cli:unset")
 	h.reset()
 	out, _, code := h.run("developing", "claude", "--project", "FOO", "--persona", "staff", "--dry-run")
 	if code != ExitSuccess {
@@ -165,7 +165,7 @@ func TestDeveloping_PersonaEnvAndActor(t *testing.T) {
 	for _, want := range []string{
 		`"ATM_PERSONA": "staff"`,
 		`"ATM_AGENT": "claude"`,
-		`"ATM_ACTOR": "staff@claude"`,
+		`"ATM_ACTOR": "staff@claude:unset"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("persona launch env missing %q:\n%s", want, out)
@@ -175,7 +175,7 @@ func TestDeveloping_PersonaEnvAndActor(t *testing.T) {
 
 func TestDevelopingOllamaRequiresIntegration(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("developing", "ollama", "--project", "FOO", "--dry-run")
 	if code != ExitGeneric {

@@ -9,10 +9,10 @@ import (
 
 func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "Agent Tasks Management", "claude")
-	tk, _ := m.store.CreateTask("ATM", "Fix thing", "work on it", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "first comment body", []string{"ATM:comment:open-question"}, "", "agent")
-	_, _ = m.store.CreateComment(tk.ID, "second reply", nil, "ATM-0001-c0001", "ttran")
+	_, _ = m.store.CreateProject("ATM", "Agent Tasks Management", testActor)
+	tk, _ := m.store.CreateTask("ATM", "Fix thing", "work on it", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "first comment body", []string{"ATM:comment:open-question"}, "", testActor)
+	_, _ = m.store.CreateComment(tk.ID, "second reply", nil, "ATM-0001-c0001", "manager@cli:test")
 
 	m.projectScope = "ATM"
 	m.SetSize(240, 70)
@@ -21,10 +21,10 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	if !strings.Contains(view, "COMMENTS") {
 		t.Fatalf("missing Comments section:\n%s", view)
 	}
-	if !strings.Contains(view, "agent") {
+	if !strings.Contains(view, "developer") {
 		t.Fatalf("missing first comment actor:\n%s", view)
 	}
-	if !strings.Contains(view, "ttran") {
+	if !strings.Contains(view, "manager") {
 		t.Fatalf("missing second comment actor:\n%s", view)
 	}
 	if !strings.Contains(view, "first comment body") {
@@ -44,8 +44,8 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 
 func TestTaskDetailHidesHistoryInline(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
 	m.tasks.openDetail(tk.ID)
@@ -60,8 +60,8 @@ func TestTaskDetailHidesHistoryInline(t *testing.T) {
 
 func TestTaskDetailMKeyOpensCommentForm(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	if m.form != nil {
@@ -75,9 +75,9 @@ func TestTaskDetailMKeyOpensCommentForm(t *testing.T) {
 
 func TestEnterOnCommentOpensReadOnlyOverlay(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", "agent")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
@@ -88,8 +88,8 @@ func TestEnterOnCommentOpensReadOnlyOverlay(t *testing.T) {
 
 func TestEnterOnTaskWithNoCommentsIsNoOp(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
@@ -100,9 +100,9 @@ func TestEnterOnTaskWithNoCommentsIsNoOp(t *testing.T) {
 
 func TestCommentOverlayShowsIDAndBody(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", "agent")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
@@ -114,9 +114,9 @@ func TestCommentOverlayShowsIDAndBody(t *testing.T) {
 
 func TestCommentOverlayIsReadOnly(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "orig", nil, "", "agent")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "orig", nil, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
@@ -148,10 +148,10 @@ func TestCommentOverlayIsReadOnly(t *testing.T) {
 
 func TestEscFromCommentOverlayDoesNotLeakIntoNextDetail(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk1, _ := m.store.CreateTask("ATM", "first task", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk1.ID, "comment on first", nil, "", "claude")
-	tk2, _ := m.store.CreateTask("ATM", "second task", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk1, _ := m.store.CreateTask("ATM", "first task", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk1.ID, "comment on first", nil, "", testActor)
+	tk2, _ := m.store.CreateTask("ATM", "second task", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
 
@@ -181,8 +181,8 @@ func TestEscFromCommentOverlayDoesNotLeakIntoNextDetail(t *testing.T) {
 
 func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
 	m.tasks.openDetail(tk.ID)
@@ -219,9 +219,9 @@ func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
 
 func TestCommentOverlayHasNoTrailingHintLine(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", "agent")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
@@ -233,8 +233,8 @@ func TestCommentOverlayHasNoTrailingHintLine(t *testing.T) {
 
 func TestHistoryOverlayHasNoTrailingHintLine(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
 	m.tasks.openDetail(tk.ID)
@@ -246,9 +246,9 @@ func TestHistoryOverlayHasNoTrailingHintLine(t *testing.T) {
 
 func TestStatusHintReflectsOverlayState(t *testing.T) {
 	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", "claude")
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = m.store.CreateComment(tk.ID, "body", nil, "", "agent")
+	_, _ = m.store.CreateProject("ATM", "x", testActor)
+	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = m.store.CreateComment(tk.ID, "body", nil, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 

@@ -2,11 +2,11 @@
   "comment": {
     "body": "Body here",
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "history": [
       {
         "action": "comment.created",
-        "actor": "claude",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 19
       }
@@ -16,6 +16,6 @@
     "log_seq": 19,
     "task_id": "ATM-0001",
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

@@ -2,7 +2,7 @@
   "tasks": [
     {
       "created_at": "TIMESTAMP",
-      "created_by": "claude",
+      "created_by": "admin@cli:unset",
       "description": "",
       "history": [],
       "id": "ATM-0001",
@@ -14,11 +14,11 @@
       "project_code": "ATM",
       "title": "Fix label reconciliation",
       "updated_at": "TIMESTAMP",
-      "updated_by": "claude"
+      "updated_by": "admin@cli:unset"
     },
     {
       "created_at": "TIMESTAMP",
-      "created_by": "claude",
+      "created_by": "admin@cli:unset",
       "description": "",
       "history": [],
       "id": "ATM-0002",
@@ -29,11 +29,11 @@
       "project_code": "ATM",
       "title": "Seed index tasks",
       "updated_at": "TIMESTAMP",
-      "updated_by": "claude"
+      "updated_by": "admin@cli:unset"
     },
     {
       "created_at": "TIMESTAMP",
-      "created_by": "claude",
+      "created_by": "admin@cli:unset",
       "description": "",
       "history": [],
       "id": "DEMO-0001",
@@ -44,7 +44,7 @@
       "project_code": "DEMO",
       "title": "Demo task",
       "updated_at": "TIMESTAMP",
-      "updated_by": "claude"
+      "updated_by": "admin@cli:unset"
     }
   ]
 }

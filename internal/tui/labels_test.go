@@ -166,7 +166,7 @@ func TestLabelsCursorCanReachNamespaceHeader(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	// Add an unnamespaced tag so a tags: header appears at the tail of the
 	// entries list, at an index the pre-fix len(rows)-1 clamp would block.
-	if err := m.store.LabelAdd("ATM:urgent", "", "claude"); err != nil {
+	if err := m.store.LabelAdd("ATM:urgent", "", testActor); err != nil {
 		t.Fatalf("LabelAdd ATM:urgent: %v", err)
 	}
 	m.refreshAll()
@@ -279,7 +279,7 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	// Remove a seed label.
-	_, _ = m.store.LabelRemove("ATM:context:question", "claude")
+	_, _ = m.store.LabelRemove("ATM:context:question", testActor)
 	m.refreshAll()
 	update(t, m, "s")
 	update(t, m, "3")

@@ -5,8 +5,8 @@ import "testing"
 func TestGoldenIndexModelsEmpty(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
-	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	out, _, code := h.run("index", "--store", sp, "models", "--project", "FOO", "--output", "json")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
@@ -17,8 +17,8 @@ func TestGoldenIndexModelsEmpty(t *testing.T) {
 func TestGoldenIndexStatusEmpty(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
-	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	out, _, code := h.run("index", "--store", sp, "status", "--project", "FOO", "--output", "json")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
@@ -29,8 +29,8 @@ func TestGoldenIndexStatusEmpty(t *testing.T) {
 func TestGoldenIndexReindexNoConfigErrUsage(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
-	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	_, _, code := h.run("index", "--store", sp, "reindex", "--project", "FOO")
 	if code != ExitUsage {
 		t.Errorf("exit=%d, want %d (no embedding config)", code, ExitUsage)
@@ -40,8 +40,8 @@ func TestGoldenIndexReindexNoConfigErrUsage(t *testing.T) {
 func TestGoldenIndexTopLevelNoConfigErrUsage(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
-	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	_, _, code := h.run("index", "--store", sp, "--project", "FOO")
 	if code != ExitUsage {
 		t.Errorf("exit=%d, want %d (no embedding config)", code, ExitUsage)

@@ -14,12 +14,17 @@ import (
 
 // --- test helpers ---
 
+// testActor is the conforming actor (persona@agent:model with a registered
+// persona) used by TUI tests when stamping mutations. "developer" is a
+// built-in persona, lazily seeded by the store's validateActor.
+const testActor = "developer@claude:test"
+
 // newTestModel builds a Model against a fresh temp-dir store. The store is
-// opened and auto-initialized; the model's actor is set to "claude" so mutating
-// keys are active in the tests.
+// opened and auto-initialized; the model's actor is set to testActor so
+// mutating keys are active in the tests.
 func newTestModel(t *testing.T) *Model {
 	t.Helper()
-	return newTestModelWithActor(t, "claude")
+	return newTestModelWithActor(t, testActor)
 }
 
 // newTestModelWithActor builds a Model with the given actor (empty string
@@ -72,7 +77,7 @@ func keyMsg(s string) tea.KeyMsg {
 // directly (no actor gating — tests bypass canMutate by seeding via store).
 func seedProject(t *testing.T, m *Model, code, name string) {
 	t.Helper()
-	if _, err := m.store.CreateProject(code, name, "claude"); err != nil {
+	if _, err := m.store.CreateProject(code, name, testActor); err != nil {
 		t.Fatalf("CreateProject %s: %v", code, err)
 	}
 	m.refreshAll()
@@ -81,7 +86,7 @@ func seedProject(t *testing.T, m *Model, code, name string) {
 // seedTask creates a task under the given project with the given labels.
 func seedTask(t *testing.T, m *Model, projectCode, title string, labels ...string) *store.Task {
 	t.Helper()
-	tk, err := m.store.CreateTask(projectCode, title, "", labels, "claude")
+	tk, err := m.store.CreateTask(projectCode, title, "", labels, testActor)
 	if err != nil {
 		t.Fatalf("CreateTask %s: %v", title, err)
 	}
@@ -92,7 +97,7 @@ func seedTask(t *testing.T, m *Model, projectCode, title string, labels ...strin
 // seedLabel adds a label to the registry (with optional description).
 func seedLabel(t *testing.T, m *Model, name, desc string) {
 	t.Helper()
-	if err := m.store.LabelAdd(name, desc, "claude"); err != nil {
+	if err := m.store.LabelAdd(name, desc, testActor); err != nil {
 		t.Fatalf("LabelAdd %s: %v", name, err)
 	}
 	m.refreshAll()
@@ -530,15 +535,15 @@ func TestProjectCreateFormConflict(t *testing.T) {
 }
 
 // TestProjectCreateFormNoActor verifies the first-run flow: launching the TUI
-// without --actor defaults the actor to "default", so [a] opens the create
-// form with no actor field (the form only collects code + name).
+// without --actor defaults the actor to "admin@tui:unset", so [a] opens the
+// create form with no actor field (the form only collects code + name).
 func TestProjectCreateFormNoActor(t *testing.T) {
 	m := newTestModelWithActor(t, "")
-	if m.actor != "default" {
-		t.Fatalf("actor = %q want %q", m.actor, "default")
+	if m.actor != "admin@tui:unset" {
+		t.Fatalf("actor = %q want %q", m.actor, "admin@tui:unset")
 	}
 	if !m.canMutate() {
-		t.Fatalf("canMutate = false want true (actor defaults to default)")
+		t.Fatalf("canMutate = false want true (actor defaults to admin@tui:unset)")
 	}
 	update(t, m, "a")
 	if m.form == nil || !m.form.Active {
@@ -546,7 +551,7 @@ func TestProjectCreateFormNoActor(t *testing.T) {
 	}
 	for _, f := range m.form.Fields {
 		if f.Label == "actor" {
-			t.Errorf("create form should not collect an actor (actor defaults to default); got actor field")
+			t.Errorf("create form should not collect an actor (actor defaults to admin@tui:unset); got actor field")
 		}
 	}
 }
@@ -1496,7 +1501,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "Fix label reconciliation", "ATM:status:in-progress", "ATM:type:bug")
 	// Add a label after creation to get a second history entry.
-	if err := m.store.TaskLabelAdd(tk.ID, "ATM:priority:high", "claude"); err != nil {
+	if err := m.store.TaskLabelAdd(tk.ID, "ATM:priority:high", testActor); err != nil {
 		t.Fatalf("TaskLabelAdd: %v", err)
 	}
 	m.refreshAll()
@@ -1788,7 +1793,7 @@ func TestTaskDetailDescriptionEdit(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	// Seed a task with a known description via the store directly.
-	tk, err := m.store.CreateTask("ATM", "Wire [d] description edit", "initial desc", nil, "claude")
+	tk, err := m.store.CreateTask("ATM", "Wire [d] description edit", "initial desc", nil, testActor)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -1933,7 +1938,7 @@ func TestPersonaCreateFormEscReturnsToOverlay(t *testing.T) {
 }
 
 func TestStatusBarHasNoActorSegment(t *testing.T) {
-	m := newTestModelWithActor(t, "claude")
+	m := newTestModelWithActor(t, testActor)
 	m.SetSize(100, 30)
 	view := m.View()
 	if strings.Contains(view, "actor:") {

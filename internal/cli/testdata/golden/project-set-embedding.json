@@ -1,5 +1,5 @@
 {
-  "actor": "tester",
+  "actor": "admin@cli:unset",
   "embedding": {
     "dim": 768,
     "endpoint": "http://localhost:11434/v1",

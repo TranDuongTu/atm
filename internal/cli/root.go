@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"atm/internal/store"
 	"atm/internal/version"
@@ -103,13 +104,14 @@ func (s *cliState) emit(out io.Writer, v any, textFn func()) error {
 }
 
 func (s *cliState) resolveActor(required bool) (string, error) {
-	if s.flags.actor == "" {
-		if required {
-			return "", fmt.Errorf("%w: --actor or ATM_ACTOR is required", ErrUsage)
-		}
-		return "anonymous", nil
+	raw := s.flags.actor
+	if raw == "" {
+		return "admin@cli:unset", nil
 	}
-	return s.flags.actor, nil
+	if !strings.Contains(raw, "@") {
+		return raw + "@cli:unset", nil
+	}
+	return raw, nil
 }
 
 func newVersionCmd(st *cliState) *cobra.Command {

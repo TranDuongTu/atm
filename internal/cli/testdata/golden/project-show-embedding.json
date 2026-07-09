@@ -2,7 +2,7 @@
   "project": {
     "code": "FOO",
     "created_at": "TIMESTAMP",
-    "created_by": "tester",
+    "created_by": "admin@cli:unset",
     "embedding": {
       "dim": 768,
       "endpoint": "http://localhost:11434/v1",
@@ -12,7 +12,7 @@
     "history": [
       {
         "action": "project.created",
-        "actor": "tester",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 1
       }
@@ -21,6 +21,6 @@
     "name": "Foo",
     "next_task_n": 1,
     "updated_at": "TIMESTAMP",
-    "updated_by": "tester"
+    "updated_by": "admin@cli:unset"
   }
 }

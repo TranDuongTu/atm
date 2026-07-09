@@ -7,7 +7,7 @@ import (
 
 func TestVocabularyShowEmptyStateJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	out, _, code := h.run("vocabulary", "show", "--project", "FOO")
 	if code != ExitSuccess {
@@ -20,9 +20,9 @@ func TestVocabularyShowEmptyStateJSON(t *testing.T) {
 
 func TestVocabularyWriteThenShow(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
-	_, _, code := h.run("vocabulary", "write", "--project", "FOO", "--actor", "opencode-manager",
+	_, _, code := h.run("vocabulary", "write", "--project", "FOO", "--actor", "admin@cli:unset",
 		"--terms", `[{"term":"labels","weight":9},{"term":"audit log","weight":7}]`)
 	if code != ExitSuccess {
 		t.Fatalf("write exit = %d, want 0", code)
@@ -39,23 +39,23 @@ func TestVocabularyWriteThenShow(t *testing.T) {
 
 func TestVocabularyWriteRejectsMalformedTerms(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
-	_, _, code := h.run("vocabulary", "write", "--project", "FOO", "--actor", "x",
+	_, _, code := h.run("vocabulary", "write", "--project", "FOO", "--actor", "admin@cli:unset",
 		"--terms", `not json`)
 	if code != ExitUsage {
 		t.Fatalf("malformed terms exit = %d, want %d (usage)", code, ExitUsage)
 	}
 }
 
-func TestVocabularyWriteRequiresActor(t *testing.T) {
+func TestVocabularyWriteRejectsUnregisteredPersona(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("vocabulary", "write", "--project", "FOO",
-		"--terms", `[{"term":"x","weight":1}]`)
+		"--terms", `[{"term":"x","weight":1}]`, "--actor", "ghost@cli:unset")
 	if code != ExitUsage {
-		t.Fatalf("no-actor write exit = %d, want %d (usage)", code, ExitUsage)
+		t.Fatalf("ghost-actor write exit = %d, want %d (usage)", code, ExitUsage)
 	}
 }
 

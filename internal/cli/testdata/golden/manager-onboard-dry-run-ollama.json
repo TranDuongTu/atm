@@ -11,7 +11,7 @@
   ],
   "context_path": "/STORE/manager/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "ollama-manager",
+    "ATM_ACTOR": "manager@ollama:unset",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
     "ATM_ONBOARD": "1",

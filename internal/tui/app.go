@@ -142,8 +142,11 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 		}
 	}
 	actor := opts.Actor
-	if actor == "" {
-		actor = "default"
+	switch {
+	case actor == "":
+		actor = "admin@tui:unset"
+	case !strings.Contains(actor, "@"):
+		actor = actor + "@tui:unset"
 	}
 	themeName := defaultThemeName()
 	m := &Model{
@@ -323,7 +326,7 @@ func (m *Model) refreshAll() {
 }
 
 // actorOr returns the actor string for the status line. The actor is always
-// set (defaults to "default" when none was provided at launch).
+// set (defaults to "admin@tui:unset" when none was provided at launch).
 func (m *Model) actorOr() string {
 	return m.actor
 }
@@ -334,8 +337,9 @@ func (m *Model) cycleTheme() {
 }
 
 // canMutate reports whether mutating keys are active. Always true in v2: the
-// actor defaults to "default" when the TUI is launched without --actor, so
-// there is no actor-gated dead state. Kept as a stable predicate for callers.
+// actor defaults to "admin@tui:unset" when the TUI is launched without
+// --actor, so there is no actor-gated dead state. Kept as a stable predicate
+// for callers.
 func (m *Model) canMutate() bool { return true }
 
 // Init is the Bubble Tea Init command. It schedules the periodic refresh

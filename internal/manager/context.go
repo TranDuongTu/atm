@@ -15,6 +15,13 @@ type ContextData struct {
 	Actor     string
 	RunID     string
 	Timestamp string
+
+	// Persona, PersonaPrompt, PersonaDescription describe the persona the
+	// manager is operating as. Rendered into a persona block by RenderContext
+	// when Persona is non-empty.
+	Persona            string
+	PersonaPrompt      string
+	PersonaDescription string
 }
 
 // RenderContext substitutes the ContextData placeholders into the manager
