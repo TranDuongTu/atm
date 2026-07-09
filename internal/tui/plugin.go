@@ -78,8 +78,12 @@ func (sv *pluginSupervisor) clear(p plugin) {
 
 // dockSegments returns one rendered dock string per registered plugin, in
 // registration order. It is the right-aligned join target for the status line.
-// When no plugins are registered it returns nil.
+// Per D5/Section 2, when no project is scoped (projectScope == "") the dock is
+// empty (no plugin segments render). When no plugins are registered it returns nil.
 func dockSegments(m *Model) []string {
+	if m.projectScope == "" {
+		return nil
+	}
 	if len(m.plugins) == 0 {
 		return nil
 	}

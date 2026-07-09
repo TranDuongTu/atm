@@ -623,6 +623,7 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 		return m.confirmYes()
 	case "esc", "n", "q":
 		m.confirm = confirmNone
+		m.confirmPayload = ""
 	}
 	return nil
 }

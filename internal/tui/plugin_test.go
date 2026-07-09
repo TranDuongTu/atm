@@ -80,6 +80,7 @@ func TestDockSegmentsEmptyWithNoPlugins(t *testing.T) {
 
 func TestDockSegmentsRendersOnePerPlugin(t *testing.T) {
 	m := newTestModel(t)
+	m.projectScope = "ATM"
 	m.plugins = []plugin{&fakePlugin{}}
 	segs := dockSegments(m)
 	if len(segs) != 1 || segs[0] != "# off" {

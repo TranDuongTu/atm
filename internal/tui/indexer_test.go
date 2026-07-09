@@ -483,6 +483,44 @@ func TestIndexerReindexOnceRunsAndLogs(t *testing.T) {
 	}
 }
 
+func TestIndexerReindexProgressRoutedThroughMsgCh(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	cmd := p.HandleKey(keyMsg("r"), m)
+	if cmd == nil {
+		t.Fatal("r should return a cmd (ReindexOnce)")
+	}
+	// Execute the returned cmd and drain the channel via applyTick, the same
+	// path Update's pluginTickMsg handler takes. Progress must NOT mutate
+	// im.logs directly from the goroutine; it routes through msgCh and the
+	// tick drain applies it in the main Update path.
+	msg := cmd()
+	if _, ok := msg.(reindexResultMsg); !ok {
+		t.Fatalf("cmd should return reindexResultMsg, got %T", msg)
+	}
+	applyTick(m)
+	if len(im.logs) == 0 {
+		t.Fatal("reindex progress should have been routed through msgCh into im.logs")
+	}
+}
+
+func TestDockEmptyWhenNoProject(t *testing.T) {
+	m := newIndexerTestModel(t)
+	m.projectScope = ""
+	m.SetSize(100, 30)
+	segs := dockSegments(m)
+	if len(segs) != 0 {
+		t.Fatalf("dock should be empty when no project selected, got %v", segs)
+	}
+}
+
 func TestIndexerReindexOnceDisabledWhileRunning(t *testing.T) {
 	m := newIndexerTestModel(t)
 	seedTask(t, m, "ATM", "first task")

@@ -138,8 +138,6 @@ func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd {
 }
 
 func (p *indexerPlugin) Render(m *Model) string {
-	im := p.model(m)
-	_ = im
 	bw, bh := m.helpBoxSize()
 	innerW := bw - 2
 	if innerW < 1 {
@@ -427,10 +425,7 @@ func (p *indexerPlugin) handleReindexOnce(m *Model) tea.Cmd {
 	}
 	embedFn := im.embedFnBuilder(im.cfg)
 	progress := func(msg string) {
-		im.logs = append(im.logs, msg)
-		if len(im.logs) > 1000 {
-			im.logs = im.logs[len(im.logs)-1000:]
-		}
+		sendIndexerMsg(im, indexerMsg{kind: msgProgress, line: msg})
 	}
 	return func() tea.Msg {
 		res, err := m.store.ReindexOnce(m.projectScope, embedFn, progress)
@@ -566,19 +561,7 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	im.state = idxWorking
 	im.startedAt = time.Now()
 	send := func(kind indexerMsgKind, line string, st indexerState, err string) {
-		select {
-		case im.msgCh <- indexerMsg{kind: kind, line: line, state: st, err: err}:
-		default:
-			// drop-oldest on overflow
-			select {
-			case <-im.msgCh:
-			default:
-			}
-			select {
-			case im.msgCh <- indexerMsg{kind: kind, line: line, state: st, err: err}:
-			default:
-			}
-		}
+		sendIndexerMsg(im, indexerMsg{kind: kind, line: line, state: st, err: err})
 	}
 	progress := func(msg string) {
 		switch {
@@ -675,9 +658,34 @@ func drainChannel(ch chan indexerMsg) {
 	}
 }
 
+// sendIndexerMsg performs a non-blocking send onto im.msgCh, dropping the
+// oldest queued message on overflow so the latest progress is preferred. It
+// is safe to call from a Cmd goroutine; the Update tick drain applies the
+// messages (all model mutation happens in Update, per D6).
+func sendIndexerMsg(im *indexerModel, msg indexerMsg) {
+	select {
+	case im.msgCh <- msg:
+	default:
+		// drop-oldest on overflow
+		select {
+		case <-im.msgCh:
+		default:
+		}
+		select {
+		case im.msgCh <- msg:
+		default:
+		}
+	}
+}
+
 // isCaughtUpLine reports whether a progress line indicates the watcher just
 // completed a pass and is caught up (idle until the next delta). The "wrote"
 // completion line and the no-op "nothing to do"/"index fresh" lines both count.
+//
+// isCaughtUpLine and isFreshDeltaLine match the progress-string prefixes
+// emitted by store.Watch / store.ReindexOnce ("indexing ", "embedding ",
+// "nothing to do", "index fresh", "wrote "). Changing the store's log
+// phrasing requires updating these matchers.
 func isCaughtUpLine(line string) bool {
 	return strings.Contains(line, "nothing to do") || strings.Contains(line, "index fresh") || strings.Contains(line, "wrote ")
 }
