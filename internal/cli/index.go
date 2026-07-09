@@ -72,7 +72,8 @@ func newIndexReindexCmd(st *cliState) *cobra.Command {
 			}
 			client := embed.New(*cfg.Embedding)
 			embedFn := func(text, role string) ([]float64, error) { return client.Embed(text, role) }
-			res, err := s.ReindexOnce(project, embedFn)
+			progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+			res, err := s.ReindexOnce(project, embedFn, progress)
 			if err != nil {
 				return err
 			}

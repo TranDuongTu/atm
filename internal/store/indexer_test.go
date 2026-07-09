@@ -67,7 +67,7 @@ func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 	fake := func(text, role string) ([]float64, error) {
 		return []float64{0.1, 0.2}, nil
 	}
-	res, err := s.ReindexOnce("ATM", fake)
+	res, err := s.ReindexOnce("ATM", fake, nil)
 	if err != nil {
 		t.Fatalf("ReindexOnce: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestReindexOnceEmbedErrorAborts(t *testing.T) {
 	fake := func(text, role string) ([]float64, error) {
 		return nil, errors.New("endpoint down")
 	}
-	if _, err := s.ReindexOnce("ATM", fake); err == nil {
+	if _, err := s.ReindexOnce("ATM", fake, nil); err == nil {
 		t.Fatal("want error on embed failure, got nil")
 	}
 }
@@ -108,7 +108,7 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
-	_, err := s.ReindexOnce("ATM", fake)
+	_, err := s.ReindexOnce("ATM", fake, nil)
 	if !IsUsage(err) {
 		t.Errorf("err = %v, want ErrUsage (no embedding config)", err)
 	}

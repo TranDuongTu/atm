@@ -75,7 +75,7 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	return pending, nil
 }
 
-func (s *Store) ReindexOnce(code string, embed EmbedFunc) (IndexResult, error) {
+func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (IndexResult, error) {
 	cfg, err := s.GetProjectConfig(code)
 	if err != nil {
 		return IndexResult{}, err
@@ -93,11 +93,20 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc) (IndexResult, error) {
 		if last, _ := s.LastLogSeq(code); last >= 0 {
 			res.LogSeq = last
 		}
+		if log != nil {
+			log(fmt.Sprintf("index fresh: nothing to do (model=%s, log_seq=%d)", slug, res.LogSeq))
+		}
 		return res, nil
+	}
+	if log != nil {
+		log(fmt.Sprintf("indexing %d %s+comment(s) for project %q (model=%s)...", len(pending), kindLabel(pending), code, slug))
 	}
 	entries := make([]VectorEntry, 0, len(pending))
 	maxSeq := 0
-	for _, doc := range pending {
+	for i, doc := range pending {
+		if log != nil {
+			log(fmt.Sprintf("embedding %d/%d %s (%s)", i+1, len(pending), doc.ID, doc.Kind))
+		}
 		vec, err := embed(doc.Text, "document")
 		if err != nil {
 			return res, fmt.Errorf("embed %s: %w", doc.ID, err)
@@ -115,16 +124,29 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc) (IndexResult, error) {
 	}
 	res.Indexed = len(entries)
 	res.LogSeq = maxSeq
+	if log != nil {
+		log(fmt.Sprintf("wrote %d vector(s) to %s/%s at log_seq %d", res.Indexed, code, slug, res.LogSeq))
+	}
 	return res, nil
 }
 
+func kindLabel(docs []IndexDoc) string {
+	if len(docs) == 0 {
+		return ""
+	}
+	first := docs[0].Kind
+	for _, d := range docs[1:] {
+		if d.Kind != first {
+			return "task/comment"
+		}
+	}
+	return first
+}
+
 func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log ProgressFunc) error {
-	res, err := s.ReindexOnce(code, embed)
+	res, err := s.ReindexOnce(code, embed, log)
 	if err != nil {
 		return err
-	}
-	if log != nil && res.Indexed > 0 {
-		log(fmt.Sprintf("indexed %d (model=%s); index at log_seq %d", res.Indexed, res.Model, res.LogSeq))
 	}
 	const basePoll = 1 * time.Second
 	const maxPoll = 30 * time.Second
@@ -141,7 +163,7 @@ func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log Pro
 			if cur <= lastSeq {
 				continue
 			}
-			res, err := s.ReindexOnce(code, embed)
+			res, err := s.ReindexOnce(code, embed, log)
 			if err != nil {
 				if log != nil {
 					log(fmt.Sprintf("index error: %v", err))
