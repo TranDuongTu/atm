@@ -216,8 +216,16 @@ func TestDockSegmentsRendersOnePerPlugin(t *testing.T) {
 	m := newTestModel(t)
 	m.plugins = []plugin{&fakePlugin{}}
 	segs := dockSegments(m)
-	if len(segs) != 1 || segs[0] != "# off" {
-		t.Fatalf("got %v, want [# off]", segs)
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	// The segment is "<state-colored label>  <muted g1 hint>" — check the
+	// label and the keybind hint both appear (avoid brittle ANSI matching).
+	if !strings.Contains(segs[0], "# off") {
+		t.Errorf("segment %q missing label '# off'", segs[0])
+	}
+	if !strings.Contains(segs[0], "g1") {
+		t.Errorf("segment %q missing keybind hint 'g1'", segs[0])
 	}
 }
 ```
@@ -302,7 +310,8 @@ func dockSegments(m *Model) []string {
 		st := p.State(m)
 		label := p.DockLabel(st)
 		style := p.DockColor(st, m.styles)
-		out = append(out, style.Render(label))
+		hint := m.styles.KeyMenuDim.Render("g" + p.OverlayKey())
+		out = append(out, style.Render(label)+"  "+hint)
 	}
 	return out
 }
@@ -362,6 +371,19 @@ func TestStatusBarPluginDockEmptyWhenNoPlugins(t *testing.T) {
 	line := m.renderStatusLine()
 	if strings.Contains(line, "idx:") || strings.Contains(line, "IDX:") {
 		t.Errorf("empty dock should render no plugin segment, got %q", line)
+	}
+}
+
+func TestStatusBarPluginDockShowsKeybindHint(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = []plugin{newIndexerPlugin()}
+	m.indexer = nil // force State() to default idxOff
+	line := m.renderStatusLine()
+	// The dock segment must include the muted "g1" hint next to the icon
+	// so the keybind is discoverable from the status bar alone.
+	if !strings.Contains(line, "g1") {
+		t.Errorf("dock missing 'g1' keybind hint:\n%s", line)
 	}
 }
 
@@ -1439,6 +1461,37 @@ func TestIndexerOverlayLogScroll(t *testing.T) {
 		t.Fatalf("G should reset logOffset to -1 (tail), got %d", im.logOffset)
 	}
 }
+
+func TestIndexerOverlayLogBottomAnchored(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.logs = []string{"only line"}
+	im.logOffset = -1
+	m.SetSize(100, 40)
+	m.pluginOverlay = 0
+	p.Open(m)
+	view := p.Render(m)
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	// The modal is ~80% of 39 content rows. The single log line must sit in
+	// the BOTTOM few rows of the modal, not the middle. Assert the log line
+	// is below the halfway mark of the modal.
+	half := len(lines) / 2
+	found := -1
+	for i, l := range lines {
+		if strings.Contains(l, "only line") {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		t.Fatal("log line 'only line' not found in view")
+	}
+	if found < half {
+		t.Fatalf("log line at row %d of %d (above halfway) — log pane must be bottom-anchored", found, len(lines))
+	}
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1458,14 +1511,28 @@ func (p *indexerPlugin) Render(m *Model) string {
 	if innerW < 1 {
 		innerW = 1
 	}
+	innerH := bh - 2 // titledBoxHeight draws border + title + bottom row
+	if innerH < 1 {
+		innerH = 1
+	}
+	cfgBlock := p.renderConfigBlock(m, innerW)
+	statusBlock := p.renderStatusBlock(m, innerW)
+	actionRow := p.renderActionRow(m, innerW)
+	// Each section is separated by one blank line.
+	used := lineCount(cfgBlock) + 1 + lineCount(statusBlock) + 1 + lineCount(actionRow) + 1
+	logH := innerH - used
+	if logH < 1 {
+		logH = 1
+	}
+	logBlock := p.renderLogPane(m, innerW, logH)
 	var b strings.Builder
-	b.WriteString(p.renderConfigBlock(m, innerW))
+	b.WriteString(cfgBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderStatusBlock(m, innerW))
+	b.WriteString(statusBlock)
 	b.WriteString("\n")
-	b.WriteString(p.renderActionRow(m, innerW))
+	b.WriteString(actionRow)
 	b.WriteString("\n")
-	b.WriteString(p.renderLogPane(m, innerW))
+	b.WriteString(logBlock)
 	return titledBoxHeight(m.styles.DialogBody, bw, "Indexer — "+m.projectScope, b.String(), bh)
 }
 
@@ -1532,37 +1599,66 @@ func (p *indexerPlugin) renderActionRow(m *Model, w int) string {
 	return dashboardLine(w, m.styles.KeyMenu.Render("[e] edit config   [s] save   [S] start/stop   [r] reindex once   [d] drop model   [Esc] close"))
 }
 
-func (p *indexerPlugin) renderLogPane(m *Model, w int) string {
+func (p *indexerPlugin) renderLogPane(m *Model, w, height int) string {
+	im := p.model(m)
+	var body strings.Builder
+	if len(im.logs) == 0 {
+		body.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
+	} else {
+		// Determine the visible window.
+		visible := im.logs
+		if im.logOffset != -1 {
+			off := im.logOffset
+			if off < 0 {
+				off = 0
+			}
+			if off > len(im.logs) {
+				off = len(im.logs)
+			}
+			visible = im.logs[off:]
+		} else {
+			// tail: show the last `height-1` lines (1 line for the divider).
+			if len(visible) > height-1 {
+				visible = visible[len(visible)-(height-1):]
+			}
+		}
+		for _, l := range visible {
+			body.WriteString(dashboardLine(w, fitLine(l, w)))
+			body.WriteString("\n")
+		}
+	}
+	// Bottom-anchor: the divider sits first, then blank-fill above the log
+	// lines so the content reads at the BOTTOM of the pane (next to the
+	// [Esc] close footer), not collapsed at the middle.
+	contentLines := lineCount(body.String())
+	logContentLines := contentLines // log lines (no divider)
+	dividerLine := 1
+	padAbove := height - dividerLine - logContentLines
+	if padAbove < 0 {
+		padAbove = 0
+	}
 	var b strings.Builder
 	b.WriteString(sectionDivider(m.styles, w, "log"))
 	b.WriteString("\n")
-	im := p.model(m)
-	if len(im.logs) == 0 {
-		b.WriteString(dashboardLine(w, m.styles.Muted.Render("(no log lines yet)")))
-		return b.String()
-	}
-	// Determine the visible window.
-	visible := im.logs
-	if im.logOffset != -1 {
-		off := im.logOffset
-		if off < 0 {
-			off = 0
-		}
-		if off > len(im.logs) {
-			off = len(im.logs)
-		}
-		visible = im.logs[off:]
-	} else {
-		// tail: show the last ~12 lines (overlay log pane is ~40% of modal)
-		if len(visible) > 12 {
-			visible = visible[len(visible)-12:]
-		}
-	}
-	for _, l := range visible {
-		b.WriteString(dashboardLine(w, fitLine(l, w)))
+	for i := 0; i < padAbove; i++ {
+		b.WriteString(spaces(w))
 		b.WriteString("\n")
 	}
+	b.WriteString(body.String())
 	return b.String()
+}
+
+// lineCount returns the number of newline-separated lines in s (a trailing
+// newline does not add an empty line).
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if strings.HasSuffix(s, "\n") {
+		return n
+	}
+	return n + 1
 }
 
 func stateWord(s indexerState) string {
@@ -2368,6 +2464,8 @@ git commit -m "tui: keymap + help entries for g-prefix plugin overlays"
 - D9 (hard reset + 3-strikes) → Task 2 (supervisor) + Task 5 (reset on error). ✓
 - D10 (save vs start/stop separated) → Tasks 6-7. ✓
 - D11 (actor hidden) → Task 3. ✓
+- D12 (dock keybind hint) → Task 2 (`dockSegments` appends `g`+OverlayKey) + Task 3 (test). ✓
+- D13 (log pane bottom-anchored) → Task 6 (`Render` measures sections; `renderLogPane` top-pads). ✓
 - Section 4 (overlay layout) → Task 6. ✓
 - Section 5 (data flow) → Tasks 5-8. ✓
 - Section 6 (error handling) → Tasks 5-8. ✓
@@ -2377,7 +2475,7 @@ git commit -m "tui: keymap + help entries for g-prefix plugin overlays"
 
 **2. Placeholder scan:** The plan has complete code in every code step; no "TBD"/"add appropriate error handling". The Task 6 Step 4 note about `nomic` test assertion is a known fix-up, not a placeholder. The Task 6 `SetSize` block is explicitly called out as "drop if unused" — that's a decision point, not a placeholder.
 
-**3. Type consistency:** `indexerState` consts (`idxOff`/`idxStopped`/`idxIdle`/`idxWorking`/`idxError`) used consistently across Tasks 4-8. `indexerModel.embedFnBuilder` field defined Task 4, used Tasks 5-8. `pluginTickMsg`/`pluginTickCmd` defined Task 5, used Task 5. `reindexResultMsg` defined Task 8, handled Task 8. `confirmDropIndex`/`confirmPayload` added Task 8, used Task 8. `startIndexer`/`stopIndexer`/`resetIndexer`/`refreshStatus` (called `refreshIndexerStatus` in the spec — the plan uses `refreshStatus` as the method name on `indexerModel`; the spec's `refreshIndexerStatus()` is the same thing) — consistent within the plan. `dockSegments` defined Task 2, used Task 3. `applyIndexerMsg` defined Task 5, used Task 5. `stateWord` defined Task 6. `scrollDown`/`scrollUp` defined Task 6.
+**3. Type consistency:** `indexerState` consts (`idxOff`/`idxStopped`/`idxIdle`/`idxWorking`/`idxError`) used consistently across Tasks 4-8. `indexerModel.embedFnBuilder` field defined Task 4, used Tasks 5-8. `pluginTickMsg`/`pluginTickCmd` defined Task 5, used Task 5. `reindexResultMsg` defined Task 8, handled Task 8. `confirmDropIndex`/`confirmPayload` added Task 8, used Task 8. `startIndexer`/`stopIndexer`/`resetIndexer`/`refreshStatus` (called `refreshIndexerStatus` in the spec — the plan uses `refreshStatus` as the method name on `indexerModel`; the spec's `refreshIndexerStatus()` is the same thing) — consistent within the plan. `dockSegments` defined Task 2, used Task 3. `applyIndexerMsg` defined Task 5, used Task 5. `stateWord` defined Task 6. `scrollDown`/`scrollUp` defined Task 6. `lineCount` defined Task 6, used Task 6 (`Render` + `renderLogPane`).
 
 One name to reconcile: the spec calls the refresh `refreshIndexerStatus()`; the plan's `indexerModel` method is `refreshStatus()` (called as `im.refreshStatus()`). This is fine — `refreshStatus` is a method on `indexerModel`, and the spec's `refreshIndexerStatus()` was a top-level helper; the plan folds it into the model. No conflict, just note it for the implementer.
 
