@@ -152,7 +152,7 @@ func TestManagerRenderContextGenericKeepsPlaceholders(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>", "<ACTOR>"} {
+	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
 		if !strings.Contains(got, placeholder) {
 			t.Errorf("generic render-context stripped %s", placeholder)
 		}

@@ -20,7 +20,6 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 	for _, want := range []string{
 		"ATM manager — ATM",
 		"Project `ATM` (`Agent Tasks Management`)",
-		"actor `opencode-manager`",
 		"atm `/usr/local/bin/atm`",
 		"autonomous owner",
 	} {
@@ -57,7 +56,7 @@ func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
 	// The generic body (no project) is produced by leaving placeholders in place
 	// so `atm manager render-context` with no --project still renders a template.
 	got := RenderContext(ContextData{})
-	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>", "<ACTOR>"} {
+	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
 		if !strings.Contains(got, placeholder) {
 			t.Errorf("generic render stripped %s; placeholders must survive for template use", placeholder)
 		}

@@ -1,6 +1,6 @@
 # ATM manager — <CODE>
 
-Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>` · atm `<ATM_BIN>`
+Project `<CODE>` (`<PROJECT_NAME>`) · atm `<ATM_BIN>`
 
 ## Who you are
 
