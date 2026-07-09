@@ -43,8 +43,8 @@ func TestMigrateActors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Seeded) != 2 {
-		t.Fatalf("dry-run seeded %v, want developer+manager", res.Seeded)
+	if len(res.Seeded) != 3 {
+		t.Fatalf("dry-run seeded %v, want 3 built-ins", res.Seeded)
 	}
 	if got := res.Added["opencode-dev"]; got.Persona != "developer" || got.Agent != "opencode" {
 		t.Fatalf("opencode-dev -> %+v", got)

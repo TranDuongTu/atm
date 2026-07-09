@@ -130,6 +130,11 @@ func (s *Store) RemovePersona(name string) error {
 	if err := ValidatePersonaName(name); err != nil {
 		return err
 	}
+	for _, b := range seedPersonas() {
+		if b == name {
+			return fmt.Errorf("%w: cannot remove built-in persona %q", ErrUsage, name)
+		}
+	}
 	return s.WithLock("personas", func() error {
 		if _, err := s.GetPersona(name); err != nil {
 			return err

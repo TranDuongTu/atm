@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -62,14 +63,39 @@ func TestPersonaNameTraversalRejected(t *testing.T) {
 	}
 }
 
+func TestRemovePersonaRejectsBuiltins(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.SeedPersonas("admin@atm:seed"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	for _, name := range []string{"developer", "manager", "admin"} {
+		if err := s.RemovePersona(name); !errors.Is(err, ErrUsage) {
+			t.Errorf("RemovePersona(%q) = %v, want ErrUsage", name, err)
+		}
+		if _, err := s.GetPersona(name); err != nil {
+			t.Errorf("built-in %q was removed: %v", name, err)
+		}
+	}
+}
+
+func TestSeedPersonasIncludesAdmin(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.SeedPersonas("admin@atm:seed"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := s.GetPersona("admin"); err != nil {
+		t.Errorf("admin not seeded: %v", err)
+	}
+}
+
 func TestSeedPersonasIdempotent(t *testing.T) {
 	s := newTestStore(t)
 	added, err := s.SeedPersonas("seed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(added) != 2 {
-		t.Fatalf("first seed added %v, want 2", added)
+	if len(added) != 3 {
+		t.Fatalf("first seed added %v, want 3", added)
 	}
 	// User edits a built-in.
 	edited := "custom"
@@ -87,7 +113,7 @@ func TestSeedPersonasIdempotent(t *testing.T) {
 	if got.Prompt != "custom" {
 		t.Fatalf("seed clobbered user edit: %q", got.Prompt)
 	}
-	if len(s.ListPersonas()) != 2 {
-		t.Fatalf("list = %d, want 2", len(s.ListPersonas()))
+	if len(s.ListPersonas()) != 3 {
+		t.Fatalf("list = %d, want 3", len(s.ListPersonas()))
 	}
 }
