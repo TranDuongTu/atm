@@ -24,11 +24,11 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ATM developing session FOO-20260705120000-a1b2c3",
-		"Project: `FOO` (`Foo Project`)",
-		"ATM binary: `/usr/local/bin/atm`",
-		"Actor: `codex-dev`",
-		"atm task comment add --task <ID>",
-		"self-improvement gene",
+		"Project `FOO` (`Foo Project`)",
+		"actor `codex-dev`",
+		"atm `/usr/local/bin/atm`",
+		"conventions",
+		"search --project FOO",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)
@@ -44,9 +44,6 @@ func TestRenderContext_Persona(t *testing.T) {
 	if !strings.Contains(out, "Persona: staff") || !strings.Contains(out, "hold a high bar") {
 		t.Fatalf("persona block missing:\n%s", out)
 	}
-	if !strings.Contains(out, "staff@claude:") {
-		t.Fatalf("actor convention guidance missing:\n%s", out)
-	}
 
 	out2 := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/atm", Actor: "claude-dev", RunID: "R", Timestamp: "T"})
 	if strings.Contains(out2, "## Persona") {
@@ -54,9 +51,9 @@ func TestRenderContext_Persona(t *testing.T) {
 	}
 }
 
-func TestRenderContextRetrievalSectionPresent(t *testing.T) {
+func TestRenderContextDelegatesWritesToManager(t *testing.T) {
 	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "ollama-dev", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
-	for _, frag := range []string{"Retrieval", "atm search", "hint: question"} {
+	for _, frag := range []string{"atm search", "Delegate every write", "atm-manager", "dispatch"} {
 		if !strings.Contains(got, frag) {
 			t.Errorf("developing context missing %q", frag)
 		}

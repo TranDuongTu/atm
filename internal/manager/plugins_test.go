@@ -42,9 +42,8 @@ func TestPluginAssetsContainManagerRole(t *testing.T) {
 	joined := string(joinManagerAssetContents(assets))
 	for _, want := range []string{
 		"ATM ledger owner",
-		"needs clarification",
-		"semantic search",
-		"task set-title",
+		"render-context",
+		"follow it",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("OpenCode manager asset missing %q", want)
@@ -75,13 +74,8 @@ func TestManagerSubagentAssetResolvesRuntimeValuesFromEnv(t *testing.T) {
 		if strings.Contains(body, ".local/bin/atm") {
 			t.Errorf("%s subagent asset names a hardcoded binary path", host)
 		}
-		// Failure-surfacing: a failed atm call means the write did not happen.
-		if !strings.Contains(body, "did NOT happen") {
-			t.Errorf("%s subagent asset lacks the failure-surfacing rule (a failed atm call = write did NOT happen)", host)
-		}
-		// Read-back verification before claiming success.
-		if !strings.Contains(body, "read it back") {
-			t.Errorf("%s subagent asset lacks the read-back verification rule", host)
+		if !strings.Contains(body, "render-context") {
+			t.Errorf("%s subagent asset does not defer to `atm manager render-context`", host)
 		}
 	}
 }
@@ -101,6 +95,63 @@ func TestClaudeManagerAssetToolsFrontmatterFormat(t *testing.T) {
 	if strings.Contains(body, "\n  - bash") || strings.Contains(body, "\n  - read") {
 		t.Errorf("claude asset uses an unrecognized YAML-list tools frontmatter; Claude Code spawns it without tools")
 	}
+}
+
+func TestManagerAssetBodiesIdenticalAcrossHosts(t *testing.T) {
+	// The frontmatter is necessarily host-specific (claude/codex use `tools:`,
+	// opencode uses native `mode:`/`permission:`), but the body — everything
+	// after the closing `---` — is the single source of truth shared across
+	// all three hosts. Guard against body drift while allowing frontmatter to
+	// differ per host's native conventions.
+	var bodies = map[string]string{}
+	for _, host := range []string{"opencode", "claude", "codex"} {
+		assets, _ := PluginAssets(host)
+		body := string(joinManagerAssetContents(assets))
+		bodies[host] = stripFrontmatter(t, body)
+	}
+	if bodies["claude"] != bodies["codex"] {
+		t.Errorf("claude and codex atm-manager.md bodies differ")
+	}
+	if bodies["claude"] != bodies["opencode"] {
+		t.Errorf("claude and opencode atm-manager.md bodies differ:\nclaude:\n%s\nopencode:\n%s", bodies["claude"], bodies["opencode"])
+	}
+}
+
+func TestOpencodeManagerAssetFrontmatterFormat(t *testing.T) {
+	// ATM-0071 review. opencode's subagent sandbox is expressed natively via
+	// `mode: subagent` + `permission:` (not claude's `tools:` string), and this
+	// asset must deny edit/write so the manager cannot silently mutate files
+	// outside the ledger. Guard the sandbox so a future homogenization pass
+	// can't drop it again.
+	assets, _ := PluginAssets("opencode")
+	body := string(joinManagerAssetContents(assets))
+	for _, want := range []string{"mode: subagent", "edit: deny", "write: deny"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("opencode asset missing %q", want)
+		}
+	}
+	if strings.Contains(body, "\nname:") {
+		t.Errorf("opencode asset should not carry a `name:` key; opencode derives the name from the filename")
+	}
+	if strings.Contains(body, "tools:") {
+		t.Errorf("opencode asset should not carry claude's `tools:` frontmatter key")
+	}
+}
+
+// stripFrontmatter removes the leading `---\n...\n---\n` frontmatter block
+// (if any) and returns everything after it, so cross-host body comparisons
+// ignore each host's native frontmatter dialect.
+func stripFrontmatter(t *testing.T, s string) string {
+	t.Helper()
+	if !strings.HasPrefix(s, "---\n") {
+		return s
+	}
+	rest := s[len("---\n"):]
+	idx := strings.Index(rest, "\n---\n")
+	if idx == -1 {
+		t.Fatalf("frontmatter block has no closing ---")
+	}
+	return rest[idx+len("\n---\n"):]
 }
 
 func TestPluginInstallRoot(t *testing.T) {

@@ -137,7 +137,7 @@ func TestManagerRenderContextTextHasPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager session", "knowledge-base owner", "needs clarification", "task set-title"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking request", "Onboarding", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("render-context output missing %q", want)
 		}
@@ -152,9 +152,29 @@ func TestManagerRenderContextGenericKeepsPlaceholders(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>", "<ACTOR>"} {
+	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
 		if !strings.Contains(got, placeholder) {
 			t.Errorf("generic render-context stripped %s", placeholder)
+		}
+	}
+}
+
+func TestManagerRenderContextFillsProjectName(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo Project", "--actor", "ttran")
+	h.reset()
+	h.output = outputText
+	_, _, code := h.run("manager", "render-context", "--project", "FOO", "--actor", "m")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	got := h.stdout.String()
+	if !strings.Contains(got, "Foo Project") {
+		t.Errorf("render-context did not fill <PROJECT_NAME> from the store:\n%s", got)
+	}
+	for _, ph := range []string{"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>"} {
+		if strings.Contains(got, ph) {
+			t.Errorf("render-context left placeholder %s when --project given", ph)
 		}
 	}
 }
