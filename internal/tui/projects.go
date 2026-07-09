@@ -426,25 +426,19 @@ func (p *projectsModel) renderSummary(height int) string {
 	if remaining <= 0 {
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	if remaining == 1 {
-		lines = append(lines, dashboardLine(p.width, "activity by persona  [P]expand"))
-		return padToHeight(strings.Join(lines, "\n"), height)
-	}
-	if remaining == 2 {
-		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
-		return padToHeight(strings.Join(lines, "\n"), height)
-	}
-	if remaining == 3 {
-		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
-		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("activity stripe %s", p.renderActivityStripeChart(entries, 2))))
-		return padToHeight(strings.Join(lines, "\n"), height)
-	}
 
 	if remaining >= 9 {
 		actorH, stripeH, bubblesH := chartBoxHeights(remaining)
 		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
 		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
 		lines = append(lines, strings.Split(p.renderUbiquitousLanguageChart(vocab, bubblesH), "\n")...)
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+
+	if remaining == 3 {
+		// persona chart + a one-line stripe row.
+		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
+		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("activity stripe %s", p.renderActivityStripeChart(entries, 2))))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 
@@ -489,22 +483,25 @@ func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, max
 	if maxLines <= 0 {
 		return nil
 	}
-	if maxLines < 3 {
-		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
-	}
-	entryCap := maxLines - 2
-	if entryCap <= 0 {
+	// 1 line genuinely cannot fit a bar row alongside a label, so the
+	// expand hint is the only legible content there. 2-3 lines render a
+	// compact title + bar rows (no border). From 4 up the bordered chart
+	// box takes over (its title lives in the top border, so we do not
+	// prepend one ourselves).
+	if maxLines == 1 {
 		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
 	}
 	aliases, _ := p.m.store.LoadAliases()
 	groups := activity.Aggregate(activity.Build(entries, aliases), "persona")
-	body := []string{}
 	if len(groups) == 0 {
-		body = append(body, p.m.styles.Muted.Render("no activity yet"))
-		return strings.Split(p.renderChartBox("activity by persona  [P]expand", strings.Join(body, "\n"), 3), "\n")
-	}
-	if len(groups) > entryCap {
-		groups = groups[:entryCap]
+		body := p.m.styles.Muted.Render("no activity yet")
+		if maxLines < 4 {
+			return []string{
+				dashboardLine(p.width, "activity by persona  [P]expand"),
+				dashboardLine(p.width, body),
+			}[:maxLines]
+		}
+		return strings.Split(p.renderChartBox("activity by persona  [P]expand", body, maxLines), "\n")
 	}
 	nameW := longestPersonaKeyWidth(groups)
 	meterW := chartBoxInnerWidth(p.width) - nameW - 10
@@ -515,13 +512,34 @@ func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, max
 	for _, g := range groups {
 		total += g.Count
 	}
-	for _, g := range groups {
+	barRow := func(g activity.Group) string {
 		percent := 0
 		if total > 0 {
 			percent = (g.Count*100 + total/2) / total
 		}
-		line := fmt.Sprintf("%-*s %s %3d%% %3d", nameW, g.Key, meterBar(percent, meterW), percent, g.Count)
-		body = append(body, line)
+		return fmt.Sprintf("%-*s %s %3d%% %3d", nameW, g.Key, meterBar(percent, meterW), percent, g.Count)
+	}
+	if maxLines < 4 {
+		// Compact: title row + as many bar rows as fit.
+		rows := []string{dashboardLine(p.width, "activity by persona  [P]expand")}
+		cap := maxLines - 1
+		if len(groups) > cap {
+			groups = groups[:cap]
+		}
+		for _, g := range groups {
+			rows = append(rows, dashboardLine(p.width, barRow(g)))
+		}
+		return rows
+	}
+	// Boxed: renderChartBox draws the title in the border; emit bar rows
+	// only, capped to the box's inner height (maxLines - 2).
+	cap := maxLines - 2
+	if len(groups) > cap {
+		groups = groups[:cap]
+	}
+	var body []string
+	for _, g := range groups {
+		body = append(body, barRow(g))
 	}
 	return strings.Split(p.renderChartBox("activity by persona  [P]expand", strings.Join(body, "\n"), maxLines), "\n")
 }

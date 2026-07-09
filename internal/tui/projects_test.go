@@ -60,6 +60,49 @@ func TestRenderPersonaActivityChartEmpty(t *testing.T) {
 	}
 }
 
+// ATM-0042: at small heights the inline persona chart's bar scale must not
+// degrade to a bare text line that only says "expand". With 2 or 3 available
+// lines the meter bar (█/░) must render so the "scale" is visible, not just
+// the expand hint. 1 line genuinely cannot fit a bar, so the expand hint is
+// the only acceptable content there.
+func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
+	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
+	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateTask("ATM", "task one", "", nil, "staff@claude:opus-4.8"); err != nil {
+		t.Fatal(err)
+	}
+	seedAlias(t, m, "claude", "developer", "claude")
+
+	m.SetSize(80, 24)
+	m.projectScope = "ATM"
+	m.refreshAll()
+	entries, err := m.store.ReadLog("ATM")
+	if err != nil && !store.IsIntegrity(err) {
+		t.Fatalf("ReadLog: %v", err)
+	}
+
+	for _, maxLines := range []int{2, 3} {
+		view := strings.Join(m.projects.renderPersonaActivityChart(entries, maxLines), "\n")
+		if !strings.ContainsAny(view, "█░") {
+			t.Fatalf("maxLines=%d: meter bar missing, chart degraded to text-only:\n%s", maxLines, view)
+		}
+		if !strings.Contains(view, "staff") {
+			t.Fatalf("maxLines=%d: persona row missing:\n%s", maxLines, view)
+		}
+	}
+
+	// 1 line cannot fit a bar; the expand hint is the only acceptable content.
+	one := strings.Join(m.projects.renderPersonaActivityChart(entries, 1), "\n")
+	if !strings.Contains(one, "expand") {
+		t.Fatalf("maxLines=1: expand hint missing:\n%s", one)
+	}
+	if strings.ContainsAny(one, "█░") {
+		t.Fatalf("maxLines=1: should not render a bar in one line:\n%s", one)
+	}
+}
+
 func TestRenderUbiquitousLanguageChartEmptyState(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
