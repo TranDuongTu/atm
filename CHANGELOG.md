@@ -1,3 +1,16 @@
+## v1.2.8 - 2026-07-09
+
+### docs
+- Merge ATM-0071: agent prompt minimization — thin developing nudges + principle-driven manager render-context pointer
+- docs: reconcile D15 — no-config does not auto-open overlay (dock hint surfaces it)
+- spec+plan: dock always visible (D14) + auto-start on project select (D15) + error auto-opens overlay (D16)
+- spec+plan: dock keybind hint (D12) + bottom-anchored log pane (D13)
+- docs: ATM-0071 agent prompt minimization implementation plan
+- docs: ATM-0071 agent prompt minimization design spec
+- plan: TUI indexer integration — 9-task TDD rollout (ATM-0071)
+- spec: TUI indexer integration — plugin dock + indexer overlay (ATM-0071)
+
+
 ## v1.2.7 - 2026-07-09
 
 ### docs
