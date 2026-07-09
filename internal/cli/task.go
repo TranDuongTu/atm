@@ -9,6 +9,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// bindTaskIDFlags registers the canonical --task flag (bound to id) and the
+// deprecated --id alias (bound to legacy) for a task-level subcommand. Call
+// resolveTaskID inside RunE to fold a legacy --id value into id and emit a
+// deprecation notice to stderr when the alias is used. The --id alias is kept
+// hidden from --help so new callers discover --task.
+func bindTaskIDFlags(cmd *cobra.Command, id *string, legacy *string) {
+	cmd.Flags().StringVar(id, "task", "", "task id")
+	cmd.Flags().StringVar(legacy, "id", "", "task id (deprecated alias for --task)")
+	_ = cmd.Flags().MarkHidden("id")
+}
+
+// resolveTaskID folds the deprecated --id alias into the canonical --task
+// value when --task was not supplied, returning an error if neither was given.
+// depNotice is written to stderr when the alias carried the value.
+func resolveTaskID(st *cliState, id, legacy string) (string, error) {
+	if id != "" {
+		if legacy != "" {
+			fmt.Fprintf(st.stderr(), "warning: --id is deprecated for task subcommands; use --task. Ignoring --id in favor of --task.\n")
+		}
+		return id, nil
+	}
+	if legacy != "" {
+		fmt.Fprintf(st.stderr(), "warning: --id is deprecated for task subcommands; use --task.\n")
+		return legacy, nil
+	}
+	return "", fmt.Errorf("required flag(s) \"task\" not set")
+}
+
 func newTaskCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
@@ -94,16 +122,20 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 }
 
 func newTaskShowCmd(st *cliState) *cobra.Command {
-	var id string
+	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "show",
 		Short: "Show a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			s, err := st.openStore()
 			if err != nil {
 				return err
 			}
-			t, err := s.GetTask(id)
+			t, err := s.GetTask(taskID)
 			if err != nil {
 				return err
 			}
@@ -114,17 +146,20 @@ func newTaskShowCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
-	_ = cmd.MarkFlagRequired("id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
 func newTaskSetTitleCmd(st *cliState) *cobra.Command {
-	var id, title string
+	var id, legacy, title string
 	cmd := &cobra.Command{
 		Use:   "set-title",
 		Short: "Set a task title",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
 				return err
@@ -133,10 +168,10 @@ func newTaskSetTitleCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.SetTitle(id, title, actor); err != nil {
+			if err := s.SetTitle(taskID, title, actor); err != nil {
 				return err
 			}
-			t, err := s.GetTask(id)
+			t, err := s.GetTask(taskID)
 			if err != nil {
 				return err
 			}
@@ -145,19 +180,22 @@ func newTaskSetTitleCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	cmd.Flags().StringVar(&title, "title", "", "new title")
-	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("title")
 	return cmd
 }
 
 func newTaskSetDescriptionCmd(st *cliState) *cobra.Command {
-	var id, description string
+	var id, legacy, description string
 	cmd := &cobra.Command{
 		Use:   "set-description",
 		Short: "Set a task description",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
 				return err
@@ -166,10 +204,10 @@ func newTaskSetDescriptionCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.SetDescription(id, description, actor); err != nil {
+			if err := s.SetDescription(taskID, description, actor); err != nil {
 				return err
 			}
-			t, err := s.GetTask(id)
+			t, err := s.GetTask(taskID)
 			if err != nil {
 				return err
 			}
@@ -178,9 +216,8 @@ func newTaskSetDescriptionCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	cmd.Flags().StringVar(&description, "description", "", "new description")
-	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("description")
 	return cmd
 }
@@ -196,11 +233,15 @@ func newTaskLabelCmd(st *cliState) *cobra.Command {
 }
 
 func newTaskLabelAddCmd(st *cliState) *cobra.Command {
-	var id, label string
+	var id, legacy, label string
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a label to a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
 				return err
@@ -209,10 +250,10 @@ func newTaskLabelAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.TaskLabelAdd(id, label, actor); err != nil {
+			if err := s.TaskLabelAdd(taskID, label, actor); err != nil {
 				return err
 			}
-			t, err := s.GetTask(id)
+			t, err := s.GetTask(taskID)
 			if err != nil {
 				return err
 			}
@@ -221,19 +262,22 @@ func newTaskLabelAddCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	cmd.Flags().StringVar(&label, "label", "", "label name")
-	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("label")
 	return cmd
 }
 
 func newTaskLabelRemoveCmd(st *cliState) *cobra.Command {
-	var id, label string
+	var id, legacy, label string
 	cmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a label from a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
 				return err
@@ -242,10 +286,10 @@ func newTaskLabelRemoveCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.TaskLabelRemove(id, label, actor); err != nil {
+			if err := s.TaskLabelRemove(taskID, label, actor); err != nil {
 				return err
 			}
-			t, err := s.GetTask(id)
+			t, err := s.GetTask(taskID)
 			if err != nil {
 				return err
 			}
@@ -254,19 +298,22 @@ func newTaskLabelRemoveCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	cmd.Flags().StringVar(&label, "label", "", "label name")
-	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("label")
 	return cmd
 }
 
 func newTaskRemoveCmd(st *cliState) *cobra.Command {
-	var id string
+	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a task",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := resolveTaskID(st, id, legacy)
+			if err != nil {
+				return err
+			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
 				return err
@@ -275,16 +322,15 @@ func newTaskRemoveCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.RemoveTask(id, actor); err != nil {
+			if err := s.RemoveTask(taskID, actor); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"removed": id}, func() {
-				fmt.Fprintf(os.Stdout, "removed task %s\n", id)
+			return st.emit(st.stdout(), map[string]any{"removed": taskID}, func() {
+				fmt.Fprintf(os.Stdout, "removed task %s\n", taskID)
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "task id")
-	_ = cmd.MarkFlagRequired("id")
+	bindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
