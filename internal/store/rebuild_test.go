@@ -113,3 +113,25 @@ func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
 		t.Fatal("orphan comment cache not swept")
 	}
 }
+
+func TestRebuildDropsVectorsKeepsInquiry(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "q", []string{"ATM-0001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if models, _ := s.ListVectorModels("ATM"); len(models) != 0 {
+		t.Errorf("vectors not dropped: %v", models)
+	}
+	if got, _ := s.ReadInquiries("ATM"); len(got) != 1 {
+		t.Errorf("inquiry-log dropped: got %d, want 1 (inquiry-log is ground truth, not derived)", len(got))
+	}
+}

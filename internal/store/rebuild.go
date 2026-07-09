@@ -1,5 +1,7 @@
 package store
 
+import "os"
+
 type RebuildReport struct {
 	Projects int
 	Tasks    int
@@ -59,6 +61,7 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 		for _, l := range st.Labels {
 			mergedLabels[l.Name] = l
 		}
+		_ = os.RemoveAll(s.vectorsDir(code))
 	}
 	for _, l := range mergedLabels {
 		if err := cacheUpsertLabel(db, l); err != nil {

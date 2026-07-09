@@ -19,6 +19,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectShowCmd(st))
 	cmd.AddCommand(newProjectSetNameCmd(st))
 	cmd.AddCommand(newProjectRemoveCmd(st))
+	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
 	return cmd
 }
 
@@ -85,8 +86,12 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			hv := s.History(p.Code, store.Subject{Kind: "project", Code: p.Code})
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, hv)}, func() {
-				fmt.Fprintln(os.Stdout, renderProjectText(projectToJSON(p, hv)))
+			pj := projectToJSON(p, hv)
+			if cfg, _ := s.GetProjectConfig(code); cfg != nil {
+				pj.Embedding = cfg.Embedding
+			}
+			return st.emit(st.stdout(), map[string]any{"project": pj}, func() {
+				fmt.Fprintln(os.Stdout, renderProjectText(pj))
 			})
 		},
 	}
@@ -152,5 +157,51 @@ func newProjectRemoveCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&code, "code", "", "project code")
 	_ = cmd.MarkFlagRequired("code")
+	return cmd
+}
+
+func newProjectSetEmbeddingCmd(st *cliState) *cobra.Command {
+	var project, model, endpoint, queryPrefix, docPrefix string
+	var dim int
+	var threshold float64
+	cmd := &cobra.Command{
+		Use:   "set-embedding",
+		Short: "Declare the project's embedding model + endpoint (enables atm search / atm index)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if _, err := s.GetProject(project); err != nil {
+				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
+			}
+			cfg := store.EmbeddingConfig{
+				Model: model, Endpoint: endpoint, QueryPrefix: queryPrefix, DocPrefix: docPrefix,
+				Dim: dim, Threshold: threshold,
+			}
+			if err := s.SetEmbeddingConfig(project, cfg, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{
+				"project": project, "embedding": cfg, "actor": actor,
+			}, func() {
+				fmt.Fprintf(os.Stdout, "set embedding for %s: model=%s endpoint=%s dim=%d threshold=%.2f\n", project, model, endpoint, dim, threshold)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().StringVar(&model, "model", "", "embedding model slug (e.g. nomic-embed-text)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OpenAI-compatible /v1/embeddings base URL")
+	cmd.Flags().StringVar(&queryPrefix, "query-prefix", "", "prefix applied to query text (default none)")
+	cmd.Flags().StringVar(&docPrefix, "doc-prefix", "", "prefix applied to document text (default none)")
+	cmd.Flags().IntVar(&dim, "dim", 0, "vector dimension")
+	cmd.Flags().Float64Var(&threshold, "threshold", 0, "cosine threshold below which text fallback triggers (0 = engine default)")
+	_ = cmd.MarkFlagRequired("project")
+	_ = cmd.MarkFlagRequired("model")
+	_ = cmd.MarkFlagRequired("endpoint")
 	return cmd
 }

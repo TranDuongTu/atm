@@ -147,3 +147,29 @@ func splitLines(data []byte) [][]byte {
 	}
 	return out
 }
+
+func TestVerifyReportsVectorIndexesInfoLevel(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "q", []string{"ATM-0001"}); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.VerifyProject("ATM")
+	if err != nil {
+		t.Fatalf("VerifyProject: %v", err)
+	}
+	if len(rep.VectorIndexes) != 1 || rep.VectorIndexes[0].Model != "m" || rep.VectorIndexes[0].Count != 1 {
+		t.Errorf("VectorIndexes = %+v, want one model=m count=1", rep.VectorIndexes)
+	}
+	if rep.InquiryCount != 1 {
+		t.Errorf("InquiryCount = %d, want 1", rep.InquiryCount)
+	}
+	if rep.Diverged {
+		t.Errorf("Diverged=true for info-level vector presence; want false")
+	}
+}

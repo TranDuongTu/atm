@@ -18,7 +18,7 @@ A task is read as: its title (one line of intent), its description (the running 
 
 ## How to narrate progress
 
-Comments are the running narrative on a task: a clarification, an implementation PR/commit reference, a bug detected by QA, an open question, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with `atm task comment add --task <ID> --body "<text>" --label <CODE>:<kind>`. The label is the classification — `ATM:comment:clarification`, `ATM:comment:implementation`, `ATM:comment:qa-bug`, `ATM:comment:open-question`, `ATM:comment:design-doc` (advisory; the store treats these like any other label). Comments support `--reply-to <COMMENT-ID>` for threading within the same task. Edit a comment's body with `atm task comment set-body`; remove one with `atm task comment remove`.
+Comments are the running narrative on a task: a clarification, an implementation PR/commit reference, a bug detected by QA, an open question, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with `atm task comment add --task <ID> --body "<text>" --label <CODE>:<kind>`. The label is the classification — `ATM:comment:clarification`, `ATM:comment:implementation`, `ATM:comment:qa-bug`, `ATM:comment:open-question`, `ATM:comment:design-doc`, `ATM:comment:superseded` (mark a decision comment that a newer comment supersedes, so stale rulings do not surface at equal rank in semantic search; advisory; the store treats these like any other label). Comments support `--reply-to <COMMENT-ID>` for threading within the same task. Edit a comment's body with `atm task comment set-body`; remove one with `atm task comment remove`.
 
 ## How to search
 
@@ -37,6 +37,9 @@ Every log entry and comment carries an actor string of the form `persona@agent:m
 5. `atm task list --project <CODE> --label <CODE>:status:open` — get open work.
 6. `atm store log <CODE>` — read the project's append-only audit log to observe recent activity.
 7. `atm task comment list --task <ID>` — read the running narrative on a task before acting on it.
+8. `atm index models --project <CODE>` — see which embedding models have a vector index. If none, configure one with `atm project set-embedding` then `atm embed --project <CODE>`.
+9. `atm search --project <CODE> "query"` — semantic search over tasks + comments (text fallback if no index).
+10. To get a synthesized answer, dispatch `atm-manager` with `hint: question`.
 
 A fresh agent that does not yet know the project's namespaces runs the label-list step first and follows the descriptions.
 
