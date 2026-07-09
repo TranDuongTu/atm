@@ -16,10 +16,10 @@ type Record struct {
 	Action  string
 }
 
-func Build(entries []store.LogEntry, aliases actor.AliasMap) []Record {
+func Build(entries []store.LogEntry) []Record {
 	out := make([]Record, 0, len(entries))
 	for _, e := range entries {
-		id := actor.Resolve(e.Actor, aliases)
+		id := actor.Resolve(e.Actor)
 		out = append(out, Record{Persona: id.Persona, Agent: id.Agent, Model: id.Model, Action: e.Action})
 	}
 	return out

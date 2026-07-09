@@ -4,16 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/actor"
 	"atm/internal/store"
 )
-
-func seedAlias(t *testing.T, m *Model, raw, persona, agent string) {
-	t.Helper()
-	if err := m.store.SetAlias(raw, actor.AliasEntry{Persona: persona, Agent: agent}); err != nil {
-		t.Fatalf("SetAlias %s: %v", raw, err)
-	}
-}
 
 func TestRenderPersonaActivityChart(t *testing.T) {
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
@@ -26,7 +18,6 @@ func TestRenderPersonaActivityChart(t *testing.T) {
 	if _, err := m.store.CreateTask("ATM", "task two", "", nil, "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
-	seedAlias(t, m, "claude", "developer", "claude")
 
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"

@@ -496,8 +496,7 @@ func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, max
 	if entryCap <= 0 {
 		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
 	}
-	aliases, _ := p.m.store.LoadAliases()
-	groups := activity.Aggregate(activity.Build(entries, aliases), "persona")
+	groups := activity.Aggregate(activity.Build(entries), "persona")
 	body := []string{}
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))

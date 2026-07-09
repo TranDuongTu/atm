@@ -1,6 +1,8 @@
 // Package actor resolves free-form actor strings into a (persona, agent,
-// model) identity. It is a pure leaf package (no store dependency) so both
-// the store's migration and the read-side activity aggregation can share it.
+// model) identity. It is a pure leaf package (no store, no alias table) so
+// the read-side activity aggregation can share it. Legacy strings are
+// inferred to a persona at read time; the store validates the convention at
+// write time.
 package actor
 
 import "strings"
@@ -11,30 +13,20 @@ type Identity struct {
 	Model   string
 }
 
-type AliasEntry struct {
-	Persona string `json:"persona"`
-	Agent   string `json:"agent,omitempty"`
-	Model   string `json:"model,omitempty"`
-}
-
-type AliasMap = map[string]AliasEntry
-
 const NonePersona = "(none)"
 
 var Agents = []string{"claude", "codex", "opencode", "ollama"}
 
-// Resolve maps a raw actor string to an Identity. Resolution order:
-// alias table (exact match, wins over everything) -> convention parse -> (none).
-func Resolve(raw string, aliases AliasMap) Identity {
-	if e, ok := aliases[raw]; ok {
-		return normalize(Identity{Persona: e.Persona, Agent: e.Agent, Model: e.Model})
+// Resolve maps a raw actor string to an Identity. Convention strings
+// (persona@agent:model) are parsed; legacy strings are inferred to a persona
+// at read time. Pure function — no alias table, no store dependency.
+func Resolve(raw string) Identity {
+	if strings.Contains(raw, "@") {
+		persona, rest, _ := strings.Cut(raw, "@")
+		agent, model, _ := strings.Cut(rest, ":")
+		return normalize(Identity{Persona: persona, Agent: agent, Model: model})
 	}
-	persona, rest, hasAt := strings.Cut(raw, "@")
-	if !hasAt {
-		return normalize(Identity{Persona: raw})
-	}
-	agent, model, _ := strings.Cut(rest, ":")
-	return normalize(Identity{Persona: persona, Agent: agent, Model: model})
+	return inferLegacy(raw)
 }
 
 func normalize(i Identity) Identity {
@@ -44,29 +36,28 @@ func normalize(i Identity) Identity {
 	return i
 }
 
-// LegacyAlias derives an alias entry for a pre-convention actor string using
-// ATM's own generated-default patterns. Returns ok=false for strings that
-// already use the convention (contain '@').
-func LegacyAlias(raw string) (AliasEntry, bool) {
-	if strings.Contains(raw, "@") {
-		return AliasEntry{}, false
+// inferLegacy maps a pre-convention actor string (no '@') to an Identity using
+// ATM's own generated-default patterns. The empty string is the empty-persona
+// case and resolves to (none); any other unrecognized string defaults to the
+// developer working persona.
+func inferLegacy(raw string) Identity {
+	if raw == "" {
+		return Identity{Persona: NonePersona}
 	}
-	if raw == "default" {
-		return AliasEntry{Persona: "developer"}, true
-	}
-	if raw == "atm-manager" {
-		return AliasEntry{Persona: "manager"}, true
+	switch raw {
+	case "default":
+		return Identity{Persona: "developer"}
+	case "atm-manager":
+		return Identity{Persona: "manager"}
 	}
 	for _, a := range Agents {
 		switch raw {
-		case a:
-			return AliasEntry{Persona: "developer", Agent: a}, true
-		case a + "-dev":
-			return AliasEntry{Persona: "developer", Agent: a}, true
+		case a, a + "-dev":
+			return Identity{Persona: "developer", Agent: a}
 		case a + "-manager", a + "-onboard":
-			return AliasEntry{Persona: "manager", Agent: a}, true
+			return Identity{Persona: "manager", Agent: a}
 		}
 	}
 	// Anything else without '@': default working persona, unknown agent.
-	return AliasEntry{Persona: "developer"}, true
+	return Identity{Persona: "developer"}
 }

@@ -806,7 +806,7 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.View()
 	mustContain(t, body, "activity by persona")
-	mustContain(t, body, "claude")
+	mustContain(t, body, "developer")
 	mustContain(t, body, "%")
 	mustContain(t, body, "activity stripe")
 	mustContain(t, body, "Ubiquitous Language")
@@ -908,11 +908,11 @@ func TestRenderActorActivityChartShowsOverflowSummary(t *testing.T) {
 	p := newProjectsModel(m)
 	p.SetSize(120, 40)
 	entries := []store.LogEntry{
-		{Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"}, {Actor: "a"},
-		{Actor: "b"}, {Actor: "b"}, {Actor: "b"}, {Actor: "b"},
-		{Actor: "c"}, {Actor: "c"}, {Actor: "c"},
-		{Actor: "d"}, {Actor: "d"},
-		{Actor: "e"},
+		{Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"},
+		{Actor: "b@x:1"}, {Actor: "b@x:1"}, {Actor: "b@x:1"}, {Actor: "b@x:1"},
+		{Actor: "c@x:1"}, {Actor: "c@x:1"}, {Actor: "c@x:1"},
+		{Actor: "d@x:1"}, {Actor: "d@x:1"},
+		{Actor: "e@x:1"},
 	}
 	lines := p.renderPersonaActivityChart(entries, 5)
 	got := strings.Join(lines, "\n")
@@ -929,8 +929,8 @@ func TestRenderActorActivityChartUsesMeterStyle(t *testing.T) {
 	p := newProjectsModel(m)
 	p.SetSize(80, 20)
 	entries := []store.LogEntry{
-		{Actor: "claude"}, {Actor: "claude"},
-		{Actor: "codex"},
+		{Actor: "claude@x:1"}, {Actor: "claude@x:1"},
+		{Actor: "codex@x:1"},
 	}
 	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
 	mustContain(t, got, "activity by persona")
@@ -946,7 +946,7 @@ func TestRenderActorActivityChartShowsFullActorName(t *testing.T) {
 	p := newProjectsModel(m)
 	p.SetSize(120, 20)
 	entries := []store.LogEntry{
-		{Actor: "very-long-agent-name-with-role"},
+		{Actor: "very-long-agent-name-with-role@x:1"},
 	}
 	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
 	mustContain(t, got, "very-long-agent-name-with-role")
@@ -966,13 +966,13 @@ func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
 	// Counts with different digit widths: 200 (3d), 50 (2d), 5 (1d).
 	entries := make([]store.LogEntry, 0, 255)
 	for i := 0; i < 200; i++ {
-		entries = append(entries, store.LogEntry{Actor: "aaa"})
+		entries = append(entries, store.LogEntry{Actor: "aaa@x:1"})
 	}
 	for i := 0; i < 50; i++ {
-		entries = append(entries, store.LogEntry{Actor: "bb"})
+		entries = append(entries, store.LogEntry{Actor: "bb@x:1"})
 	}
 	for i := 0; i < 5; i++ {
-		entries = append(entries, store.LogEntry{Actor: "c"})
+		entries = append(entries, store.LogEntry{Actor: "c@x:1"})
 	}
 
 	lines := p.renderPersonaActivityChart(entries, 6)

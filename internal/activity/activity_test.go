@@ -10,15 +10,14 @@ import (
 func entry(a string) store.LogEntry { return store.LogEntry{Actor: a, Action: "task.created"} }
 
 func TestBuildAndAggregateByPersona(t *testing.T) {
-	aliases := actor.AliasMap{"opencode-dev": {Persona: "developer", Agent: "opencode"}}
 	entries := []store.LogEntry{
 		{Actor: "staff@claude:opus-4.8", Action: "task.created"},
 		{Actor: "staff@claude:opus-4.8", Action: "comment.created"},
 		{Actor: "staff@codex:gpt-5", Action: "task.created"},
-		entry("opencode-dev"),
-		entry(""), // empty -> (none)
+		entry("opencode-dev"), // legacy -> developer@opencode (inferred)
+		entry(""),             // empty -> (none)
 	}
-	recs := Build(entries, aliases)
+	recs := Build(entries)
 	groups := Aggregate(recs, "persona")
 
 	byKey := map[string]Group{}

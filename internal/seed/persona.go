@@ -1,16 +1,17 @@
 package seed
 
 // Persona is one built-in persona seeded on demand by the store's
-// SeedPersonas / `atm actor migrate`. Data only — no store import (the
-// store applies it), mirroring Labels above.
+// SeedPersonas. Data only — no store import (the store applies it),
+// mirroring Labels above.
 type Persona struct {
 	Name        string
 	Prompt      string
 	Description string
 }
 
-// Personas is the built-in persona set. These two names are also the targets
-// the legacy actor migration maps onto (internal/actor.LegacyAlias).
+// Personas is the built-in persona set: developer, manager, and admin (the
+// human operator). Legacy actor strings are inferred to one of these at read
+// time by actor.Resolve (no alias table).
 var Personas = []Persona{
 	{
 		Name:        "developer",

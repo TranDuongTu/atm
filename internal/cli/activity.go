@@ -31,11 +31,7 @@ func newActivityCmd(st *cliState) *cobra.Command {
 			if err != nil && !store.IsIntegrity(err) {
 				return err
 			}
-			aliases, err := s.LoadAliases()
-			if err != nil {
-				return err
-			}
-			groups := activity.Aggregate(activity.Build(entries, aliases), groupBy)
+			groups := activity.Aggregate(activity.Build(entries), groupBy)
 			return st.emit(st.stdout(), map[string]any{"groups": groups}, func() {
 				for _, g := range groups {
 					fmt.Fprintf(st.stdout(), "%s\t%d\n", g.Key, g.Count)
