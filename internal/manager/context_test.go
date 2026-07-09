@@ -7,100 +7,59 @@ import (
 
 func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 	got := RenderContext(ContextData{
-		Code:      "ATM",
-		Name:      "Agent Tasks Management",
-		ATMBin:    "/usr/local/bin/atm",
-		Actor:     "opencode-manager",
-		RunID:     "ATM-20260706120000-a1b2c3",
-		Timestamp: "2026-07-06T12:00:00Z",
+		Code:   "ATM",
+		Name:   "Agent Tasks Management",
+		ATMBin: "/usr/local/bin/atm",
+		Actor:  "opencode-manager",
 	})
-	for _, placeholder := range []string{
-		"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>",
-		"<RUN_ID>", "<TIMESTAMP>",
-	} {
+	for _, placeholder := range []string{"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>"} {
 		if strings.Contains(got, placeholder) {
 			t.Errorf("rendered context still contains %s", placeholder)
 		}
 	}
 	for _, want := range []string{
-		"ATM manager session ATM-20260706120000-a1b2c3",
-		"Project: `ATM` (`Agent Tasks Management`)",
-		"ATM binary: `/usr/local/bin/atm`",
-		"Actor: `opencode-manager`",
-		"knowledge-base owner",
-		"ubiquitous language",
-		"vocabulary.json",
-		"onboarding",
-		"ATM_ONBOARD",
-		"needs clarification",
-		"cross-project",
-		"atm vocabulary write",
+		"ATM manager — ATM",
+		"Project `ATM` (`Agent Tasks Management`)",
+		"actor `opencode-manager`",
+		"atm `/usr/local/bin/atm`",
+		"autonomous owner",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)
 		}
 	}
-	for _, mustNot := range []string{
-		"agent-generated keyword bubbles pending",
+}
+
+func TestRenderContextPrinciplesPresent(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
+	for _, frag := range []string{
+		"autonomous owner",
+		"relentlessly keep the project organized",
+		"self-improvement",
+		"label substrate",
 	} {
-		if strings.Contains(got, mustNot) {
-			t.Errorf("rendered context should not contain %q", mustNot)
+		if !strings.Contains(got, frag) {
+			t.Errorf("principle missing %q", frag)
 		}
 	}
 }
 
-func TestRenderContextOnboardingSectionIsEnvConditional(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", ATMBin: "/bin/atm"})
-	if !strings.Contains(got, "ATM_ONBOARD") {
-		t.Errorf("onboarding section must reference ATM_ONBOARD as its activation signal")
-	}
-	if !strings.Contains(got, "onboarding") {
-		t.Errorf("onboarding responsibility must be present in the prompt")
+func TestRenderContextActionCatalogPresent(t *testing.T) {
+	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
+	for _, frag := range []string{"Tracking request", "Inquiry", "Vocabulary", "Onboarding"} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("action catalog missing %q", frag)
+		}
 	}
 }
 
 func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
-	// The env-driven generic body is produced by leaving placeholders in place
-	// so the subagent resolves them from env at dispatch time. RenderContext
-	// with empty fields must NOT strip placeholders.
+	// The generic body (no project) is produced by leaving placeholders in place
+	// so `atm manager render-context` with no --project still renders a template.
 	got := RenderContext(ContextData{})
 	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>", "<ACTOR>"} {
 		if !strings.Contains(got, placeholder) {
-			t.Errorf("generic render stripped %s; placeholders must survive for env-driven use", placeholder)
+			t.Errorf("generic render stripped %s; placeholders must survive for template use", placeholder)
 		}
-	}
-}
-
-func TestRenderContextInquirySectionPresent(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
-	for _, frag := range []string{"Inquiry responsibility", "hint: question", "atm search"} {
-		if !strings.Contains(got, frag) {
-			t.Errorf("prompt missing %q", frag)
-		}
-	}
-}
-
-func TestRenderContextWriteSideRepresentationPresent(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
-	for _, frag := range []string{"ATM:comment:superseded", "retrieval preparation"} {
-		if !strings.Contains(got, frag) {
-			t.Errorf("prompt missing %q", frag)
-		}
-	}
-}
-
-func TestRenderContextNewCommandsInCheatSheet(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
-	for _, frag := range []string{"atm search", "atm index", "atm inquiry add", "atm project set-embedding"} {
-		if !strings.Contains(got, frag) {
-			t.Errorf("cheat sheet missing %q", frag)
-		}
-	}
-}
-
-func TestRenderContextNoIndexingLoopSection(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "opencode-manager", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
-	if strings.Contains(got, "Indexing responsibility") {
-		t.Errorf("prompt should NOT contain an Indexing responsibility section (indexing is a non-LLM process, R4); got one")
 	}
 }
