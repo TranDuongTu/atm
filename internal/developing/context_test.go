@@ -59,3 +59,24 @@ func TestRenderContextDelegatesWritesToManager(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderContextIncludesPersonaDescription(t *testing.T) {
+	out := RenderContext(ContextData{
+		Persona:            "developer",
+		PersonaPrompt:      "do good work",
+		PersonaDescription: "Default working persona.",
+		Actor:              "developer@claude:unset",
+	})
+	for _, want := range []string{"developer", "Default working persona.", "do good work"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("context missing %q", want)
+		}
+	}
+}
+
+func TestRenderContextModelStampInstruction(t *testing.T) {
+	out := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/atm", Actor: "developer@claude:unset", RunID: "R", Timestamp: "T"})
+	if !strings.Contains(out, ":unset") {
+		t.Errorf("context missing model-stamp instruction referencing :unset")
+	}
+}

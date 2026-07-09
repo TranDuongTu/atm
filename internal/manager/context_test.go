@@ -63,3 +63,14 @@ func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+func TestManagerContextInjectsPersona(t *testing.T) {
+	out := RenderContext(ContextData{
+		Persona:            "manager",
+		PersonaPrompt:      "curate the ledger",
+		PersonaDescription: "Curates the ledger and oversees work.",
+	})
+	if !strings.Contains(out, "curate the ledger") {
+		t.Error("manager context missing persona prompt")
+	}
+}

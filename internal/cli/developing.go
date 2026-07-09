@@ -196,6 +196,7 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 		return err // unregistered --persona fails fast
 	}
 	personaPrompt := pp.Prompt
+	personaDescription := pp.Description
 	if opts.Actor == "" {
 		opts.Actor = effectivePersona + "@" + l.Name() + ":unset"
 	}
@@ -212,14 +213,15 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	}
 
 	rendered := developing.RenderContext(developing.ContextData{
-		Code:          p.Code,
-		Name:          p.Name,
-		ATMBin:        atmBin,
-		Actor:         opts.Actor,
-		RunID:         runID,
-		Timestamp:     store.RFC3339UTC(time.Now().UTC()),
-		Persona:       effectivePersona,
-		PersonaPrompt: personaPrompt,
+		Code:               p.Code,
+		Name:               p.Name,
+		ATMBin:             atmBin,
+		Actor:              opts.Actor,
+		RunID:              runID,
+		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
+		Persona:            effectivePersona,
+		PersonaPrompt:      personaPrompt,
+		PersonaDescription: personaDescription,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)

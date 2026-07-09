@@ -2,6 +2,8 @@
 
 Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>` · atm `<ATM_BIN>`
 
+Stamp every ATM mutation with actor `<ACTOR>` — replace the `:unset` model segment with your actual model (e.g. `:opus-4.8`).
+
 ATM is the visible ledger for this work — keep it current as you go. Repo instructions, harness rules, permissions, and user directions come first.
 
 <PERSONA_BLOCK>
