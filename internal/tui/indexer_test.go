@@ -454,3 +454,96 @@ func setEditField(t *testing.T, im *indexerModel, label, value string) {
 	}
 	t.Fatalf("edit field %q not found", label)
 }
+
+func TestIndexerReindexOnceRunsAndLogs(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	cmd := p.HandleKey(keyMsg("r"), m)
+	if cmd == nil {
+		t.Fatal("r should return a cmd (ReindexOnce)")
+	}
+	res, err := m.store.ReindexOnce("ATM", im.embedFnBuilder(im.cfg), func(msg string) {
+		im.logs = append(im.logs, msg)
+	})
+	if err != nil {
+		t.Fatalf("ReindexOnce: %v", err)
+	}
+	if res.Indexed != 1 {
+		t.Errorf("indexed = %d, want 1", res.Indexed)
+	}
+	if len(im.logs) == 0 {
+		t.Error("reindex should have logged progress lines")
+	}
+}
+
+func TestIndexerReindexOnceDisabledWhileRunning(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("S"), m)
+	if im.cancel == nil {
+		t.Fatal("S should have started the watcher")
+	}
+	p.HandleKey(keyMsg("r"), m)
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "stop the watcher") {
+		t.Fatalf("r while running should toast 'stop the watcher', got %q", m.toastMsg)
+	}
+	resetIndexer(m)
+}
+
+func TestIndexerDropModelConfirmAndDrop(t *testing.T) {
+	m := newIndexerTestModel(t)
+	seedTask(t, m, "ATM", "first task")
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
+	if _, err := m.store.ReindexOnce("ATM", im.embedFnBuilder(im.cfg), nil); err != nil {
+		t.Fatalf("seed ReindexOnce: %v", err)
+	}
+	im.refreshStatus()
+	if len(im.status) == 0 {
+		t.Fatal("expected one index row after seeding")
+	}
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("d"), m)
+	if m.confirm == confirmNone {
+		t.Fatal("d should open the confirm overlay")
+	}
+	m.confirmYes()
+	models, _ := m.store.ListVectorModels("ATM")
+	if len(models) != 0 {
+		t.Fatalf("after confirm drop: models = %v, want empty", models)
+	}
+}
+
+func TestIndexerDropNoIndexToasts(t *testing.T) {
+	m := newIndexerTestModel(t)
+	setEmbedding(t, m, "ATM")
+	p := newIndexerPlugin()
+	im := p.model(m)
+	im.refreshStatus()
+	m.pluginOverlay = 0
+	p.Open(m)
+	p.HandleKey(keyMsg("d"), m)
+	if m.confirm != confirmNone {
+		t.Fatal("d with no index should not open confirm")
+	}
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "no index") {
+		t.Fatalf("expected 'no index' toast, got %q", m.toastMsg)
+	}
+}

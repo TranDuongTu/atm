@@ -55,6 +55,7 @@ const (
 	confirmNone confirmAction = iota
 	confirmRemoveProject
 	confirmRemoveTask
+	confirmDropIndex
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent three-pane
@@ -98,6 +99,7 @@ type Model struct {
 	confirm    confirmAction
 	confirmMsg string
 	confirmArg string
+	confirmPayload string
 
 	toastMsg string
 
@@ -364,6 +366,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
+	case reindexResultMsg:
+		im := m.indexer
+		if im == nil {
+			return m, nil
+		}
+		if msg.err != "" {
+			im.logs = append(im.logs, "index error: "+msg.err)
+			m.showToast("reindex error: " + msg.err)
+		} else {
+			im.logs = append(im.logs, fmt.Sprintf("indexed %d (model=%s); index at log_seq %d", msg.indexed, msg.model, msg.logSeq))
+			im.refreshStatus()
+		}
+		if len(im.logs) > 1000 {
+			im.logs = im.logs[len(im.logs)-1000:]
+		}
+		return m, nil
 	}
 	return m, nil
 }

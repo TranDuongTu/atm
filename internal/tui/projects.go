@@ -977,6 +977,19 @@ func (m *Model) confirmYes() tea.Cmd {
 		m.tasks.backToList()
 		m.refreshAll()
 		return nil
+	case confirmDropIndex:
+		model := m.confirmPayload
+		if err := m.store.DropVectors(m.projectScope, model); err != nil {
+			m.showToast("error: " + err.Error())
+		} else {
+			m.showToast(fmt.Sprintf("dropped vector index %s/%s", m.projectScope, model))
+		}
+		if m.indexer != nil {
+			m.indexer.refreshStatus()
+		}
+		m.confirm = confirmNone
+		m.confirmPayload = ""
+		return nil
 	}
 	m.confirm = confirmNone
 	return nil

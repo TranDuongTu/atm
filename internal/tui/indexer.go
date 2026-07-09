@@ -120,6 +120,10 @@ func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd {
 	case "e":
 		p.openEdit(m)
 		return nil
+	case "r":
+		return p.handleReindexOnce(m)
+	case "d":
+		return p.handleDrop(m)
 	case "j", "down", "pgdown":
 		im.logOffset = scrollDown(im.logs, im.logOffset)
 		return nil
@@ -409,6 +413,53 @@ func editFieldValues(im *indexerModel) map[string]string {
 		out[f.Label] = f.Value
 	}
 	return out
+}
+
+func (p *indexerPlugin) handleReindexOnce(m *Model) tea.Cmd {
+	im := p.model(m)
+	if im.cfg == nil {
+		m.showToast("no embedding configured; press e to edit")
+		return nil
+	}
+	if im.cancel != nil {
+		m.showToast("stop the watcher first (S)")
+		return nil
+	}
+	embedFn := im.embedFnBuilder(im.cfg)
+	progress := func(msg string) {
+		im.logs = append(im.logs, msg)
+		if len(im.logs) > 1000 {
+			im.logs = im.logs[len(im.logs)-1000:]
+		}
+	}
+	return func() tea.Msg {
+		res, err := m.store.ReindexOnce(m.projectScope, embedFn, progress)
+		if err != nil {
+			return reindexResultMsg{err: err.Error()}
+		}
+		return reindexResultMsg{indexed: res.Indexed, model: res.Model, logSeq: res.LogSeq}
+	}
+}
+
+type reindexResultMsg struct {
+	indexed int
+	model   string
+	logSeq  int
+	err     string
+}
+
+func (p *indexerPlugin) handleDrop(m *Model) tea.Cmd {
+	im := p.model(m)
+	if len(im.status) == 0 {
+		m.showToast("no index file to drop")
+		return nil
+	}
+	row := im.status[0]
+	m.confirm = confirmDropIndex
+	m.confirmMsg = "Drop vector index?"
+	m.confirmArg = fmt.Sprintf("%s/%s will be deleted (re-run r to rebuild)", m.projectScope, row.Model)
+	m.confirmPayload = row.Model
+	return nil
 }
 
 func scrollDown(logs []string, offset int) int {
