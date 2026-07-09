@@ -42,9 +42,8 @@ func TestPluginAssetsContainManagerRole(t *testing.T) {
 	joined := string(joinManagerAssetContents(assets))
 	for _, want := range []string{
 		"ATM ledger owner",
-		"needs clarification",
-		"semantic search",
-		"task set-title",
+		"render-context",
+		"follow it",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("OpenCode manager asset missing %q", want)
@@ -75,13 +74,8 @@ func TestManagerSubagentAssetResolvesRuntimeValuesFromEnv(t *testing.T) {
 		if strings.Contains(body, ".local/bin/atm") {
 			t.Errorf("%s subagent asset names a hardcoded binary path", host)
 		}
-		// Failure-surfacing: a failed atm call means the write did not happen.
-		if !strings.Contains(body, "did NOT happen") {
-			t.Errorf("%s subagent asset lacks the failure-surfacing rule (a failed atm call = write did NOT happen)", host)
-		}
-		// Read-back verification before claiming success.
-		if !strings.Contains(body, "read it back") {
-			t.Errorf("%s subagent asset lacks the read-back verification rule", host)
+		if !strings.Contains(body, "render-context") {
+			t.Errorf("%s subagent asset does not defer to `atm manager render-context`", host)
 		}
 	}
 }
