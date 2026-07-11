@@ -42,6 +42,7 @@ func newTaskCmd(st *cliState) *cobra.Command {
 		Use:   "task",
 		Short: "Task commands",
 	}
+	bindActorFlag(cmd, st)
 	cmd.AddCommand(newTaskCreateCmd(st))
 	cmd.AddCommand(newTaskListCmd(st))
 	cmd.AddCommand(newTaskShowCmd(st))

@@ -9,6 +9,7 @@ import (
 
 func newPersonaCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{Use: "persona", Short: "Persona registry commands"}
+	bindActorFlag(cmd, st)
 	cmd.AddCommand(newPersonaCreateCmd(st))
 	cmd.AddCommand(newPersonaListCmd(st))
 	cmd.AddCommand(newPersonaShowCmd(st))

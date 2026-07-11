@@ -15,6 +15,7 @@ func newLabelCmd(st *cliState) *cobra.Command {
 		Use:   "label",
 		Short: "Label registry commands",
 	}
+	bindActorFlag(cmd, st)
 	cmd.AddCommand(newLabelAddCmd(st))
 	cmd.AddCommand(newLabelRemoveCmd(st))
 	cmd.AddCommand(newLabelListCmd(st))

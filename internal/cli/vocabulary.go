@@ -11,6 +11,7 @@ import (
 
 func newVocabularyCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{Use: "vocabulary", Short: "Project vocabulary (ubiquitous language) commands"}
+	bindActorFlag(cmd, st)
 	cmd.AddCommand(newVocabularyShowCmd(st))
 	cmd.AddCommand(newVocabularyWriteCmd(st))
 	return cmd

@@ -86,6 +86,7 @@ func (h *goldenHarness) reset() {
 
 func (h *goldenHarness) run(args ...string) (string, string, int) {
 	h.reset()
+	h.st.flags.actor = ""
 	root := newRootCmdWithState(h.st)
 	root.SilenceUsage = true
 	root.SilenceErrors = true

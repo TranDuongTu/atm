@@ -14,6 +14,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 		Use:   "project",
 		Short: "Project commands",
 	}
+	bindActorFlag(cmd, st)
 	cmd.AddCommand(newProjectCreateCmd(st))
 	cmd.AddCommand(newProjectListCmd(st))
 	cmd.AddCommand(newProjectShowCmd(st))

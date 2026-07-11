@@ -7,10 +7,14 @@ import (
 	"strings"
 
 	"atm/internal/store"
+	"atm/internal/tui"
 	"atm/internal/version"
 
 	"github.com/spf13/cobra"
 )
+
+type childRunner func(name string, argv []string, env []string, notFoundHint string) (int, error)
+type tuiRunner func(storePath, actor string) error
 
 type globalFlags struct {
 	store  string
@@ -23,6 +27,9 @@ type cliState struct {
 	flags globalFlags
 	out   io.Writer
 	err   io.Writer
+
+	runChildFn childRunner
+	runTUI     tuiRunner
 }
 
 func (s *cliState) stdout() io.Writer {
@@ -45,6 +52,10 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 		Short:         "Agent Tasks Management",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return st.launchTUI()
+		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if v := os.Getenv("ATM_ACTOR"); v != "" && st.flags.actor == "" {
 				st.flags.actor = v
@@ -60,7 +71,6 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&st.flags.store, "store", "", "path to the store directory (overrides ATM_HOME)")
 	root.PersistentFlags().StringVar(&st.flags.output, "output", "", "output format: json|text (default text)")
-	root.PersistentFlags().StringVar(&st.flags.actor, "actor", "", "actor id (free-form; env ATM_ACTOR)")
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
 
 	root.AddCommand(newInitCmd(st))
@@ -78,10 +88,39 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newInquiryCmd(st))
 	root.AddCommand(newDevelopingCmd(st))
 	root.AddCommand(newManagerCmd(st))
-	root.AddCommand(newTUICmd(st))
 	root.AddCommand(newVersionCmd(st))
 
 	return root
+}
+
+func bindActorFlag(cmd *cobra.Command, st *cliState) {
+	cmd.PersistentFlags().StringVar(&st.flags.actor, "actor", "", "actor id (free-form; env ATM_ACTOR)")
+}
+
+func (s *cliState) launchTUI() error {
+	root := store.ResolveStorePath(s.flags.store)
+	actor := s.flags.actor
+	if actor == "" {
+		actor = "admin@tui:unset"
+	} else if !strings.Contains(actor, "@") {
+		actor += "@tui:unset"
+	}
+	run := s.runTUI
+	if run == nil {
+		run = tui.Run
+	}
+	setTmuxWindowLabel(os.Stdout, tmuxLabelTUI)
+	if err := run(root, actor); err != nil {
+		return fmt.Errorf("tui: %w", err)
+	}
+	return nil
+}
+
+func (s *cliState) runChild(name string, argv []string, env []string, notFoundHint string) (int, error) {
+	if s.runChildFn != nil {
+		return s.runChildFn(name, argv, env, notFoundHint)
+	}
+	return runChild(name, argv, env, notFoundHint)
 }
 
 func (s *cliState) openStore() (*store.Store, error) {
@@ -156,6 +195,7 @@ func newInitCmd(st *cliState) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&st.flags.actor, "actor", "", "actor id (free-form; env ATM_ACTOR)")
 	return cmd
 }
 
