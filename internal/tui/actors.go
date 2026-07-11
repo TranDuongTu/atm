@@ -54,8 +54,7 @@ func (a *actorsModel) refresh() {
 	if err != nil {
 		return
 	}
-	aliases, _ := a.m.store.LoadAliases()
-	a.groups = activity.Aggregate(activity.Build(entries, aliases), "persona")
+	a.groups = activity.Aggregate(activity.Build(entries), "persona")
 }
 
 func (a *actorsModel) handleKey(k tea.KeyMsg) tea.Cmd {

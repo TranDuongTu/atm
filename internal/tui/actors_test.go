@@ -10,9 +10,19 @@ import (
 func mkActorsOverlayTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
+	seedStaffPersona(t, m)
 	seedProjectAsActor(t, m, "ATM", "Acme Task Manager", "staff@claude:opus-4.8")
 	seedTaskAsActor(t, m, "ATM", "task one", "staff@claude:opus-4.8")
 	return m
+}
+
+// seedStaffPersona registers the "staff" persona so actor strings of the form
+// "staff@..." satisfy the store's validateActor gate.
+func seedStaffPersona(t *testing.T, m *Model) {
+	t.Helper()
+	if _, err := m.store.CreatePersona("staff", "high bar", "Staff engineer", "admin@cli:unset"); err != nil {
+		t.Fatalf("CreatePersona staff: %v", err)
+	}
 }
 
 func seedProjectAsActor(t *testing.T, m *Model, code, name, actor string) {

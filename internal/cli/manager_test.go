@@ -11,7 +11,7 @@ import (
 
 func TestManagerCodexDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "codex", "--project", "FOO", "--dry-run")
 	if code != ExitSuccess {
@@ -25,7 +25,7 @@ func TestManagerLaunchWarnsWhenPluginMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, stderrStr, code := h.run("manager", "codex", "--project", "FOO", "--dry-run")
 	if code != ExitSuccess {
@@ -93,7 +93,7 @@ func TestManagerClaudeExtraArgsDryRunJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "claude", "--project", "FOO", "--dry-run", "--", "--dangerously-skip-permission")
 	if code != ExitSuccess {
@@ -107,7 +107,7 @@ func TestManagerOllamaDryRunJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--dry-run")
 	if code != ExitSuccess {
@@ -121,7 +121,7 @@ func TestManagerOllamaRequiresIntegration(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--dry-run")
 	if code != ExitGeneric {
@@ -161,10 +161,10 @@ func TestManagerRenderContextGenericKeepsPlaceholders(t *testing.T) {
 
 func TestManagerRenderContextFillsProjectName(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo Project", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo Project", "--actor", "admin@cli:unset")
 	h.reset()
 	h.output = outputText
-	_, _, code := h.run("manager", "render-context", "--project", "FOO", "--actor", "m")
+	_, _, code := h.run("manager", "render-context", "--project", "FOO", "--actor", "admin@cli:unset")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -181,7 +181,7 @@ func TestManagerRenderContextFillsProjectName(t *testing.T) {
 
 func TestManagerOnboardOpencodeDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "opencode", "--project", "FOO", "--onboard", "--dry-run")
 	if code != ExitSuccess {
@@ -193,7 +193,7 @@ func TestManagerOnboardOpencodeDryRunJSON(t *testing.T) {
 
 func TestManagerOnboardOllamaDryRunJSON(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "ttran")
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--onboard", "--dry-run")
 	if code != ExitSuccess {

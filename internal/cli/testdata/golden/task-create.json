@@ -1,7 +1,7 @@
 {
   "task": {
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "description": "",
     "history": [],
     "id": "ATM-0003",
@@ -10,6 +10,6 @@
     "project_code": "ATM",
     "title": "New task",
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

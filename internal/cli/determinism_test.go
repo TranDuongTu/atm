@@ -8,20 +8,20 @@ import (
 func seedDeterminismStore(h *goldenHarness) {
 	h.t.Helper()
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "DEMO", "--name", "Demo", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:type:epic", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "DEMO:status:open", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "DEMO", "--name", "Demo", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:type:epic", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "DEMO:status:open", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
-		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "claude")
+		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
-		"--label", "ATM:context:agent", "--actor", "claude")
+		"--label", "ATM:context:agent", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "DEMO", "--title", "Demo task",
-		"--label", "DEMO:status:open", "--actor", "claude")
-	h.run("project", "set-name", "--store", sp, "--code", "DEMO", "--name", "Demo Project", "--actor", "claude")
+		"--label", "DEMO:status:open", "--actor", "admin@cli:unset")
+	h.run("project", "set-name", "--store", sp, "--code", "DEMO", "--name", "Demo Project", "--actor", "admin@cli:unset")
 	h.reset()
 }
 

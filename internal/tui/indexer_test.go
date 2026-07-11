@@ -24,7 +24,7 @@ func newIndexerTestModel(t *testing.T) *Model {
 func setEmbedding(t *testing.T, m *Model, code string) {
 	t.Helper()
 	cfg := store.EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}
-	if err := m.store.SetEmbeddingConfig(code, cfg, "claude"); err != nil {
+	if err := m.store.SetEmbeddingConfig(code, cfg, testActor); err != nil {
 		t.Fatalf("SetEmbeddingConfig: %v", err)
 	}
 }

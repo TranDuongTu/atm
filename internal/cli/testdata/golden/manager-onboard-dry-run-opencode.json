@@ -8,7 +8,7 @@
   ],
   "context_path": "/STORE/manager/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "opencode-manager",
+    "ATM_ACTOR": "manager@opencode:unset",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
     "ATM_ONBOARD": "1",

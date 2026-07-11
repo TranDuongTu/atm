@@ -148,7 +148,7 @@ func newDevelopingAgentCmd(st *cliState, agent string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-dev)")
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>:unset")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
 	return cmd
@@ -167,23 +167,13 @@ func newDevelopingOllamaCmd(st *cliState) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-dev)")
+	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <persona>@<agent>:unset)")
 	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>:unset")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("integration")
 	return cmd
-}
-
-func defaultDevelopingActor(agent string, st *cliState, explicit string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if st.flags.actor != "" {
-		return st.flags.actor
-	}
-	return agent + "-dev"
 }
 
 func runDeveloping(st *cliState, l developing.Launcher, agent, integration string, opts developingOpts) error {
@@ -197,20 +187,18 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 			ErrNotFound, opts.Project, opts.Project)
 	}
 
-	var personaPrompt string
-	if opts.Persona != "" {
-		pp, err := s.GetPersona(opts.Persona)
-		if err != nil {
-			return err
-		}
-		personaPrompt = pp.Prompt
+	effectivePersona := opts.Persona
+	if effectivePersona == "" {
+		effectivePersona = "developer"
 	}
+	pp, err := s.GetPersona(effectivePersona)
+	if err != nil {
+		return err // unregistered --persona fails fast
+	}
+	personaPrompt := pp.Prompt
+	personaDescription := pp.Description
 	if opts.Actor == "" {
-		if opts.Persona != "" {
-			opts.Actor = opts.Persona + "@" + l.Name()
-		} else {
-			opts.Actor = defaultDevelopingActor(l.Name(), st, "")
-		}
+		opts.Actor = effectivePersona + "@" + l.Name() + ":unset"
 	}
 
 	atmBin, err := os.Executable()
@@ -225,14 +213,15 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	}
 
 	rendered := developing.RenderContext(developing.ContextData{
-		Code:          p.Code,
-		Name:          p.Name,
-		ATMBin:        atmBin,
-		Actor:         opts.Actor,
-		RunID:         runID,
-		Timestamp:     store.RFC3339UTC(time.Now().UTC()),
-		Persona:       opts.Persona,
-		PersonaPrompt: personaPrompt,
+		Code:               p.Code,
+		Name:               p.Name,
+		ATMBin:             atmBin,
+		Actor:              opts.Actor,
+		RunID:              runID,
+		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
+		Persona:            effectivePersona,
+		PersonaPrompt:      personaPrompt,
+		PersonaDescription: personaDescription,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)

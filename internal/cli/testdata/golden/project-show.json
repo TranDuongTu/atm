@@ -2,11 +2,11 @@
   "project": {
     "code": "ATM",
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "history": [
       {
         "action": "project.created",
-        "actor": "claude",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 1
       }
@@ -15,6 +15,6 @@
     "name": "Agent Tasks Management",
     "next_task_n": 3,
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

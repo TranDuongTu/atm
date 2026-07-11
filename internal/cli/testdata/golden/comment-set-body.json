@@ -2,13 +2,13 @@
   "comment": {
     "body": "new",
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "history": [],
     "id": "ATM-0001-c0001",
     "labels": [],
     "log_seq": 21,
     "task_id": "ATM-0001",
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

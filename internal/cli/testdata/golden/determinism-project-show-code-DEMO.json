@@ -2,17 +2,17 @@
   "project": {
     "code": "DEMO",
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "history": [
       {
         "action": "project.created",
-        "actor": "claude",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 1
       },
       {
         "action": "project.name-changed",
-        "actor": "claude",
+        "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 16
       }
@@ -21,6 +21,6 @@
     "name": "Demo Project",
     "next_task_n": 2,
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

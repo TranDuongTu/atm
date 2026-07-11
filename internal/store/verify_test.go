@@ -7,8 +7,8 @@ import (
 
 func TestVerifyCleanStore(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	_ = tk
 	report, err := s.VerifyProject("ATM")
 	if err != nil {
@@ -29,9 +29,9 @@ func TestVerifyCleanStore(t *testing.T) {
 
 func TestVerifyDetectsStaleTaskCache(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_ = s.SetTitle(tk.ID, "changed", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_ = s.SetTitle(tk.ID, "changed", testActor)
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID)
 	report, err := s.VerifyProject("ATM")
@@ -54,8 +54,8 @@ func TestVerifyDetectsStaleTaskCache(t *testing.T) {
 
 func TestVerifyDetectsMissingCache(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
 	report, _ := s.VerifyProject("ATM")
@@ -66,7 +66,7 @@ func TestVerifyDetectsMissingCache(t *testing.T) {
 
 func TestVerifyDetectsMalformedLogTail(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	// Append garbage to the log.
 	f, _ := os.OpenFile(s.logPath("ATM"), os.O_APPEND|os.O_WRONLY, 0o644)
 	_, _ = f.WriteString("{bad json")
@@ -82,7 +82,7 @@ func TestVerifyDetectsMalformedLogTail(t *testing.T) {
 
 func TestVerifyDetectsSeqGap(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	// Hand-edit the log: remove the second line by truncating to after line 1.
 	data, _ := os.ReadFile(s.logPath("ATM"))
 	// Keep only line 1 + the trailing newline.
@@ -111,9 +111,9 @@ func TestVerifyDetectsSeqGap(t *testing.T) {
 
 func TestVerifyReportsCommentCacheStale(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	c, _ := s.CreateComment(tk.ID, "x", nil, "", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	c, _ := s.CreateComment(tk.ID, "x", nil, "", testActor)
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`UPDATE comments SET log_seq = 0 WHERE id = ?`, c.ID)
 	rep, err := s.VerifyProject("ATM")
@@ -150,7 +150,7 @@ func splitLines(data []byte) [][]byte {
 
 func TestVerifyReportsVectorIndexesInfoLevel(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {

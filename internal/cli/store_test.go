@@ -99,8 +99,8 @@ func hasLineWithPrefix(s, prefix string) bool {
 
 func TestStoreLogText(t *testing.T) {
 	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
-	_, _, _ = runArgs(st, "task", "create", "--project", "ATM", "--title", "t", "--actor", "c")
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "task", "create", "--project", "ATM", "--title", "t", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "store", "log", "ATM")
 	mustContain(t, out, "task.created")
 	mustContain(t, out, "project.created")
@@ -109,30 +109,30 @@ func TestStoreLogText(t *testing.T) {
 func TestStoreLogJSON(t *testing.T) {
 	st := newTestCLI(t)
 	st.output = outputJSON
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "store", "log", "ATM")
 	mustContain(t, out, `"action": "project.created"`)
 }
 
 func TestStoreVerifyClean(t *testing.T) {
 	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "store", "verify", "ATM")
 	mustContain(t, out, "ok")
 }
 
 func TestStoreRebuild(t *testing.T) {
 	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "c")
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "store", "rebuild")
 	mustContain(t, out, "projects")
 }
 
 func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
 	st := newTestCLI(t)
-	_, _ = st.store.CreateProject("ATM", "x", "claude")
-	tk, _ := st.store.CreateTask("ATM", "t", "", nil, "claude")
-	_ = st.store.SetTitle(tk.ID, "changed", "claude")
+	_, _ = st.store.CreateProject("ATM", "x", "admin@cli:unset")
+	tk, _ := st.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	_ = st.store.SetTitle(tk.ID, "changed", "admin@cli:unset")
 	// Stomp the task cache row back to seq 1 (stale) so verify detects divergence.
 	db, err := sql.Open("sqlite", filepath.Join(st.store.StorePath(), "cache.db"))
 	if err != nil {
@@ -150,10 +150,10 @@ func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
 
 func TestStoreLogFromToFilter(t *testing.T) {
 	st := newTestCLI(t)
-	_, _ = st.store.CreateProject("ATM", "x", "claude")
+	_, _ = st.store.CreateProject("ATM", "x", "admin@cli:unset")
 	// Generate six task events: project.created=1, then tasks 2..6.
 	for i := 0; i < 5; i++ {
-		if _, err := st.store.CreateTask("ATM", "t", "", nil, "claude"); err != nil {
+		if _, err := st.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
 			t.Fatal(err)
 		}
 	}

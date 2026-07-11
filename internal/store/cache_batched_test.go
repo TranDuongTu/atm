@@ -10,7 +10,7 @@ import (
 // the per-id N+1 path, including the no-tasks and no-labels edge cases.
 func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	now := Now()
 	db, _ := s.cacheDB()
 	// Seed a mix: no labels, one label, two labels (out of order insertion).
@@ -66,7 +66,7 @@ func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 // empty slice (not nil-error) for a project with no tasks.
 func TestCacheListTasksForProjectBatchedEmpty(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	db, _ := s.cacheDB()
 	got, err := cacheListTasksForProject(db, "ATM")
 	if err != nil {
@@ -82,11 +82,11 @@ func TestCacheListTasksForProjectBatchedEmpty(t *testing.T) {
 // N+1 path.
 func TestCacheListCommentsBatchedMatchesN1(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	_, _ = s.CreateComment(tk.ID, "no labels", nil, "", "claude")
-	_, _ = s.CreateComment(tk.ID, "one label", []string{"ATM:comment:progress"}, "", "claude")
-	_, _ = s.CreateComment(tk.ID, "two labels", []string{"ATM:comment:decision", "ATM:comment:progress"}, "", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	_, _ = s.CreateComment(tk.ID, "no labels", nil, "", testActor)
+	_, _ = s.CreateComment(tk.ID, "one label", []string{"ATM:comment:progress"}, "", testActor)
+	_, _ = s.CreateComment(tk.ID, "two labels", []string{"ATM:comment:decision", "ATM:comment:progress"}, "", testActor)
 
 	db, _ := s.cacheDB()
 	got, err := cacheListComments(db, tk.ID)
@@ -123,11 +123,11 @@ func TestCacheListCommentsBatchedMatchesN1(t *testing.T) {
 // same counts as calling cacheLabelUsage per label, in one query.
 func TestCacheLabelUsageGrouped(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	t1, _ := s.CreateTask("ATM", "t1", "", []string{"ATM:status:open", "ATM:type:bug"}, "claude")
-	t2, _ := s.CreateTask("ATM", "t2", "", []string{"ATM:status:open"}, "claude")
-	_, _ = s.CreateComment(t1.ID, "c", []string{"ATM:comment:progress"}, "", "claude")
-	_, _ = s.CreateComment(t2.ID, "c", []string{"ATM:comment:progress", "ATM:comment:decision"}, "", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	t1, _ := s.CreateTask("ATM", "t1", "", []string{"ATM:status:open", "ATM:type:bug"}, testActor)
+	t2, _ := s.CreateTask("ATM", "t2", "", []string{"ATM:status:open"}, testActor)
+	_, _ = s.CreateComment(t1.ID, "c", []string{"ATM:comment:progress"}, "", testActor)
+	_, _ = s.CreateComment(t2.ID, "c", []string{"ATM:comment:progress", "ATM:comment:decision"}, "", testActor)
 
 	db, _ := s.cacheDB()
 	got, err := cacheLabelUsageGrouped(db, "ATM")
@@ -136,10 +136,10 @@ func TestCacheLabelUsageGrouped(t *testing.T) {
 	}
 	// Per-label counts via the existing per-label query for comparison.
 	want := map[string]int{
-		"ATM:status:open":        2, // t1, t2
-		"ATM:type:bug":           1, // t1
-		"ATM:comment:progress":   2, // both comments
-		"ATM:comment:decision":   1, // t2's comment
+		"ATM:status:open":      2, // t1, t2
+		"ATM:type:bug":         1, // t1
+		"ATM:comment:progress": 2, // both comments
+		"ATM:comment:decision": 1, // t2's comment
 	}
 	if len(got) != len(want) {
 		t.Fatalf("grouped count = %d want %d: %v", len(got), len(want), got)
@@ -155,7 +155,7 @@ func TestCacheLabelUsageGrouped(t *testing.T) {
 // returns an empty map, not an error.
 func TestCacheLabelUsageGroupedEmptyProject(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
 	db, _ := s.cacheDB()
 	got, err := cacheLabelUsageGrouped(db, "ATM")
 	if err != nil {

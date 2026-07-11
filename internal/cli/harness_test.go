@@ -109,15 +109,15 @@ func (h *goldenHarness) run(args ...string) (string, string, int) {
 func (h *goldenHarness) seedScenario1() {
 	h.t.Helper()
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:type:epic", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:type:epic", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
-		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "claude")
+		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
-		"--label", "ATM:context:agent", "--actor", "claude")
+		"--label", "ATM:context:agent", "--actor", "admin@cli:unset")
 	h.reset()
 }
 

@@ -8,9 +8,9 @@ import (
 func TestGoldenLabelAdd(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "claude")
-	out, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	out, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
@@ -20,10 +20,10 @@ func TestGoldenLabelAdd(t *testing.T) {
 func TestGoldenLabelAddUpsertPreservesDescription(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
-	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "claude")
-	out, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "admin@cli:unset")
+	out, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
@@ -36,11 +36,11 @@ func TestGoldenLabelAddUpsertPreservesDescription(t *testing.T) {
 func TestGoldenLabelRemoveRetainedUsage(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "t",
-		"--label", "ATM:type:bug", "--actor", "claude")
-	out, _, code := h.run("label", "remove", "--store", sp, "--name", "ATM:type:bug", "--actor", "claude")
+		"--label", "ATM:type:bug", "--actor", "admin@cli:unset")
+	out, _, code := h.run("label", "remove", "--store", sp, "--name", "ATM:type:bug", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
@@ -81,8 +81,8 @@ func TestGoldenLabelListNamespaceRequiresProject(t *testing.T) {
 func TestGoldenLabelShowNotFound(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	_, _, code := h.run("label", "show", "--name", "ATM:type:missing")
 	if code != ExitNotFound {
 		t.Fatalf("expected exit %d (not-found), got %d", ExitNotFound, code)
@@ -92,11 +92,11 @@ func TestGoldenLabelShowNotFound(t *testing.T) {
 func TestGoldenLabelSeed(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	// Remove one seed label, then re-seed to confirm idempotency.
-	h.run("label", "remove", "--store", sp, "--name", "ATM:context:question", "--actor", "claude")
-	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "claude")
+	h.run("label", "remove", "--store", sp, "--name", "ATM:context:question", "--actor", "admin@cli:unset")
+	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
@@ -113,9 +113,9 @@ func TestLabelSeedTextOutput(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "claude")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "claude")
-	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "claude")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}

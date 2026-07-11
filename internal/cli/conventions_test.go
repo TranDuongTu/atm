@@ -48,12 +48,24 @@ func TestConventionsJSON(t *testing.T) {
 func TestConventionsIncludesMemorySubstrate(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "tester")
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
 	h.output = outputText
 	out, _, _ := h.run("conventions", "--store", sp)
 	for _, frag := range []string{"ATM:comment:open-question", "atm search", "atm index", "atm project set-embedding"} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("conventions text missing %q", frag)
 		}
+	}
+}
+
+func TestConventionsActorText(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.output = outputText
+	out, _, _ := h.run("conventions")
+	if strings.Contains(out, "actor migrate") || strings.Contains(out, "actor alias") {
+		t.Error("conventions still references the removed alias subsystem")
+	}
+	if !strings.Contains(out, "persona@agent:model") || !strings.Contains(out, "registered persona") {
+		t.Error("conventions does not describe the enforced actor convention")
 	}
 }

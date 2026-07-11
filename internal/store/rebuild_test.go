@@ -10,19 +10,19 @@ import "testing"
 // `atm store verify` to report a freshly rebuilt cache as fully diverged.
 func TestRebuildThenVerifyIsFullySynced(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
-	tk, err := s.CreateTask("ATM", "t", "", nil, "claude")
+	tk, err := s.CreateTask("ATM", "t", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Update the task a couple of times so its LogSeq must reflect the LAST
 	// event, not the first.
-	if err := s.SetTitle(tk.ID, "t2", "claude"); err != nil {
+	if err := s.SetTitle(tk.ID, "t2", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateComment(tk.ID, "hello", nil, "", "claude"); err != nil {
+	if _, err := s.CreateComment(tk.ID, "hello", nil, "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Rebuild(); err != nil {
@@ -52,19 +52,19 @@ func TestRebuildThenVerifyIsFullySynced(t *testing.T) {
 // reused).
 func TestRebuildReconstructsNextTaskNPastRemovedTask(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", "claude"); err != nil {
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
 	var last *Task
 	for i := 0; i < 3; i++ {
-		tk, err := s.CreateTask("ATM", "t", "", nil, "claude")
+		tk, err := s.CreateTask("ATM", "t", "", nil, testActor)
 		if err != nil {
 			t.Fatal(err)
 		}
 		last = tk
 	}
 	// Remove the last (highest-numbered) task, leaving a tombstone at N=3.
-	if err := s.RemoveTask(last.ID, "claude"); err != nil {
+	if err := s.RemoveTask(last.ID, testActor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Rebuild(); err != nil {
@@ -79,7 +79,7 @@ func TestRebuildReconstructsNextTaskNPastRemovedTask(t *testing.T) {
 	}
 	// End-to-end: the next task created after rebuild must not reuse the
 	// removed task's ID (ATM-0003).
-	next, err := s.CreateTask("ATM", "u", "", nil, "claude")
+	next, err := s.CreateTask("ATM", testActor, "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +93,9 @@ func TestRebuildReconstructsNextTaskNPastRemovedTask(t *testing.T) {
 
 func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", "claude")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, "claude")
-	c, _ := s.CreateComment(tk.ID, "hello", nil, "", "claude")
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	c, _ := s.CreateComment(tk.ID, "hello", nil, "", testActor)
 	db, _ := s.cacheDB()
 	// Hand-insert an orphan comment row (no log entry for it).
 	_, _ = db.Exec(`INSERT INTO comments (id, task_id, reply_to, body, log_seq, created_at, created_by, updated_at, updated_by)
@@ -116,7 +116,7 @@ func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
 
 func TestRebuildDropsVectorsKeepsInquiry(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {

@@ -21,11 +21,11 @@ func TestRefreshTickSurfacesExternalMutation(t *testing.T) {
 	if err := s.Init(""); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = s.CreateProject("ATM", "Acme Task Manager", "ext")
+	_, _ = s.CreateProject("ATM", "Acme Task Manager", "admin@cli:test")
 	// One task exists before the TUI starts.
-	_, _ = s.CreateTask("ATM", "pre-existing", "", []string{"ATM:status:open"}, "ext")
+	_, _ = s.CreateTask("ATM", "pre-existing", "", []string{"ATM:status:open"}, "admin@cli:test")
 
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "tui"})
+	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "admin@tui:unset"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestRefreshTickSurfacesExternalMutation(t *testing.T) {
 
 	// Simulate another process creating a task against the same store root.
 	ext, _ := store.Open(s.StorePath())
-	if _, err := ext.CreateTask("ATM", "external-task", "", []string{"ATM:status:open"}, "cli"); err != nil {
+	if _, err := ext.CreateTask("ATM", "external-task", "", []string{"ATM:status:open"}, "admin@cli:test"); err != nil {
 		t.Fatalf("external CreateTask: %v", err)
 	}
 

@@ -8,6 +8,9 @@ import (
 func TestActivityGroupsByPersona(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
+	if _, se, code := h.run("persona", "create", "--store", sp, "--name", "staff", "--prompt", "p", "--actor", "admin@cli:unset"); code != 0 {
+		t.Fatalf("persona create: code=%d stderr=%s", code, se)
+	}
 	if _, se, code := h.run("project", "create", "--store", sp, "--code", "AAA", "--name", "A", "--actor", "staff@claude:opus-4.8"); code != 0 {
 		t.Fatalf("project create: code=%d stderr=%s", code, se)
 	}

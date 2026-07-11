@@ -6,7 +6,7 @@
   ],
   "context_path": "/STORE/manager/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "claude-manager",
+    "ATM_ACTOR": "manager@claude:unset",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
     "ATM_PROJECT": "FOO",

@@ -9,7 +9,7 @@
   ],
   "context_path": "/STORE/developing/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "ollama-dev",
+    "ATM_ACTOR": "developer@ollama:unset",
     "ATM_AGENT": "ollama",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/developing/FOO-RUNID.md",

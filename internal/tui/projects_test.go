@@ -4,19 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/actor"
 	"atm/internal/store"
 )
 
-func seedAlias(t *testing.T, m *Model, raw, persona, agent string) {
-	t.Helper()
-	if err := m.store.SetAlias(raw, actor.AliasEntry{Persona: persona, Agent: agent}); err != nil {
-		t.Fatalf("SetAlias %s: %v", raw, err)
-	}
-}
-
 func TestRenderPersonaActivityChart(t *testing.T) {
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
+	seedStaffPersona(t, m)
 	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +19,6 @@ func TestRenderPersonaActivityChart(t *testing.T) {
 	if _, err := m.store.CreateTask("ATM", "task two", "", nil, "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
-	seedAlias(t, m, "claude", "developer", "claude")
 
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
@@ -67,14 +59,13 @@ func TestRenderPersonaActivityChartEmpty(t *testing.T) {
 // the only acceptable content there.
 func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
 	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
+	seedStaffPersona(t, m)
 	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.store.CreateTask("ATM", "task one", "", nil, "staff@claude:opus-4.8"); err != nil {
 		t.Fatal(err)
 	}
-	seedAlias(t, m, "claude", "developer", "claude")
-
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
 	m.refreshAll()
@@ -122,7 +113,7 @@ func TestRenderUbiquitousLanguageChartShowsTerms(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one")
 	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: "opencode-manager",
+		Actor: testActor,
 		Terms: []store.VocabularyTerm{
 			{Term: "labels", Weight: 9},
 			{Term: "audit log", Weight: 7},
@@ -147,7 +138,7 @@ func TestRenderUbiquitousLanguageChartSortsByWeightDescending(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one")
 	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: "opencode-manager",
+		Actor: testActor,
 		Terms: []store.VocabularyTerm{
 			{Term: "alpha", Weight: 5},
 			{Term: "beta", Weight: 9},

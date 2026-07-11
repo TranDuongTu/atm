@@ -149,7 +149,7 @@ func newManagerAgentCmd(st *cliState, agent string) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default <agent>-manager)")
+	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default manager@<agent>:unset)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
 	_ = cmd.MarkFlagRequired("project")
@@ -170,7 +170,7 @@ func newManagerOllamaCmd(st *cliState) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default ollama-manager)")
+	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default manager@ollama:unset)")
 	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
 	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
@@ -186,7 +186,7 @@ func defaultManagerActor(agent string, st *cliState, explicit string) string {
 	if st.flags.actor != "" {
 		return st.flags.actor
 	}
-	return agent + "-manager"
+	return "manager@" + agent + ":unset"
 }
 
 func newManagerRenderContextCmd(st *cliState) *cobra.Command {
@@ -251,13 +251,21 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		return fmt.Errorf("create manager dir: %w", err)
 	}
 
+	mp, err := s.GetPersona("manager")
+	if err != nil {
+		return err
+	}
+
 	rendered := manager.RenderContext(manager.ContextData{
-		Code:      p.Code,
-		Name:      p.Name,
-		ATMBin:    atmBin,
-		Actor:     opts.Actor,
-		RunID:     runID,
-		Timestamp: store.RFC3339UTC(time.Now().UTC()),
+		Code:               p.Code,
+		Name:               p.Name,
+		ATMBin:             atmBin,
+		Actor:              opts.Actor,
+		RunID:              runID,
+		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
+		Persona:            "manager",
+		PersonaPrompt:      mp.Prompt,
+		PersonaDescription: mp.Description,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)

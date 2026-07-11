@@ -2,12 +2,12 @@
   "project": {
     "code": "ATM",
     "created_at": "TIMESTAMP",
-    "created_by": "claude",
+    "created_by": "admin@cli:unset",
     "history": [],
     "log_seq": 19,
     "name": "Renamed Project",
     "next_task_n": 3,
     "updated_at": "TIMESTAMP",
-    "updated_by": "claude"
+    "updated_by": "admin@cli:unset"
   }
 }

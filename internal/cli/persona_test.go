@@ -10,11 +10,11 @@ func TestPersonaCreateListShowEditRemove(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 
-	if _, se, code := h.run("persona", "create", "--store", sp, "--name", "staff", "--prompt", "high bar", "--actor", "t"); code != 0 {
+	if _, se, code := h.run("persona", "create", "--store", sp, "--name", "staff", "--prompt", "high bar", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("create: code=%d stderr=%s", code, se)
 	}
 
-	out, se, code := h.run("persona", "list", "--store", sp, "--actor", "t")
+	out, se, code := h.run("persona", "list", "--store", sp, "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("list: code=%d stderr=%s", code, se)
 	}
@@ -24,11 +24,19 @@ func TestPersonaCreateListShowEditRemove(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Personas) != 1 || listed.Personas[0].Name != "staff" {
-		t.Fatalf("list = %s", out)
+	// Built-ins (developer/manager/admin) are lazily seeded by validateActor,
+	// so the list contains them plus the staff persona created above.
+	var hasStaff bool
+	for _, p := range listed.Personas {
+		if p.Name == "staff" {
+			hasStaff = true
+		}
+	}
+	if !hasStaff {
+		t.Fatalf("list missing staff: %s", out)
 	}
 
-	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "t")
+	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("show: code=%d stderr=%s", code, se)
 	}
@@ -36,11 +44,11 @@ func TestPersonaCreateListShowEditRemove(t *testing.T) {
 		t.Fatalf("show = %s", out)
 	}
 
-	if _, se, code := h.run("persona", "edit", "--store", sp, "--name", "staff", "--description", "reviewer", "--actor", "t"); code != 0 {
+	if _, se, code := h.run("persona", "edit", "--store", sp, "--name", "staff", "--description", "reviewer", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("edit: code=%d stderr=%s", code, se)
 	}
 
-	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "t")
+	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("show after edit: code=%d stderr=%s", code, se)
 	}
@@ -48,11 +56,11 @@ func TestPersonaCreateListShowEditRemove(t *testing.T) {
 		t.Fatalf("edit lost data: %s", out)
 	}
 
-	if _, se, code := h.run("persona", "remove", "--store", sp, "--name", "staff", "--actor", "t"); code != 0 {
+	if _, se, code := h.run("persona", "remove", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("remove: code=%d stderr=%s", code, se)
 	}
 
-	if _, se, code := h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "t"); code == 0 {
+	if _, se, code := h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatalf("show after remove should fail, stderr=%s", se)
 	}
 }
@@ -61,7 +69,7 @@ func TestPersonaPromptMutualExclusion(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 
-	_, se, code := h.run("persona", "create", "--store", sp, "--name", "x", "--prompt", "a", "--prompt-file", "/tmp/x", "--actor", "t")
+	_, se, code := h.run("persona", "create", "--store", sp, "--name", "x", "--prompt", "a", "--prompt-file", "/tmp/x", "--actor", "admin@cli:unset")
 	if code == 0 {
 		t.Fatalf("want mutual-exclusion error, got code=0")
 	}

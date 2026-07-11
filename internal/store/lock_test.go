@@ -69,8 +69,8 @@ func TestWithLockSerializes(t *testing.T) {
 
 func TestSetTitleAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("DLA", "x", "claude")
-	tk, _ := s.CreateTask("DLA", "t", "", nil, "claude")
+	_, _ = s.CreateProject("DLA", "x", testActor)
+	tk, _ := s.CreateTask("DLA", "t", "", nil, testActor)
 
 	db, _ := s.cacheDB()
 	// mutateTask (shared by SetTitle/SetDescription/TaskLabelRemove) calls
@@ -78,7 +78,7 @@ func TestSetTitleAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
 
 	done := make(chan error, 1)
-	go func() { done <- s.SetTitle(tk.ID, "changed", "claude") }()
+	go func() { done <- s.SetTitle(tk.ID, "changed", testActor) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -91,8 +91,8 @@ func TestSetTitleAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 
 func TestRemoveTaskAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("DLB", "x", "claude")
-	tk, _ := s.CreateTask("DLB", "t", "", nil, "claude")
+	_, _ = s.CreateProject("DLB", "x", testActor)
+	tk, _ := s.CreateTask("DLB", "t", "", nil, testActor)
 
 	db, _ := s.cacheDB()
 	// RemoveTask calls s.GetTask(id) from inside its own s.WithLock(code, ...)
@@ -100,7 +100,7 @@ func TestRemoveTaskAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
 
 	done := make(chan error, 1)
-	go func() { done <- s.RemoveTask(tk.ID, "claude") }()
+	go func() { done <- s.RemoveTask(tk.ID, testActor) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -113,7 +113,7 @@ func TestRemoveTaskAfterTaskCacheMissDoesNotDeadlock(t *testing.T) {
 
 func TestSetProjectNameAfterProjectCacheMissDoesNotDeadlock(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("DLC", "x", "claude")
+	_, _ = s.CreateProject("DLC", "x", testActor)
 
 	db, _ := s.cacheDB()
 	// SetProjectName calls s.GetProject(code) from inside its own
@@ -121,7 +121,7 @@ func TestSetProjectNameAfterProjectCacheMissDoesNotDeadlock(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM projects WHERE code = ?`, "DLC")
 
 	done := make(chan error, 1)
-	go func() { done <- s.SetProjectName("DLC", "new-name", "claude") }()
+	go func() { done <- s.SetProjectName("DLC", "new-name", testActor) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -134,9 +134,9 @@ func TestSetProjectNameAfterProjectCacheMissDoesNotDeadlock(t *testing.T) {
 
 func TestSetCommentBodyAfterCommentCacheMissDoesNotDeadlock(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("DLD", "x", "claude")
-	tk, _ := s.CreateTask("DLD", "t", "", nil, "claude")
-	c, _ := s.CreateComment(tk.ID, "hi", nil, "", "claude")
+	_, _ = s.CreateProject("DLD", "x", testActor)
+	tk, _ := s.CreateTask("DLD", "t", "", nil, testActor)
+	c, _ := s.CreateComment(tk.ID, "hi", nil, "", testActor)
 
 	db, _ := s.cacheDB()
 	// mutateComment (shared by SetCommentBody/CommentLabelRemove) calls
@@ -144,7 +144,7 @@ func TestSetCommentBodyAfterCommentCacheMissDoesNotDeadlock(t *testing.T) {
 	_, _ = db.Exec(`DELETE FROM comments WHERE id = ?`, c.ID)
 
 	done := make(chan error, 1)
-	go func() { done <- s.SetCommentBody(c.ID, "changed", "claude") }()
+	go func() { done <- s.SetCommentBody(c.ID, "changed", testActor) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -157,7 +157,7 @@ func TestSetCommentBodyAfterCommentCacheMissDoesNotDeadlock(t *testing.T) {
 
 func TestCreateTaskAfterProjectCacheMissDoesNotDeadlock(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.CreateProject("DLE", "x", "claude")
+	_, _ = s.CreateProject("DLE", "x", testActor)
 
 	db, _ := s.cacheDB()
 	// CreateTask calls s.GetProject(projectCode) from inside its own
@@ -167,7 +167,7 @@ func TestCreateTaskAfterProjectCacheMissDoesNotDeadlock(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.CreateTask("DLE", "t", "", []string{"DLE:type:bug"}, "claude")
+		_, err := s.CreateTask("DLE", "t", "", []string{"DLE:type:bug"}, testActor)
 		done <- err
 	}()
 	select {

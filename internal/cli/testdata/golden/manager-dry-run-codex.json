@@ -5,7 +5,7 @@
   ],
   "context_path": "/STORE/manager/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "codex-manager",
+    "ATM_ACTOR": "manager@codex:unset",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
     "ATM_PROJECT": "FOO",

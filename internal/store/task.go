@@ -11,8 +11,8 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	if title == "" {
 		return nil, fmt.Errorf("%w: title is required", ErrUsage)
 	}
-	if actor == "" {
-		return nil, fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return nil, err
 	}
 	db, err := s.cacheDB()
 	if err != nil {
@@ -279,8 +279,8 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 	if err := s.labelProjectExists(label); err != nil {
 		return err
 	}
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, ok := ParseTaskID(id)
 	if !ok {
@@ -336,8 +336,8 @@ func (s *Store) TaskLabelRemove(id, label, actor string) error {
 }
 
 func (s *Store) RemoveTask(id, actor string) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, ok := ParseTaskID(id)
 	if !ok {
@@ -371,8 +371,8 @@ func (s *Store) RemoveTask(id, actor string) error {
 
 // mutateTask is the log-first write-through helper for non-delete task mutations.
 func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), action string) error {
-	if actor == "" {
-		return fmt.Errorf("%w: actor is required", ErrUsage)
+	if err := s.validateActor(actor); err != nil {
+		return err
 	}
 	code, _, ok := ParseTaskID(id)
 	if !ok {

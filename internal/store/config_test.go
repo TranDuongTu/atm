@@ -4,7 +4,7 @@ import "testing"
 
 func TestProjectConfigAbsentReturnsNil(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetProjectConfig("ATM")
@@ -18,7 +18,7 @@ func TestProjectConfigAbsentReturnsNil(t *testing.T) {
 
 func TestSetEmbeddingConfigRoundTrip(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	cfg := EmbeddingConfig{
@@ -29,7 +29,7 @@ func TestSetEmbeddingConfigRoundTrip(t *testing.T) {
 		Dim:         768,
 		Threshold:   0.55,
 	}
-	if err := s.SetEmbeddingConfig("ATM", cfg, "tester"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", cfg, testActor); err != nil {
 		t.Fatalf("SetEmbeddingConfig: %v", err)
 	}
 	got, err := s.GetProjectConfig("ATM")
@@ -49,15 +49,15 @@ func TestSetEmbeddingConfigRoundTrip(t *testing.T) {
 
 func TestSetEmbeddingConfigMergesPreservingOtherFields(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	cfg := EmbeddingConfig{Model: "m1", Endpoint: "http://x", Dim: 4, Threshold: 0.5}
-	if err := s.SetEmbeddingConfig("ATM", cfg, "tester"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", cfg, testActor); err != nil {
 		t.Fatal(err)
 	}
 	cfg2 := EmbeddingConfig{Model: "m2", Endpoint: "http://y", Dim: 8, Threshold: 0.6}
-	if err := s.SetEmbeddingConfig("ATM", cfg2, "tester2"); err != nil {
+	if err := s.SetEmbeddingConfig("ATM", cfg2, testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.GetProjectConfig("ATM")
@@ -68,7 +68,7 @@ func TestSetEmbeddingConfigMergesPreservingOtherFields(t *testing.T) {
 
 func TestSetEmbeddingConfigRequiresActor(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 4, Threshold: 0.5}, "")

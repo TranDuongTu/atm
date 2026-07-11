@@ -8,7 +8,7 @@ import (
 
 func TestVectorPaths(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	got := s.vectorPath("ATM", "nomic-embed-text")
@@ -25,7 +25,7 @@ func TestVectorPaths(t *testing.T) {
 
 func TestWriteVectorBatchRoundTripDenormalized(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{
@@ -59,7 +59,7 @@ func TestWriteVectorBatchRoundTripDenormalized(t *testing.T) {
 
 func TestWriteVectorBatchAppends(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	first := []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}, TextHash: "h1", LogSeq: 1}}
@@ -85,7 +85,7 @@ func TestWriteVectorBatchAppends(t *testing.T) {
 
 func TestWriteVectorBatchModelMismatchRejected(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "other", Dim: 2, Vector: []float64{0.1, 0.2}}}
@@ -97,7 +97,7 @@ func TestWriteVectorBatchModelMismatchRejected(t *testing.T) {
 
 func TestWriteVectorBatchDimMismatchRejected(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	entries := []VectorEntry{
@@ -112,7 +112,7 @@ func TestWriteVectorBatchDimMismatchRejected(t *testing.T) {
 
 func TestDropVectors(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {
@@ -132,7 +132,7 @@ func TestDropVectors(t *testing.T) {
 
 func TestListVectorModels(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	for _, slug := range []string{"nomic-embed-text", "text-embedding-3-small"} {
@@ -152,7 +152,7 @@ func TestListVectorModels(t *testing.T) {
 
 func TestReadVectorsMalformedLineSkipped(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "tester"); err != nil {
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {

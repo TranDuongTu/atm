@@ -1,16 +1,17 @@
 package seed
 
 // Persona is one built-in persona seeded on demand by the store's
-// SeedPersonas / `atm actor migrate`. Data only — no store import (the
-// store applies it), mirroring Labels above.
+// SeedPersonas. Data only — no store import (the store applies it),
+// mirroring Labels above.
 type Persona struct {
 	Name        string
 	Prompt      string
 	Description string
 }
 
-// Personas is the built-in persona set. These two names are also the targets
-// the legacy actor migration maps onto (internal/actor.LegacyAlias).
+// Personas is the built-in persona set: developer, manager, and admin (the
+// human operator). Legacy actor strings are inferred to one of these at read
+// time by actor.Resolve (no alias table).
 var Personas = []Persona{
 	{
 		Name:        "developer",
@@ -26,5 +27,12 @@ var Personas = []Persona{
 		Prompt: "You are a manager persona. Keep the ATM ledger accurate and legible: " +
 			"organize tasks and labels, summarize progress, surface blockers, and hold a " +
 			"high bar on scope and clarity rather than writing feature code yourself.",
+	},
+	{
+		Name:        "admin",
+		Description: "Human operator persona: a person driving ATM directly via the CLI or TUI, not an autonomous agent.",
+		Prompt: "You are the human operator of ATM, acting directly through the CLI or " +
+			"TUI rather than as an autonomous agent. Keep the ledger honest and legible: " +
+			"record intent and outcomes plainly, and prefer small, reversible changes.",
 	},
 }
