@@ -1,3 +1,12 @@
+## v1.2.11 - 2026-07-11
+
+### docs
+- docs: plan CLI user surface simplification
+- docs: specify CLI user surface simplification
+- ATM-0072: implementation plan for actor convention enforcement
+- ATM-0072: spec for actor convention enforcement
+
+
 ## v1.2.10 - 2026-07-11
 
 ### docs
