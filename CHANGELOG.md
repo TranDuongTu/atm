@@ -1,3 +1,10 @@
+## v1.2.10 - 2026-07-11
+
+### docs
+- ATM-0072: implementation plan for actor convention enforcement
+- ATM-0072: spec for actor convention enforcement
+
+
 ## v1.2.9 - 2026-07-09
 
 
