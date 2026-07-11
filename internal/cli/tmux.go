@@ -7,7 +7,7 @@ import (
 )
 
 // tmuxLabelTUI is the label shown in the enclosing tmux window while the
-// TUI runs. tmuxLabelOnboarding is set by `atm manager --onboard` (not a
+// TUI runs. tmuxLabelOnboarding is set by `atm manage <agent> --onboarding` (not a
 // separate `atm onboarding` command). These labels are scoped to tmux:
 // outside a tmux session setTmuxWindowLabel is a no-op. tmux's
 // automatic-rename and the next command run in the pane reassert the

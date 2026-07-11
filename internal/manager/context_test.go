@@ -46,7 +46,7 @@ func TestRenderContextPrinciplesPresent(t *testing.T) {
 
 func TestRenderContextActionCatalogPresent(t *testing.T) {
 	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
-	for _, frag := range []string{"Tracking request", "Inquiry", "Vocabulary", "Onboarding"} {
+	for _, frag := range []string{"Tracking", "Asking", "Glossary", "Onboarding"} {
 		if !strings.Contains(got, frag) {
 			t.Errorf("action catalog missing %q", frag)
 		}
@@ -55,7 +55,7 @@ func TestRenderContextActionCatalogPresent(t *testing.T) {
 
 func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
 	// The generic body (no project) is produced by leaving placeholders in place
-	// so `atm manager render-context` with no --project still renders a template.
+	// so `atm manage-context` with no --project still renders a template.
 	got := RenderContext(ContextData{})
 	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
 		if !strings.Contains(got, placeholder) {

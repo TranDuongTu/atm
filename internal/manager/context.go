@@ -28,9 +28,9 @@ type ContextData struct {
 
 // RenderContext substitutes the ContextData placeholders into the manager
 // prompt template. Empty fields leave their placeholder in place so a generic,
-// unrendered template can still be produced (e.g. `atm manager render-context`
+// unrendered template can still be produced (e.g. `atm manage-context`
 // with no --project). The installed atm-manager subagent is a thin pointer that
-// calls `atm manager render-context` at dispatch; it is NOT produced from this
+// calls `atm manage-context` at dispatch; it is NOT produced from this
 // render.
 func RenderContext(data ContextData) string {
 	personaBlock := ""

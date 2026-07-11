@@ -42,7 +42,7 @@ func TestPluginAssetsContainManagerRole(t *testing.T) {
 	joined := string(joinManagerAssetContents(assets))
 	for _, want := range []string{
 		"ATM ledger owner",
-		"render-context",
+		"manage-context",
 		"follow it",
 	} {
 		if !strings.Contains(joined, want) {
@@ -74,8 +74,8 @@ func TestManagerSubagentAssetResolvesRuntimeValuesFromEnv(t *testing.T) {
 		if strings.Contains(body, ".local/bin/atm") {
 			t.Errorf("%s subagent asset names a hardcoded binary path", host)
 		}
-		if !strings.Contains(body, "render-context") {
-			t.Errorf("%s subagent asset does not defer to `atm manager render-context`", host)
+		if !strings.Contains(body, "manage-context") {
+			t.Errorf("%s subagent asset does not defer to `atm manage-context`", host)
 		}
 	}
 }
