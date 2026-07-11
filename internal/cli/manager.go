@@ -45,6 +45,7 @@ func newManageCmd(st *cliState) *cobra.Command {
 		cmd.AddCommand(newManageAgentCmd(st, name))
 	}
 	cmd.AddCommand(newManageOllamaCmd(st))
+	cmd.AddCommand(newManagerPluginCmd(st))
 	return cmd
 }
 
@@ -315,7 +316,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	if onboarding {
 		base = l.BuildArgvOnboard(contextPath)
 	} else {
-		base = l.BuildArgv()
+		base = l.BuildArgvManage(contextPath)
 	}
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)

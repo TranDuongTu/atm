@@ -4,6 +4,13 @@ ATM is an append-only task ledger for people who work through coding agents.
 
 ## User Actions
 
+Install the subagent plugins so agents know how to start ATM sessions:
+
+```sh
+atm manage plugin install
+atm manage plugin status
+```
+
 Open the TUI:
 
 ```sh

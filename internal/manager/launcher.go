@@ -5,6 +5,7 @@ type Launcher interface {
 	NotFoundHint() string
 	BuildArgv() []string
 	BuildArgvOnboard(contextPath string) []string
+	BuildArgvManage(contextPath string) []string
 }
 
 type staticLauncher struct {
@@ -20,6 +21,11 @@ func (l staticLauncher) BuildArgv() []string  { return append([]string(nil), l.a
 func (l staticLauncher) BuildArgvOnboard(contextPath string) []string {
 	msg := managerMessagePrefix + contextPath + managerMessageSuffix
 	return []string{l.name, "--auto", "--prompt", msg}
+}
+
+func (l staticLauncher) BuildArgvManage(contextPath string) []string {
+	msg := managerMessagePrefix + contextPath + managerMessageSuffix
+	return []string{l.name, "--prompt", msg}
 }
 
 func LauncherFor(name string) (Launcher, bool) {
@@ -49,6 +55,12 @@ func (l OllamaLauncher) BuildArgvOnboard(contextPath string) []string {
 	msg := managerMessagePrefix + contextPath + managerMessageSuffix
 	return []string{"ollama", "launch", l.Integration, "--",
 		"--auto", "--prompt", msg}
+}
+
+func (l OllamaLauncher) BuildArgvManage(contextPath string) []string {
+	msg := managerMessagePrefix + contextPath + managerMessageSuffix
+	return []string{"ollama", "launch", l.Integration, "--",
+		"--prompt", msg}
 }
 
 const (
