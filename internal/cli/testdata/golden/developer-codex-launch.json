@@ -1,22 +1,27 @@
 {
-  "agent": "ollama",
+  "agent": "codex",
   "argv": [
-    "ollama",
-    "launch",
-    "codex",
-    "--",
-    "--yolo"
+    "codex"
   ],
   "context_path": "/STORE/developing/FOO-RUNID.md",
   "env": {
-    "ATM_ACTOR": "developer@ollama:unset",
-    "ATM_AGENT": "ollama",
+    "ATM_ACTOR": "developer@codex:unset",
+    "ATM_AGENT": "codex",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/developing/FOO-RUNID.md",
+    "ATM_PERSONA": "developer",
     "ATM_PROJECT": "FOO",
     "ATM_ROLE": "developing",
     "ATM_RUN_ID": "FOO-RUNID"
   },
+  "project": "FOO",
+  "role": "developing",
+  "run_id": "FOO-RUNID"
+}
+{
+  "agent": "codex",
+  "agent_exit": 0,
+  "context_path": "/STORE/developing/FOO-RUNID.md",
   "project": "FOO",
   "role": "developing",
   "run_id": "FOO-RUNID"

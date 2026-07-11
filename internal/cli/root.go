@@ -86,7 +86,10 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newIndexCmd(st))
 	root.AddCommand(newSearchCmd(st))
 	root.AddCommand(newInquiryCmd(st))
-	root.AddCommand(newDevelopingCmd(st))
+	for _, name := range []string{"opencode", "codex", "claude"} {
+		root.AddCommand(newDeveloperAgentCmd(st, name))
+	}
+	root.AddCommand(newDeveloperOllamaCmd(st))
 	root.AddCommand(newManagerCmd(st))
 	root.AddCommand(newVersionCmd(st))
 
