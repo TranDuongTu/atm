@@ -1,428 +1,80 @@
 # ATM — Agent Tasks Management
 
-A JIRA-like task management system, but purpose-built for **AI agents**.
+ATM is an append-only task ledger for people who work through coding agents.
 
-- **TUI-friendly**: first-class terminal/CLI ergonomics, not GUI-first.
-- **API-first**: every operation is exposed via a queryable API; the TUI and any other front-end are thin clients over it.
-- **Agent-native**: tasks and workflow states are modeled for agentic software-development lifecycles (SDLCs), not just human ticketing.
-- **Pure label-substrate**: v2 has no intrinsic workflow knowledge. Status, type, priority, ownership, and relationships are all labels. The system does not enforce a state machine, claim semantics, or review gates — those live in agent prompts and human habits.
+## User Actions
 
-## Status
+Open the TUI:
 
-v2 (pure label-substrate). The store, CLI, and TUI have been rewritten to remove all intrinsic workflow knowledge: there is no status field, no claim/unclaim, no review queue, no links entity, no guide, no actor entity. Labels are the single substrate. See `AGENTS.md` for how AI agents should work in this repo, and `docs/superpowers/specs/2026-07-02-tasks-management-v2-design.md` for the design.
+```sh
+atm
+```
 
-## Build & verify
+Start a developer agent on a project:
+
+```sh
+atm codex --project ATM
+atm claude --project ATM
+atm opencode --project ATM
+atm ollama --project ATM --integration codex
+```
+
+Start a manager session for a specific management action:
+
+```sh
+atm manage codex --project ATM --planning
+atm manage codex --project ATM --grooming
+atm manage codex --project ATM --tracking
+atm manage codex --project ATM --asking
+atm manage codex --project ATM --glossary
+atm manage codex --project ATM --onboarding
+```
+
+All agent launchers accept `--persona <name>` and pass host-agent arguments after `--`:
+
+```sh
+atm codex --project ATM --persona developer -- --yolo
+atm manage claude --project ATM --planning --persona manager -- --dangerously-skip-permission
+```
+
+## Manager Actions
+
+- `--planning` reviews open work and keeps statuses honest.
+- `--grooming` prioritizes and shapes the backlog.
+- `--tracking` curates progress, decisions, questions, and handoffs.
+- `--asking` answers project questions from the ledger with cited task/comment IDs.
+- `--glossary` maintains shared project language.
+- `--onboarding` learns a repo/project and organizes it for later agents.
+
+## Why I Built ATM
+
+I work across multiple projects at once, and some projects span multiple repositories.
+
+I use multiple coding agents and switch between them regularly to manage cost, context, and token usage.
+
+I need to resume or hand off work across agents with minimal guidance.
+
+I switch machines frequently, so I need a centralized, immutable, append-only ledger that can be shared.
+
+I do not want a traditional Jira-style ticket system built around human browsing workflows. I want to ask my agents and have them work from the ledger.
+
+## Store
+
+ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
+
+## Build And Verify
 
 ```sh
 make build
 make test
-```
-
-## Verify
-
-Run the full verification step used by the AGENTS.md workflow:
-
-```sh
 make verify
 ```
 
-This runs `make build && make test`.
+## Advanced/API Surface
 
-## Store resolution
-
-The store is a machine-global directory of plain JSON files (no database). A
-project is **not** 1:1 with a repo; one store may hold many projects spanning
-many repos. The store is detachable: copying the directory wholesale to another
-location reproduces the same state and the same output.
-
-Resolution order:
-
-1. `--store <path>` flag
-2. `ATM_HOME` env var
-3. `~/.config/atm` default
-
-There is **no** walk-up-from-CWD search; the store is machine-global.
-
-## CLI
-
-The `atm` binary is the stable, versioned out-of-process API for agents, and
-the surface the TUI wraps. Output format is selected globally with
-`--output json|text` (default `text`); JSON output is deterministic (sorted
-keys, stable whitespace, RFC 3339 UTC timestamps). All mutating commands accept
-`--actor <id>` (free-form; e.g. `claude`, `alice`) or read
-`ATM_ACTOR`. Errors go to stderr with a non-zero exit code and a stable
-`{"error":{"code":"...","message":"..."}}` envelope in JSON mode.
-
-Global flags:
-
-- `--store <path>`: store directory (overrides `ATM_HOME`).
-- `--output json|text`: output format. Default `text`.
-- `--actor <id>`: actor performing the operation (free-form). Env: `ATM_ACTOR`.
-  Required for mutating commands; optional for read commands.
-- `--quiet`: suppress non-essential stdout in text mode.
-
-Exit codes: `0` success; `1` generic; `2` usage; `3` not-found; `4` conflict.
-
-### Store / init
-
-```
-atm init [--actor <id>]            # idempotent; creates labels.json + actors.json + projects/
-atm store path                     # print resolved store path
-```
-
-### Audit log
-
-Every mutating operation is recorded in an event-sourced, append-only per-project
-audit log: a JSONL file at `$ATM_HOME/projects/<CODE>/log.jsonl`. State files
-(tasks, labels, project metadata) are derived caches rebuilt from this log.
-`atm store log <CODE> [--from N] [--to N]` reads it back, `atm store verify
-[--repair]` checks cache/log consistency (exits 5 on integrity failure), and
-`atm store rebuild` regenerates the caches from the log.
-
-### Projects
-
-A project owns a namespace prefix (`<CODE>:`) for its labels. Creation is
-minimal — only `--code` and `--name`; labels are added later via `label add`.
-
-```
-atm project create    --code <CODE> --name <NAME> [--actor <id>]
-atm project list
-atm project show      --code <CODE>
-atm project set-name  --code <CODE> --name <NAME> [--actor <id>]
-atm project remove    --code <CODE> [--actor <id>]   # zero-task guard
-```
-
-`--code` must match `^[A-Z]{3,6}$` and be unique across the store.
-
-### Labels
-
-Labels are the single substrate. They are global, hierarchical, and
-project-prefixed: `<CODE>:<namespace>:<value>` (two segments) or `<CODE>:<tag>`
-(one segment). Namespaces are open — there is no whitelist and no type-axis.
-`label add` is an upsert (auto-registers); `label remove` is a soft removal
-that reports `retained_usage` if any task still carries the label.
-
-```
-atm label add     --name <L> [--description <DESC>] [--actor <id>]   # upsert; auto-registers
-atm label remove  --name <L> [--actor <id>]                          # soft; reports retained_usage
-atm label list    [--project <CODE>] [--namespace <NS>]              # namespace requires --project
-atm label show    --name <L>
-atm label seed    --project <CODE> [--actor <id>]                    # (re)apply the 22 default labels; idempotent
-```
-
-Label name regex: `^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`.
-
-### Tasks
-
-```
-atm task create          --project <CODE> --title <TITLE> [--description <DESC>] [--label <L>]... [--actor <id>]
-atm task list            [--project <CODE>] [--label <L>]... [--facets] [--actor <id>]
-atm task show            --id <ID> [--actor <id>]
-atm task set-title       --id <ID> --title <TITLE> [--actor <id>]
-atm task set-description --id <ID> --description <DESC> [--actor <id>]
-atm task label add       --id <ID> --label <L> [--actor <id>]
-atm task label remove    --id <ID> --label <L> [--actor <id>]
-atm task remove          --id <ID> [--actor <id>]
-```
-
-`create` assigns the next id `<CODE>-<N>` (4-digit zero-padded up to 9999, then
-natural width). `--label` takes the full project-prefixed name (e.g.
-`ATM:type:bug`) and is repeatable. `list` AND-intersects label filters; exact
-tokens return a flat list sorted by id (project-then-numeric). Wildcard
-suffixes (e.g. `ATM:status:*`) combined with `--facets` drive faceted grouping
-with multi-membership — each facet value becomes a group, and a task may appear
-under multiple groups. There is no `--status` flag and no status field: status
-is the `ATM:status:<state>` label axis.
-
-### Conventions
-
-```
-atm conventions          # print the onboarding guide + suggested seed namespaces
-```
-
-Conventions are **advisory only** — nothing in the store validates or
-special-cases the documented namespaces. The system treats `ATM:context:agent`
-identically to `ATM:type:bug`. See the "Conventions" section below for the
-suggested seed namespaces.
-
-### Developing sessions
-
-```
-atm developing plugin install codex
-atm developing codex --project <CODE>
-atm developing ollama --project <CODE> --integration <name>
-```
-
-`atm developing <opencode|codex|claude> --project <CODE>` launches the
-agent's normal interactive entrypoint with ATM environment variables and a
-rendered context file. `atm developing ollama --project <CODE> --integration <name>`
-launches an ollama-backed agent (the integration is one of ollama's supported
-hosts: opencode, codex, claude, etc.). Bootstrap plugins are installed
-explicitly with `atm developing plugin install`; the launcher never modifies
-agent config silently.
-
-To pass extra flags to the host agent (e.g. `codex --yolo`,
-`claude --dangerously-skip-permission`), append them after `--`:
-
-```
-atm developing codex --project <CODE> -- --yolo
-atm developing claude --project <CODE> -- --dangerously-skip-permission
-atm developing ollama --project <CODE> --integration codex -- --yolo --auto
-```
-
-Default per-agent args can also be set via the `ATM_<AGENT>_ARGS` environment
-variable (`ATM_OPENCODE_ARGS`, `ATM_CODEX_ARGS`, `ATM_CLAUDE_ARGS`,
-`ATM_OLLAMA_ARGS`). For ollama hosts, `ATM_<INTEGRATION>_ARGS` (e.g.
-`ATM_CODEX_ARGS`) takes precedence over `ATM_OLLAMA_ARGS`. Env args are
-applied first; `--` args append after them with no dedup. Args are passed
-through verbatim; ATM does not validate or sanitize them.
-
-### Manager sessions
-
-```
-atm manager plugin install opencode
-atm manager opencode --project <CODE>
-atm manager ollama --project <CODE> --integration <name>
-```
-
-`atm manager <host> --project <CODE>` launches an interactive ATM-ledger-owner
-session (see `docs/superpowers/specs/2026-07-06-atm-manager-subagent-design.md`).
-`--integration <name>` is required for the `ollama` host. Extra agent args pass
-through `--`, and `ATM_<AGENT>_ARGS` defaults apply the same way as
-`atm developing` (see above).
-
-### Personas & actor activity
-
-```
-atm persona create --name <NAME> [--prompt <TEXT> | --prompt-file <PATH>] [--description <DESC>] [--actor <id>]
-atm persona list
-atm persona show   --name <NAME>
-atm persona edit   --name <NAME> [--prompt <TEXT> | --prompt-file <PATH>] [--description <DESC>] [--actor <id>]
-atm persona remove --name <NAME>
-
-atm actor migrate [--dry-run]
-atm actor alias set    <raw-actor> --persona <NAME> [--agent <AGENT>] [--model <MODEL>]
-atm actor alias list
-atm actor alias remove <raw-actor>
-
-atm activity --project <CODE> [--group-by persona|agent|model]
-```
-
-Personas are a global registry (name, prompt, description) — `atm persona
-create|list|show|edit|remove` manage them independently of any project.
-Actors follow the convention `persona@agent:model` (e.g.
-`staff-engineer@claude:opus-4.8`): the persona segment is chosen by whoever
-starts the session, the agent (`claude`, `codex`, `opencode`, `ollama`) and
-model segments are stamped by the host agent itself. An unset or unresolved
-persona renders as `(none)`.
-
-`atm developing <agent> --project <CODE> --persona <NAME>` injects the
-persona's prompt into the rendered session context, sets `ATM_PERSONA` and
-`ATM_AGENT` in the launched environment, and defaults `--actor` to
-`<persona>@<agent>` (an explicit `--actor` still wins).
-
-`atm actor migrate [--dry-run]` seeds the built-in `developer`/`manager`
-personas and scans existing project logs for legacy (pre-convention) actor
-strings, recording an alias (`<root>/actor-aliases.json`) mapping each one to
-a persona/agent/model. `atm actor alias set|list|remove` manage that alias
-table by hand.
-
-`atm activity --project <CODE> [--group-by persona|agent|model]` aggregates
-actor activity from the project's audit log into
-`{"groups":[{"key","count","agents","models","actions"}]}`. The Projects pane's
-"activity by persona" chart renders the same aggregation in-place; press `P`
-in the Projects pane to expand it into an overlay with a per-persona
-agents/models/actions breakdown. Press `p` to add a new persona.
-
-## Conventions
-
-v2's vision is that workflow lives outside the system — in agent prompts and
-human habits, not in the store. But a fresh agent landing in a project needs a
-deterministic entry point, and a fresh project needs its labels seeded.
-Onboarding is the act of seeding index tasks and seed labels; the conventions
-below tell humans and agents how to do that using only the label substrate.
-No bootstrap command, no reserved labels, no repo-side files, no store-side
-repo paths. The conventions are documented, not code-reserved: the system
-treats `ATM:context:agent` identically to `ATM:type:bug`.
-
-These conventions are **advisory** — `atm conventions` prints the same guide,
-but nothing in the store validates or special-cases these namespaces.
-
-### Suggested seed namespaces
-
-A fresh project is auto-seeded with the 22 default labels below on
-`atm project create` (and re-applied idempotently by
-`atm label seed --project <CODE>` or the Labels tab `[S]` key). Templated
-namespaces (`repo:<name>`, `doc:<name>`, `claimed-by:<agent>`, `blocks:<ID>`,
-`related:<ID>`) are created on demand — they depend on project-specific values
-and are NOT seeded as concrete labels.
-
-| Namespace             | Examples                          | Purpose                                                          |
-|-----------------------|-----------------------------------|------------------------------------------------------------------|
-| `status:`             | open, todo, planned, in-progress, done, blocked, review, archived | workflow states — labels only, no state machine        |
-| `type:`               | bug, feature, task, chore, design | task categorization                                              |
-| `priority:`           | high, medium, low                 | optional prioritization                                          |
-| `context:documentation` | `ATM:context:documentation`     | the labeled task contains documentation about the project        |
-| `context:repository`  | `ATM:context:repository`          | the labeled task contains a pointer to a code repository         |
-| `context:agent`       | `ATM:context:agent`               | agent direction when navigating the project                     |
-| `context:fixit`       | `ATM:context:fixit`               | something on this task should be reviewed, updated, or altered   |
-| `context:question`    | `ATM:context:question`            | the task poses an open question or ambiguity about the project   |
-| `context:stale`       | `ATM:context:stale`               | a context resource on this task has drifted from reality; reconcile or replace |
-| `comment:<kind>`      | `ATM:comment:decision`, `ATM:comment:open-question` | classify a comment's role — created on demand, not seeded |
-| `repo:<name>`         | `ATM:repo:atm`                    | index task pointing at a repo — created on demand, not seeded   |
-| `doc:<name>`          | `ATM:doc:architecture`            | index task pointing at a doc/resource — created on demand, not seeded |
-| `claimed-by:<agent>`  | `ATM:claimed-by:claude`           | who's working on what — last-writer-wins, no conflict detection  |
-| `blocks:<ID>`, `related:<ID>` | `ATM:blocks:ATM-0002`     | task relationships via labels — created on demand, not seeded   |
-
-### Agent code-of-conduct (label hygiene)
-
-Agents working in an ATM project follow these rules to keep the label substrate
-legible for humans and other agents:
-
-1. **Read before you write.** Run `atm label list --project <CODE>` and read
-   every label's description before introducing any new label. The existing
-   labels are the project's vocabulary; reuse them whenever one fits your
-   intent.
-2. **Default setup is the baseline.** The seeded labels (status, type,
-   priority, context) cover the common cases. Prefer them. Do not reinvent
-   `status:open` as `state:open` or `wf:open`.
-3. **Invent only when nothing fits.** If no existing label captures your
-   intent, you may create a new one — agents are free to self-organize. But
-   before you do, ask yourself: would a human reviewing the Labels tab
-   understand why this label exists?
-4. **State the intention in the label description.** When you create a new
-   label, also call
-   `atm label add --name <CODE>:<ns>:<value> --description "<one sentence: why this label exists>"`.
-   The description is the intention record. A label with no description is a
-   flag for human review: "agent introduced this but didn't explain why."
-5. **One label, one meaning.** Don't use the same label string to mean
-   different things across tasks. If your intent diverges from an existing
-   label's description, create a new label with a distinct name and a
-   description that distinguishes it.
-6. **Humans reconcile.** The Labels tab is the human's review surface. If you
-   see labels that overlap, contradict, or lack descriptions, edit or remove
-   them there. Agents follow the rules above; humans curate.
-
-### First-time human sequence
-
-1. `atm tui` (auto-inits the store)
-2. Create the project (Add in the Projects tab). Project create auto-seeds the
-   22 default labels with descriptions, so the Labels tab is populated from
-   the start.
-3. Create seed index tasks (`context:agent`, `context:repository`,
-   `context:documentation`) and initial work tasks, labeling as you go. The
-   human curates labels in the Labels tab.
-
-### Agent first-contact sequence
-
-1. `atm conventions` — read this guide, including the code-of-conduct.
-2. `atm label list --project <CODE>` — read every label's description first to
-   understand the project's vocabulary before exploring tasks. Labels are the
-   project's language; knowing them makes every task query meaningful.
-3. `atm task list --project <CODE> --label <CODE>:context:agent` — get agent
-   directions for working in this project.
-4. `atm task list --project <CODE> --label <CODE>:context:repository` /
-   `:context:documentation` — discover repository pointers and documentation.
-5. `atm task list --project <CODE> --label <CODE>:status:open` — get open work.
-
-A fresh agent that does not yet know the project's namespaces runs the
-label-list step first and follows the descriptions.
-
-For day-to-day development, start the agent through
-`atm developing <agent> --project <CODE>` after installing the ATM developing
-plugin. The command preserves the agent's normal workflow and adds ATM ledger
-context for the session.
-
-### Re-seeding defaults
-
-`atm label seed --project <CODE>` or the Labels tab `[S]` key re-applies the
-default set idempotently — existing descriptions are preserved, and any new
-defaults introduced in a release are added.
-
-## Manager onboarding
-
-`atm manager <host> --project <CODE> --onboard` launches a non-interactive
-agent that explores the current working directory and seeds the existing ATM
-project with context tasks AND computes the project vocabulary (ubiquitous
-language) in the same pass. The manager is the knowledge-base owner: it
-maintains the ledger, the context map, and the vocabulary.
-
-Prerequisite: the project must already exist.
-
-```
-atm project create --code FOO --name "Foo"
-cd /path/to/repo-to-onboard
-atm manager opencode --project FOO --onboard
-```
-
-For an ollama-backed agent:
-
-```
-atm manager ollama --project FOO --integration opencode --onboard
-```
-
-Without `--onboard`, `atm manager <host> --project <CODE>` opens an
-interactive human session to consult or steer the manager (ledger hygiene,
-vocabulary recompute, splits/merges, staleness review).
-
-Flags (onboard mode):
-
-- `--project <CODE>` (required) — the existing ATM project.
-- `--onboard` — non-interactive onboarding run against cwd.
-- `--actor <id>` (default `<host>-manager`) — stamped into history.
-- `--dry-run` — render the context and print the launcher argv/env without launching.
-- `--integration <name>` (ollama only, required) — passed through to `ollama launch`.
-- `-- <agent args...>` — everything after `--` is appended verbatim to the host agent's argv.
-
-## Vocabulary (ubiquitous language)
-
-`atm vocabulary` reads and writes a project's ubiquitous language — the
-recurring domain terms mined from task titles, descriptions, and comments
-by the manager.
-
-```
-atm vocabulary show --project FOO
-atm vocabulary write --project FOO --actor <ACTOR> --terms '[{"term":"labels","weight":9}]'
-```
-
-The TUI's third Projects-pane chart ("Ubiquitous Language") reads
-`vocabulary.json` and renders the terms as weighted bubbles. When no
-vocabulary has been computed yet, it shows a quiet empty state. Recompute
-is explicit: during onboarding, in an interactive manager session, or via
-a developing-agent track call with a `vocabulary` hint.
-
-## TUI
-
-`atm tui` is a first-class management surface that mirrors every CLI op. The
-typical TUI actor is a human consulting/steering; the typical CLI actor is an
-AI agent. See
-`docs/superpowers/specs/2026-07-02-tasks-management-v2-tui-mockups-design.md`
-for screens/keymaps.
-
-```
-atm tui [--store <path>] [--actor <id>]
-```
-
-The Tasks tab has no grouping toggle — filter wildcards (e.g.
-`ATM:status:*`) drive faceted grouping with multi-membership; exact filter
-tokens give a flat paged list.
-
-## Dogfooding
-
-ATM dogfoods itself: the ATM project and its follow-on tasks are tracked in the
-machine-global store. The bootstrap is idempotent and opt-in (it is **not** run
-by `make verify`):
+The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:
 
 ```sh
-make dogfood                            # builds, then seeds the default store
-ATM_HOME=/tmp/atm-dogfood make dogfood  # bootstrap against a throwaway store
+atm help
+atm conventions
 ```
-
-See `scripts/dogfood.sh` for the exact commands.
-
-## Architecture
-
-The implementation lives under `internal/store` (the stable in-process API),
-`internal/cli` (the stable out-of-process API), and `internal/tui` (a thin
-Bubble Tea client). The binary entrypoint is `cmd/atm`. The v2 design spec and
-TUI mockups live under `docs/superpowers/specs/`.
