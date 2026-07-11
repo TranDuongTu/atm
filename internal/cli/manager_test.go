@@ -9,205 +9,178 @@ import (
 	"atm/internal/manager"
 )
 
-func TestManagerCodexDryRunJSON(t *testing.T) {
+func TestManageCodexPlanningLaunchJSON(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
 	h.reset()
-	_, _, code := h.run("manager", "codex", "--project", "FOO", "--dry-run")
+
+	_, _, code := h.run("manage", "codex", "--project", "FOO", "--planning")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
+	}
+	if c.name != "codex" {
+		t.Fatalf("child name = %q, want codex", c.name)
 	}
 	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manager-dry-run-codex", got)
+	compareGolden(t, "manage-codex-planning-launch", got)
 }
 
-func TestManagerLaunchWarnsWhenPluginMissing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestManageRequiresExactlyOneAction(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	h.reset()
-	_, stderrStr, code := h.run("manager", "codex", "--project", "FOO", "--dry-run")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	for _, want := range []string{"warning: manager plugin", "atm manager plugin install"} {
-		if !strings.Contains(stderrStr, want) {
-			t.Errorf("stderr missing %q; got:\n%s", want, stderrStr)
-		}
-	}
-}
-
-func TestManagerMissingProject(t *testing.T) {
-	h := newGoldenHarness(t)
-	_, stderrStr, code := h.run("manager", "codex", "--project", "NOPE", "--dry-run")
-	if code != ExitNotFound {
-		t.Fatalf("exit = %d, want %d", code, ExitNotFound)
-	}
-	got := normalizeManagerOutput(stderrStr, h.store.StorePath())
-	compareGolden(t, "manager-missing-project", got)
-}
-
-func TestManagerPluginStatusJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	h := newGoldenHarness(t)
-	_, _, code := h.run("manager", "plugin", "status", "codex")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	got := normalizeHome(h.stdout.String(), home)
-	compareGolden(t, "manager-plugin-status", got)
-}
-
-func TestManagerPluginInstallDryRunJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	h := newGoldenHarness(t)
-	_, _, code := h.run("manager", "plugin", "install", "opencode", "--dry-run")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	got := normalizeHome(h.stdout.String(), home)
-	compareGolden(t, "manager-plugin-install-dry-run", got)
-}
-
-func TestManagerEnvIncludesATMValues(t *testing.T) {
-	got := managerEnvValues("FOO", "/bin/atm", "codex-manager", "FOO-RUNID", "/tmp/context.md", false)
-	joined := strings.Join(gotToSlice(got), "\n")
-	for _, want := range []string{
-		"ATM_ROLE=manager",
-		"ATM_PROJECT=FOO",
-		"ATM_BIN=/bin/atm",
-		"ATM_ACTOR=codex-manager",
-		"ATM_RUN_ID=FOO-RUNID",
-		"ATM_CONTEXT_FILE=/tmp/context.md",
+	captureChild(h)
+	for _, args := range [][]string{
+		{"manage", "codex", "--project", "FOO"},
+		{"manage", "codex", "--project", "FOO", "--planning", "--grooming"},
 	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("manager env missing %q", want)
+		_, _, code := h.run(args...)
+		if code == ExitSuccess {
+			t.Fatalf("%v should fail", args)
 		}
 	}
 }
 
-func TestManagerClaudeExtraArgsDryRunJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	for _, args := range [][]string{
+		{"manage", "codex", "--project", "FOO", "--planning", "--dry-run"},
+		{"manage", "codex", "--project", "FOO", "--planning", "--actor", "manager@codex:unset"},
+	} {
+		_, _, code := h.run(args...)
+		if code == ExitSuccess {
+			t.Fatalf("%v should fail", args)
+		}
+	}
+}
+
+func TestManageOllamaOnboarding(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
 	h.reset()
-	_, _, code := h.run("manager", "claude", "--project", "FOO", "--dry-run", "--", "--dangerously-skip-permission")
+
+	_, _, code := h.run("manage", "ollama", "--project", "FOO", "--integration", "opencode", "--onboarding")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manager-dry-run-claude-extra", got)
+	if !strings.Contains(strings.Join(c.argv, " "), "--auto --prompt") {
+		t.Fatalf("onboarding argv = %v, want non-interactive prompt argv", c.argv)
+	}
+	if !strings.Contains(strings.Join(c.env, "\n"), "ATM_ONBOARD=1") {
+		t.Fatalf("onboarding env missing ATM_ONBOARD=1:\n%s", strings.Join(c.env, "\n"))
+	}
 }
 
-func TestManagerOllamaDryRunJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestManagePersonaEnvAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("persona", "create", "--name", "ops", "--prompt", "curate well", "--actor", "admin@cli:unset")
+	captureChild(h)
 	h.reset()
-	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--dry-run")
+
+	out, _, code := h.run("manage", "claude", "--project", "FOO", "--planning", "--persona", "ops")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manager-dry-run-ollama", got)
-}
-
-func TestManagerOllamaRequiresIntegration(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	h.reset()
-	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--dry-run")
-	if code != ExitGeneric {
-		t.Fatalf("exit = %d, want %d (generic; cobra required-flag error)", code, ExitGeneric)
+	for _, want := range []string{
+		`"ATM_PERSONA": "ops"`,
+		`"ATM_MANAGER_ACTION": "planning"`,
+		`"ATM_ACTOR": "ops@claude:unset"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("manager env missing %q:\n%s", want, out)
+		}
 	}
 }
 
-func TestManagerRenderContextTextHasPrompt(t *testing.T) {
+func TestManagerCommandRemoved(t *testing.T) {
+	h := newGoldenHarness(t)
+	_, _, code := h.run("manager", "codex", "--project", "FOO", "--planning")
+	if code == ExitSuccess {
+		t.Fatalf("atm manager should be removed")
+	}
+}
+
+func TestManageContextHiddenFromRootHelp(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText
-	_, _, code := h.run("manager", "render-context", "--project", "FOO")
+	out, _, code := h.run("--help")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if strings.Contains(out, "manage-context") {
+		t.Fatalf("manage-context should be hidden from root help:\n%s", out)
+	}
+}
+
+func TestManageContextRendersPrompt(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.output = outputText
+	_, _, code := h.run("manage-context", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking request", "Onboarding", "conventions"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking", "Asking", "Glossary", "Onboarding", "conventions"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("render-context output missing %q", want)
+			t.Errorf("manage-context output missing %q", want)
+		}
+	}
+	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary"} {
+		if strings.Contains(got, old) {
+			t.Errorf("manage-context output still contains old term %q", old)
 		}
 	}
 }
 
-func TestManagerRenderContextGenericKeepsPlaceholders(t *testing.T) {
+func TestManageContextGenericKeepsPlaceholders(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText
-	_, _, code := h.run("manager", "render-context")
+	_, _, code := h.run("manage-context")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
 	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
 		if !strings.Contains(got, placeholder) {
-			t.Errorf("generic render-context stripped %s", placeholder)
+			t.Errorf("generic manage-context stripped %s", placeholder)
 		}
 	}
 }
 
-func TestManagerRenderContextFillsProjectName(t *testing.T) {
+func TestManageContextFillsProjectName(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo Project", "--actor", "admin@cli:unset")
 	h.reset()
 	h.output = outputText
-	_, _, code := h.run("manager", "render-context", "--project", "FOO", "--actor", "admin@cli:unset")
+	_, _, code := h.run("manage-context", "--project", "FOO", "--actor", "admin@cli:unset")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
 	if !strings.Contains(got, "Foo Project") {
-		t.Errorf("render-context did not fill <PROJECT_NAME> from the store:\n%s", got)
+		t.Errorf("manage-context did not fill <PROJECT_NAME> from the store:\n%s", got)
 	}
 	for _, ph := range []string{"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>"} {
 		if strings.Contains(got, ph) {
-			t.Errorf("render-context left placeholder %s when --project given", ph)
+			t.Errorf("manage-context left placeholder %s when --project given", ph)
 		}
 	}
 }
 
-func TestManagerOnboardOpencodeDryRunJSON(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	h.reset()
-	_, _, code := h.run("manager", "opencode", "--project", "FOO", "--onboard", "--dry-run")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manager-onboard-dry-run-opencode", got)
-}
-
-func TestManagerOnboardOllamaDryRunJSON(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	h.reset()
-	_, _, code := h.run("manager", "ollama", "--project", "FOO", "--integration", "opencode", "--onboard", "--dry-run")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manager-onboard-dry-run-ollama", got)
-}
-
 func TestManagerOnboardEnvHasATMOnboard(t *testing.T) {
-	got := managerEnvValues("FOO", "/bin/atm", "opencode-manager", "FOO-RUNID", "/tmp/ctx.md", true)
+	got := managerEnvValues("FOO", "/bin/atm", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", true, "manager", "onboarding")
 	joined := strings.Join(gotToSlice(got), "\n")
-	if !strings.Contains(joined, "ATM_ONBOARD=1") {
-		t.Errorf("onboard env missing ATM_ONBOARD=1; got:\n%s", joined)
+	for _, want := range []string{
+		"ATM_ONBOARD=1",
+		"ATM_PERSONA=manager",
+		"ATM_MANAGER_ACTION=onboarding",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("onboard env missing %q; got:\n%s", want, joined)
+		}
 	}
 }
 

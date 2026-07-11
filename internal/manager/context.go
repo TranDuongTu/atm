@@ -23,6 +23,7 @@ type ContextData struct {
 	Persona            string
 	PersonaPrompt      string
 	PersonaDescription string
+	Action             string
 }
 
 // RenderContext substitutes the ContextData placeholders into the manager
@@ -37,12 +38,16 @@ func RenderContext(data ContextData) string {
 		personaBlock = fmt.Sprintf("## Persona: %s\n\n%s\n\n%s\n\nYou are operating as this persona. Hold to its principles throughout the session, alongside the responsibilities below.\n",
 			data.Persona, data.PersonaDescription, data.PersonaPrompt)
 	}
+	actionBlock := ""
+	if data.Action != "" {
+		actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **%s**. Use the matching responsibility below as the primary goal, while still preserving ledger correctness.\n",
+			data.Action)
+	}
 	// Build a replacer that substitutes non-empty values. Empty values are
 	// replaced with the placeholder itself so it survives (a generic, unrendered
-	// template can still be produced by `atm manager render-context` with no
-	// --project). <PERSONA_BLOCK> is the exception: when there is no persona,
-	// the block is genuinely absent, so it substitutes with "" (no placeholder
-	// survives).
+	// template can still be produced by `atm manage-context` with no --project).
+	// <PERSONA_BLOCK> and <ACTION_BLOCK> are exceptions: when absent, the blocks
+	// are genuinely omitted, so they substitute with "" (no placeholders survive).
 	pairs := []string{
 		"<CODE>", data.Code,
 		"<PROJECT_NAME>", data.Name,
@@ -51,11 +56,12 @@ func RenderContext(data ContextData) string {
 		"<RUN_ID>", data.RunID,
 		"<TIMESTAMP>", data.Timestamp,
 		"<PERSONA_BLOCK>", personaBlock,
+		"<ACTION_BLOCK>", actionBlock,
 	}
 	final := make([]string, 0, len(pairs))
 	for i := 0; i < len(pairs); i += 2 {
 		key, val := pairs[i], pairs[i+1]
-		if val == "" && key != "<PERSONA_BLOCK>" {
+		if val == "" && key != "<PERSONA_BLOCK>" && key != "<ACTION_BLOCK>" {
 			final = append(final, key, key)
 		} else {
 			final = append(final, key, val)

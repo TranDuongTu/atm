@@ -14,24 +14,37 @@ import (
 
 type managerOpts struct {
 	Project     string
-	Actor       string
 	Integration string
-	Onboard     bool
-	DryRun      bool
+	Persona     string
+	Planning    bool
+	Grooming    bool
+	Tracking    bool
+	Asking      bool
+	Glossary    bool
+	Onboarding  bool
 	ExtraArgs   []string
 }
 
-func newManagerCmd(st *cliState) *cobra.Command {
+type managerAction string
+
+const (
+	managerActionPlanning   managerAction = "planning"
+	managerActionGrooming   managerAction = "grooming"
+	managerActionTracking   managerAction = "tracking"
+	managerActionAsking     managerAction = "asking"
+	managerActionGlossary   managerAction = "glossary"
+	managerActionOnboarding managerAction = "onboarding"
+)
+
+func newManageCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "manager",
-		Short: "Launch an ATM manager session or render manager context",
+		Use:   "manage",
+		Short: "Launch an ATM manager session",
 	}
-	cmd.AddCommand(newManagerPluginCmd(st))
-	cmd.AddCommand(newManagerRenderContextCmd(st))
 	for _, name := range []string{"opencode", "codex", "claude"} {
-		cmd.AddCommand(newManagerAgentCmd(st, name))
+		cmd.AddCommand(newManageAgentCmd(st, name))
 	}
-	cmd.AddCommand(newManagerOllamaCmd(st))
+	cmd.AddCommand(newManageOllamaCmd(st))
 	return cmd
 }
 
@@ -131,7 +144,7 @@ func managerPluginAgents(target string) ([]string, error) {
 	return nil, fmt.Errorf("%w: unknown manager plugin agent %q", ErrUsage, target)
 }
 
-func newManagerAgentCmd(st *cliState, agent string) *cobra.Command {
+func newManageAgentCmd(st *cliState, agent string) *cobra.Command {
 	var opts managerOpts
 	cmd := &cobra.Command{
 		Use:   agent,
@@ -143,20 +156,18 @@ func newManagerAgentCmd(st *cliState, agent string) *cobra.Command {
 				return fmt.Errorf("%w: unknown manager agent %q", ErrUsage, agent)
 			}
 			opts.ExtraArgs = args
-			opts.Actor = defaultManagerActor(l.Name(), st, opts.Actor)
 			opts.Integration = ""
 			return runManager(st, l, agent, "", opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default manager@<agent>:unset)")
-	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
-	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; defaults actor to <persona>@<agent>:unset")
+	bindManagerActionFlags(cmd, &opts)
 	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
 
-func newManagerOllamaCmd(st *cliState) *cobra.Command {
+func newManageOllamaCmd(st *cliState) *cobra.Command {
 	var opts managerOpts
 	cmd := &cobra.Command{
 		Use:   "ollama",
@@ -164,39 +175,63 @@ func newManagerOllamaCmd(st *cliState) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ExtraArgs = args
-			opts.Actor = defaultManagerActor("ollama", st, opts.Actor)
 			l := manager.OllamaLauncher{Integration: opts.Integration}
 			return runManager(st, l, "ollama", opts.Integration, opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id stamped into ATM commands (default manager@ollama:unset)")
 	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
-	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "render context + print argv/env; do not launch")
-	cmd.Flags().BoolVar(&opts.Onboard, "onboard", false, "non-interactive onboarding run against cwd (activates ATM_ONBOARD)")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; defaults actor to <persona>@ollama:unset")
+	bindManagerActionFlags(cmd, &opts)
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("integration")
 	return cmd
 }
 
-func defaultManagerActor(agent string, st *cliState, explicit string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if st.flags.actor != "" {
-		return st.flags.actor
-	}
-	return "manager@" + agent + ":unset"
+func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
+	cmd.Flags().BoolVar(&opts.Planning, "planning", false, "review backlog readiness, blocked work, and in-flight work")
+	cmd.Flags().BoolVar(&opts.Grooming, "grooming", false, "prioritize and shape the backlog")
+	cmd.Flags().BoolVar(&opts.Tracking, "tracking", false, "curate progress, decisions, questions, and handoffs")
+	cmd.Flags().BoolVar(&opts.Asking, "asking", false, "answer project questions grounded in ledger IDs")
+	cmd.Flags().BoolVar(&opts.Glossary, "glossary", false, "maintain shared project language")
+	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "learn a repo/project and organize it for later agents")
 }
 
-func newManagerRenderContextCmd(st *cliState) *cobra.Command {
+func validateManagerAction(opts managerOpts) (managerAction, error) {
+	selected := []managerAction{}
+	if opts.Planning {
+		selected = append(selected, managerActionPlanning)
+	}
+	if opts.Grooming {
+		selected = append(selected, managerActionGrooming)
+	}
+	if opts.Tracking {
+		selected = append(selected, managerActionTracking)
+	}
+	if opts.Asking {
+		selected = append(selected, managerActionAsking)
+	}
+	if opts.Glossary {
+		selected = append(selected, managerActionGlossary)
+	}
+	if opts.Onboarding {
+		selected = append(selected, managerActionOnboarding)
+	}
+	if len(selected) != 1 {
+		return "", fmt.Errorf("%w: choose exactly one manager action: --planning, --grooming, --tracking, --asking, --glossary, or --onboarding", ErrUsage)
+	}
+	return selected[0], nil
+}
+
+func newManageContextCmd(st *cliState) *cobra.Command {
 	var opts struct {
 		Project string
 		Actor   string
 	}
 	cmd := &cobra.Command{
-		Use:   "render-context",
-		Short: "Print the ATM manager system prompt to stdout",
+		Use:    "manage-context",
+		Short:  "Print the ATM manager system prompt to stdout",
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			data := manager.ContextData{
 				Code:  opts.Project,
@@ -234,11 +269,19 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 			ErrNotFound, opts.Project, opts.Project)
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
-		if ps := manager.PluginStatus(l.Name(), home); ps.State != "installed" {
-			fmt.Fprintf(st.stderr(), "warning: manager plugin %s for %s; subagent dispatch unavailable until 'atm manager plugin install %s'\n", ps.State, l.Name(), l.Name())
-		}
+	action, err := validateManagerAction(opts)
+	if err != nil {
+		return err
 	}
+	effectivePersona := opts.Persona
+	if effectivePersona == "" {
+		effectivePersona = "manager"
+	}
+	mp, err := s.GetPersona(effectivePersona)
+	if err != nil {
+		return err
+	}
+	actor := effectivePersona + "@" + l.Name() + ":unset"
 
 	atmBin, err := os.Executable()
 	if err != nil {
@@ -251,47 +294,41 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		return fmt.Errorf("create manager dir: %w", err)
 	}
 
-	mp, err := s.GetPersona("manager")
-	if err != nil {
-		return err
-	}
-
 	rendered := manager.RenderContext(manager.ContextData{
 		Code:               p.Code,
 		Name:               p.Name,
 		ATMBin:             atmBin,
-		Actor:              opts.Actor,
+		Actor:              actor,
 		RunID:              runID,
 		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
-		Persona:            "manager",
+		Persona:            effectivePersona,
 		PersonaPrompt:      mp.Prompt,
 		PersonaDescription: mp.Description,
+		Action:             string(action),
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
 	var base []string
-	if opts.Onboard {
+	onboarding := action == managerActionOnboarding
+	if onboarding {
 		base = l.BuildArgvOnboard(contextPath)
 	} else {
 		base = l.BuildArgv()
 	}
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
-	envValues := managerEnvValues(opts.Project, atmBin, opts.Actor, runID, contextPath, opts.Onboard)
+	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, onboarding, effectivePersona, string(action))
 	env := assembleEnv(envValues)
-	if opts.Onboard {
+	if onboarding {
 		setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
 	}
 	if err := emitLaunchHeader(st, "manager", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
 	}
-	if opts.DryRun {
-		return nil
-	}
 
-	exitCode, runErr := runChild(l.Name(), argv, env, l.NotFoundHint())
+	exitCode, runErr := st.runChild(l.Name(), argv, env, l.NotFoundHint())
 	if err := emitLaunchTail(st, "manager", opts.Project, runID, contextPath, l.Name(), exitCode); err != nil {
 		return err
 	}
@@ -301,14 +338,16 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	return nil
 }
 
-func managerEnvValues(project, atmBin, actor, runID, contextPath string, onboard bool) map[string]string {
+func managerEnvValues(project, atmBin, actor, runID, contextPath string, onboard bool, persona string, action string) map[string]string {
 	m := map[string]string{
-		"ATM_ROLE":         "manager",
-		"ATM_PROJECT":      project,
-		"ATM_BIN":          atmBin,
-		"ATM_ACTOR":        actor,
-		"ATM_RUN_ID":       runID,
-		"ATM_CONTEXT_FILE": contextPath,
+		"ATM_ROLE":           "manager",
+		"ATM_PROJECT":        project,
+		"ATM_BIN":            atmBin,
+		"ATM_ACTOR":          actor,
+		"ATM_RUN_ID":         runID,
+		"ATM_CONTEXT_FILE":   contextPath,
+		"ATM_PERSONA":        persona,
+		"ATM_MANAGER_ACTION": action,
 	}
 	if onboard {
 		m["ATM_ONBOARD"] = "1"

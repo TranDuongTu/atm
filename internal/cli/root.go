@@ -90,7 +90,8 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 		root.AddCommand(newDeveloperAgentCmd(st, name))
 	}
 	root.AddCommand(newDeveloperOllamaCmd(st))
-	root.AddCommand(newManagerCmd(st))
+	root.AddCommand(newManageCmd(st))
+	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))
 
 	return root
