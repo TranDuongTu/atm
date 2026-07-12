@@ -33,8 +33,6 @@ The user-facing path should be smaller:
 
 ## Non-goals
 
-- No interactive terminal wizard in this change. The CLI will expose explicit
-  repeatable flags so tests and scripts are deterministic.
 - No support for `ollama` plugin installation. Ollama is an integration launcher,
   not a host with ATM plugin assets.
 - No change to the task/label/store data model.
@@ -42,7 +40,14 @@ The user-facing path should be smaller:
 
 ## Command Surface
 
-`atm init` keeps its existing store initialization behavior and adds:
+`atm init` keeps its existing store initialization behavior and guides
+interactive users through plugin setup. In text mode with TTY stdin and no
+explicit `--agent`, it prints an `ATM setup` section, lists supported agents,
+and accepts one or more comma-separated numbers/names or `all`. Pressing Enter
+skips plugin installation after store initialization.
+
+For scripts and non-interactive callers, `atm init` also supports explicit
+repeatable flags:
 
 ```
 atm init --agent codex
@@ -55,8 +60,9 @@ Supported agent values are `codex`, `claude`, `opencode`, and `all`.
 `--agent` is repeatable. `all` expands to all supported plugin hosts. Duplicate
 agents are collapsed in stable order: `opencode`, `codex`, `claude`.
 
-With no `--agent`, `atm init` initializes the store only. That preserves the
-current non-interactive default and keeps existing tests/scripts stable.
+With no `--agent` and non-TTY stdin, `atm init` initializes the store only. This
+prevents CI/scripts from hanging on a prompt. JSON output also stays
+non-interactive.
 
 Text output prints the initialized store path followed by one line per installed
 plugin role and agent. JSON output includes the store path and an `installed`
@@ -95,6 +101,10 @@ Tests cover:
 
 - `atm init --agent codex --agent claude` installs both developer and manager
   plugin assets for both selected agents.
+- `atm init` in text-mode TTY prompts for one or more agents and installs both
+  developer and manager plugin assets for the selected agents.
+- `atm init` in non-interactive text mode without `--agent` does not prompt or
+  install plugins.
 - `atm init --agent all --dry-run` reports all plugin writes without creating
   plugin files.
 - `atm manage plugin ...` fails because the command tree is removed.

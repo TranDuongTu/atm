@@ -147,6 +147,61 @@ func TestInitDryRunAllReportsPluginsWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestInitInteractiveGuidesAgentSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("1,3\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	out, _, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	for _, path := range []string{
+		filepath.Join(home, ".config", "opencode", "plugins", "atm-developing.js"),
+		filepath.Join(home, ".config", "opencode", "agents", "atm-manager.md"),
+		filepath.Join(home, ".claude", "skills", "atm-developing", ".claude-plugin", "plugin.json"),
+		filepath.Join(home, ".claude", "agents", "atm-manager.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected installed file %s: %v\noutput:\n%s", path, err, out)
+		}
+	}
+	for _, want := range []string{
+		"ATM setup",
+		"Choose agent integrations",
+		"Agents [comma-separated numbers/names, all, or Enter to skip]:",
+		"developing\topencode\tinstalled",
+		"manager\tclaude\tinstalled",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("interactive init output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestInitNonInteractiveWithoutAgentDoesNotPrompt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("")
+	h.st.stdinIsTerminal = func() bool { return false }
+
+	out, _, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if strings.Contains(out, "Choose agent integrations") {
+		t.Fatalf("non-interactive init should not prompt:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "atm-developing.js")); !os.IsNotExist(err) {
+		t.Fatalf("non-interactive init without --agent installed plugin: %v", err)
+	}
+}
+
 func installFakeCodexForCLI(t *testing.T, home string) {
 	t.Helper()
 	binDir := filepath.Join(home, "bin")

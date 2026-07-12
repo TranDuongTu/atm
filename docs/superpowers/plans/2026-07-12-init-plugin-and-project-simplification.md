@@ -4,13 +4,15 @@
 
 **Goal:** Make `atm init` the only user-facing plugin setup flow and let launchers auto-create missing projects.
 
-**Architecture:** Keep plugin install/status implementation in `internal/developing` and `internal/manager`, but expose combined installation only through `atm init`. Add a small shared CLI helper that returns an existing project or creates it with a fallback name before rendering launcher context.
+**Architecture:** Keep plugin install/status implementation in `internal/developing` and `internal/manager`, but expose combined installation only through `atm init`. Add a text-mode TTY prompt for default setup and keep repeatable `--agent` flags for deterministic scripts. Add a small shared CLI helper that returns an existing project or creates it with a fallback name before rendering launcher context.
 
 **Tech Stack:** Go 1.22+, Cobra CLI, existing `internal/store`, existing plugin asset installers.
 
 ## Global Constraints
 
 - `atm init` remains idempotent.
+- `atm init` in text-mode TTY prompts for agent selection when `--agent` is not supplied.
+- `atm init` in JSON mode or non-TTY mode stays non-interactive unless `--agent` is supplied.
 - Supported setup agents are exactly `opencode`, `codex`, `claude`, and `all`.
 - Old `atm manage plugin ...` commands are hard-removed from the user-facing Cobra tree.
 - `--project` stays required on launchers.
@@ -28,7 +30,7 @@
 
 **Interfaces:**
 - Consumes: `developing.InstallPlugin(agent, home, dryRun)` and `manager.InstallPlugin(agent, home, dryRun)`.
-- Produces: repeatable `atm init --agent <agent>` and `atm init --dry-run --agent <agent>`.
+- Produces: interactive `atm init` agent selection plus repeatable `atm init --agent <agent>` and `atm init --dry-run --agent <agent>`.
 
 - [ ] **Step 1: Write failing CLI tests**
 

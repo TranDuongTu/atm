@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -27,11 +28,20 @@ type globalFlags struct {
 
 type cliState struct {
 	flags globalFlags
+	in    io.Reader
 	out   io.Writer
 	err   io.Writer
 
-	runChildFn childRunner
-	runTUI     tuiRunner
+	runChildFn      childRunner
+	runTUI          tuiRunner
+	stdinIsTerminal func() bool
+}
+
+func (s *cliState) stdin() io.Reader {
+	if s.in != nil {
+		return s.in
+	}
+	return os.Stdin
 }
 
 func (s *cliState) stdout() io.Writer {
@@ -46,6 +56,14 @@ func (s *cliState) stderr() io.Writer {
 		return s.err
 	}
 	return os.Stderr
+}
+
+func (s *cliState) isStdinTerminal() bool {
+	if s.stdinIsTerminal != nil {
+		return s.stdinIsTerminal()
+	}
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func newRootCmdWithState(st *cliState) *cobra.Command {
@@ -196,7 +214,15 @@ func newInitCmd(st *cliState) *cobra.Command {
 			if err := s.Init(""); err != nil {
 				return err
 			}
-			installed, err := installInitPlugins(agents, dryRun)
+			selected := agents
+			if len(selected) == 0 && st.flags.output == outputText && st.isStdinTerminal() {
+				var err error
+				selected, err = promptInitAgents(st)
+				if err != nil {
+					return err
+				}
+			}
+			installed, err := installInitPlugins(selected, dryRun)
 			if err != nil {
 				return err
 			}
@@ -222,6 +248,50 @@ func newInitCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringArrayVar(&agents, "agent", nil, "agent plugin to install (repeatable: opencode, codex, claude, all)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print plugin files that would be written without modifying user config")
 	return cmd
+}
+
+func promptInitAgents(st *cliState) ([]string, error) {
+	fmt.Fprintln(st.stdout())
+	fmt.Fprintln(st.stdout(), "ATM setup")
+	fmt.Fprintln(st.stdout(), "Choose agent integrations to install (multiple allowed):")
+	fmt.Fprintln(st.stdout(), "  1) opencode")
+	fmt.Fprintln(st.stdout(), "  2) codex")
+	fmt.Fprintln(st.stdout(), "  3) claude")
+	fmt.Fprint(st.stdout(), "Agents [comma-separated numbers/names, all, or Enter to skip]: ")
+
+	scanner := bufio.NewScanner(st.stdin())
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("read init selection: %w", err)
+		}
+		return nil, nil
+	}
+	return parseInitAgentSelection(scanner.Text())
+}
+
+func parseInitAgentSelection(input string) ([]string, error) {
+	input = strings.TrimSpace(strings.ToLower(input))
+	if input == "" {
+		return nil, nil
+	}
+	replacer := strings.NewReplacer(",", " ", ";", " ")
+	fields := strings.Fields(replacer.Replace(input))
+	selected := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "1", "opencode":
+			selected = append(selected, "opencode")
+		case "2", "codex":
+			selected = append(selected, "codex")
+		case "3", "claude":
+			selected = append(selected, "claude")
+		case "all":
+			selected = append(selected, "all")
+		default:
+			return nil, fmt.Errorf("%w: unknown init agent selection %q", ErrUsage, field)
+		}
+	}
+	return selected, nil
 }
 
 type initInstallResult struct {
