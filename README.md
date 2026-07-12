@@ -71,6 +71,29 @@ atm manage --project ATM --agent claude --planning --persona manager -- --danger
 
 Use `atm agents list`, `atm agents select <name>`, and `atm agents args <name> -- <args...>` when you want to inspect readiness or change the default agent after setup.
 
+### Semantic Search And Indexing
+
+Configure an OpenAI-compatible embedding endpoint before using semantic search or the indexer:
+
+```sh
+atm project set-embedding --project ATM \
+  --model nomic-embed-text \
+  --endpoint http://localhost:11434/v1 \
+  --dim 768 \
+  --threshold 0.55
+```
+
+Build or inspect indexes from the CLI:
+
+```sh
+atm index reindex --project ATM      # one-shot index pass
+atm index status --project ATM       # staleness per indexed model
+atm index models --project ATM       # models with stored vectors
+atm search --project ATM "query"     # semantic search with text fallback
+```
+
+From `atm`, press `g 1` to open the indexer overlay. Press `e` to edit embedding config, `p` for the Nomic preset, `s` to save, and `S` to start or stop the live indexer.
+
 The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:
 
 ```sh
