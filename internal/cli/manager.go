@@ -267,10 +267,9 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	if err != nil {
 		return err
 	}
-	p, err := s.GetProject(opts.Project)
+	p, err := ensureProjectForLaunch(s, opts.Project)
 	if err != nil {
-		return fmt.Errorf("%w: project %s not found; create it first:\n  atm project create --code %s --name \"...\"",
-			ErrNotFound, opts.Project, opts.Project)
+		return err
 	}
 
 	action, err := validateManagerAction(opts)

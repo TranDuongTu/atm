@@ -44,14 +44,21 @@ func TestDeveloperCodexLaunchJSON(t *testing.T) {
 	compareGolden(t, "developer-codex-launch", got)
 }
 
-func TestDeveloperMissingProject(t *testing.T) {
+func TestDeveloperLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
-	_, stderrStr, code := h.run("codex", "--project", "NOPE")
-	if code != ExitNotFound {
-		t.Fatalf("exit = %d, want %d", code, ExitNotFound)
+	captureChild(h)
+
+	_, _, code := h.run("codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	got := normalizeDevelopingOutput(stderrStr, h.store.StorePath())
-	compareGolden(t, "developing-missing-project", got)
+	p, err := h.store.GetProject("FOO")
+	if err != nil {
+		t.Fatalf("auto-created project missing: %v", err)
+	}
+	if p.Name != "FOO" {
+		t.Fatalf("project name = %q, want FOO", p.Name)
+	}
 }
 
 func TestDevelopingTailSummaryJSON(t *testing.T) {

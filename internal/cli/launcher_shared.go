@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"atm/internal/store"
 )
 
 // newRunID builds a run id of the form <CODE>-<YYYYMMDDHHMMSS>-<6-hex>.
@@ -17,6 +19,24 @@ func newRunID(code string) string {
 		time.Now().UTC().Format("20060102150405"),
 		shortUUID(),
 	)
+}
+
+func ensureProjectForLaunch(s *store.Store, code string) (*store.Project, error) {
+	p, err := s.GetProject(code)
+	if err == nil {
+		return p, nil
+	}
+	if !store.IsNotFound(err) {
+		return nil, err
+	}
+	p, err = s.CreateProject(code, code, "admin@cli:unset")
+	if err == nil {
+		return p, nil
+	}
+	if store.IsConflict(err) {
+		return s.GetProject(code)
+	}
+	return nil, err
 }
 
 // shortUUID returns a 6-char hex suffix for collision safety in run IDs.

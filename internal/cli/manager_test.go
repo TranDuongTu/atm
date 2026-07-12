@@ -26,6 +26,23 @@ func TestManageCodexPlanningLaunchJSON(t *testing.T) {
 	compareGolden(t, "manage-codex-planning-launch", got)
 }
 
+func TestManageLaunchAutoCreatesProject(t *testing.T) {
+	h := newGoldenHarness(t)
+	captureChild(h)
+
+	_, _, code := h.run("manage", "codex", "--project", "FOO", "--planning")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	p, err := h.store.GetProject("FOO")
+	if err != nil {
+		t.Fatalf("auto-created project missing: %v", err)
+	}
+	if p.Name != "FOO" {
+		t.Fatalf("project name = %q, want FOO", p.Name)
+	}
+}
+
 func TestManageRequiresExactlyOneAction(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
