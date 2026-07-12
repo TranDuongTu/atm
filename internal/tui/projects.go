@@ -621,67 +621,115 @@ func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...
 	if bodyH < 1 {
 		bodyH = 1
 	}
-	gap := 1
-	cellW := (width - (len(days)-1)*gap) / len(days)
-	if cellW < 1 {
-		cellW = 1
+	const gap = 1
+
+	barWidths, canvasW := computeProportionalBars(days, width, gap)
+	if canvasW < 1 {
+		return ""
 	}
-	if cellW > 10 {
-		cellW = 10
-	}
-	canvasW := cellW*len(days) + (len(days)-1)*gap
+
 	c := canvas.New(canvasW, height)
+	x := 0
 	for i, day := range days {
-		x0 := i * (cellW + gap)
-		r := activityCanvasRune(day.count)
-		style := activityCanvasStyle(day.count)
-		for x := 0; x < cellW; x++ {
-			for y := 0; y < bodyH-1; y++ {
-				c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: y}, r, style)
-			}
-			c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: bodyH - 1}, emptyBarRune(day.count), style)
+		bw := barWidths[i]
+		if bw <= 0 {
+			x += gap
+			continue
 		}
+		style := activityCanvasStyle(day.count)
+		for col := 0; col < bw; col++ {
+			for row := 0; row < bodyH; row++ {
+				c.SetRuneWithStyle(canvas.Point{X: x + col, Y: row}, '█', style)
+			}
+		}
+		x += bw + gap
 	}
-	axis := activityStripeAxis(canvasW, cellW, len(days), gap)
+	axis := activityStripeAxis(days, canvasW)
 	c.SetStringWithStyle(canvas.Point{X: 0, Y: height - 1}, axis, lipgloss.NewStyle().Foreground(lipgloss.Color("244")))
 	return c.View()
 }
 
-func emptyBarRune(count int) rune {
-	if count <= 0 {
-		return '▁'
+func computeProportionalBars(days []activityStripeDay, width, gap int) ([]int, int) {
+	numDays := len(days)
+	totalBarWidth := width - (numDays-1)*gap
+	if totalBarWidth < numDays {
+		totalBarWidth = numDays
 	}
-	return activityCanvasRune(count)
+
+	maxCount := 0
+	for _, day := range days {
+		if day.count > maxCount {
+			maxCount = day.count
+		}
+	}
+
+	barWidths := make([]int, numDays)
+	if maxCount == 0 {
+		for i := range barWidths {
+			barWidths[i] = 1
+		}
+	} else {
+		scaledTotal := 0
+		for i, day := range days {
+			if day.count == 0 {
+				barWidths[i] = 0
+			} else {
+				bw := day.count * totalBarWidth / maxCount
+				if bw < 1 {
+					bw = 1
+				}
+				barWidths[i] = bw
+			}
+			scaledTotal += barWidths[i]
+		}
+		remainder := totalBarWidth - scaledTotal
+		for i := range barWidths {
+			if remainder <= 0 {
+				break
+			}
+			if days[i].count > 0 {
+				barWidths[i]++
+				remainder--
+			}
+		}
+	}
+
+	canvasW := 0
+	for _, bw := range barWidths {
+		canvasW += bw
+	}
+	canvasW += (numDays - 1) * gap
+	return barWidths, canvasW
 }
 
-func activityStripeAxis(width, cellW, days, gap int) string {
-	if width <= 0 {
+func activityStripeAxis(days []activityStripeDay, width int) string {
+	if len(days) == 0 || width <= 0 {
 		return ""
 	}
-	left := "7d ago"
-	mid := "Yesterday"
-	right := "Today"
+	start := days[0].day
+	end := days[len(days)-1].day
+	label := start + " — " + end
+	labelW := lipgloss.Width(label)
+	if labelW > width {
+		startShort := strings.ReplaceAll(start, "-", "")
+		endShort := strings.ReplaceAll(end, "-", "")
+		label = startShort + " — " + endShort
+		labelW = lipgloss.Width(label)
+		if labelW > width {
+			label = label[:width]
+			labelW = width
+		}
+	}
 	line := []rune(repeat(" ", width))
-	put := func(label string, pos int) {
-		if pos < 0 {
-			pos = 0
-		}
-		if pos+len([]rune(label)) > width {
-			pos = width - len([]rune(label))
-		}
-		if pos < 0 {
-			return
-		}
-		for i, r := range label {
+	pos := (width - labelW) / 2
+	if pos < 0 {
+		pos = 0
+	}
+	for i, r := range label {
+		if pos+i < len(line) {
 			line[pos+i] = r
 		}
 	}
-	put(left, 0)
-	if days >= 6 {
-		yesterdayX := (days - 2) * (cellW + gap)
-		put(mid, yesterdayX)
-	}
-	put(right, width-len([]rune(right)))
 	return string(line)
 }
 
