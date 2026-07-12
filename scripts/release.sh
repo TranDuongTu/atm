@@ -277,10 +277,29 @@ phase8_upload() {
       body=$(jq -n --arg tag "$VERSION" --arg name "$VERSION" \
         --arg body "$desc" \
         '{tag_name:$tag, name:$name, body:$body}')
-      curl -sf --header "Authorization: token $GITHUB_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$body" \
-        "https://api.github.com/repos/$repo/releases" >/dev/null
+      existing=$(curl -sf "https://api.github.com/repos/$repo/releases/tags/$VERSION" 2>/dev/null || true)
+      if [ -n "$existing" ]; then
+        release_id=$(printf '%s' "$existing" | jq -r '.id')
+        echo "release $VERSION already exists; updating"
+        resp=$(curl -sf -X PATCH --header "Authorization: token $GITHUB_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "$body" \
+          "https://api.github.com/repos/$repo/releases/$release_id")
+      else
+        resp=$(curl -sf --header "Authorization: token $GITHUB_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "$body" \
+          "https://api.github.com/repos/$repo/releases")
+      fi
+      upload_url=$(printf '%s' "$resp" | jq -r '.upload_url' | sed 's/{?name,label}//')
+      for f in dist/*.tar.gz dist/SHA256SUMS; do
+        name=$(basename "$f")
+        echo "uploading $name"
+        curl -sf --header "Authorization: token $GITHUB_TOKEN" \
+          --header "Content-Type: application/octet-stream" \
+          --data-binary "@$f" \
+          "$upload_url?name=$name" >/dev/null
+      done
       ;;
     *) echo "unknown FORGE: $forge" >&2; exit 2 ;;
   esac
