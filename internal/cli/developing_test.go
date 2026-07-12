@@ -33,7 +33,7 @@ func TestDeveloperCodexLaunchJSON(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("codex", "--project", "FOO")
+	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -48,7 +48,7 @@ func TestDeveloperLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
 
-	_, _, code := h.run("codex", "--project", "FOO")
+	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
@@ -96,7 +96,7 @@ func TestDevelopingLauncherNotFound(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
-	_, stderrStr, code := h.run("codex", "--project", "FOO")
+	_, stderrStr, code := h.run("dev", "--agent", "codex", "--project", "FOO")
 	if code != ExitGeneric {
 		t.Fatalf("exit = %d, want %d", code, ExitGeneric)
 	}
@@ -110,7 +110,7 @@ func TestDeveloperCodexExtraArgs(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("codex", "--project", "FOO", "--", "--yolo", "--auto")
+	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO", "--", "--yolo", "--auto")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -126,7 +126,7 @@ func TestDeveloperOllamaLaunch(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("ollama", "--project", "FOO", "--integration", "codex", "--", "--yolo")
+	_, _, code := h.run("dev", "--agent", "ollama:codex", "--project", "FOO", "--", "--yolo")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -145,7 +145,7 @@ func TestDeveloperCodexEnvArgs(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("codex", "--project", "FOO")
+	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -162,7 +162,7 @@ func TestDeveloperPersonaEnvAndActor(t *testing.T) {
 	captureChild(h)
 	h.reset()
 
-	out, _, code := h.run("claude", "--project", "FOO", "--persona", "staff")
+	out, _, code := h.run("dev", "--agent", "claude", "--project", "FOO", "--persona", "staff")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -189,8 +189,8 @@ func TestDeveloperLaunchRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	for _, args := range [][]string{
-		{"codex", "--project", "FOO", "--dry-run"},
-		{"codex", "--project", "FOO", "--actor", "developer@codex:unset"},
+		{"dev", "--agent", "codex", "--project", "FOO", "--dry-run"},
+		{"dev", "--agent", "codex", "--project", "FOO", "--actor", "developer@codex:unset"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
@@ -199,13 +199,39 @@ func TestDeveloperLaunchRejectsDryRunAndActor(t *testing.T) {
 	}
 }
 
-func TestDeveloperOllamaRequiresIntegration(t *testing.T) {
+func TestDevLaunchesSelectedAgent(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+
+	// no selection and no --agent -> non-zero exit
+	if _, _, code := h.run("dev", "--project", "FOO"); code == ExitSuccess {
+		t.Fatal("expected non-zero exit with no agent selected")
+	}
+
+	// selecting then launching resolves the entry from config
+	if _, _, code := h.run("agents", "select", "opencode"); code != ExitSuccess {
+		t.Fatalf("select exit=%d", code)
+	}
 	h.reset()
-	_, _, code := h.run("ollama", "--project", "FOO")
-	if code != ExitGeneric {
-		t.Fatalf("exit = %d, want %d (generic; cobra required-flag error)", code, ExitGeneric)
+	out, _, code := h.run("dev", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("dev exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, `"agent": "opencode"`) {
+		t.Fatalf("dev did not resolve selected agent: %s", out)
+	}
+}
+
+func TestDevAgentFlagOverridesSelected(t *testing.T) {
+	h := newGoldenHarness(t)
+	c := captureChild(h)
+	h.run("agents", "select", "opencode")
+	h.reset()
+	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("dev exit=%d", code)
+	}
+	if c.name != "codex" {
+		t.Fatalf("expected --agent override to launch codex, got %q", c.name)
 	}
 }
 

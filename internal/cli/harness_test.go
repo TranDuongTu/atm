@@ -36,7 +36,7 @@ type goldenHarness struct {
 func newGoldenHarness(t *testing.T) *goldenHarness {
 	t.Helper()
 	for _, k := range []string{
-		"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE",
+		"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE", "ATM_AGENT",
 		"ATM_OPENCODE_ARGS", "ATM_CODEX_ARGS", "ATM_CLAUDE_ARGS", "ATM_OLLAMA_ARGS",
 	} {
 		t.Setenv(k, "")
@@ -61,7 +61,7 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	t.Helper()
 	for _, k := range []string{
-		"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE",
+		"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID", "ATM_CONTEXT_FILE", "ATM_AGENT",
 		"ATM_OPENCODE_ARGS", "ATM_CODEX_ARGS", "ATM_CLAUDE_ARGS", "ATM_OLLAMA_ARGS",
 	} {
 		t.Setenv(k, "")

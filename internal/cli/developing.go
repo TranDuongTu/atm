@@ -16,48 +16,44 @@ type developingOpts struct {
 	Project     string
 	Integration string
 	Persona     string
+	Agent       string
+	DefaultArgs []string
 	ExtraArgs   []string
 }
 
-func newDeveloperAgentCmd(st *cliState, agent string) *cobra.Command {
+func newDevCmd(st *cliState) *cobra.Command {
 	var opts developingOpts
 	cmd := &cobra.Command{
-		Use:   agent,
-		Short: "Launch " + agent + " with ATM developer context",
+		Use:   "dev",
+		Short: "Launch the selected agent with ATM developer context",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			l, ok := developing.LauncherFor(agent)
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			cfg, err := s.GetAgentsConfig()
+			if err != nil {
+				return err
+			}
+			e, defArgs, err := resolveEntry(opts.Agent, cfg)
+			if err != nil {
+				return err
+			}
+			l, ok := devLauncherFor(e)
 			if !ok {
-				return fmt.Errorf("%w: unknown developer agent %q", ErrUsage, agent)
+				return fmt.Errorf("%w: unknown developer agent %q", ErrUsage, e.Launcher)
 			}
 			opts.ExtraArgs = args
-			opts.Integration = ""
-			return runDeveloping(st, l, agent, "", opts)
+			opts.Integration = e.Integration
+			opts.DefaultArgs = defArgs
+			return runDeveloping(st, l, e.Launcher, e.Integration, opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
 	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>:unset")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 	_ = cmd.MarkFlagRequired("project")
-	return cmd
-}
-
-func newDeveloperOllamaCmd(st *cliState) *cobra.Command {
-	var opts developingOpts
-	cmd := &cobra.Command{
-		Use:   "ollama",
-		Short: "Launch ollama-backed agent with ATM developer context",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.ExtraArgs = args
-			l := developing.OllamaLauncher{Integration: opts.Integration}
-			return runDeveloping(st, l, "ollama", opts.Integration, opts)
-		},
-	}
-	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project to use as the work ledger")
-	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; injects its prompt and defaults actor to <persona>@<agent>:unset")
-	_ = cmd.MarkFlagRequired("project")
-	_ = cmd.MarkFlagRequired("integration")
 	return cmd
 }
 
@@ -111,7 +107,7 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 
 	base := l.BuildArgv()
 	envArgs := agentEnvArgs(agent, integration)
-	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
+	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
 	envValues := developingEnvValues(opts.Project, atmBin, actor, runID, contextPath, l.Name(), effectivePersona)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "developing", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
