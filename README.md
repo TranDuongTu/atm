@@ -4,27 +4,19 @@ ATM is an append-only task ledger for people who work through coding agents.
 
 ## 30-Second Start
 
+**1. Install** the `atm` binary:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
+```
+
+**2. Onboard.** `atm init` initializes the store, guides you through installing ATM plugins for one or more agents, and selects the first as your default agent:
+
 ```sh
 atm init
-atm
-atm dev --project ATM
-atm manage --project ATM --planning
 ```
 
-`atm init` initializes the store, guides you through installing ATM plugins for
-one or more agents, and selects the first as your default. `atm dev` / `atm
-manage` then launch that selected agent — you do not name it each time. Agent
-launchers create the project if it does not exist.
-
-## User Actions
-
-Open the TUI:
-
-```sh
-atm
-```
-
-Choose an agent (once):
+**3. Pick your agent** (once — reuse or change any time). The supported agents are the built-ins `opencode`, `codex`, `claude`, and their ollama-driven variants `ollama:opencode`, `ollama:codex`, `ollama:claude`:
 
 ```sh
 atm agents list                 # supported agents + install/readiness
@@ -32,28 +24,16 @@ atm agents select opencode      # set the default for atm dev / atm manage
 atm agents args codex -- --yolo # optional per-agent default passthrough
 ```
 
-Supported agents are the built-ins `opencode`, `codex`, `claude`, and their
-ollama-driven variants `ollama:opencode`, `ollama:codex`, `ollama:claude`.
-
-Start a developer session (uses the selected agent):
+**4. Work.** Open the dashboard, or launch a session with your selected agent — you never name the agent each time, and launchers create the project if it does not exist:
 
 ```sh
-atm dev --project ATM
-atm dev --project ATM --agent claude   # override just this launch
+atm                                       # dashboard TUI
+atm dev --project ATM                     # developer session
+atm dev --project ATM --agent claude      # override the agent for one launch
+atm manage --project ATM --planning       # manager session (see actions below)
 ```
 
-Start a manager session:
-
-```sh
-atm manage --project ATM --planning
-atm manage --project ATM --grooming
-atm manage --project ATM --tracking
-atm manage --project ATM --asking
-atm manage --project ATM --glossary
-atm manage --project ATM --onboarding
-```
-
-Both launchers accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
+Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
 
 ```sh
 atm dev --project ATM --persona developer -- --yolo
@@ -84,12 +64,6 @@ I do not want a traditional Jira-style ticket system built around human browsing
 ## Store
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
-
-## Install
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
-```
 
 ## Build And Verify
 
