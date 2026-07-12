@@ -628,6 +628,13 @@ func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...
 		return ""
 	}
 
+	maxCount := 0
+	for _, day := range days {
+		if day.count > maxCount {
+			maxCount = day.count
+		}
+	}
+
 	c := canvas.New(canvasW, height)
 	x := 0
 	for i, day := range days {
@@ -636,10 +643,17 @@ func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...
 			x += gap
 			continue
 		}
+		barH := bodyH
+		if day.count > 0 && maxCount > 0 {
+			barH = day.count * bodyH / maxCount
+			if barH < 1 {
+				barH = 1
+			}
+		}
 		style := activityCanvasStyle(day.count)
 		for col := 0; col < bw; col++ {
-			for row := 0; row < bodyH; row++ {
-				c.SetRuneWithStyle(canvas.Point{X: x + col, Y: row}, '█', style)
+			for row := 0; row < barH; row++ {
+				c.SetRuneWithStyle(canvas.Point{X: x + col, Y: bodyH - 1 - row}, '█', style)
 			}
 		}
 		x += bw + gap
