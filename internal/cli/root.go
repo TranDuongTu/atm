@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"atm/internal/developing"
+	"atm/internal/manager"
 	"atm/internal/store"
 	"atm/internal/tui"
 	"atm/internal/version"
@@ -180,9 +182,11 @@ func newVersionCmd(st *cliState) *cobra.Command {
 }
 
 func newInitCmd(st *cliState) *cobra.Command {
+	var agents []string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create an empty store (idempotent)",
+		Short: "Initialize the store and install ATM agent plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := store.ResolveStorePath(st.flags.store)
 			s, err := store.Open(root)
@@ -192,15 +196,107 @@ func newInitCmd(st *cliState) *cobra.Command {
 			if err := s.Init(""); err != nil {
 				return err
 			}
+			installed, err := installInitPlugins(agents, dryRun)
+			if err != nil {
+				return err
+			}
 			if st.isJSON() {
-				return writeJSON(st.stdout(), map[string]any{"store": s.StorePath()})
+				out := map[string]any{"store": s.StorePath()}
+				if len(installed) > 0 {
+					out["installed"] = installed
+				}
+				return writeJSON(st.stdout(), out)
 			}
 			fmt.Fprintln(st.stdout(), "initialized store at", s.StorePath())
+			for _, res := range installed {
+				mode := "installed"
+				if res.DryRun {
+					mode = "would install"
+				}
+				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\t%s\n", res.Role, res.Agent, mode, res.Path)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&st.flags.actor, "actor", "", "actor id (free-form; env ATM_ACTOR)")
+	cmd.Flags().StringArrayVar(&agents, "agent", nil, "agent plugin to install (repeatable: opencode, codex, claude, all)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print plugin files that would be written without modifying user config")
 	return cmd
+}
+
+type initInstallResult struct {
+	Role   string   `json:"role"`
+	Agent  string   `json:"agent"`
+	Path   string   `json:"path"`
+	Files  []string `json:"files"`
+	DryRun bool     `json:"dry_run"`
+}
+
+func installInitPlugins(selected []string, dryRun bool) ([]initInstallResult, error) {
+	agents, err := initAgents(selected)
+	if err != nil {
+		return nil, err
+	}
+	if len(agents) == 0 {
+		return nil, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve home dir: %w", err)
+	}
+	var out []initInstallResult
+	for _, agent := range agents {
+		dev, err := developing.InstallPlugin(agent, home, dryRun)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, initInstallResult{
+			Role:   "developing",
+			Agent:  dev.Agent,
+			Path:   dev.Path,
+			Files:  dev.Files,
+			DryRun: dev.DryRun,
+		})
+		mgr, err := manager.InstallPlugin(agent, home, dryRun)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, initInstallResult{
+			Role:   "manager",
+			Agent:  mgr.Agent,
+			Path:   mgr.Path,
+			Files:  mgr.Files,
+			DryRun: mgr.DryRun,
+		})
+	}
+	return out, nil
+}
+
+func initAgents(selected []string) ([]string, error) {
+	if len(selected) == 0 {
+		return nil, nil
+	}
+	allowed := map[string]bool{"opencode": true, "codex": true, "claude": true}
+	seen := map[string]bool{}
+	for _, raw := range selected {
+		if raw == "all" {
+			for _, agent := range []string{"opencode", "codex", "claude"} {
+				seen[agent] = true
+			}
+			continue
+		}
+		if !allowed[raw] {
+			return nil, fmt.Errorf("%w: unknown init agent %q", ErrUsage, raw)
+		}
+		seen[raw] = true
+	}
+	var out []string
+	for _, agent := range []string{"opencode", "codex", "claude"} {
+		if seen[agent] {
+			out = append(out, agent)
+		}
+	}
+	return out, nil
 }
 
 func Execute() int {
