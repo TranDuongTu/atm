@@ -14,7 +14,7 @@ Learn the contract and find what exists:
 - `<ATM_BIN> task show --id <ID>` / `<ATM_BIN> task comment list --task <ID>` — read a task's running narrative before acting on it.
 - `<ATM_BIN> label list --project <CODE>` — the project's live vocabulary.
 
-Delegate every write to the manager:
+## Working Principles
+- Respect the repository's agent harness — you support it, you don't drive it.
+- When in doubt, write to the atm-manager.
 
-- To record progress, create or update a task, add a comment, or set labels, dispatch the `atm-manager` subagent (`hint: <kind>` + a short message) — it curates and writes it for you.
-- When unsure about a project standard — task conventions, which label to use, how work is normally organized — dispatch `atm-manager` and let it decide and update progress for you rather than guessing.
