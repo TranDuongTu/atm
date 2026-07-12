@@ -185,6 +185,113 @@ func TestInitInteractiveGuidesAgentSelection(t *testing.T) {
 	}
 }
 
+func TestInitInteractiveSelectsAgentAndArgs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	installFakeCodexForCLI(t, home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("2\n1\n--yolo --profile \"work laptop\"\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	out, _, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	cfg, err := h.store.GetAgentsConfig()
+	if err != nil {
+		t.Fatalf("GetAgentsConfig: %v", err)
+	}
+	if cfg.Selected != "codex" {
+		t.Fatalf("selected = %q, want codex\noutput:\n%s", cfg.Selected, out)
+	}
+	if got := cfg.Args["codex"]; !reflect.DeepEqual(got, []string{"--yolo", "--profile", "work laptop"}) {
+		t.Fatalf("codex args = %v", got)
+	}
+	for _, want := range []string{
+		"Default agent",
+		"Agent args",
+		"selected\tcodex",
+		"args\tcodex\t--yolo --profile work laptop",
+		"Next: atm manage --project <CODE> --onboarding",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("interactive init output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestInitInteractiveCanSelectOllamaIntegration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("1\n2\n\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	out, _, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	cfg, err := h.store.GetAgentsConfig()
+	if err != nil {
+		t.Fatalf("GetAgentsConfig: %v", err)
+	}
+	if cfg.Selected != "ollama:opencode" {
+		t.Fatalf("selected = %q, want ollama:opencode\noutput:\n%s", cfg.Selected, out)
+	}
+	if _, ok := cfg.Args["ollama:opencode"]; ok {
+		t.Fatalf("blank args should not store an entry: %v", cfg.Args)
+	}
+}
+
+func TestInitInteractiveBlankSelectionAndArgsPreserveExistingConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	if err := h.store.SetSelectedAgent("codex", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.SetAgentArgs("codex", []string{"--existing"}, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	h.st.in = strings.NewReader("\n\n\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	if _, _, code := h.run("init"); code != ExitSuccess {
+		t.Fatalf("init exit=%d stderr=%s", code, h.stderr.String())
+	}
+	cfg, _ := h.store.GetAgentsConfig()
+	if cfg.Selected != "codex" {
+		t.Fatalf("selected changed: %q", cfg.Selected)
+	}
+	if got := cfg.Args["codex"]; !reflect.DeepEqual(got, []string{"--existing"}) {
+		t.Fatalf("args changed: %v", got)
+	}
+}
+
+func TestInitInteractiveDryRunDoesNotPersistSelectionOrArgs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("1\n1\n--yolo\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	out, _, code := h.run("init", "--dry-run")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	cfg, _ := h.store.GetAgentsConfig()
+	if cfg.Selected != "" || len(cfg.Args) != 0 {
+		t.Fatalf("dry-run mutated agents config: %+v", cfg)
+	}
+	if !strings.Contains(out, "would select\topencode") || !strings.Contains(out, "would set args\topencode\t--yolo") {
+		t.Fatalf("dry-run summary missing config preview:\n%s", out)
+	}
+}
+
 func TestParseInitDefaultAgentSelection(t *testing.T) {
 	entries := []agent.Entry{
 		{Name: "opencode", Launcher: "opencode"},

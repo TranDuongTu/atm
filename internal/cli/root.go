@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"atm/internal/agent"
@@ -213,34 +214,44 @@ func newInitCmd(st *cliState) *cobra.Command {
 			if err := s.Init(""); err != nil {
 				return err
 			}
-			selected := agents
-			if len(selected) == 0 && st.flags.output == outputText && st.isStdinTerminal() {
-				var err error
-				selected, err = promptInitAgents(st)
+			cfg, err := s.GetAgentsConfig()
+			if err != nil {
+				return err
+			}
+			setup := initSetupPromptResult{PluginAgents: agents}
+			interactive := len(agents) == 0 && st.flags.output == outputText && st.isStdinTerminal()
+			if interactive {
+				setup, err = promptInitSetup(st, cfg)
 				if err != nil {
 					return err
 				}
 			}
-			installed, err := installInitPlugins(selected, dryRun)
+			installed, err := installInitPlugins(setup.PluginAgents, dryRun)
 			if err != nil {
 				return err
 			}
-			if !dryRun && len(installed) > 0 {
-				if cfg, cErr := s.GetAgentsConfig(); cErr == nil && cfg.Selected == "" {
-					for _, res := range installed {
-						if _, ok := agent.Lookup(res.Agent); ok {
-							if sErr := s.SetSelectedAgent(res.Agent, "admin@cli:unset"); sErr != nil {
-								return sErr
-							}
-							break
-						}
+			if !interactive && len(installed) > 0 && cfg.Selected == "" {
+				for _, res := range installed {
+					if _, ok := agent.Lookup(res.Agent); ok {
+						setup.SelectedAgent = res.Agent
+						setup.SelectedAgentProvided = true
+						break
 					}
 				}
+			}
+			if err := persistInitSetup(s, setup, dryRun); err != nil {
+				return err
 			}
 			if st.isJSON() {
 				out := map[string]any{"store": s.StorePath()}
 				if len(installed) > 0 {
 					out["installed"] = installed
+				}
+				if setup.SelectedAgent != "" {
+					out["selected"] = setup.SelectedAgent
+				}
+				if setup.ArgsProvided {
+					out["args"] = setup.Args
 				}
 				return writeJSON(st.stdout(), out)
 			}
@@ -252,6 +263,23 @@ func newInitCmd(st *cliState) *cobra.Command {
 				}
 				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\t%s\n", res.Role, res.Agent, mode, res.Path)
 			}
+			if setup.SelectedAgent != "" {
+				label := "selected"
+				if dryRun {
+					label = "would select"
+				}
+				fmt.Fprintf(st.stdout(), "%s\t%s\n", label, setup.SelectedAgent)
+			}
+			if setup.ArgsProvided && setup.SelectedAgent != "" {
+				label := "args"
+				if dryRun {
+					label = "would set args"
+				}
+				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", label, setup.SelectedAgent, strings.Join(setup.Args, " "))
+			}
+			if interactive {
+				fmt.Fprintln(st.stdout(), "Next: atm manage --project <CODE> --onboarding")
+			}
 			return nil
 		},
 	}
@@ -262,6 +290,12 @@ func newInitCmd(st *cliState) *cobra.Command {
 }
 
 func promptInitAgents(st *cliState) ([]string, error) {
+	res, err := promptInitSetup(st, store.AgentsConfig{})
+	return res.PluginAgents, err
+}
+
+func promptInitSetup(st *cliState, cfg store.AgentsConfig) (initSetupPromptResult, error) {
+	var res initSetupPromptResult
 	fmt.Fprintln(st.stdout())
 	fmt.Fprintln(st.stdout(), "ATM setup")
 	fmt.Fprintln(st.stdout(), "Choose agent integrations to install (multiple allowed):")
@@ -273,11 +307,77 @@ func promptInitAgents(st *cliState) ([]string, error) {
 	scanner := bufio.NewScanner(st.stdin())
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("read init selection: %w", err)
+			return res, fmt.Errorf("read init selection: %w", err)
 		}
-		return nil, nil
+		return res, nil
 	}
-	return parseInitAgentSelection(scanner.Text())
+	plugins, err := parseInitAgentSelection(scanner.Text())
+	if err != nil {
+		return res, err
+	}
+	res.PluginAgents = plugins
+	previewInstalled, err := previewInitInstallResults(plugins)
+	if err != nil {
+		return res, err
+	}
+	entries := viableInitDefaultAgents(previewInstalled, cfg)
+	if len(entries) == 0 {
+		fmt.Fprintln(st.stdout(), "No default agent candidates yet; install an agent plugin or run `atm agents select <name>` later.")
+		return res, nil
+	}
+	fmt.Fprintln(st.stdout())
+	fmt.Fprintln(st.stdout(), "Default agent:")
+	for i, e := range entries {
+		marker := ""
+		if cfg.Selected == e.Name {
+			marker = " (current)"
+		}
+		fmt.Fprintf(st.stdout(), "  %d) %s%s\n", i+1, e.Name, marker)
+	}
+	fmt.Fprint(st.stdout(), "Default agent [number/name, or Enter to keep current]: ")
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return res, fmt.Errorf("read init default agent: %w", err)
+		}
+		return res, nil
+	}
+	selected, ok, err := parseInitDefaultAgentSelection(scanner.Text(), entries)
+	if err != nil {
+		return res, err
+	}
+	if !ok {
+		selected = cfg.Selected
+	} else {
+		res.SelectedAgentProvided = true
+	}
+	res.SelectedAgent = selected
+	if selected == "" {
+		return res, nil
+	}
+	if e, ok := agent.Lookup(selected); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return res, fmt.Errorf("resolve home dir: %w", err)
+		}
+		status := agent.Status(e, home, exec.LookPath)
+		if !status.Ready() {
+			fmt.Fprintf(st.stderr(), "warning: %s is not ready (%s)\n", selected, status.String())
+		}
+	}
+	fmt.Fprintf(st.stdout(), "Agent args for %s [optional, shell-like quoting; Enter to keep current]: ", selected)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return res, fmt.Errorf("read init agent args: %w", err)
+		}
+		return res, nil
+	}
+	args, argsOK, err := parseInitArgsLine(scanner.Text())
+	if err != nil {
+		return res, err
+	}
+	res.Args = args
+	res.ArgsProvided = argsOK
+	return res, nil
 }
 
 type initSetupPromptResult struct {
@@ -424,6 +524,57 @@ func installInitPlugins(selected []string, dryRun bool) ([]initInstallResult, er
 		})
 	}
 	return out, nil
+}
+
+func previewInitInstallResults(selected []string) ([]initInstallResult, error) {
+	agents, err := initAgents(selected)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]initInstallResult, 0, len(agents))
+	for _, name := range agents {
+		out = append(out, initInstallResult{Agent: name})
+	}
+	return out, nil
+}
+
+func viableInitDefaultAgents(installed []initInstallResult, cfg store.AgentsConfig) []agent.Entry {
+	pluginAgents := map[string]bool{}
+	for _, res := range installed {
+		pluginAgents[res.Agent] = true
+	}
+	if cfg.Selected != "" {
+		if e, ok := agent.Lookup(cfg.Selected); ok {
+			pluginAgents[e.PluginAgent()] = true
+		}
+	}
+	var out []agent.Entry
+	seen := map[string]bool{}
+	for _, e := range agent.Catalog() {
+		if !pluginAgents[e.PluginAgent()] || seen[e.Name] {
+			continue
+		}
+		out = append(out, e)
+		seen[e.Name] = true
+	}
+	return out
+}
+
+func persistInitSetup(s *store.Store, setup initSetupPromptResult, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
+	if setup.SelectedAgentProvided && setup.SelectedAgent != "" {
+		if err := s.SetSelectedAgent(setup.SelectedAgent, "admin@cli:unset"); err != nil {
+			return err
+		}
+	}
+	if setup.ArgsProvided && setup.SelectedAgent != "" {
+		if err := s.SetAgentArgs(setup.SelectedAgent, setup.Args, "admin@cli:unset"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func initAgents(selected []string) ([]string, error) {
