@@ -84,6 +84,24 @@ func projectPaneSplitHeights(total int) (int, int) {
 	return listH, summaryH
 }
 
+func computeStripDays(width int) int {
+	const minCellW = 3
+	const gap = 1
+	const maxDays = 14
+	const minDays = 7
+	if width < 1 {
+		return minDays
+	}
+	days := (width + gap) / (minCellW + gap)
+	if days < minDays {
+		return minDays
+	}
+	if days > maxDays {
+		return maxDays
+	}
+	return days
+}
+
 func activityStripeDayCounts(entries []store.LogEntry, days int) []activityStripeDay {
 	return activityStripeDayCountsEnding(entries, days, store.Now())
 }
@@ -567,11 +585,13 @@ func longestPersonaKeyWidth(groups []activity.Group) int {
 }
 
 func (p *projectsModel) renderActivityStripeChart(entries []store.LogEntry, bodyHeight int) string {
-	days := activityStripeDayCounts(entries, 7)
+	innerW := chartBoxInnerWidth(p.width)
+	numDays := computeStripDays(innerW)
+	days := activityStripeDayCounts(entries, numDays)
 	if len(days) == 0 {
 		return p.m.styles.Muted.Render("no activity yet")
 	}
-	return renderActivityStripeCanvas(days, chartBoxInnerWidth(p.width), bodyHeight)
+	return renderActivityStripeCanvas(days, innerW, bodyHeight)
 }
 
 func renderActivityStripe(days []activityStripeDay) string {
