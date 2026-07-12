@@ -1074,21 +1074,120 @@ func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
 		{day: "2026-07-07", count: 0},
 	}
 	got := renderActivityStripeCanvas(days, 70)
-	if len(strings.Split(strings.TrimRight(got, "\n"), "\n")) < 2 {
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) < 2 {
 		t.Fatalf("renderActivityStripeCanvas() should render a multi-line canvas, got %q", got)
 	}
 	mustContain(t, got, "█")
-	mustContain(t, got, "▅")
-	mustContain(t, got, "7d ago")
-	mustContain(t, got, "Yesterday")
-	mustContain(t, got, "Today")
+	mustContain(t, got, "2026-07-01")
+	mustContain(t, got, "2026-07-07")
 	if activityCanvasStyle(10).GetForeground() == nil {
 		t.Fatalf("activityCanvasStyle should configure foreground color")
 	}
-	barLine := strings.Split(got, "\n")[0]
-	if got := strings.Count(barLine, " "); got != 6 {
-		t.Fatalf("activity stripe should separate exactly 7 bars with 6 spaces, got %d spaces in %q", got, barLine)
+	// Bar at index 2 (count 10) must be wider than bar at index 0 (count 1).
+	barWidths, _ := computeProportionalBars(days, 70, 1)
+	if barWidths[2] <= barWidths[0] {
+		t.Fatalf("bar for count 10 (width=%d) should be wider than bar for count 1 (width=%d)",
+			barWidths[2], barWidths[0])
 	}
+	// Day with count 0 should have 0 bar width.
+	if barWidths[3] != 0 {
+		t.Fatalf("bar for count 0 should have 0 width, got %d", barWidths[3])
+	}
+}
+
+func TestComputeProportionalBarsAllZero(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 0},
+		{day: "2026-07-02", count: 0},
+		{day: "2026-07-03", count: 0},
+	}
+	barWidths, canvasW := computeProportionalBars(days, 30, 1)
+	for i, bw := range barWidths {
+		if bw != 1 {
+			t.Fatalf("all-zero bar[%d] = %d, want 1", i, bw)
+		}
+	}
+	expectedW := 3*1 + 2*1
+	if canvasW != expectedW {
+		t.Fatalf("canvasW = %d, want %d", canvasW, expectedW)
+	}
+}
+
+func TestComputeProportionalBarsExact(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 1},
+		{day: "2026-07-02", count: 1},
+		{day: "2026-07-03", count: 1},
+	}
+	barWidths, canvasW := computeProportionalBars(days, 12, 1)
+	if barWidths[0] != 4 || barWidths[1] != 3 || barWidths[2] != 3 {
+		t.Fatalf("barWidths = %v, want [4 3 3]", barWidths)
+	}
+	expectedW := 4 + 3 + 3 + 2
+	if canvasW != expectedW {
+		t.Fatalf("canvasW = %d, want %d", canvasW, expectedW)
+	}
+}
+
+func TestComputeProportionalBarsMixed(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 10},
+		{day: "2026-07-02", count: 5},
+		{day: "2026-07-03", count: 0},
+	}
+	barWidths, _ := computeProportionalBars(days, 100, 1)
+	if barWidths[2] != 0 {
+		t.Fatalf("zero-count bar should have 0 width, got %d", barWidths[2])
+	}
+	if barWidths[0] <= barWidths[1] {
+		t.Fatalf("count 10 bar (%d) should be wider than count 5 bar (%d)", barWidths[0], barWidths[1])
+	}
+	ratio := float64(barWidths[0]) / float64(barWidths[1])
+	if ratio < 1.5 || ratio > 3.0 {
+		t.Fatalf("expected 2:1 ratio approx, got bars %v (ratio %.2f)", barWidths, ratio)
+	}
+}
+
+func TestComputeStripDaysRange(t *testing.T) {
+	tests := []struct {
+		width    int
+		wantDays int
+	}{
+		{width: 10, wantDays: 7},
+		{width: 27, wantDays: 7},
+		{width: 31, wantDays: 8},
+		{width: 59, wantDays: 14},
+		{width: 200, wantDays: 14},
+	}
+	for _, tc := range tests {
+		got := computeStripDays(tc.width)
+		if got != tc.wantDays {
+			t.Errorf("computeStripDays(%d) = %d, want %d", tc.width, got, tc.wantDays)
+		}
+	}
+}
+
+func TestActivityStripeAxisDateRange(t *testing.T) {
+	days := []activityStripeDay{
+		{day: "2026-07-01", count: 1},
+		{day: "2026-07-07", count: 2},
+	}
+	got := activityStripeAxis(days, 30)
+	mustContain(t, got, "2026-07-01")
+	mustContain(t, got, "2026-07-07")
+	mustContain(t, got, "—")
+}
+
+func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 48)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "t1", "ATM:status:open")
+	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "—")
 }
 
 func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {

@@ -656,15 +656,13 @@ func computeProportionalBars(days []activityStripeDay, width, gap int) ([]int, i
 		totalBarWidth = numDays
 	}
 
-	maxCount := 0
+	totalCount := 0
 	for _, day := range days {
-		if day.count > maxCount {
-			maxCount = day.count
-		}
+		totalCount += day.count
 	}
 
 	barWidths := make([]int, numDays)
-	if maxCount == 0 {
+	if totalCount == 0 {
 		for i := range barWidths {
 			barWidths[i] = 1
 		}
@@ -674,7 +672,7 @@ func computeProportionalBars(days []activityStripeDay, width, gap int) ([]int, i
 			if day.count == 0 {
 				barWidths[i] = 0
 			} else {
-				bw := day.count * totalBarWidth / maxCount
+				bw := day.count * totalBarWidth / totalCount
 				if bw < 1 {
 					bw = 1
 				}
