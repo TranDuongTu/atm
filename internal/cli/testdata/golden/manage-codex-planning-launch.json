@@ -2,7 +2,6 @@
   "agent": "codex",
   "argv": [
     "codex",
-    "--prompt",
     "Read the manager instructions in the file at /STORE/manager/FOO-RUNID.md and follow them exactly."
   ],
   "context_path": "/STORE/manager/FOO-RUNID.md",

@@ -94,12 +94,13 @@ func TestBuildArgvOnboardCodex(t *testing.T) {
 		t.Fatal("LauncherFor(codex) not found")
 	}
 	got := l.BuildArgvOnboard("/tmp/ctx.md")
-	if len(got) < 3 || got[0] != "codex" || got[1] != "--prompt" {
-		t.Fatalf("codex BuildArgvOnboard = %v, want [codex --prompt <msg>]", got)
+	if len(got) < 2 || got[0] != "codex" || !strings.Contains(got[1], "/tmp/ctx.md") {
+		t.Fatalf("codex BuildArgvOnboard = %v, want [codex <msg>] with msg containing context path", got)
 	}
 	for _, s := range got {
-		if s == "--auto" {
-			t.Fatalf("codex BuildArgvOnboard should not contain --auto: %v", got)
+		switch s {
+		case "--auto", "--prompt":
+			t.Fatalf("codex BuildArgvOnboard should not contain %s: %v", s, got)
 		}
 	}
 }
@@ -110,12 +111,13 @@ func TestBuildArgvOnboardClaude(t *testing.T) {
 		t.Fatal("LauncherFor(claude) not found")
 	}
 	got := l.BuildArgvOnboard("/tmp/ctx.md")
-	if len(got) < 3 || got[0] != "claude" || got[1] != "--prompt" {
-		t.Fatalf("claude BuildArgvOnboard = %v, want [claude --prompt <msg>]", got)
+	if len(got) < 2 || got[0] != "claude" || !strings.Contains(got[1], "/tmp/ctx.md") {
+		t.Fatalf("claude BuildArgvOnboard = %v, want [claude <msg>] with msg containing context path", got)
 	}
 	for _, s := range got {
-		if s == "--auto" {
-			t.Fatalf("claude BuildArgvOnboard should not contain --auto: %v", got)
+		switch s {
+		case "--auto", "--prompt":
+			t.Fatalf("claude BuildArgvOnboard should not contain %s: %v", s, got)
 		}
 	}
 }
@@ -124,8 +126,12 @@ func TestBuildArgvOnboardOllamaCodex(t *testing.T) {
 	l := OllamaLauncher{Integration: "codex"}
 	got := l.BuildArgvOnboard("/tmp/ctx.md")
 	for _, s := range got {
-		if s == "--auto" {
-			t.Fatalf("ollama:codex BuildArgvOnboard should not contain --auto: %v", got)
+		switch s {
+		case "--auto", "--prompt":
+			t.Fatalf("ollama:codex BuildArgvOnboard should not contain %s: %v", s, got)
 		}
+	}
+	if !strings.Contains(got[len(got)-1], "/tmp/ctx.md") {
+		t.Fatalf("ollama:codex BuildArgvOnboard last arg should contain context path: %v", got)
 	}
 }
