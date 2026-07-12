@@ -187,6 +187,59 @@ func TestCodexPluginStatusIsPartialWhenAssetsExistWithoutRegistration(t *testing
 	}
 }
 
+func TestValidateDirParents_CleanPath(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "a", "b", "c")
+	if err := ValidateDirParents(dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDirParents_DanglingSymlink(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, "real"), 0o755)
+	os.Symlink("/nonexistent", filepath.Join(home, "real", "link"))
+	dir := filepath.Join(home, "real", "link", "sub")
+	err := ValidateDirParents(dir)
+	if err == nil {
+		t.Fatal("expected error for dangling symlink parent")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected 'symlink' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join(home, "real", "link")) {
+		t.Fatalf("expected path in error, got: %v", err)
+	}
+}
+
+func TestValidateDirParents_RegularFile(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, "real"), 0o755)
+	os.WriteFile(filepath.Join(home, "real", "file"), []byte("x"), 0o644)
+	dir := filepath.Join(home, "real", "file", "sub")
+	err := ValidateDirParents(dir)
+	if err == nil {
+		t.Fatal("expected error for regular file parent")
+	}
+	if !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("expected 'regular file' in error, got: %v", err)
+	}
+}
+
+func TestInstallPlugin_DanglingSymlinkAtSkillsDir(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.Symlink("/nonexistent", filepath.Join(home, ".claude", "skills"))
+
+	_, err := InstallPlugin("claude", home, false)
+	if err == nil {
+		t.Fatal("expected error when .claude/skills is a dangling symlink")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected descriptive error, got: %v", err)
+	}
+}
+
 func installFakeCodex(t *testing.T, home string) string {
 	t.Helper()
 	binDir := filepath.Join(home, "bin")

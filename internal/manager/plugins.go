@@ -126,6 +126,11 @@ func InstallPlugin(agent, home string, dryRun bool) (InstallResult, error) {
 		return InstallResult{}, fmt.Errorf("plugin assets for %q not found", agent)
 	}
 	res := InstallResult{Agent: agent, Path: root, DryRun: dryRun}
+	if !dryRun {
+		if err := developing.ValidateDirParents(filepath.Dir(root)); err != nil {
+			return res, err
+		}
+	}
 	for _, a := range assets {
 		dst := root // single-file install: the subagent definition is the only asset.
 		res.Files = append(res.Files, dst)

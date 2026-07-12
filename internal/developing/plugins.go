@@ -118,6 +118,11 @@ func PluginStatus(agent string, home string) Status {
 	return Status{Agent: agent, State: "missing", Path: root}
 }
 
+type assetDest struct {
+	asset  Asset
+	dest   string
+}
+
 func InstallPlugin(agent string, home string, dryRun bool) (InstallResult, error) {
 	root, ok := PluginInstallRoot(agent, home)
 	if !ok {
@@ -128,16 +133,32 @@ func InstallPlugin(agent string, home string, dryRun bool) (InstallResult, error
 		return InstallResult{}, fmt.Errorf("plugin assets for %q not found", agent)
 	}
 	res := InstallResult{Agent: agent, Path: root, DryRun: dryRun}
+	dests := make([]assetDest, 0, len(assets))
 	for _, a := range assets {
-		dst := pluginAssetDestination(agent, home, root, a)
-		res.Files = append(res.Files, dst)
+		dests = append(dests, assetDest{asset: a, dest: pluginAssetDestination(agent, home, root, a)})
+	}
+	if !dryRun {
+		seen := map[string]bool{}
+		for _, d := range dests {
+			dir := filepath.Dir(d.dest)
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			if err := ValidateDirParents(dir); err != nil {
+				return res, err
+			}
+		}
+	}
+	for _, d := range dests {
+		res.Files = append(res.Files, d.dest)
 		if dryRun {
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(d.dest), 0o755); err != nil {
 			return res, err
 		}
-		if err := os.WriteFile(dst, a.Content, a.Mode); err != nil {
+		if err := os.WriteFile(d.dest, d.asset.Content, d.asset.Mode); err != nil {
 			return res, err
 		}
 	}
@@ -149,6 +170,33 @@ func InstallPlugin(agent string, home string, dryRun bool) (InstallResult, error
 		}
 	}
 	return res, nil
+}
+
+func ValidateDirParents(path string) error {
+	for {
+		fi, err := os.Lstat(path)
+		if err != nil {
+			parent := filepath.Dir(path)
+			if parent == path {
+				return nil
+			}
+			path = parent
+			continue
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		desc := "a regular file"
+		if fi.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				desc = "a symlink"
+			} else {
+				desc = fmt.Sprintf("a symlink to %q", target)
+			}
+		}
+		return fmt.Errorf("%q exists but is not a directory (it is %s); please remove it and try again", path, desc)
+	}
 }
 
 func pluginAssetDestination(agent, home, root string, asset Asset) string {
