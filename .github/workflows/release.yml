@@ -23,4 +23,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORGE: github
           REPO: ${{ github.repository }}
-        run: make release VERSION=${{ github.ref_name }} --from-ci
+        run: make release VERSION=${{ github.ref_name }} RELEASE_ARGS='--from-ci'
