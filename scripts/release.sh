@@ -19,7 +19,7 @@ for arg in "$@"; do
     VERSION=*) VERSION=${arg#VERSION=} ;;
     DRY_RUN=1) DRY_RUN=1 ;;
     --no-edit) NO_EDIT=1 ;;
-    --from-ci) FROM_CI=1 ;;
+    --from-ci) FROM_CI=1 ; NO_EDIT=1 ;;
     --no-preflight-tag) NO_PREFLIGHT_TAG=1 ;;
     --phase=*) PHASE_ONLY=${arg#--phase=} ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
