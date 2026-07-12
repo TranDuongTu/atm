@@ -64,9 +64,34 @@ make verify
 
 These features are optional after the 30-second start. They are useful when you want tighter control over agents, semantic search, or scripting.
 
-### Agent Launch Settings
+### Personas And Agent Defaults
 
-`atm init` records your default agent. Use `atm agents` when you want to inspect or change that default later:
+Personas shape the role prompt and actor identity used in `atm dev` and `atm manage`. ATM seeds three built-in personas:
+
+- `developer` — default for `atm dev`
+- `manager` — default for `atm manage`
+- `admin` — human-driven CLI/TUI actions
+
+Create a custom persona when you want a recurring working style:
+
+```sh
+atm persona create \
+  --name reviewer \
+  --description "reviews implementation quality before handoff" \
+  --prompt-file ./prompts/reviewer.md
+
+atm persona list
+atm persona show --name reviewer
+```
+
+Use a persona for one session with `--persona`:
+
+```sh
+atm dev --project ATM --persona reviewer
+atm manage --project ATM --planning --persona manager
+```
+
+`atm init` records your default agent separately from personas. Use `atm agents` when you want to inspect readiness, change the default host, or save default host-agent args:
 
 ```sh
 atm agents list
@@ -74,11 +99,11 @@ atm agents select claude
 atm agents args claude -- --dangerously-skip-permission
 ```
 
-Override launch settings for a single session with `--agent`, `--persona`, or host-agent args after `--`:
+For one-off launches, override the host with `--agent` and pass host-agent args after `--`:
 
 ```sh
-atm dev --project ATM --persona developer -- --yolo
-atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
+atm dev --project ATM --agent codex -- --yolo
+atm manage --project ATM --agent claude --planning -- --dangerously-skip-permission
 ```
 
 ### Semantic Search And Indexing
