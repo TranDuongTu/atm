@@ -608,13 +608,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 		}
-		if m.focused == paneLabels && m.labels.view == lViewDetail {
-			m.labels.view = lViewList
-			return nil
-		}
-		if m.focused == paneLabels && m.labels.chartNS != "" {
-			m.labels.chartNS = ""
-			return nil
+		if m.focused == paneLabels {
+			return m.labels.handleKey(k)
 		}
 		// No detail to leave: ignore.
 		return nil
