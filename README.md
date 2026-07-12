@@ -12,36 +12,25 @@ ATM stays out of the normal development workflow: it hints agents to journal pro
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
-**2. Onboard.** `atm init` initializes the store, guides you through installing ATM plugins for one or more agents, and selects the first as your default agent:
+**2. Onboard.** Initialize the store and onboard each project — one onboarding run per project:
 
 ```sh
-atm init
-```
-
-**3. Pick your agent** (once — reuse or change any time). The supported agents are the built-ins `opencode`, `codex`, `claude`, and their ollama-driven variants `ollama:opencode`, `ollama:codex`, `ollama:claude`:
-
-```sh
-atm agents list                 # supported agents + install/readiness
-atm agents select opencode      # set the default for atm dev / atm manage
-atm agents args codex -- --yolo # optional per-agent default passthrough
-```
-
-**4. Work.** Pick a project abbreviation (like `ATM`), onboard its repositories, then start developing. From time to time, run manager actions to keep the ledger groomed and current.
-
-```sh
-# Onboard a repo so agents understand the codebase — run inside the repo directory
+atm init                       # guided setup: store, agent plugins, default agent
+atm agents list                # see what's installed and ready
 atm manage --project ATM --onboarding
+```
 
-# Start a developer session — run inside the repo directory you're working on
-atm dev --project ATM
+**3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
 
-# Override the agent for one launch
+```sh
+atm tui                        # dashboard: tasks, projects, labels, activity
+
+atm dev --project ATM          # developer session (run inside the working repo)
 atm dev --project ATM --agent claude
 
-# Manager actions can run from anywhere (they operate on the ledger, not the repo)
-atm manage --project ATM --planning     # review open work and keep statuses honest
+atm manage --project ATM --planning     # review open work, keep statuses honest
 atm manage --project ATM --grooming     # prioritize and shape the backlog
-atm manage --project ATM --tracking     # curate progress, decisions, questions, and handoffs
+atm manage --project ATM --tracking     # curate progress, decisions, handoffs
 atm manage --project ATM --asking       # answer project questions from the ledger
 atm manage --project ATM --glossary     # maintain shared project language
 ```
