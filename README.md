@@ -24,13 +24,24 @@ atm agents select opencode      # set the default for atm dev / atm manage
 atm agents args codex -- --yolo # optional per-agent default passthrough
 ```
 
-**4. Work.** Open the dashboard, or launch a session with your selected agent — you never name the agent each time, and launchers create the project if it does not exist:
+**4. Work.** Pick a project abbreviation (like `ATM`), onboard its repositories, then start developing. From time to time, run manager actions to keep the ledger groomed and current.
 
 ```sh
-atm                                       # dashboard TUI
-atm dev --project ATM                     # developer session
-atm dev --project ATM --agent claude      # override the agent for one launch
-atm manage --project ATM --planning       # manager session (see actions below)
+# Onboard a repo so agents understand the codebase — run inside the repo directory
+atm manage --project ATM --onboarding
+
+# Start a developer session — run inside the repo directory you're working on
+atm dev --project ATM
+
+# Override the agent for one launch
+atm dev --project ATM --agent claude
+
+# Manager actions can run from anywhere (they operate on the ledger, not the repo)
+atm manage --project ATM --planning     # review open work and keep statuses honest
+atm manage --project ATM --grooming     # prioritize and shape the backlog
+atm manage --project ATM --tracking     # curate progress, decisions, questions, and handoffs
+atm manage --project ATM --asking       # answer project questions from the ledger
+atm manage --project ATM --glossary     # maintain shared project language
 ```
 
 Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
@@ -39,15 +50,6 @@ Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` 
 atm dev --project ATM --persona developer -- --yolo
 atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
 ```
-
-## Manager Actions
-
-- `--planning` reviews open work and keeps statuses honest.
-- `--grooming` prioritizes and shapes the backlog.
-- `--tracking` curates progress, decisions, questions, and handoffs.
-- `--asking` answers project questions from the ledger with cited task/comment IDs.
-- `--glossary` maintains shared project language.
-- `--onboarding` learns a repo/project and organizes it for later agents.
 
 ## Why I Built ATM
 
