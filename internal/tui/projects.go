@@ -361,6 +361,17 @@ func (p *projectsModel) renderList() string {
 	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
 }
 
+// projectColumnWidths returns fixed widths for CODE/TASKS/LABELS/UPDATED and a
+// flexible NAME width that absorbs the remaining pane width.
+func (p *projectsModel) projectColumnWidths() (codeW, tasksW, labelsW, updatedW, nameW int) {
+	codeW, tasksW, labelsW, updatedW = 6, 6, 7, 10
+	nameW = p.width - codeW - tasksW - labelsW - updatedW - 5
+	if nameW < 20 {
+		nameW = 20
+	}
+	return
+}
+
 // listPageSize returns the number of project rows that fit in the list
 // section at the given section height, after the caption/header/rule/footer
 // overhead. Shared by rendering (the visible window) and the "[" / "]" page
@@ -380,7 +391,9 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 		selected = "none"
 	}
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(fmt.Sprintf("%-6s %-30s %6s %7s %10s", "CODE", "NAME", "TASKS", "LABELS", "UPDATED"))))
+	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
+	header := fmt.Sprintf(" %-*s %-*s %*s %*s %*s", codeW, "CODE", nameW, "NAME", tasksW, "TASKS", labelsW, "LABELS", updatedW, "UPDATED")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(header)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, repeat("─", dashboardContentWidth(p.width))))
 
 	pageSize := p.listPageSize(maxRows)
@@ -393,7 +406,7 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 		} else {
 			gutter = " "
 		}
-		line := fmt.Sprintf(" %-5s %-30s %6d %7d %10s", r.code, truncateRunes(r.name, 30), r.tasks, r.labels, r.updated)
+		line := fmt.Sprintf(" %-*s %-*s %*d %*d %*s", codeW, r.code, nameW, truncateRunes(r.name, nameW), tasksW, r.tasks, labelsW, r.labels, updatedW, r.updated)
 		if i == p.cursor {
 			line = gutter + " " + p.m.styles.RowCursor.Render(line)
 		} else {
