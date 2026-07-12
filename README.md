@@ -62,18 +62,30 @@ make verify
 
 ## Advanced Features And API
 
-Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
+These features are optional after the 30-second start. They are useful when you want tighter control over agents, semantic search, or scripting.
+
+### Agent Launch Settings
+
+`atm init` records your default agent. Use `atm agents` when you want to inspect or change that default later:
+
+```sh
+atm agents list
+atm agents select claude
+atm agents args claude -- --dangerously-skip-permission
+```
+
+Override launch settings for a single session with `--agent`, `--persona`, or host-agent args after `--`:
 
 ```sh
 atm dev --project ATM --persona developer -- --yolo
 atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
 ```
 
-Use `atm agents list`, `atm agents select <name>`, and `atm agents args <name> -- <args...>` when you want to inspect readiness or change the default agent after setup.
-
 ### Semantic Search And Indexing
 
-Configure an OpenAI-compatible embedding endpoint before using semantic search or the indexer:
+Semantic search needs an embedding endpoint and a vector index.
+
+**1. Configure the embedding model.** Use any OpenAI-compatible `/v1/embeddings` endpoint:
 
 ```sh
 atm project set-embedding --project ATM \
@@ -83,7 +95,7 @@ atm project set-embedding --project ATM \
   --threshold 0.55
 ```
 
-Build or inspect indexes from the CLI:
+**2. Build and inspect the index from the CLI.**
 
 ```sh
 atm index reindex --project ATM      # one-shot index pass
@@ -92,7 +104,24 @@ atm index models --project ATM       # models with stored vectors
 atm search --project ATM "query"     # semantic search with text fallback
 ```
 
-From `atm`, press `g 1` to open the indexer overlay. Press `e` to edit embedding config, `p` for the Nomic preset, `s` to save, and `S` to start or stop the live indexer.
+For continuous foreground indexing, run:
+
+```sh
+atm index --project ATM              # watches the project log until Ctrl-C
+```
+
+**3. Manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay.
+
+Inside the overlay:
+
+- `e` edits embedding config.
+- `p` fills the Nomic preset while editing.
+- `s` saves config while editing.
+- `S` starts or stops the live indexer.
+- `r` runs a one-shot reindex.
+- `d` drops the selected model index.
+
+### Lower-Level API
 
 The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:
 
