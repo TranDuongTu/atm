@@ -85,10 +85,10 @@ func projectPaneSplitHeights(total int) (int, int) {
 }
 
 func computeStripDays(width int) int {
-	const minCellW = 3
 	const gap = 1
 	const maxDays = 14
 	const minDays = 7
+	const minCellW = 9 // widest label "Yesterday"
 	if width < 1 {
 		return minDays
 	}
@@ -674,23 +674,18 @@ func activityStripeAxis(days []activityStripeDay, width, cellW, gap int) string 
 	n := len(days)
 	line := []rune(repeat(" ", width))
 	putLabel := func(label string, colIdx int) {
-		labelW := len([]rune(label))
-		if labelW > cellW {
-			return
-		}
+		labelRunes := []rune(label)
 		colStart := colIdx * (cellW + gap)
-		pos := colStart + (cellW-labelW)/2
+		pos := colStart + (cellW-len(labelRunes))/2
 		if pos < 0 {
 			pos = 0
 		}
-		if pos+labelW > width {
-			return
-		}
-		for i, r := range label {
-			line[pos+i] = r
+		for i, r := range labelRunes {
+			if pos+i < len(line) {
+				line[pos+i] = r
+			}
 		}
 	}
-	// Labels aligned to specific columns, skipped if label > cellW
 	if n >= 14 {
 		putLabel("14d ago", 0)
 		putLabel("7d ago", n-8)
