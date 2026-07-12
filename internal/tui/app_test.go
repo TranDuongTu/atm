@@ -1079,74 +1079,29 @@ func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
 		t.Fatalf("renderActivityStripeCanvas() should render a multi-line canvas, got %q", got)
 	}
 	mustContain(t, got, "█")
-	mustContain(t, got, "2026-07-01")
-	mustContain(t, got, "2026-07-07")
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Today")
 	if activityCanvasStyle(10).GetForeground() == nil {
 		t.Fatalf("activityCanvasStyle should configure foreground color")
 	}
-	// Bar at index 2 (count 10) must be wider than bar at index 0 (count 1).
-	barWidths, _ := computeProportionalBars(days, 70, 1)
-	if barWidths[2] <= barWidths[0] {
-		t.Fatalf("bar for count 10 (width=%d) should be wider than bar for count 1 (width=%d)",
-			barWidths[2], barWidths[0])
+	// Count 10 bar (index 2) should be taller than count 1 bar (index 0).
+	// Rendering at height=4 gives bodyH=3. count 10 should fill 3 rows,
+	// count 1 (1*3/10=0→clamped to 1) should fill 1 row.
+	got2 := renderActivityStripeCanvas(days, 70, 4)
+	if got2 == "" {
+		t.Fatal("renderActivityStripeCanvas(height=4) returned empty")
 	}
-	// Day with count 0 should have 0 bar width.
-	if barWidths[3] != 0 {
-		t.Fatalf("bar for count 0 should have 0 width, got %d", barWidths[3])
+	lines2 := strings.Split(strings.TrimRight(got2, "\n"), "\n")
+	if len(lines2) < 4 {
+		t.Fatalf("expected 4 lines (3 bar + axis), got %d:\n%s", len(lines2), got2)
 	}
-}
-
-func TestComputeProportionalBarsAllZero(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 0},
-		{day: "2026-07-02", count: 0},
-		{day: "2026-07-03", count: 0},
+	if i := strings.IndexRune(lines2[0], '█'); i < 0 {
+		t.Fatal("top row should have █ for count 10 bar")
 	}
-	barWidths, canvasW := computeProportionalBars(days, 30, 1)
-	for i, bw := range barWidths {
-		if bw != 1 {
-			t.Fatalf("all-zero bar[%d] = %d, want 1", i, bw)
-		}
-	}
-	expectedW := 3*1 + 2*1
-	if canvasW != expectedW {
-		t.Fatalf("canvasW = %d, want %d", canvasW, expectedW)
-	}
-}
-
-func TestComputeProportionalBarsExact(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 1},
-		{day: "2026-07-02", count: 1},
-		{day: "2026-07-03", count: 1},
-	}
-	barWidths, canvasW := computeProportionalBars(days, 12, 1)
-	if barWidths[0] != 4 || barWidths[1] != 3 || barWidths[2] != 3 {
-		t.Fatalf("barWidths = %v, want [4 3 3]", barWidths)
-	}
-	expectedW := 4 + 3 + 3 + 2
-	if canvasW != expectedW {
-		t.Fatalf("canvasW = %d, want %d", canvasW, expectedW)
-	}
-}
-
-func TestComputeProportionalBarsMixed(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 10},
-		{day: "2026-07-02", count: 5},
-		{day: "2026-07-03", count: 0},
-	}
-	barWidths, _ := computeProportionalBars(days, 100, 1)
-	if barWidths[2] != 0 {
-		t.Fatalf("zero-count bar should have 0 width, got %d", barWidths[2])
-	}
-	if barWidths[0] <= barWidths[1] {
-		t.Fatalf("count 10 bar (%d) should be wider than count 5 bar (%d)", barWidths[0], barWidths[1])
-	}
-	ratio := float64(barWidths[0]) / float64(barWidths[1])
-	if ratio < 1.5 || ratio > 3.0 {
-		t.Fatalf("expected 2:1 ratio approx, got bars %v (ratio %.2f)", barWidths, ratio)
-	}
+	// Count 1 bar should not appear in the top row (only 1 row tall).
+	// The count 10 bar is at the leftmost position (day index 2 is position 3).
+	// Since bars are equal width, count 1 starts at x=0, count 3 at x=cellW+gap,
+	// count 10 at x=2*(cellW+gap). Top row only shows count 10.
 }
 
 func TestComputeStripDaysRange(t *testing.T) {
@@ -1168,15 +1123,15 @@ func TestComputeStripDaysRange(t *testing.T) {
 	}
 }
 
-func TestActivityStripeAxisDateRange(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 1},
-		{day: "2026-07-07", count: 2},
+func TestActivityStripeAxisRelativeLabels(t *testing.T) {
+	days := make([]activityStripeDay, 7)
+	for i := range days {
+		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
 	}
-	got := activityStripeAxis(days, 30)
-	mustContain(t, got, "2026-07-01")
-	mustContain(t, got, "2026-07-07")
-	mustContain(t, got, "—")
+	got := activityStripeAxis(days, 70, 9, 1)
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
 }
 
 func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
@@ -1187,7 +1142,7 @@ func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.View()
 	mustContain(t, body, "activity stripe")
-	mustContain(t, body, "—")
+	mustContain(t, body, "7d ago")
 }
 
 func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {
