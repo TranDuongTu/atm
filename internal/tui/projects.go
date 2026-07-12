@@ -649,15 +649,16 @@ func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...
 				barH = 1
 			}
 		}
+		fill := densityFillRune(day.count)
 		style := activityCanvasStyle(day.count)
-		fill := '█'
-		if barH == 1 && day.count <= 0 {
-			fill = '▁'
-			style = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-		}
+		emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 		for col := 0; col < cellW; col++ {
-			for row := 0; row < barH; row++ {
-				c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: bodyH - 1 - row}, fill, style)
+			for row := 0; row < bodyH; row++ {
+				if row >= bodyH-barH {
+					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, fill, style)
+				} else {
+					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, '·', emptyStyle)
+				}
 			}
 		}
 	}
@@ -670,28 +671,36 @@ func activityStripeAxis(days []activityStripeDay, width, cellW, gap int) string 
 	if len(days) == 0 || width <= 0 {
 		return ""
 	}
-	left := "7d ago"
-	mid := "Yesterday"
-	right := "Today"
+	n := len(days)
 	line := []rune(repeat(" ", width))
-	put := func(label string, pos int) {
+	putLabel := func(label string, colIdx int) {
+		labelW := len([]rune(label))
+		if labelW > cellW {
+			return
+		}
+		colStart := colIdx * (cellW + gap)
+		pos := colStart + (cellW-labelW)/2
 		if pos < 0 {
 			pos = 0
 		}
-		if pos+len([]rune(label)) > width {
-			pos = width - len([]rune(label))
-		}
-		if pos < 0 {
+		if pos+labelW > width {
 			return
 		}
 		for i, r := range label {
 			line[pos+i] = r
 		}
 	}
-	put(left, 0)
-	yesterdayX := (len(days) - 2) * (cellW + gap)
-	put(mid, yesterdayX)
-	put(right, width-len([]rune(right)))
+	// Labels aligned to specific columns, skipped if label > cellW
+	if n >= 14 {
+		putLabel("14d ago", 0)
+		putLabel("7d ago", n-8)
+	} else {
+		putLabel("7d ago", 0)
+	}
+	if n >= 2 {
+		putLabel("Yesterday", n-2)
+		putLabel("Today", n-1)
+	}
 	return string(line)
 }
 
@@ -705,6 +714,19 @@ func activityCanvasStyle(count int) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	}
+}
+
+func densityFillRune(count int) rune {
+	switch {
+	case count <= 0:
+		return '·'
+	case count <= 2:
+		return '▂'
+	case count <= 5:
+		return '▅'
+	default:
+		return '█'
 	}
 }
 

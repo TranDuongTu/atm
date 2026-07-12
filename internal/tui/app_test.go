@@ -1084,24 +1084,28 @@ func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
 	if activityCanvasStyle(10).GetForeground() == nil {
 		t.Fatalf("activityCanvasStyle should configure foreground color")
 	}
-	// Count 10 bar (index 2) should be taller than count 1 bar (index 0).
-	// Rendering at height=4 gives bodyH=3. count 10 should fill 3 rows,
-	// count 1 (1*3/10=0→clamped to 1) should fill 1 row.
-	got2 := renderActivityStripeCanvas(days, 70, 4)
+	// Density fill: count 10 → █, count 3 → ▅, count 1 → ▂, count 0 → ·
+	mustContain(t, got, "█")
+	mustContain(t, got, "▅")
+	mustContain(t, got, "▂")
+	mustContain(t, got, "·")
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
+	// Proportional height: render at height=5 (bodyH=4). count 10 fills 4 rows,
+	// count 1 fills 1 row (clamped). Top row (index 0) should only show █ for
+	// count 10 bar, and · for lower-count bars.
+	got2 := renderActivityStripeCanvas(days, 70, 5)
 	if got2 == "" {
-		t.Fatal("renderActivityStripeCanvas(height=4) returned empty")
+		t.Fatal("renderActivityStripeCanvas(height=5) returned empty")
 	}
 	lines2 := strings.Split(strings.TrimRight(got2, "\n"), "\n")
-	if len(lines2) < 4 {
-		t.Fatalf("expected 4 lines (3 bar + axis), got %d:\n%s", len(lines2), got2)
+	if len(lines2) < 5 {
+		t.Fatalf("expected 5 lines (4 bar + axis), got %d:\n%s", len(lines2), got2)
 	}
-	if i := strings.IndexRune(lines2[0], '█'); i < 0 {
-		t.Fatal("top row should have █ for count 10 bar")
+	if !strings.Contains(lines2[0], "█") {
+		t.Fatal("top row should contain █ for count 10 bar")
 	}
-	// Count 1 bar should not appear in the top row (only 1 row tall).
-	// The count 10 bar is at the leftmost position (day index 2 is position 3).
-	// Since bars are equal width, count 1 starts at x=0, count 3 at x=cellW+gap,
-	// count 10 at x=2*(cellW+gap). Top row only shows count 10.
 }
 
 func TestComputeStripDaysRange(t *testing.T) {
@@ -1123,7 +1127,7 @@ func TestComputeStripDaysRange(t *testing.T) {
 	}
 }
 
-func TestActivityStripeAxisRelativeLabels(t *testing.T) {
+func TestActivityStripeAxisColumnLabels(t *testing.T) {
 	days := make([]activityStripeDay, 7)
 	for i := range days {
 		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
@@ -1132,6 +1136,30 @@ func TestActivityStripeAxisRelativeLabels(t *testing.T) {
 	mustContain(t, got, "7d ago")
 	mustContain(t, got, "Yesterday")
 	mustContain(t, got, "Today")
+	mustNotContain(t, got, "14d ago")
+}
+
+func TestActivityStripeAxis14Day(t *testing.T) {
+	days := make([]activityStripeDay, 14)
+	for i := range days {
+		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
+	}
+	got := activityStripeAxis(days, 150, 10, 1)
+	mustContain(t, got, "14d ago")
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
+}
+
+func TestActivityStripeAxisNarrowColumns(t *testing.T) {
+	days := make([]activityStripeDay, 7)
+	for i := range days {
+		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
+	}
+	got := activityStripeAxis(days, 30, 4, 1)
+	if strings.Contains(got, "Today") {
+		t.Fatalf("'Today' (5 chars) should not fit in cellW=4: %q", got)
+	}
 }
 
 func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
@@ -1142,7 +1170,6 @@ func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.View()
 	mustContain(t, body, "activity stripe")
-	mustContain(t, body, "7d ago")
 }
 
 func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {
