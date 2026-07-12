@@ -531,10 +531,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
 	}
 
-	if m.focused == paneTasks && m.tasks.filterEditing {
-		return m.tasks.handleKey(k)
-	}
-
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -609,10 +605,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 					return m.tasks.handleKey(k)
 				}
 				m.tasks.backToList()
-				return nil
-			}
-			if m.tasks.filterEditing {
-				m.tasks.cancelFilterEdit()
 				return nil
 			}
 		}

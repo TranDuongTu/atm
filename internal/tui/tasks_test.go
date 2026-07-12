@@ -213,15 +213,84 @@ func TestFilterTokenHelpers(t *testing.T) {
 	}
 }
 
-func TestTasksClearFilterKey(t *testing.T) {
+func TestTaskHasBareTag(t *testing.T) {
+	mk := func(labels ...string) *store.Task { return &store.Task{ID: "ATM-0001", Labels: labels} }
+	if taskHasBareTag("ATM", mk("ATM:status:open")) {
+		t.Error("namespaced label must not count as a bare tag")
+	}
+	if !taskHasBareTag("ATM", mk("ATM:urgent")) {
+		t.Error("unnamespaced label must count as a bare tag")
+	}
+	if taskHasBareTag("ATM", mk()) {
+		t.Error("no labels means no bare tag")
+	}
+	if !taskHasBareTag("ATM", mk("ATM:status:open", "ATM:urgent")) {
+		t.Error("mixed labels with one bare tag must count")
+	}
+}
+
+func TestTasksFocusRendersSubset(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	update(t, m, "s") // select ATM
-	update(t, m, "2") // Tasks pane
-	m.tasks.filter = "ATM:status:*"
-	m.tasks.refresh()
-	update(t, m, "c") // clear filter
-	if m.tasks.filter != "" {
-		t.Fatalf("filter = %q want empty after clear", m.tasks.filter)
+	mustCreate := func(title string, labels ...string) {
+		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
+			t.Fatal(err)
+		}
 	}
+	mustCreate("has-open", "ATM:status:open")
+	mustCreate("has-done", "ATM:status:done")
+	mustCreate("prio-no-status", "ATM:priority:high")
+	mustCreate("bare", "ATM:urgent")
+	mustCreate("naked")
+	m.projectScope = "ATM"
+
+	// present on status -> grouped, only tasks with a status (others hidden).
+	m.tasks.setFocus(taskFocus{mode: focusPresent, ns: "status"}, "ATM:status:*")
+	v := m.tasks.View()
+	mustContain(t, v, "has-open")
+	mustContain(t, v, "has-done")
+	mustNotContain(t, v, "prio-no-status")
+	mustNotContain(t, v, "naked")
+	mustNotContain(t, v, "(no matching labels)")
+
+	// absent on status -> only tasks lacking a status.
+	m.tasks.setFocus(taskFocus{mode: focusAbsent, ns: "status"}, "ATM:status:*")
+	v = m.tasks.View()
+	mustContain(t, v, "prio-no-status")
+	mustContain(t, v, "bare")
+	mustContain(t, v, "naked")
+	mustNotContain(t, v, "has-open")
+
+	// present on bare tags -> only tasks carrying a bare tag.
+	m.tasks.setFocus(taskFocus{mode: focusPresent, bareTags: true}, "")
+	v = m.tasks.View()
+	mustContain(t, v, "bare")
+	mustNotContain(t, v, "has-open")
+	mustNotContain(t, v, "naked")
+
+	// unlabeled -> only the naked task.
+	m.tasks.setFocus(taskFocus{mode: focusUnlabeled}, "")
+	v = m.tasks.View()
+	mustContain(t, v, "naked")
+	mustNotContain(t, v, "has-open")
+	mustNotContain(t, v, "bare")
+
+	// off with empty filter -> everything.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+	v = m.tasks.View()
+	mustContain(t, v, "has-open")
+	mustContain(t, v, "naked")
+	mustContain(t, v, "bare")
+}
+
+func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedLabel(t, m, "ATM:comment:open-question", "comment-only label")
+	m.projectScope = "ATM"
+
+	m.tasks.setFocus(taskFocus{mode: focusPresent, ns: "comment"}, "ATM:comment:*")
+	v := m.tasks.View()
+	mustContain(t, v, "no tasks match this focus")
+	mustNotContain(t, v, "showing 1-1 of 1")
 }
