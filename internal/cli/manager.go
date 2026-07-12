@@ -16,6 +16,8 @@ type managerOpts struct {
 	Project     string
 	Integration string
 	Persona     string
+	Agent       string
+	DefaultArgs []string
 	Planning    bool
 	Grooming    bool
 	Tracking    bool
@@ -37,18 +39,39 @@ const (
 )
 
 func newManageCmd(st *cliState) *cobra.Command {
+	var opts managerOpts
 	cmd := &cobra.Command{
 		Use:   "manage",
-		Short: "Launch an ATM manager session",
-		Args:  cobra.NoArgs,
+		Short: "Launch the selected agent with ATM manager context",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("%w: choose a manager agent", ErrUsage)
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			cfg, err := s.GetAgentsConfig()
+			if err != nil {
+				return err
+			}
+			e, defArgs, err := resolveEntry(opts.Agent, cfg)
+			if err != nil {
+				return err
+			}
+			l, ok := manageLauncherFor(e)
+			if !ok {
+				return fmt.Errorf("%w: unknown manager agent %q", ErrUsage, e.Launcher)
+			}
+			opts.ExtraArgs = args
+			opts.Integration = e.Integration
+			opts.DefaultArgs = defArgs
+			return runManager(st, l, e.Launcher, e.Integration, opts)
 		},
 	}
-	for _, name := range []string{"opencode", "codex", "claude"} {
-		cmd.AddCommand(newManageAgentCmd(st, name))
-	}
-	cmd.AddCommand(newManageOllamaCmd(st))
+	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
+	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; defaults actor to <persona>@<agent>:unset")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
+	bindManagerActionFlags(cmd, &opts)
+	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
 
@@ -146,50 +169,6 @@ func managerPluginAgents(target string) ([]string, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: unknown manager plugin agent %q", ErrUsage, target)
-}
-
-func newManageAgentCmd(st *cliState, agent string) *cobra.Command {
-	var opts managerOpts
-	cmd := &cobra.Command{
-		Use:   agent,
-		Short: "Launch " + agent + " with ATM manager context",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			l, ok := manager.LauncherFor(agent)
-			if !ok {
-				return fmt.Errorf("%w: unknown manager agent %q", ErrUsage, agent)
-			}
-			opts.ExtraArgs = args
-			opts.Integration = ""
-			return runManager(st, l, agent, "", opts)
-		},
-	}
-	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; defaults actor to <persona>@<agent>:unset")
-	bindManagerActionFlags(cmd, &opts)
-	_ = cmd.MarkFlagRequired("project")
-	return cmd
-}
-
-func newManageOllamaCmd(st *cliState) *cobra.Command {
-	var opts managerOpts
-	cmd := &cobra.Command{
-		Use:   "ollama",
-		Short: "Launch ollama-backed agent with ATM manager context",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.ExtraArgs = args
-			l := manager.OllamaLauncher{Integration: opts.Integration}
-			return runManager(st, l, "ollama", opts.Integration, opts)
-		},
-	}
-	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project the manager owns")
-	cmd.Flags().StringVar(&opts.Integration, "integration", "", "ollama integration name (e.g. opencode, codex, claude)")
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name; defaults actor to <persona>@ollama:unset")
-	bindManagerActionFlags(cmd, &opts)
-	_ = cmd.MarkFlagRequired("project")
-	_ = cmd.MarkFlagRequired("integration")
-	return cmd
 }
 
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
@@ -321,7 +300,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		base = l.BuildArgvManage(contextPath)
 	}
 	envArgs := agentEnvArgs(agent, integration)
-	argv := appendAgentArgs(base, envArgs, opts.ExtraArgs)
+	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
 	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, onboarding, effectivePersona, string(action))
 	env := assembleEnv(envValues)
 	if onboarding {

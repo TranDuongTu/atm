@@ -15,7 +15,7 @@ func TestManageCodexPlanningLaunchJSON(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("manage", "codex", "--project", "FOO", "--planning")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--planning")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -30,7 +30,7 @@ func TestManageLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
 
-	_, _, code := h.run("manage", "codex", "--project", "FOO", "--planning")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--planning")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
@@ -48,8 +48,8 @@ func TestManageRequiresExactlyOneAction(t *testing.T) {
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
 	for _, args := range [][]string{
-		{"manage", "codex", "--project", "FOO"},
-		{"manage", "codex", "--project", "FOO", "--planning", "--grooming"},
+		{"manage", "--agent", "codex", "--project", "FOO"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--grooming"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
@@ -62,8 +62,8 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	for _, args := range [][]string{
-		{"manage", "codex", "--project", "FOO", "--planning", "--dry-run"},
-		{"manage", "codex", "--project", "FOO", "--planning", "--actor", "manager@codex:unset"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--dry-run"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--actor", "manager@codex:unset"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
@@ -78,7 +78,7 @@ func TestManageOllamaOnboarding(t *testing.T) {
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("manage", "ollama", "--project", "FOO", "--integration", "opencode", "--onboarding")
+	_, _, code := h.run("manage", "--agent", "ollama:opencode", "--project", "FOO", "--onboarding")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -97,7 +97,7 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 	captureChild(h)
 	h.reset()
 
-	out, _, code := h.run("manage", "claude", "--project", "FOO", "--planning", "--persona", "ops")
+	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--planning", "--persona", "ops")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
