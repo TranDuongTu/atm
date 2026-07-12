@@ -67,9 +67,9 @@ Entered by `Enter` on a namespace (or `tags`) row. The Tasks pane facets by that
  (unset)      █░░░░░░░░░   6
 ```
 
-- One bar row per label in the namespace, plus a trailing `(unset)` row. Bars and counts are TASK counts sourced from `GroupTasks` (each label's task list length; `(unset)` = length of `others`), so every row in the chart reconciles with the Tasks pane. The bar length is each row's share of the namespace's task total (label task counts plus the unset count).
+- One bar row per label in the namespace, plus a trailing `(unset)` row. Bars and counts are TASK counts. For a real namespace they come from `GroupTasks(Project, [<CODE>:<ns>:*])` (each label's task list length; `(unset)` = length of `others`), so every row reconciles with the Tasks pane. For the `tags` pseudo-namespace, where no single wildcard can select bare labels, the counts are computed locally: per bare-tag task count, and `(unset)` = tasks with no bare tag. The bar length is each row's share of the namespace's task total (label task counts plus the unset count).
 - The `(unset)` row is omitted when no task lacks the namespace.
-- Tasks pane at L1: grouped by the namespace, `others` hidden (Tasks focus = namespace-present).
+- Tasks pane at L1: for a real namespace, grouped by the namespace with `others` hidden (focus present). For `tags`, a flat list of tasks carrying any bare tag (focus present + bareTags).
 
 Keys at L1:
 - `j`/`k`/`g`/`[`/`]`: move the cursor over rows, including `(unset)`. The chart scrolls when rows exceed the pane height.
@@ -81,43 +81,63 @@ Keys at L1:
 
 ### Level 2 — label detail (exact label active)
 
-Entered by `Enter` on a label row at L1. The Labels pane shows the label's detail (name, usage, description) as today. The filter now holds the namespace wildcard *plus* the exact label token, and the Tasks focus stays `focusNamespacePresent` (unchanged from L1). The Tasks pane therefore shows the single group for that label — the wildcard restricted to one value — so the presentation is consistent with L1 (a grouped view, now narrowed to one group). Keeping the wildcard is what makes the Esc step a clean single-token removal.
+Entered by `Enter` on a label row at L1. The Labels pane shows the label's detail (name, usage, description) as today. The Tasks pane shows a flat list of the tasks carrying that exact label: the filter holds only the exact restricting token and focus is `focusOff`, so there is no grouping and no header — just "the tasks with this label." This is the same flat presentation for a real-namespace label (`status:done`) and a bare tag (`urgent`).
 
 Keys at L2:
 - `d`: describe this label.
 - `l`: remove this label.
-- `Esc`: return to L1, removing only the exact-label token (the namespace wildcard and focus stay); the Tasks pane returns to the full grouped namespace view.
+- `Esc`: return to L1; the Labels pane re-enters the chart, which re-applies L1's Tasks-pane state (see "State application" below).
 
 The `(unset)` and `(none)` leaves reuse the L2 slot: they show a minimal detail panel and `Esc` steps back one level (to L1 or L0 respectively), clearing their filter. `d`/`l` are no-ops on them.
 
+### State application
+
+Rather than incrementally add and remove filter tokens, each Labels level sets the *entire* Tasks-pane state (filter string + focus) when it is entered, then calls `tasks.refresh()`. Navigation (Enter down, Esc up) simply moves between levels, and the destination level re-applies its state from scratch. This makes stale filters structurally impossible — there is no accumulation to leak — and keeps the invariant "at most one namespace facet plus at most one exact/absence filter" automatic. The per-level state:
+
+- L0 table: filter `""`, focus `focusOff` (all tasks).
+- L1 chart on real namespace `ns`: filter `<CODE>:<ns>:*`, focus `focusPresent{ns}`.
+- L1 chart on `tags`: filter `""`, focus `focusPresent{bareTags:true}`.
+- L2 detail on label `full`: filter `full` (exact), focus `focusOff`.
+- `(unset)` leaf under `ns`: filter `<CODE>:<ns>:*`, focus `focusAbsent{ns}`; under `tags`: filter `""`, focus `focusAbsent{bareTags:true}`.
+- `(none)` leaf: filter `""`, focus `focusUnlabeled`.
+
 ### Esc ladder summary
 
-L2 (label/unset detail) --Esc--> L1 (chart), clear the label/unset filter, keep the namespace facet.
-L1 (chart) --Esc--> L0 (table), clear the namespace facet.
-L0 (none leaf) --Esc--> L0 (table), clear the unlabeled filter.
+L2 (label detail) --Esc--> L1 (chart) — re-applies L1 state.
+L1 (chart) / `(unset)` leaf --Esc--> L0 (table) — re-applies L0 state (all tasks).
+L0 `(none)` leaf --Esc--> L0 (table).
 L0 (table) --Esc--> no-op.
-
-Every upward step clears exactly the filter the level below introduced, so the invariant "at most one namespace facet plus at most one exact/absence filter" always holds and navigation can never leave a stale filter.
 
 ## Tasks pane changes
 
 - Height: the right column splits 75/25 (Tasks/Labels) instead of 50/50. This is `splitRightColumnHeights` in internal/tui/app.go (currently `top := height / 2`).
 - Remove the `/` (edit filter) and `c` (clear filter) keys and the editable filter input/display.
-- Add a read-only focus caption so the user can see why the list is scoped, e.g. `focus: status`, `focus: status:done`, `focus: no status`, `focus: unlabeled`, or nothing at L0.
-- Introduce a Tasks-pane focus mode set by Labels navigation:
+- Add a read-only focus caption so the user can see why the list is scoped, e.g. `focus: status`, `focus: status:done`, `focus: no status`, `focus: bare tags`, `focus: unlabeled`, or nothing at L0.
+- Introduce a Tasks-pane focus value set by Labels navigation:
 
 ```
-type taskFocus int
+type taskFocus struct {
+    mode     taskFocusMode
+    ns       string // namespace for present/absent on a real namespace
+    bareTags bool   // present/absent apply to bare (unnamespaced) labels instead of ns
+}
+type taskFocusMode int
 const (
-    focusOff              taskFocus = iota // render everything ListTasks returns (L0, no wildcard)
-    focusNamespacePresent                  // wildcard set; render groups only, hide others (L1)
-    focusNamespaceAbsent                   // wildcard set; render others only ((unset))
-    focusUnlabeled                         // render only zero-label tasks ((none))
+    focusOff       taskFocusMode = iota // render whatever t.filter yields (L0 all tasks; L2 exact-label flat list)
+    focusPresent                        // tasks carrying the namespace (real ns: grouped via GroupTasks; bareTags: flat predicate)
+    focusAbsent                         // tasks NOT carrying the namespace (real ns: GroupTasks others; bareTags: flat predicate)
+    focusUnlabeled                      // tasks with zero labels
 )
 ```
 
-- The existing `t.filter` string remains the mechanism for the positive cases: it holds the namespace wildcard at L1/absent, or the exact label token at L2. `refresh()` still calls `ListTasks`/`GroupTasks` as today; `focus` only selects which already-computed subset is rendered (groups, others, or a zero-label predicate over the flat list). No new store query.
-- `focusUnlabeled` renders tasks where `len(labels) == 0` from the unfiltered `ListTasks` result. This is the one focus mode that applies a predicate in the pane rather than selecting a store-provided bucket; it is a trivial filter, not a new query capability.
+- `refresh()` branches on `focus.mode`:
+  - `focusOff`: existing behavior — `ListTasks(parseFilter())`, grouped if the filter has a wildcard else flat. Covers L0 (empty filter -> all tasks flat) and L2 (exact token -> flat filtered list).
+  - `focusPresent`, real namespace: `GroupTasks(Project, parseFilter())` where the filter is `<CODE>:<ns>:*`; render the `groups` only (hide `others`).
+  - `focusPresent`, `bareTags`: flat list of tasks where `taskHasBareTag(t)` is true (predicate over `ListTasks(Project)`).
+  - `focusAbsent`, real namespace: `GroupTasks(Project, [<CODE>:<ns>:*])`; render the `others` bucket as a flat list.
+  - `focusAbsent`, `bareTags`: flat list of tasks where `taskHasBareTag(t)` is false.
+  - `focusUnlabeled`: flat list of tasks where `len(t.Labels) == 0`.
+- `taskHasBareTag(t)` is true when the task carries at least one label whose suffix (after the `<CODE>:` prefix) contains no `:` — i.e. an unnamespaced tag. It is a trivial predicate, not a new store query.
 - Selecting a task, opening its detail, labeling, commenting, sorting: all unchanged.
 
 ## Labels pane changes
