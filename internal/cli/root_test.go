@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"atm/internal/agent"
+	"atm/internal/developing"
 )
 
 func TestRootNoArgsLaunchesTUI(t *testing.T) {
@@ -292,6 +293,50 @@ func TestInitInteractiveDryRunDoesNotPersistSelectionOrArgs(t *testing.T) {
 	}
 }
 
+func TestInitInteractiveUsesAlreadyInstalledPluginsAsDefaultCandidates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := developing.InstallPlugin("opencode", home, false); err != nil {
+		t.Fatalf("InstallPlugin: %v", err)
+	}
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("\n2\n\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	out, _, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	cfg, err := h.store.GetAgentsConfig()
+	if err != nil {
+		t.Fatalf("GetAgentsConfig: %v", err)
+	}
+	if cfg.Selected != "ollama:opencode" {
+		t.Fatalf("selected = %q, want ollama:opencode\noutput:\n%s", cfg.Selected, out)
+	}
+	if !strings.Contains(out, "Default agent") || !strings.Contains(out, "ollama:opencode") {
+		t.Fatalf("expected installed plugin candidates in output:\n%s", out)
+	}
+}
+
+func TestInitInteractiveWarnsReadinessAfterInstall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	h := newGoldenHarness(t)
+	h.output = outputText
+	h.st.in = strings.NewReader("1\n1\n\n")
+	h.st.stdinIsTerminal = func() bool { return true }
+
+	_, stderr, code := h.run("init")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr)
+	}
+	if strings.Contains(stderr, "needs plugin") {
+		t.Fatalf("warning was computed before plugin install:\n%s", stderr)
+	}
+}
+
 func TestParseInitDefaultAgentSelection(t *testing.T) {
 	entries := []agent.Entry{
 		{Name: "opencode", Launcher: "opencode"},
@@ -342,6 +387,7 @@ func TestParseInitArgsLine(t *testing.T) {
 		{name: "blank", input: "   ", wantOK: false},
 		{name: "words", input: "--yolo --auto", want: []string{"--yolo", "--auto"}, wantOK: true},
 		{name: "double quoted", input: `--profile "work laptop"`, want: []string{"--profile", "work laptop"}, wantOK: true},
+		{name: "empty quoted", input: `--flag "" --next x`, want: []string{"--flag", "", "--next", "x"}, wantOK: true},
 		{name: "single quoted", input: `--profile 'work laptop'`, want: []string{"--profile", "work laptop"}, wantOK: true},
 		{name: "escaped space", input: `--profile work\ laptop`, want: []string{"--profile", "work laptop"}, wantOK: true},
 		{name: "unterminated", input: `"oops`, wantErr: true},

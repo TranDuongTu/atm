@@ -230,6 +230,11 @@ func newInitCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if setup.SelectedAgent != "" {
+				if err := warnInitSelectedAgent(st, setup.SelectedAgent); err != nil {
+					return err
+				}
+			}
 			if !interactive && len(installed) > 0 && cfg.Selected == "" {
 				for _, res := range installed {
 					if _, ok := agent.Lookup(res.Agent); ok {
@@ -320,7 +325,11 @@ func promptInitSetup(st *cliState, cfg store.AgentsConfig) (initSetupPromptResul
 	if err != nil {
 		return res, err
 	}
-	entries := viableInitDefaultAgents(previewInstalled, cfg)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return res, fmt.Errorf("resolve home dir: %w", err)
+	}
+	entries := viableInitDefaultAgents(previewInstalled, cfg, home)
 	if len(entries) == 0 {
 		fmt.Fprintln(st.stdout(), "No default agent candidates yet; install an agent plugin or run `atm agents select <name>` later.")
 		return res, nil
@@ -353,16 +362,6 @@ func promptInitSetup(st *cliState, cfg store.AgentsConfig) (initSetupPromptResul
 	res.SelectedAgent = selected
 	if selected == "" {
 		return res, nil
-	}
-	if e, ok := agent.Lookup(selected); ok {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return res, fmt.Errorf("resolve home dir: %w", err)
-		}
-		status := agent.Status(e, home, exec.LookPath)
-		if !status.Ready() {
-			fmt.Fprintf(st.stderr(), "warning: %s is not ready (%s)\n", selected, status.String())
-		}
 	}
 	fmt.Fprintf(st.stdout(), "Agent args for %s [optional, shell-like quoting; Enter to keep current]: ", selected)
 	if !scanner.Scan() {
@@ -410,19 +409,23 @@ func parseInitArgsLine(input string) ([]string, bool, error) {
 	var cur strings.Builder
 	var quote rune
 	escaped := false
+	tokenStarted := false
 	emit := func() {
-		if cur.Len() > 0 {
+		if tokenStarted {
 			out = append(out, cur.String())
 			cur.Reset()
+			tokenStarted = false
 		}
 	}
 	for _, r := range input {
 		if escaped {
 			cur.WriteRune(r)
+			tokenStarted = true
 			escaped = false
 			continue
 		}
 		if r == '\\' {
+			tokenStarted = true
 			escaped = true
 			continue
 		}
@@ -432,15 +435,18 @@ func parseInitArgsLine(input string) ([]string, bool, error) {
 				continue
 			}
 			cur.WriteRune(r)
+			tokenStarted = true
 			continue
 		}
 		switch r {
 		case '\'', '"':
+			tokenStarted = true
 			quote = r
 		case ' ', '\t', '\n':
 			emit()
 		default:
 			cur.WriteRune(r)
+			tokenStarted = true
 		}
 	}
 	if escaped {
@@ -538,10 +544,15 @@ func previewInitInstallResults(selected []string) ([]initInstallResult, error) {
 	return out, nil
 }
 
-func viableInitDefaultAgents(installed []initInstallResult, cfg store.AgentsConfig) []agent.Entry {
+func viableInitDefaultAgents(installed []initInstallResult, cfg store.AgentsConfig, home string) []agent.Entry {
 	pluginAgents := map[string]bool{}
 	for _, res := range installed {
 		pluginAgents[res.Agent] = true
+	}
+	for _, name := range []string{"opencode", "codex", "claude"} {
+		if developing.PluginStatus(name, home).State == "installed" {
+			pluginAgents[name] = true
+		}
 	}
 	if cfg.Selected != "" {
 		if e, ok := agent.Lookup(cfg.Selected); ok {
@@ -558,6 +569,22 @@ func viableInitDefaultAgents(installed []initInstallResult, cfg store.AgentsConf
 		seen[e.Name] = true
 	}
 	return out
+}
+
+func warnInitSelectedAgent(st *cliState, selected string) error {
+	e, ok := agent.Lookup(selected)
+	if !ok {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
+	status := agent.Status(e, home, exec.LookPath)
+	if !status.Ready() {
+		fmt.Fprintf(st.stderr(), "warning: %s is not ready (%s)\n", selected, status.String())
+	}
+	return nil
 }
 
 func persistInitSetup(s *store.Store, setup initSetupPromptResult, dryRun bool) error {
