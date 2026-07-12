@@ -103,6 +103,14 @@ func TestManagerCommandRemoved(t *testing.T) {
 	}
 }
 
+func TestManagePluginCommandRemoved(t *testing.T) {
+	h := newGoldenHarness(t)
+	_, _, code := h.run("manage", "plugin", "status")
+	if code == ExitSuccess {
+		t.Fatalf("atm manage plugin should be removed")
+	}
+}
+
 func TestManageContextHiddenFromRootHelp(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText

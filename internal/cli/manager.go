@@ -40,12 +40,15 @@ func newManageCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manage",
 		Short: "Launch an ATM manager session",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("%w: choose a manager agent", ErrUsage)
+		},
 	}
 	for _, name := range []string{"opencode", "codex", "claude"} {
 		cmd.AddCommand(newManageAgentCmd(st, name))
 	}
 	cmd.AddCommand(newManageOllamaCmd(st))
-	cmd.AddCommand(newManagerPluginCmd(st))
 	return cmd
 }
 
