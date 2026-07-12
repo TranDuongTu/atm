@@ -50,6 +50,12 @@ func (m *Model) openLabelAddForm(code string) {
 
 // openLabelRemoveForm opens the remove-label form bound to the given project code.
 func (m *Model) openLabelRemoveForm(code string) {
+	m.openLabelRemoveFormFor(code, "")
+}
+
+// openLabelRemoveFormFor opens the remove-label form with a known suffix.
+// Used when the Labels pane has a real label under the cursor.
+func (m *Model) openLabelRemoveFormFor(code, suffix string) {
 	validator := func(field, value string) error {
 		if value == "" {
 			return nil
@@ -60,7 +66,7 @@ func (m *Model) openLabelRemoveForm(code string) {
 		return nil
 	}
 	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+		{Label: "name", Required: true, Value: suffix, Hint: "<namespace>:<value> or <tag>", Validator: validator},
 	}
 	f := NewForm(fmt.Sprintf("Remove label  %s:", code), fields)
 	f.Title = fmt.Sprintf("Remove label  %s:", code)
@@ -143,6 +149,12 @@ type nsRow struct {
 type labelDetailState struct {
 	row  labelRow
 	leaf string // "" for a real label; "unset" or "none" for the synthetic leaves
+}
+
+type chartRow struct {
+	full  string
+	count int
+	unset bool
 }
 
 func newLabelsModel(m *Model) labelsModel {
@@ -280,6 +292,70 @@ func (l *labelsModel) enterChart(r nsRow) {
 	l.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.key}, facetToken(l.m.projectScope, r.key))
 }
 
+// chartRows returns the active namespace's per-label task counts plus a
+// trailing (unset) row for tasks lacking the namespace. Real namespaces use
+// GroupTasks; the tags pseudo-namespace is counted locally since no single
+// wildcard selects bare labels.
+func (l *labelsModel) chartRows() []chartRow {
+	scope := l.m.projectScope
+	var rows []chartRow
+	unset := 0
+	if l.bareTags {
+		bareCount := map[string]int{}
+		for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+			if taskHasBareTag(scope, tk) {
+				for _, full := range tk.Labels {
+					if !strings.Contains(strings.TrimPrefix(full, scope+":"), ":") {
+						bareCount[full]++
+					}
+				}
+			} else {
+				unset++
+			}
+		}
+		for _, r := range l.rows {
+			if !strings.Contains(r.suffix, ":") {
+				rows = append(rows, chartRow{full: r.full, count: bareCount[r.full]})
+			}
+		}
+	} else {
+		groups, others := l.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: []string{facetToken(scope, l.ns)}})
+		counts := map[string]int{}
+		for _, g := range groups {
+			counts[g.Label] = len(g.Tasks)
+		}
+		for _, r := range l.rows {
+			if strings.HasPrefix(r.suffix, l.ns+":") {
+				rows = append(rows, chartRow{full: r.full, count: counts[r.full]})
+			}
+		}
+		unset = len(others)
+	}
+	if unset > 0 {
+		rows = append(rows, chartRow{full: "(unset)", count: unset, unset: true})
+	}
+	return rows
+}
+
+// enterDetail opens a label's detail (L2) and focuses the Tasks pane on that
+// exact label as a flat list.
+func (l *labelsModel) enterDetail(r labelRow) {
+	l.level = lLevelDetail
+	l.detail = labelDetailState{row: r}
+	l.m.tasks.setFocus(taskFocus{mode: focusOff}, r.full)
+}
+
+// enterUnsetLeaf focuses the Tasks pane on tasks lacking the active namespace.
+func (l *labelsModel) enterUnsetLeaf() {
+	l.level = lLevelDetail
+	l.detail = labelDetailState{leaf: "unset"}
+	if l.bareTags {
+		l.m.tasks.setFocus(taskFocus{mode: focusAbsent, bareTags: true}, "")
+		return
+	}
+	l.m.tasks.setFocus(taskFocus{mode: focusAbsent, ns: l.ns}, facetToken(l.m.projectScope, l.ns))
+}
+
 // enterNoneLeaf filters the Tasks pane to zero-label tasks. It is a leaf: the
 // Labels pane shows a minimal detail and Esc returns to the table.
 func (l *labelsModel) enterNoneLeaf() {
@@ -360,14 +436,71 @@ func (l *labelsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handleChartKey is expanded in Task 4 (cursor over label rows, Enter -> detail,
-// (unset) row). For now it only handles Esc back to the table.
 func (l *labelsModel) handleChartKey(k tea.KeyMsg) tea.Cmd {
+	rows := l.chartRows()
 	switch k.String() {
+	case "j", "down":
+		if l.cursor < len(rows)-1 {
+			l.cursor++
+		}
+	case "k", "up":
+		if l.cursor > 0 {
+			l.cursor--
+		}
+	case "g":
+		l.cursor = 0
+	case "]":
+		l.cursor += l.pageSize
+		if l.cursor > len(rows)-1 {
+			l.cursor = len(rows) - 1
+		}
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
+	case "[":
+		l.cursor -= l.pageSize
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
+	case "d":
+		if r, ok := l.chartLabelRow(); ok {
+			l.m.openLabelDescribeFormFor(r.suffix, r.description)
+		}
+	case "l":
+		if r, ok := l.chartLabelRow(); ok {
+			l.m.openLabelRemoveFormFor(l.m.projectScope, r.suffix)
+		}
+	case "enter":
+		if l.cursor < 0 || l.cursor >= len(rows) {
+			return nil
+		}
+		if rows[l.cursor].unset {
+			l.enterUnsetLeaf()
+			return nil
+		}
+		if r, ok := l.chartLabelRow(); ok {
+			l.enterDetail(r)
+		}
 	case "esc":
 		l.enterTable()
 	}
 	return nil
+}
+
+// chartLabelRow returns the labelRow under the chart cursor, or ok=false when
+// the cursor is on the (unset) row or out of range.
+func (l *labelsModel) chartLabelRow() (labelRow, bool) {
+	rows := l.chartRows()
+	if l.cursor < 0 || l.cursor >= len(rows) || rows[l.cursor].unset {
+		return labelRow{}, false
+	}
+	full := rows[l.cursor].full
+	for _, r := range l.rows {
+		if r.full == full {
+			return r, true
+		}
+	}
+	return labelRow{}, false
 }
 
 func (l *labelsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
@@ -378,7 +511,7 @@ func (l *labelsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "l":
 		if l.detail.leaf == "" {
-			l.m.openLabelRemoveForm(l.m.projectScope)
+			l.m.openLabelRemoveFormFor(l.m.projectScope, l.detail.row.suffix)
 		}
 	case "esc":
 		// A real label detail and the (unset) leaf sit above the chart; the
@@ -461,34 +594,54 @@ func (l *labelsModel) renderTable() string {
 	return padToHeight(b.String(), l.contentHeight)
 }
 
-// renderChart is the basic (non-cursor) chart; Task 4 replaces it with a
-// cursor-navigable chart carrying an (unset) row.
 func (l *labelsModel) renderChart() string {
-	var b strings.Builder
 	title := l.ns
 	if l.bareTags {
 		title = "tags"
 	}
-	b.WriteString(dashboardLine(l.width, fmt.Sprintf("chart: %s", title)))
+	rows := l.chartRows()
+	total := 0
+	for _, r := range rows {
+		total += r.count
+	}
+
+	var b strings.Builder
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("%s  ·  %d tasks", title, total)))
 	b.WriteString("\n")
-	for _, r := range l.rows {
-		if l.labelInActiveNamespace(r) {
-			b.WriteString(dashboardLine(l.width, fmt.Sprintf(" %-30s %5d", r.full, r.usage)))
-			b.WriteString("\n")
+
+	nameW := 0
+	for _, r := range rows {
+		if w := len(r.full); w > nameW {
+			nameW = w
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back")))
-	return padToHeight(b.String(), l.contentHeight)
-}
-
-// labelInActiveNamespace reports whether label row r belongs to the active
-// chart namespace (real namespace prefix, or a bare label when bareTags).
-func (l *labelsModel) labelInActiveNamespace(r labelRow) bool {
-	if l.bareTags {
-		return !strings.Contains(r.suffix, ":")
+	if nameW < 8 {
+		nameW = 8
 	}
-	return strings.HasPrefix(r.suffix, l.ns+":")
+	meterW := l.width - nameW - 14
+	if meterW < 10 {
+		meterW = 10
+	}
+
+	var lines []string
+	for i, r := range rows {
+		percent := 0
+		if total > 0 {
+			percent = (r.count*100 + total/2) / total
+		}
+		line := fmt.Sprintf(" %-*s %s %4d", nameW, r.full, meterBar(percent, meterW), r.count)
+		if i == l.cursor {
+			line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+		}
+		lines = append(lines, dashboardLine(l.width, line))
+	}
+	start, end := windowLines(len(lines), l.cursor, l.pageSize)
+	for i := start; i < end; i++ {
+		b.WriteString(lines[i])
+		b.WriteString("\n")
+	}
+	b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Enter]inspect  [Esc]back")))
+	return padToHeight(b.String(), l.contentHeight)
 }
 
 func (l *labelsModel) renderDetail() string {

@@ -172,6 +172,205 @@ func cursorToNoneRow(t *testing.T, m *Model) {
 	t.Fatalf("(none) row not found")
 }
 
+func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(120, 80)
+	if err := m.store.LabelAdd("ATM:status:blocked", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(title string, labels ...string) {
+		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a", "ATM:status:open")
+	mk("b", "ATM:status:open")
+	mk("c", "ATM:status:done")
+	mk("d", "ATM:priority:high") // no status -> unset
+
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter") // into chart
+
+	rows := m.labels.chartRows()
+	// open(2), blocked(0), done(1), unset(1) in this fixture.
+	var openCount, blockedCount, unsetCount int
+	sawUnset := false
+	sawBlocked := false
+	for _, r := range rows {
+		if r.unset {
+			sawUnset = true
+			unsetCount = r.count
+		}
+		if r.full == "ATM:status:open" {
+			openCount = r.count
+		}
+		if r.full == "ATM:status:blocked" {
+			sawBlocked = true
+			blockedCount = r.count
+		}
+	}
+	if openCount != 2 {
+		t.Errorf("open count = %d want 2", openCount)
+	}
+	if !sawUnset || unsetCount != 1 {
+		t.Errorf("unset row missing or wrong: saw=%v count=%d want 1", sawUnset, unsetCount)
+	}
+	if !sawBlocked || blockedCount != 0 {
+		t.Errorf("blocked row missing or wrong: saw=%v count=%d want 0", sawBlocked, blockedCount)
+	}
+	v := m.labels.View()
+	mustContain(t, v, "(unset)")
+	mustContain(t, v, "█")
+}
+
+func TestLabelsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter") // chart
+	cursorToChartLabel(t, m, "ATM:status:open")
+	update(t, m, "enter") // detail
+
+	if m.labels.level != lLevelDetail {
+		t.Fatalf("level = %v want detail", m.labels.level)
+	}
+	if m.tasks.filter != "ATM:status:open" || m.tasks.focus.mode != focusOff {
+		t.Fatalf("tasks focus/filter = %+v %q want off/exact", m.tasks.focus, m.tasks.filter)
+	}
+	mustContain(t, m.labels.View(), "Label ATM:status:open")
+
+	// Esc returns to the chart and re-applies present focus.
+	update(t, m, "esc")
+	if m.labels.level != lLevelChart {
+		t.Fatalf("level = %v want chart after esc", m.labels.level)
+	}
+	if m.tasks.filter != "ATM:status:*" || m.tasks.focus.mode != focusPresent {
+		t.Fatalf("chart focus not restored: %+v %q", m.tasks.focus, m.tasks.filter)
+	}
+}
+
+func TestLabelsChartEnterUnsetFiltersAbsent(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	mk := func(title string, labels ...string) {
+		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a", "ATM:status:open")
+	mk("b", "ATM:priority:high") // no status
+
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter") // chart
+	cursorToChartUnset(t, m)
+	update(t, m, "enter") // unset leaf
+
+	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
+		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
+	}
+	update(t, m, "esc")
+	if m.labels.level != lLevelChart || m.tasks.focus.mode != focusPresent {
+		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.labels.level, m.tasks.focus)
+	}
+}
+
+func TestLabelsChartRemovePrefillsCursorLabel(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+	cursorToChartLabel(t, m, "ATM:status:open")
+	update(t, m, "l")
+
+	if m.form == nil || m.formKind != formLabelRemove {
+		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
+	}
+	if got := m.form.Fields[0].Value; got != "status:open" {
+		t.Fatalf("remove form name = %q want status:open", got)
+	}
+}
+
+func TestLabelsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+	cursorToChartLabel(t, m, "ATM:status:open")
+	update(t, m, "enter")
+	update(t, m, "l")
+
+	if m.form == nil || m.formKind != formLabelRemove {
+		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
+	}
+	if got := m.form.Fields[0].Value; got != "status:open" {
+		t.Fatalf("remove form name = %q want status:open", got)
+	}
+}
+
+func TestLabelsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:priority:high"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+	cursorToChartUnset(t, m)
+	update(t, m, "l")
+	if m.form != nil {
+		t.Fatalf("remove form opened for chart (unset) row")
+	}
+	update(t, m, "enter")
+	update(t, m, "l")
+	if m.form != nil {
+		t.Fatalf("remove form opened for unset detail leaf")
+	}
+}
+
+func cursorToChartLabel(t *testing.T, m *Model, full string) {
+	t.Helper()
+	for i, r := range m.labels.chartRows() {
+		if r.full == full {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("chart label %q not found", full)
+}
+
+func cursorToChartUnset(t *testing.T, m *Model) {
+	t.Helper()
+	for i, r := range m.labels.chartRows() {
+		if r.unset {
+			m.labels.cursor = i
+			return
+		}
+	}
+	t.Fatalf("chart (unset) row not found")
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
