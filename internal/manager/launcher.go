@@ -9,9 +9,10 @@ type Launcher interface {
 }
 
 type staticLauncher struct {
-	name string
-	hint string
-	argv []string
+	name         string
+	hint         string
+	argv         []string
+	supportsAuto bool
 }
 
 func (l staticLauncher) Name() string         { return l.name }
@@ -20,7 +21,10 @@ func (l staticLauncher) BuildArgv() []string  { return append([]string(nil), l.a
 
 func (l staticLauncher) BuildArgvOnboard(contextPath string) []string {
 	msg := managerMessagePrefix + contextPath + managerMessageSuffix
-	return []string{l.name, "--auto", "--prompt", msg}
+	if l.supportsAuto {
+		return []string{l.name, "--auto", "--prompt", msg}
+	}
+	return []string{l.name, "--prompt", msg}
 }
 
 func (l staticLauncher) BuildArgvManage(contextPath string) []string {
@@ -31,7 +35,7 @@ func (l staticLauncher) BuildArgvManage(contextPath string) []string {
 func LauncherFor(name string) (Launcher, bool) {
 	switch name {
 	case "opencode":
-		return staticLauncher{name: "opencode", hint: "https://opencode.ai", argv: []string{"opencode"}}, true
+		return staticLauncher{name: "opencode", hint: "https://opencode.ai", argv: []string{"opencode"}, supportsAuto: true}, true
 	case "codex":
 		return staticLauncher{name: "codex", hint: "https://developers.openai.com/codex", argv: []string{"codex"}}, true
 	case "claude":
@@ -53,14 +57,27 @@ func (l OllamaLauncher) BuildArgv() []string {
 
 func (l OllamaLauncher) BuildArgvOnboard(contextPath string) []string {
 	msg := managerMessagePrefix + contextPath + managerMessageSuffix
+	if agentSupportsAutoFlag(l.Integration) {
+		return []string{"ollama", "launch", l.Integration, "--",
+			"--auto", "--prompt", msg}
+	}
 	return []string{"ollama", "launch", l.Integration, "--",
-		"--auto", "--prompt", msg}
+		"--prompt", msg}
 }
 
 func (l OllamaLauncher) BuildArgvManage(contextPath string) []string {
 	msg := managerMessagePrefix + contextPath + managerMessageSuffix
 	return []string{"ollama", "launch", l.Integration, "--",
 		"--prompt", msg}
+}
+
+func agentSupportsAutoFlag(name string) bool {
+	switch name {
+	case "opencode":
+		return true
+	default:
+		return false
+	}
 }
 
 const (

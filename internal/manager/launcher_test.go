@@ -87,3 +87,45 @@ func TestBuildArgvOnboardOllama(t *testing.T) {
 		t.Fatalf("ollama BuildArgvOnboard = %v, want [ollama launch opencode -- --auto --prompt <msg>]", got)
 	}
 }
+
+func TestBuildArgvOnboardCodex(t *testing.T) {
+	l, ok := LauncherFor("codex")
+	if !ok {
+		t.Fatal("LauncherFor(codex) not found")
+	}
+	got := l.BuildArgvOnboard("/tmp/ctx.md")
+	if len(got) < 3 || got[0] != "codex" || got[1] != "--prompt" {
+		t.Fatalf("codex BuildArgvOnboard = %v, want [codex --prompt <msg>]", got)
+	}
+	for _, s := range got {
+		if s == "--auto" {
+			t.Fatalf("codex BuildArgvOnboard should not contain --auto: %v", got)
+		}
+	}
+}
+
+func TestBuildArgvOnboardClaude(t *testing.T) {
+	l, ok := LauncherFor("claude")
+	if !ok {
+		t.Fatal("LauncherFor(claude) not found")
+	}
+	got := l.BuildArgvOnboard("/tmp/ctx.md")
+	if len(got) < 3 || got[0] != "claude" || got[1] != "--prompt" {
+		t.Fatalf("claude BuildArgvOnboard = %v, want [claude --prompt <msg>]", got)
+	}
+	for _, s := range got {
+		if s == "--auto" {
+			t.Fatalf("claude BuildArgvOnboard should not contain --auto: %v", got)
+		}
+	}
+}
+
+func TestBuildArgvOnboardOllamaCodex(t *testing.T) {
+	l := OllamaLauncher{Integration: "codex"}
+	got := l.BuildArgvOnboard("/tmp/ctx.md")
+	for _, s := range got {
+		if s == "--auto" {
+			t.Fatalf("ollama:codex BuildArgvOnboard should not contain --auto: %v", got)
+		}
+	}
+}
