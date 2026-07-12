@@ -23,7 +23,7 @@ func TestLabelsTabEmptyStateNoProject(t *testing.T) {
 
 func TestLabelsTabListSeededLabels(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(200, 80)
+	m.SetSize(200, 160)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s") // select ATM
 	update(t, m, "3") // Labels pane
@@ -46,7 +46,7 @@ func TestLabelsTabListSeededLabels(t *testing.T) {
 
 func TestLabelsTabCallsOutMissingDescriptions(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(200, 60)
+	m.SetSize(200, 120)
 	seedProject(t, m, "ATM", "Acme")
 	seedLabel(t, m, "ATM:patch:urgent", "")
 	update(t, m, "s")
@@ -105,6 +105,7 @@ func TestLabelsBracketKeysPageThroughList(t *testing.T) {
 
 func TestLabelDetailDashboardSections(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 80)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
 	update(t, m, "3")
@@ -402,6 +403,7 @@ func TestLabelsEscClosesChartWithoutClearingFilter(t *testing.T) {
 
 func TestLabelsChartShowsUsageBars(t *testing.T) {
 	m := newTestModel(t)
+	m.SetSize(200, 80)
 	seedProject(t, m, "ATM", "Acme")
 	// Give status:open a usage count so a non-empty bar renders.
 	if _, err := m.store.CreateTask("ATM", "t1", "", []string{"ATM:status:open"}, m.actor); err != nil {

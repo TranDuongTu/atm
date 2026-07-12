@@ -297,8 +297,12 @@ func splitRightColumnHeights(height int) (int, int) {
 	if height < 2 {
 		return height, 0
 	}
-	top := height / 2
+	top := height * 75 / 100
 	bottom := height - top
+	if bottom < 1 {
+		bottom = 1
+		top = height - bottom
+	}
 	return top, bottom
 }
 

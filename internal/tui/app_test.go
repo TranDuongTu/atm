@@ -210,6 +210,28 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	_ = labelsH
 }
 
+func TestSplitRightColumnHeights75_25(t *testing.T) {
+	cases := []struct {
+		height, wantTop, wantBottom int
+	}{
+		{0, 0, 0},
+		{1, 1, 0},
+		{2, 1, 1}, // bottom must stay >= 1
+		{4, 3, 1},
+		{40, 30, 10},
+		{100, 75, 25},
+	}
+	for _, c := range cases {
+		top, bottom := splitRightColumnHeights(c.height)
+		if top != c.wantTop || bottom != c.wantBottom {
+			t.Errorf("splitRightColumnHeights(%d) = (%d,%d) want (%d,%d)", c.height, top, bottom, c.wantTop, c.wantBottom)
+		}
+		if c.height >= 2 && bottom < 1 {
+			t.Errorf("splitRightColumnHeights(%d): bottom=%d must be >= 1", c.height, bottom)
+		}
+	}
+}
+
 // --- Step 1: pane focus ---
 
 func TestPaneFocusKeys(t *testing.T) {
@@ -1399,7 +1421,7 @@ func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
 func TestTasksGroupedListScrollsWithCursor(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 30; i++ {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)), "ATM:status:open")
 	}
 	update(t, m, "s")
