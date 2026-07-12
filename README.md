@@ -2,14 +2,19 @@
 
 ATM is an append-only task ledger for people who work through coding agents.
 
-## User Actions
-
-Install the subagent plugins so agents know how to start ATM sessions:
+## 30-Second Start
 
 ```sh
-atm manage plugin install
-atm manage plugin status
+atm init
+atm
+atm codex --project ATM
+atm manage codex --project ATM --planning
 ```
+
+`atm init` initializes the store and guides you through installing ATM plugins
+for one or more agents. Agent launchers create the project if it does not exist.
+
+## User Actions
 
 Open the TUI:
 
@@ -17,7 +22,7 @@ Open the TUI:
 atm
 ```
 
-Start a developer agent on a project:
+Start a developer agent:
 
 ```sh
 atm codex --project ATM
@@ -26,7 +31,7 @@ atm opencode --project ATM
 atm ollama --project ATM --integration codex
 ```
 
-Start a manager session for a specific management action:
+Start a manager session:
 
 ```sh
 atm manage codex --project ATM --planning
