@@ -15,8 +15,8 @@ curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/instal
 **2. Onboard.** Run the guided setup once, then onboard each project -- one manager onboarding run per project:
 
 ```sh
-atm init                       # guided setup: store, plugins, default agent, args
-atm manage --project ATM --onboarding
+atm init                               # guided setup: store, plugins, default agent, args
+atm manage --project ATM --onboarding  # Run inside the working repo
 ```
 
 **3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
