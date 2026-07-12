@@ -61,6 +61,8 @@ I switch machines frequently, so I need a centralized, immutable, append-only le
 
 I do not want a traditional Jira-style ticket system built around human browsing workflows. I want to ask my agents and have them work from the ledger.
 
+I like to be creative and keep ideas flowing into the backlog anytime, anywhere, and later have the manager groom and plan them for me.
+
 ## Store
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
