@@ -115,6 +115,7 @@ type labelsModel struct {
 	ns            string // active namespace at chart/detail (real ns name; "" when bareTags)
 	bareTags      bool   // active pseudo-namespace is the bare-tags bucket
 	cursor        int    // indexes the current level's row slice
+	tableCursor   int    // L0 cursor saved before entering a chart
 	offset        int
 	pageSize      int
 	detail        labelDetailState
@@ -274,12 +275,20 @@ func (l *labelsModel) enterTable() {
 	l.level = lLevelTable
 	l.ns = ""
 	l.bareTags = false
+	l.cursor = l.tableCursor
+	if l.cursor >= len(l.nsRows) {
+		l.cursor = len(l.nsRows) - 1
+	}
+	if l.cursor < 0 {
+		l.cursor = 0
+	}
 	l.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 }
 
 // enterChart drills into a namespace row's chart and focuses the Tasks pane on
 // tasks carrying that namespace. cursor is reset to the top of the chart.
 func (l *labelsModel) enterChart(r nsRow) {
+	l.tableCursor = l.cursor
 	l.level = lLevelChart
 	l.ns = r.key
 	l.bareTags = r.bareTags
@@ -371,6 +380,7 @@ func (l *labelsModel) reset() {
 	l.ns = ""
 	l.bareTags = false
 	l.cursor = 0
+	l.tableCursor = 0
 	l.offset = 0
 	l.detail = labelDetailState{}
 }
@@ -532,7 +542,9 @@ func (l *labelsModel) reenterChart() {
 	if l.bareTags {
 		r.display = "tags"
 	}
+	tableCursor := l.tableCursor
 	l.enterChart(r)
+	l.tableCursor = tableCursor
 }
 
 func (l *labelsModel) seedDefaults() tea.Cmd {
@@ -600,13 +612,13 @@ func (l *labelsModel) renderChart() string {
 		title = "tags"
 	}
 	rows := l.chartRows()
-	total := 0
+	barTotal := 0
 	for _, r := range rows {
-		total += r.count
+		barTotal += r.count
 	}
 
 	var b strings.Builder
-	b.WriteString(dashboardLine(l.width, fmt.Sprintf("%s  ·  %d tasks", title, total)))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("%s  ·  %d tasks", title, l.activeNamespaceTaskCount())))
 	b.WriteString("\n")
 
 	nameW := 0
@@ -626,8 +638,8 @@ func (l *labelsModel) renderChart() string {
 	var lines []string
 	for i, r := range rows {
 		percent := 0
-		if total > 0 {
-			percent = (r.count*100 + total/2) / total
+		if barTotal > 0 {
+			percent = (r.count*100 + barTotal/2) / barTotal
 		}
 		line := fmt.Sprintf(" %-*s %s %4d", nameW, r.full, meterBar(percent, meterW), r.count)
 		if i == l.cursor {
@@ -648,7 +660,7 @@ func (l *labelsModel) renderDetail() string {
 	var b strings.Builder
 	switch l.detail.leaf {
 	case "none":
-		b.WriteString(dashboardLine(l.width, "tasks with no labels"))
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d tasks with no labels", l.syntheticLeafTaskCount())))
 		b.WriteString("\n")
 		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to namespaces")))
 		return padToHeight(b.String(), l.contentHeight)
@@ -657,25 +669,75 @@ func (l *labelsModel) renderDetail() string {
 		if l.bareTags {
 			ns = "bare tag"
 		}
-		b.WriteString(dashboardLine(l.width, fmt.Sprintf("tasks with no %s", ns)))
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d tasks with no %s", l.syntheticLeafTaskCount(), ns)))
 		b.WriteString("\n")
 		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to chart")))
 		return padToHeight(b.String(), l.contentHeight)
 	}
 	r := l.detail.row
-	fmt.Fprintf(&b, "Label %s\n", r.full)
-	b.WriteString(sepLine("─", 78, l.width, 2))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
 	b.WriteString("\n")
-	b.WriteString(sectionCaption(l.m.styles, l.width, "FACTS"))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	desc := r.description
 	if desc == "" {
 		desc = l.m.styles.Warning.Render("needs description")
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
 	return padToHeight(b.String(), l.contentHeight)
+}
+
+// activeNamespaceTaskCount counts distinct project tasks carrying the active
+// namespace or bare-tag bucket. Chart rows intentionally retain membership
+// counts, so their sum is not suitable for the headline.
+func (l *labelsModel) activeNamespaceTaskCount() int {
+	scope := l.m.projectScope
+	count := 0
+	for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+		if l.bareTags {
+			if taskHasBareTag(scope, tk) {
+				count++
+			}
+			continue
+		}
+		for _, full := range tk.Labels {
+			if strings.HasPrefix(full, scope+":"+l.ns+":") {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+func (l *labelsModel) syntheticLeafTaskCount() int {
+	count := 0
+	for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: l.m.projectScope}) {
+		switch l.detail.leaf {
+		case "none":
+			if len(tk.Labels) == 0 {
+				count++
+			}
+		case "unset":
+			if l.bareTags {
+				if !taskHasBareTag(l.m.projectScope, tk) {
+					count++
+				}
+				continue
+			}
+			hasNamespace := false
+			for _, full := range tk.Labels {
+				if strings.HasPrefix(full, l.m.projectScope+":"+l.ns+":") {
+					hasNamespace = true
+					break
+				}
+			}
+			if !hasNamespace {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (l *labelsModel) statusHint() string {

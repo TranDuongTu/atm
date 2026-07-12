@@ -131,6 +131,24 @@ func TestLabelsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	}
 }
 
+func TestLabelsEscFromChartRestoresTableCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+	update(t, m, "esc")
+
+	if m.labels.level != lLevelTable {
+		t.Fatalf("level = %v want table", m.labels.level)
+	}
+	if got := m.labels.nsRows[m.labels.cursor].key; got != "status" {
+		t.Fatalf("table cursor = %q want status", got)
+	}
+}
+
 func TestLabelsL0EnterNoneFiltersUnlabeled(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -144,9 +162,42 @@ func TestLabelsL0EnterNoneFiltersUnlabeled(t *testing.T) {
 	if m.tasks.focus.mode != focusUnlabeled {
 		t.Fatalf("focus = %+v want unlabeled", m.tasks.focus)
 	}
+	mustContain(t, m.labels.View(), "1 tasks with no labels")
 	update(t, m, "esc")
 	if m.tasks.focus.mode != focusOff || m.labels.level != lLevelTable {
 		t.Fatalf("esc from none leaf did not return to table/clear: %+v %v", m.tasks.focus, m.labels.level)
+	}
+}
+
+func TestLabelsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
+	for _, size := range []struct {
+		name string
+		w    int
+		h    int
+	}{
+		{name: "default", w: 100, h: 30},
+		{name: "small", w: 80, h: 24},
+	} {
+		t.Run(size.name, func(t *testing.T) {
+			m := newTestModel(t)
+			seedProject(t, m, "ATM", "Acme")
+			if err := m.store.LabelAdd("ATM:status:open", "selected status description", m.actor); err != nil {
+				t.Fatal(err)
+			}
+			seedTask(t, m, "ATM", "open", "ATM:status:open")
+			m.SetSize(size.w, size.h)
+			update(t, m, "s")
+			update(t, m, "3")
+			cursorToNamespaceRow(t, m, "status")
+			update(t, m, "enter")
+			cursorToChartLabel(t, m, "ATM:status:open")
+			update(t, m, "enter")
+
+			view := m.labels.View()
+			mustContain(t, view, "name        ATM:status:open")
+			mustContain(t, view, "usage       1 use")
+			mustContain(t, view, "description selected status description")
+		})
 	}
 }
 
@@ -226,6 +277,20 @@ func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
 	mustContain(t, v, "█")
 }
 
+func TestLabelsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedTask(t, m, "ATM", "both", "ATM:status:open", "ATM:status:done")
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	seedTask(t, m, "ATM", "unset", "ATM:priority:high")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+
+	mustContain(t, m.labels.View(), "status  ·  2 tasks")
+}
+
 func TestLabelsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -245,7 +310,7 @@ func TestLabelsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	if m.tasks.filter != "ATM:status:open" || m.tasks.focus.mode != focusOff {
 		t.Fatalf("tasks focus/filter = %+v %q want off/exact", m.tasks.focus, m.tasks.filter)
 	}
-	mustContain(t, m.labels.View(), "Label ATM:status:open")
+	mustContain(t, m.labels.View(), "name        ATM:status:open")
 
 	// Esc returns to the chart and re-applies present focus.
 	update(t, m, "esc")
@@ -278,6 +343,7 @@ func TestLabelsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
 	}
+	mustContain(t, m.labels.View(), "1 tasks with no status")
 	update(t, m, "esc")
 	if m.labels.level != lLevelChart || m.tasks.focus.mode != focusPresent {
 		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.labels.level, m.tasks.focus)
