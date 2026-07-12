@@ -45,7 +45,7 @@ phase1_preflight() {
       exit 2
     fi
   fi
-  if [ "$NO_PREFLIGHT_TAG" = 0 ]; then
+  if [ "$NO_PREFLIGHT_TAG" = 0 ] && [ "$FROM_CI" = 0 ]; then
     if git rev-parse --verify --quiet "refs/tags/$VERSION" >/dev/null; then
       echo "tag already exists: $VERSION" >&2
       exit 2
