@@ -43,7 +43,7 @@ Every mutation (task, comment, label, project, persona, config) stamps an actor 
 
 A fresh agent that does not yet know the project's namespaces runs the label-list step first and follows the descriptions.
 
-For day-to-day development, first pick your host agent once with `atm agents select <name>` (see `atm agents list` for what is installed and ready), then start sessions with `atm dev --project <CODE>`. Override the agent for a single launch with `--agent <name>` or `ATM_AGENT`. To pass per-agent flags, append them after `--` (e.g. `atm dev --project ATM -- --yolo`), or set per-agent defaults with `atm agents args <name> -- <flags>`. Manager work starts with `atm manage --project <CODE> --planning|--grooming|--tracking|--asking|--glossary|--onboarding`.
+First run setup: `atm init` initializes the store, installs selected ATM agent plugins, records the default agent, and can save default host-agent args. Then run `atm manage --project <CODE> --onboarding` from a repository to let the manager learn and organize the project. Day-to-day development starts with `atm dev --project <CODE>`. Override the agent for a single launch with `--agent <name>` or `ATM_AGENT`. To pass per-agent flags, append them after `--` (e.g. `atm dev --project ATM -- --yolo`), or set per-agent defaults with `atm agents args <name> -- <flags>`. Manager work starts with `atm manage --project <CODE> --planning|--grooming|--tracking|--asking|--glossary|--onboarding`. Use `atm agents list|select|args` later to inspect readiness or change agent defaults after setup.
 
 ## Agent code-of-conduct (label hygiene)
 

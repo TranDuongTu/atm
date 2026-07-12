@@ -12,18 +12,17 @@ ATM stays out of the normal development workflow: it hints agents to journal pro
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
-**2. Onboard.** Initialize the store and onboard each project — one onboarding run per project:
+**2. Onboard.** Run the guided setup once, then onboard each project -- one manager onboarding run per project:
 
 ```sh
-atm init                       # guided setup: store, agent plugins, default agent
-atm agents list                # see what's installed and ready
+atm init                       # guided setup: store, plugins, default agent, args
 atm manage --project ATM --onboarding
 ```
 
 **3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
 
 ```sh
-atm tui                        # dashboard: tasks, projects, labels, activity
+atm                            # dashboard: tasks, projects, labels, activity
 
 atm dev --project ATM          # developer session (run inside the working repo)
 atm dev --project ATM --agent claude
@@ -41,6 +40,8 @@ Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` 
 atm dev --project ATM --persona developer -- --yolo
 atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
 ```
+
+Use `atm agents list`, `atm agents select <name>`, and `atm agents args <name> -- <args...>` later when you want to inspect readiness or change the default agent after setup.
 
 ## Why I Built ATM
 

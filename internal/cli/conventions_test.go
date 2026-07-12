@@ -69,3 +69,18 @@ func TestConventionsActorText(t *testing.T) {
 		t.Error("conventions does not describe the enforced actor convention")
 	}
 }
+
+func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.output = outputText
+	out, _, code := h.run("conventions")
+	if code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "First run setup: `atm init`") {
+		t.Fatalf("conventions missing first-run init setup guidance:\n%s", out)
+	}
+	if strings.Contains(out, "first pick your host agent once with `atm agents select <name>`") {
+		t.Fatalf("conventions still makes atm agents select the primary path:\n%s", out)
+	}
+}
