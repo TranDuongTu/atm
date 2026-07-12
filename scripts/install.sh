@@ -66,14 +66,30 @@ url=$(download_url "$v" "$pair")
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
-echo "downloading $url"
-curl -fsSLO "$url"
-case "$FORGE" in
-  dist) curl -fsSLO "file://$DIST_DIR/SHA256SUMS" ;;
-  local) curl -fsSLO "http://localhost:$PORT/SHA256SUMS" ;;
-  gitlab) curl -fsSLO "https://gitlab.com/api/v4/projects/$(printf '%s' "$REPO" | jq -sRr @uri)/releases/$v/downloads/SHA256SUMS" ;;
-  github) curl -fsSLO "https://github.com/$REPO/releases/download/$v/SHA256SUMS" ;;
-esac
+
+if [ "$FORGE" = "github" ]; then
+  echo "fetching release info for $v"
+  release=$(curl -fsS "https://api.github.com/repos/$REPO/releases/tags/$v")
+  asset_id=$(printf '%s' "$release" | jq -r --arg name "$tb" '.assets[] | select(.name == $name) | .id')
+  sums_id=$(printf '%s' "$release" | jq -r '.assets[] | select(.name == "SHA256SUMS") | .id')
+  if [ -z "$asset_id" ] || [ "$asset_id" = "null" ]; then
+    echo "asset $tb not found in release $v" >&2; exit 5
+  fi
+  echo "downloading $tb via API"
+  curl -fsSL -H "Accept: application/octet-stream" \
+    "https://api.github.com/repos/$REPO/releases/assets/$asset_id" -o "$tb"
+  echo "downloading SHA256SUMS"
+  curl -fsSL -H "Accept: application/octet-stream" \
+    "https://api.github.com/repos/$REPO/releases/assets/$sums_id" -o SHA256SUMS
+else
+  echo "downloading $url"
+  curl -fsSLO "$url"
+  case "$FORGE" in
+    dist) curl -fsSLO "file://$DIST_DIR/SHA256SUMS" ;;
+    local) curl -fsSLO "http://localhost:$PORT/SHA256SUMS" ;;
+    gitlab) curl -fsSLO "https://gitlab.com/api/v4/projects/$(printf '%s' "$REPO" | jq -sRr @uri)/releases/$v/downloads/SHA256SUMS" ;;
+  esac
+fi
 sha256sum -c SHA256SUMS --ignore-missing 2>&1 | grep -q "OK$" || { echo "checksum failed" >&2; exit 4; }
 
 tar xzf "$tb"
