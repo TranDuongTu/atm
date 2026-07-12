@@ -34,15 +34,6 @@ atm manage --project ATM --asking       # answer project questions from the ledg
 atm manage --project ATM --glossary     # maintain shared project language
 ```
 
-Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
-
-```sh
-atm dev --project ATM --persona developer -- --yolo
-atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
-```
-
-Use `atm agents list`, `atm agents select <name>`, and `atm agents args <name> -- <args...>` later when you want to inspect readiness or change the default agent after setup.
-
 ## Why I Built ATM
 
 I work across multiple projects at once, and some projects span multiple repositories.
@@ -69,7 +60,16 @@ make test
 make verify
 ```
 
-## Advanced/API Surface
+## Advanced Features And API
+
+Both `atm dev` and `atm manage` accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
+
+```sh
+atm dev --project ATM --persona developer -- --yolo
+atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
+```
+
+Use `atm agents list`, `atm agents select <name>`, and `atm agents args <name> -- <args...>` when you want to inspect readiness or change the default agent after setup.
 
 The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:
 
