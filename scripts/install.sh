@@ -3,8 +3,8 @@
 # See docs/superpowers/specs/2026-07-06-semver-build-pipeline-design.md.
 set -eu
 
-FORGE=${FORGE:-gitlab}
-REPO=${REPO:-}
+FORGE=${FORGE:-github}
+REPO=${REPO:-TranDuongTu/atm}
 VERSION=${VERSION:-latest}
 PREFIX=${PREFIX:-/usr/local/bin}
 PORT=${PORT:-8000}
