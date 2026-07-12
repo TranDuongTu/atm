@@ -280,6 +280,79 @@ func promptInitAgents(st *cliState) ([]string, error) {
 	return parseInitAgentSelection(scanner.Text())
 }
 
+type initSetupPromptResult struct {
+	PluginAgents          []string
+	SelectedAgent         string
+	SelectedAgentProvided bool
+	Args                  []string
+	ArgsProvided          bool
+}
+
+func parseInitDefaultAgentSelection(input string, entries []agent.Entry) (string, bool, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", false, nil
+	}
+	for i, e := range entries {
+		if input == fmt.Sprintf("%d", i+1) || input == e.Name {
+			return e.Name, true, nil
+		}
+	}
+	return "", false, fmt.Errorf("%w: unknown init default agent selection %q", ErrUsage, input)
+}
+
+func parseInitArgsLine(input string) ([]string, bool, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, false, nil
+	}
+	var out []string
+	var cur strings.Builder
+	var quote rune
+	escaped := false
+	emit := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range input {
+		if escaped {
+			cur.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			cur.WriteRune(r)
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\n':
+			emit()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if escaped {
+		cur.WriteRune('\\')
+	}
+	if quote != 0 {
+		return nil, false, fmt.Errorf("%w: unterminated quote in init args", ErrUsage)
+	}
+	emit()
+	return out, true, nil
+}
+
 func parseInitAgentSelection(input string) ([]string, error) {
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input == "" {

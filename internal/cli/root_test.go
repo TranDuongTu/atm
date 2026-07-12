@@ -4,8 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"atm/internal/agent"
 )
 
 func TestRootNoArgsLaunchesTUI(t *testing.T) {
@@ -179,6 +182,79 @@ func TestInitInteractiveGuidesAgentSelection(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("interactive init output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestParseInitDefaultAgentSelection(t *testing.T) {
+	entries := []agent.Entry{
+		{Name: "opencode", Launcher: "opencode"},
+		{Name: "codex", Launcher: "codex"},
+		{Name: "ollama:opencode", Launcher: "ollama", Integration: "opencode"},
+	}
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "blank", input: "", wantOK: false},
+		{name: "number", input: "2", want: "codex", wantOK: true},
+		{name: "name", input: "ollama:opencode", want: "ollama:opencode", wantOK: true},
+		{name: "trim", input: "  opencode  ", want: "opencode", wantOK: true},
+		{name: "bad number", input: "4", wantErr: true},
+		{name: "bad name", input: "gemini", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok, err := parseInitDefaultAgentSelection(tt.input, entries)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("got (%q,%v), want (%q,%v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestParseInitArgsLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "blank", input: "   ", wantOK: false},
+		{name: "words", input: "--yolo --auto", want: []string{"--yolo", "--auto"}, wantOK: true},
+		{name: "double quoted", input: `--profile "work laptop"`, want: []string{"--profile", "work laptop"}, wantOK: true},
+		{name: "single quoted", input: `--profile 'work laptop'`, want: []string{"--profile", "work laptop"}, wantOK: true},
+		{name: "escaped space", input: `--profile work\ laptop`, want: []string{"--profile", "work laptop"}, wantOK: true},
+		{name: "unterminated", input: `"oops`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok, err := parseInitArgsLine(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if ok != tt.wantOK || !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("got (%v,%v), want (%v,%v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
 	}
 }
 
