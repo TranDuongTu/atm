@@ -1074,21 +1074,79 @@ func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
 		{day: "2026-07-07", count: 0},
 	}
 	got := renderActivityStripeCanvas(days, 70)
-	if len(strings.Split(strings.TrimRight(got, "\n"), "\n")) < 2 {
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) < 2 {
 		t.Fatalf("renderActivityStripeCanvas() should render a multi-line canvas, got %q", got)
 	}
 	mustContain(t, got, "█")
-	mustContain(t, got, "▅")
 	mustContain(t, got, "7d ago")
-	mustContain(t, got, "Yesterday")
 	mustContain(t, got, "Today")
 	if activityCanvasStyle(10).GetForeground() == nil {
 		t.Fatalf("activityCanvasStyle should configure foreground color")
 	}
-	barLine := strings.Split(got, "\n")[0]
-	if got := strings.Count(barLine, " "); got != 6 {
-		t.Fatalf("activity stripe should separate exactly 7 bars with 6 spaces, got %d spaces in %q", got, barLine)
+	// Density fill: count 10 → █, count 3 → ▅, count 1 → ▂, count 0 → ·
+	mustContain(t, got, "█")
+	mustContain(t, got, "▅")
+	mustContain(t, got, "▂")
+	mustContain(t, got, "·")
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
+	// Proportional height: render at height=5 (bodyH=4). count 10 fills 4 rows,
+	// count 1 fills 1 row (clamped). Top row (index 0) should only show █ for
+	// count 10 bar, and · for lower-count bars.
+	got2 := renderActivityStripeCanvas(days, 70, 5)
+	if got2 == "" {
+		t.Fatal("renderActivityStripeCanvas(height=5) returned empty")
 	}
+	lines2 := strings.Split(strings.TrimRight(got2, "\n"), "\n")
+	if len(lines2) < 5 {
+		t.Fatalf("expected 5 lines (4 bar + axis), got %d:\n%s", len(lines2), got2)
+	}
+	if !strings.Contains(lines2[0], "█") {
+		t.Fatal("top row should contain █ for count 10 bar")
+	}
+}
+
+func TestComputeStripDaysRange(t *testing.T) {
+	tests := []struct {
+		width    int
+		wantDays int
+	}{
+		{width: 10, wantDays: 7},
+		{width: 69, wantDays: 7}, // (69+1)/10 = 7
+		{width: 79, wantDays: 8}, // (79+1)/10 = 8
+		{width: 139, wantDays:14}, // (139+1)/10 = 14
+		{width: 200, wantDays: 14},
+	}
+	for _, tc := range tests {
+		got := computeStripDays(tc.width)
+		if got != tc.wantDays {
+			t.Errorf("computeStripDays(%d) = %d, want %d", tc.width, got, tc.wantDays)
+		}
+	}
+}
+
+func TestActivityStripeAxisLabels(t *testing.T) {
+	days := make([]activityStripeDay, 7)
+	for i := range days {
+		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
+	}
+	got := activityStripeAxis(days, 70, 9, 1)
+	mustContain(t, got, "7d ago")
+	mustContain(t, got, "Yesterday")
+	mustContain(t, got, "Today")
+}
+
+
+func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 48)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "t1", "ATM:status:open")
+	update(t, m, "s")
+	body := m.projects.View()
+	mustContain(t, body, "activity stripe")
 }
 
 func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {

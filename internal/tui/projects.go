@@ -84,6 +84,24 @@ func projectPaneSplitHeights(total int) (int, int) {
 	return listH, summaryH
 }
 
+func computeStripDays(width int) int {
+	const gap = 1
+	const maxDays = 14
+	const minDays = 7
+	const minCellW = 9 // widest label "Yesterday"
+	if width < 1 {
+		return minDays
+	}
+	days := (width + gap) / (minCellW + gap)
+	if days < minDays {
+		return minDays
+	}
+	if days > maxDays {
+		return maxDays
+	}
+	return days
+}
+
 func activityStripeDayCounts(entries []store.LogEntry, days int) []activityStripeDay {
 	return activityStripeDayCountsEnding(entries, days, store.Now())
 }
@@ -567,11 +585,13 @@ func longestPersonaKeyWidth(groups []activity.Group) int {
 }
 
 func (p *projectsModel) renderActivityStripeChart(entries []store.LogEntry, bodyHeight int) string {
-	days := activityStripeDayCounts(entries, 7)
+	innerW := chartBoxInnerWidth(p.width)
+	numDays := computeStripDays(innerW)
+	days := activityStripeDayCounts(entries, numDays)
 	if len(days) == 0 {
 		return p.m.styles.Muted.Render("no activity yet")
 	}
-	return renderActivityStripeCanvas(days, chartBoxInnerWidth(p.width), bodyHeight)
+	return renderActivityStripeCanvas(days, innerW, bodyHeight)
 }
 
 func renderActivityStripe(days []activityStripeDay) string {
@@ -601,67 +621,81 @@ func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...
 	if bodyH < 1 {
 		bodyH = 1
 	}
-	gap := 1
+	const gap = 1
 	cellW := (width - (len(days)-1)*gap) / len(days)
 	if cellW < 1 {
 		cellW = 1
 	}
-	if cellW > 10 {
-		cellW = 10
-	}
 	canvasW := cellW*len(days) + (len(days)-1)*gap
+
+	maxCount := 0
+	for _, day := range days {
+		if day.count > maxCount {
+			maxCount = day.count
+		}
+	}
+
 	c := canvas.New(canvasW, height)
 	for i, day := range days {
 		x0 := i * (cellW + gap)
-		r := activityCanvasRune(day.count)
-		style := activityCanvasStyle(day.count)
-		for x := 0; x < cellW; x++ {
-			for y := 0; y < bodyH-1; y++ {
-				c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: y}, r, style)
+		barH := bodyH
+		if maxCount > 0 {
+			if day.count > 0 {
+				barH = day.count * bodyH / maxCount
+				if barH < 1 {
+					barH = 1
+				}
+			} else {
+				barH = 1
 			}
-			c.SetRuneWithStyle(canvas.Point{X: x0 + x, Y: bodyH - 1}, emptyBarRune(day.count), style)
+		}
+		fill := densityFillRune(day.count)
+		style := activityCanvasStyle(day.count)
+		emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+		for col := 0; col < cellW; col++ {
+			for row := 0; row < bodyH; row++ {
+				if row >= bodyH-barH {
+					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, fill, style)
+				} else {
+					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, '·', emptyStyle)
+				}
+			}
 		}
 	}
-	axis := activityStripeAxis(canvasW, cellW, len(days), gap)
+	axis := activityStripeAxis(days, canvasW, cellW, gap)
 	c.SetStringWithStyle(canvas.Point{X: 0, Y: height - 1}, axis, lipgloss.NewStyle().Foreground(lipgloss.Color("244")))
 	return c.View()
 }
 
-func emptyBarRune(count int) rune {
-	if count <= 0 {
-		return '▁'
-	}
-	return activityCanvasRune(count)
-}
-
-func activityStripeAxis(width, cellW, days, gap int) string {
-	if width <= 0 {
+func activityStripeAxis(days []activityStripeDay, width, cellW, gap int) string {
+	if len(days) == 0 || width <= 0 {
 		return ""
 	}
-	left := "7d ago"
-	mid := "Yesterday"
-	right := "Today"
+	n := len(days)
 	line := []rune(repeat(" ", width))
-	put := func(label string, pos int) {
+	putLabel := func(label string, colIdx int) {
+		labelRunes := []rune(label)
+		colStart := colIdx * (cellW + gap)
+		pos := colStart + (cellW-len(labelRunes))/2
 		if pos < 0 {
 			pos = 0
 		}
-		if pos+len([]rune(label)) > width {
-			pos = width - len([]rune(label))
-		}
-		if pos < 0 {
-			return
-		}
-		for i, r := range label {
-			line[pos+i] = r
+		for i, r := range labelRunes {
+			if pos+i < len(line) {
+				line[pos+i] = r
+			}
 		}
 	}
-	put(left, 0)
-	if days >= 6 {
-		yesterdayX := (days - 2) * (cellW + gap)
-		put(mid, yesterdayX)
+	if n >= 14 {
+		putLabel("14d ago", 0)
+		putLabel("7d ago", n-8)
+	} else {
+		putLabel("7d ago", 0)
 	}
-	put(right, width-len([]rune(right)))
+	if n >= 2 {
+		putLabel("Yesterday", n-2)
+		putLabel("Today", n-1)
+	}
 	return string(line)
 }
 
@@ -678,7 +712,7 @@ func activityCanvasStyle(count int) lipgloss.Style {
 	}
 }
 
-func activityCanvasRune(count int) rune {
+func densityFillRune(count int) rune {
 	switch {
 	case count <= 0:
 		return '·'
