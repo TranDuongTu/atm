@@ -1,6 +1,8 @@
-# ATM — Agent Tasks Management
+# ATM — Agent Tasks Manager
 
-ATM is an append-only task ledger for people who work through coding agents.
+ATM is built for work shared between humans and coding agents across multiple projects and repositories. Humans jot down ideas as lightweight tasks; agents expand them, organize them with labels, link context, and keep the work discoverable over time.
+
+ATM stays out of the normal development workflow: it hints agents to journal progress, decisions, and context without controlling how they code. The ledger is stored as plain files: detachable, syncable, shareable, database-free, and independent of any one coding agent.
 
 ## 30-Second Start
 
