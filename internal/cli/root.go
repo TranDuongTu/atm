@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"atm/internal/agent"
 	"atm/internal/developing"
 	"atm/internal/manager"
 	"atm/internal/store"
@@ -223,6 +224,18 @@ func newInitCmd(st *cliState) *cobra.Command {
 			installed, err := installInitPlugins(selected, dryRun)
 			if err != nil {
 				return err
+			}
+			if !dryRun && len(installed) > 0 {
+				if cfg, cErr := s.GetAgentsConfig(); cErr == nil && cfg.Selected == "" {
+					for _, res := range installed {
+						if _, ok := agent.Lookup(res.Agent); ok {
+							if sErr := s.SetSelectedAgent(res.Agent, "admin@cli:unset"); sErr != nil {
+								return sErr
+							}
+							break
+						}
+					}
+				}
 			}
 			if st.isJSON() {
 				out := map[string]any{"store": s.StorePath()}
