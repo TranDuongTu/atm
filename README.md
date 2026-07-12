@@ -48,6 +48,20 @@ I do not want a traditional Jira-style ticket system built around human browsing
 
 I like to be creative and keep ideas flowing into the backlog anytime, anywhere, and later have the manager groom and plan them for me.
 
+## Screenshots
+
+![ATM dashboard showing projects, tasks, labels, activity, and vocabulary](docs/assets/screenshots/atm-dashboard.png)
+
+Dashboard view with project-level activity, task lists, label vocabulary, and recent work density.
+
+![ATM persona activity overview](docs/assets/screenshots/atm-persona-activity.png)
+
+Persona activity overview for seeing how developer, manager, and admin work is distributed.
+
+![ATM persona activity drilldown](docs/assets/screenshots/atm-persona-drilldown.png)
+
+Persona drilldown with agent, model, and action breakdowns.
+
 ## Store
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
