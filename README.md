@@ -7,12 +7,14 @@ ATM is an append-only task ledger for people who work through coding agents.
 ```sh
 atm init
 atm
-atm codex --project ATM
-atm manage codex --project ATM --planning
+atm dev --project ATM
+atm manage --project ATM --planning
 ```
 
-`atm init` initializes the store and guides you through installing ATM plugins
-for one or more agents. Agent launchers create the project if it does not exist.
+`atm init` initializes the store, guides you through installing ATM plugins for
+one or more agents, and selects the first as your default. `atm dev` / `atm
+manage` then launch that selected agent — you do not name it each time. Agent
+launchers create the project if it does not exist.
 
 ## User Actions
 
@@ -22,31 +24,40 @@ Open the TUI:
 atm
 ```
 
-Start a developer agent:
+Choose an agent (once):
 
 ```sh
-atm codex --project ATM
-atm claude --project ATM
-atm opencode --project ATM
-atm ollama --project ATM --integration codex
+atm agents list                 # supported agents + install/readiness
+atm agents select opencode      # set the default for atm dev / atm manage
+atm agents args codex -- --yolo # optional per-agent default passthrough
+```
+
+Supported agents are the built-ins `opencode`, `codex`, `claude`, and their
+ollama-driven variants `ollama:opencode`, `ollama:codex`, `ollama:claude`.
+
+Start a developer session (uses the selected agent):
+
+```sh
+atm dev --project ATM
+atm dev --project ATM --agent claude   # override just this launch
 ```
 
 Start a manager session:
 
 ```sh
-atm manage codex --project ATM --planning
-atm manage codex --project ATM --grooming
-atm manage codex --project ATM --tracking
-atm manage codex --project ATM --asking
-atm manage codex --project ATM --glossary
-atm manage codex --project ATM --onboarding
+atm manage --project ATM --planning
+atm manage --project ATM --grooming
+atm manage --project ATM --tracking
+atm manage --project ATM --asking
+atm manage --project ATM --glossary
+atm manage --project ATM --onboarding
 ```
 
-All agent launchers accept `--persona <name>` and pass host-agent arguments after `--`:
+Both launchers accept `--persona <name>`, the `--agent <name>` override, and pass host-agent arguments after `--`:
 
 ```sh
-atm codex --project ATM --persona developer -- --yolo
-atm manage claude --project ATM --planning --persona manager -- --dangerously-skip-permission
+atm dev --project ATM --persona developer -- --yolo
+atm manage --project ATM --agent claude --planning --persona manager -- --dangerously-skip-permission
 ```
 
 ## Manager Actions

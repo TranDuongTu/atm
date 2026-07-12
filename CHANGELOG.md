@@ -1,3 +1,12 @@
+## Unreleased
+
+### feat
+- ATM-0083: agent as config, not flags. The host agent is now a stored default — choose it once with `atm agents select <name>` (`atm agents list` shows readiness; `atm agents args <name> -- <flags>` sets per-agent defaults), then launch with `atm dev --project <CODE>` and `atm manage --project <CODE> --<action>`. Override a single launch with `--agent <name>` or `ATM_AGENT`.
+
+### changed
+- Removed per-agent launch subcommands (`atm claude|codex|opencode|ollama` and `atm manage <agent>`). Ollama variants are now catalog entries (`ollama:<integration>`), so the `--integration` flag is gone. `atm init` additionally records the first installed agent as the default.
+
+
 ## v1.2.11 - 2026-07-11
 
 ### docs
