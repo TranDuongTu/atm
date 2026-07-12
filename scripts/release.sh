@@ -298,7 +298,7 @@ phase9_tail() {
   cat dist/SHA256SUMS 2>/dev/null || true
   echo
   echo "Install (one line):"
-  echo "  curl -fsSL https://<raw-host>/scripts/install.sh | FORGE=gitlab REPO=<slug> VERSION=$VERSION bash"
+  echo "  curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash"
   echo
   echo "Next: record this release as a comment on ATM-0023 (or the active release task)."
 }

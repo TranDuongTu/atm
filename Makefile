@@ -53,10 +53,10 @@ build-tui: build
 clean:
 	rm -rf $(BIN)
 
-## install: build and copy the binary to $$GOBIN (or $$GOPATH/bin)
-install: build
-	@mkdir -p $$GOBIN
-	cp $(BINARY) $$GOBIN/
+# install: build atm via go install (resolves GOBIN/GOPATH automatically;
+# avoids the old mkdir+cp approach that failed when $GOBIN was unset)
+install:
+	$(GO) install -ldflags "$(GO_LDFLAGS)" ./cmd/atm
 
 ## help: list targets
 help:

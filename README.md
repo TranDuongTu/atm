@@ -85,6 +85,12 @@ I do not want a traditional Jira-style ticket system built around human browsing
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
+```
+
 ## Build And Verify
 
 ```sh
