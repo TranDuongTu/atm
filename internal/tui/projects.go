@@ -746,19 +746,6 @@ func activityCanvasStyle(count int) lipgloss.Style {
 	}
 }
 
-func activityCanvasRune(count int) rune {
-	switch {
-	case count <= 0:
-		return '·'
-	case count <= 2:
-		return '▂'
-	case count <= 5:
-		return '▅'
-	default:
-		return '█'
-	}
-}
-
 func renderUbiquitousLanguageCanvas(width int, height int, terms []store.VocabularyTerm) string {
 	if width < 18 {
 		width = 18
