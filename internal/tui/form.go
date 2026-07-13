@@ -220,8 +220,17 @@ func (f *Form) View(styles Styles) string {
 		active := f.zone == focusFields && i == f.cursor
 		label := styles.FieldLabel.Render(fld.Label + ":")
 		// Render the typed value plain, and only the trailing cursor cell with
-		// an underline so the input text itself is not underlined.
-		val := styles.FieldValue.Render(fld.Value)
+		// an underline so the input text itself is not underlined. The value is
+		// truncated to the form's inner width (less label, separator, and the
+		// active cursor cell) so a long prefilled value cannot grow the
+		// Dialog-bordered modal past its declared width (ATM-0091).
+		labelW := lipgloss.Width(label)
+		cursorW := 0
+		if active {
+			cursorW = 1
+		}
+		valueW := innerW - labelW - 1 /*sep*/ - cursorW
+		val := styles.FieldValue.Render(fitLine(fld.Value, valueW))
 		if active {
 			val += styles.FieldValue.Underline(true).Render(" ")
 		}
