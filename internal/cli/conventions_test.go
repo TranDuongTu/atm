@@ -70,6 +70,44 @@ func TestConventionsActorText(t *testing.T) {
 	}
 }
 
+func TestConventionsPointAtCurrentKnowledgeBoard(t *testing.T) {
+	if !strings.Contains(conventionsText, "context-current") {
+		t.Error("first-contact sequence must send agents to the context-current board, " +
+			"not the raw context:* namespace -- otherwise they read superseded knowledge")
+	}
+	if !strings.Contains(conventionsText, "atm context check") {
+		t.Error("conventions must mention `atm context check` so an agent can find the capability")
+	}
+	for _, verb := range []string{"atm context add", "atm context stamp", "atm context retarget", "atm context supersede"} {
+		if !strings.Contains(conventionsText, verb) {
+			t.Errorf("conventions text missing %q", verb)
+		}
+	}
+	if !strings.Contains(conventionsText, "The context map") {
+		t.Error("conventions text missing the context-map section heading")
+	}
+	js := conventionsStructured()
+	seq, _ := js["agent_first_contact_sequence"].([]string)
+	joined := strings.Join(seq, "\n")
+	if !strings.Contains(joined, "context-current") {
+		t.Error("agent_first_contact_sequence JSON must reference the context-current board")
+	}
+	cm, _ := js["context_map"].(string)
+	if !strings.Contains(cm, "atm context check") {
+		t.Error("context_map JSON must mention atm context check")
+	}
+	if !strings.Contains(cm, "atm context add") || !strings.Contains(cm, "atm context stamp") ||
+		!strings.Contains(cm, "atm context retarget") || !strings.Contains(cm, "atm context supersede") {
+		t.Error("context_map JSON must mention all five context verbs")
+	}
+	if strings.Contains(conventionsText, "--onboarding") {
+		t.Error("conventions text still advertises the deprecated --onboarding flag; use --mapping")
+	}
+	if strings.Contains(js["day_to_day_development"].(string), "--onboarding") {
+		t.Error("day_to_day_development JSON still advertises the deprecated --onboarding flag; use --mapping")
+	}
+}
+
 func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText

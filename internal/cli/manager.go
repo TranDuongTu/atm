@@ -20,6 +20,7 @@ type managerOpts struct {
 	DefaultArgs []string
 	Curate      bool
 	Recall      bool
+	Mapping     bool
 	Onboarding  bool
 	ExtraArgs   []string
 }
@@ -27,9 +28,9 @@ type managerOpts struct {
 type managerAction string
 
 const (
-	managerActionCurate     managerAction = "curate"
-	managerActionRecall     managerAction = "recall"
-	managerActionOnboarding managerAction = "onboarding"
+	managerActionCurate  managerAction = "curate"
+	managerActionRecall  managerAction = "recall"
+	managerActionMapping managerAction = "mapping"
 )
 
 func newManageCmd(st *cliState) *cobra.Command {
@@ -168,7 +169,14 @@ func managerPluginAgents(target string) ([]string, error) {
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
 	cmd.Flags().BoolVar(&opts.Curate, "curate", false, "review backlog, triage, track handoffs, and maintain vocabulary (default)")
 	cmd.Flags().BoolVar(&opts.Recall, "recall", false, "read-only synthesis grounded in ledger IDs; does not mutate")
-	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "learn a repo/project and organize it for later agents")
+	cmd.Flags().BoolVar(&opts.Mapping, "mapping", false, "reconcile the project's context map against the repo: verify drifted pointers, discover new territory")
+
+	// Deprecated alias. The action was named --onboarding when it was believed to
+	// be a first-contact ceremony; it is now a repeatable refresh. Never hard-break
+	// a flag on a stable CLI surface (ATM-0113).
+	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "")
+	_ = cmd.Flags().MarkDeprecated("onboarding", "use --mapping")
+	_ = cmd.Flags().MarkHidden("onboarding")
 }
 
 func validateManagerAction(opts managerOpts) (managerAction, error) {
@@ -179,11 +187,11 @@ func validateManagerAction(opts managerOpts) (managerAction, error) {
 	if opts.Recall {
 		selected = append(selected, managerActionRecall)
 	}
-	if opts.Onboarding {
-		selected = append(selected, managerActionOnboarding)
+	if opts.Mapping || opts.Onboarding {
+		selected = append(selected, managerActionMapping)
 	}
 	if len(selected) > 1 {
-		return "", fmt.Errorf("%w: choose one manager action: --curate, --recall, or --onboarding", ErrUsage)
+		return "", fmt.Errorf("%w: choose one manager action: --curate, --recall, or --mapping", ErrUsage)
 	}
 	if len(selected) == 1 {
 		return selected[0], nil
@@ -278,7 +286,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	}
 
 	var base []string
-	onboarding := action == managerActionOnboarding
+	onboarding := action == managerActionMapping
 	if onboarding {
 		base = l.BuildArgvOnboard(contextPath)
 	} else {

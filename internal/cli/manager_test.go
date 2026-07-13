@@ -116,6 +116,52 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	}
 }
 
+func TestMappingActionResolves(t *testing.T) {
+	got, err := validateManagerAction(managerOpts{Mapping: true})
+	if err != nil {
+		t.Fatalf("validateManagerAction: %v", err)
+	}
+	if got != managerActionMapping {
+		t.Errorf("got %q, want %q", got, managerActionMapping)
+	}
+}
+
+func TestOnboardingAliasStillResolves(t *testing.T) {
+	// Deprecated, hidden, but never hard-broken: the flag is on a stable CLI
+	// surface. See ATM-0113.
+	got, err := validateManagerAction(managerOpts{Onboarding: true})
+	if err != nil {
+		t.Fatalf("validateManagerAction: %v", err)
+	}
+	if got != managerActionMapping {
+		t.Errorf("--onboarding must resolve to %q, got %q", managerActionMapping, got)
+	}
+}
+
+func TestMappingAndOnboardingTogetherIsOneAction(t *testing.T) {
+	// Both names for the same action must not count as two selections.
+	if _, err := validateManagerAction(managerOpts{Mapping: true, Onboarding: true}); err != nil {
+		t.Errorf("alias + canonical must be accepted as one action, got %v", err)
+	}
+}
+
+func TestNoActionDefaultsToCurate(t *testing.T) {
+	// ATM-0120: Curate is the default when no action flag is passed.
+	got, err := validateManagerAction(managerOpts{})
+	if err != nil {
+		t.Fatalf("validateManagerAction: %v", err)
+	}
+	if got != managerActionCurate {
+		t.Errorf("no action: got %q, want %q (default)", got, managerActionCurate)
+	}
+}
+
+func TestMultipleActionsIsUsageError(t *testing.T) {
+	if _, err := validateManagerAction(managerOpts{Curate: true, Recall: true}); err == nil {
+		t.Error("want usage error when more than one action is selected")
+	}
+}
+
 func TestManageOllamaOnboarding(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
@@ -192,12 +238,12 @@ func TestManageContextRendersPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "Onboarding", "conventions"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "Mapping", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
 	}
-	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary"} {
+	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding"} {
 		if strings.Contains(got, old) {
 			t.Errorf("manage-context output still contains old term %q", old)
 		}

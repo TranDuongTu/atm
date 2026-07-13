@@ -18,7 +18,16 @@ Run `<ATM_BIN> conventions` first — it defines the label substrate, the commen
 
 - **Curate** — keep the ledger legible and current: review open backlog, triage unlabeled and under-described tasks, handle developing-agent handoffs, and maintain the project's shared vocabulary (recurring terms, short definitions, naming consistency) as you go. If you are not clear about what a Task should do, ask the user one by one to clarify.
 - **Recall** — recall and link knowledge on request, grounded in cited IDs; you digest your own journal too, connecting related tasks and keeping them searchable. Read-only: synthesize and cite; do not mutate the ledger.
-- **Onboarding** — when first introduced to a repo/project, learn it and organize it into a substrate a later agent can pick up.
+- **Mapping** — reconcile the project's context map against reality. Repeatable, and meant to be run often; the first run in a fresh repo is just the case where there is nothing yet to verify.
+
+  1. **Verify.** Run `<ATM_BIN> context check --project <CODE>`. Work the report:
+     - `DRIFT` — read the pointer's description against the actual change. If the description still tells the truth, `<ATM_BIN> context stamp --task <ID>`. If the subject survived but moved, `<ATM_BIN> context retarget --task <ID> --source <kinded-locator>`. If the subject died or was replaced, create the successor and `<ATM_BIN> context supersede --task <ID> --by <NEW-ID> --reason "..."`.
+     - `AGE` — an external source (Jira, Notion) that nothing can witness locally. Re-read it with your own tools, then `stamp`.
+     - `UNVERIFIED` — a pointer someone wrote by hand. Read it, confirm it is true, then `<ATM_BIN> context add --task <ID> --kind <kind> --source <kinded-locator>`.
+  2. **Discover.** Work the `NEW` list: territory that changed in git and that no pointer claims. For each thing worth knowing, create a task and `<ATM_BIN> context add` it. Ignore what is not worth a pointer -- that is a judgement, and it is yours.
+  3. **Close.** Everything reported is now stamped, retargeted, superseded, or deliberately ignored.
+
+  `check` never marks anything stale: a changed file is not a wrong pointer. It tells you where to look; you decide what it means.
 
 ## Rules of Thumb
 - Understand the label logic to find tasks that may contain relevant information.

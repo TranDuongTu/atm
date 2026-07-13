@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"sort"
 
 	"atm/internal/seed"
@@ -46,7 +45,7 @@ func newLabelAddCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"label": labelToJSON(l)}, func() {
-				fmt.Fprintf(os.Stdout, "added label %s\n", l.Name)
+				fmt.Fprintf(st.stdout(), "added label %s\n", l.Name)
 			})
 		},
 	}
@@ -80,7 +79,7 @@ func newLabelRemoveCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"retained_usage": res.RetainedUsage}, func() {
-				fmt.Fprintf(os.Stdout, "removed label %s (retained usage: %d)\n", name, res.RetainedUsage)
+				fmt.Fprintf(st.stdout(), "removed label %s (retained usage: %d)\n", name, res.RetainedUsage)
 			})
 		},
 	}
@@ -104,7 +103,7 @@ func newLabelListCmd(st *cliState) *cobra.Command {
 			}
 			ls := s.LabelList(project, namespace)
 			return st.emit(st.stdout(), map[string]any{"labels": labelsToJSON(ls)}, func() {
-				fmt.Fprint(os.Stdout, renderLabelListText(labelsToJSON(ls)))
+				fmt.Fprint(st.stdout(), renderLabelListText(labelsToJSON(ls)))
 			})
 		},
 	}
@@ -130,11 +129,11 @@ func newLabelShowCmd(st *cliState) *cobra.Command {
 			return st.emit(st.stdout(), map[string]any{"label": labelToJSON(l)}, func() {
 				switch {
 				case l.Expr != "":
-					fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", l.Name, l.Description, l.Expr)
+					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", l.Name, l.Description, l.Expr)
 				case l.Description != "":
-					fmt.Fprintf(os.Stdout, "%s\t%s\n", l.Name, l.Description)
+					fmt.Fprintf(st.stdout(), "%s\t%s\n", l.Name, l.Description)
 				default:
-					fmt.Fprintln(os.Stdout, l.Name)
+					fmt.Fprintln(st.stdout(), l.Name)
 				}
 			})
 		},
