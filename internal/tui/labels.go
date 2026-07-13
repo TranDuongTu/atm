@@ -21,6 +21,13 @@ func pluralUses(n int) string {
 	return "uses"
 }
 
+func pluralTasks(n int) string {
+	if n == 1 {
+		return "task"
+	}
+	return "tasks"
+}
+
 // labelSuffixRe validates the suffix the user types in the label add/remove
 // forms. The fixed "<CODE>:" prefix is prepended by the form submit handler,
 // so the suffix is "<namespace>:<value>" or "<tag>" with NO leading colon.
@@ -368,6 +375,7 @@ func (l *labelsModel) enterUnsetLeaf() {
 // enterNoneLeaf filters the Tasks pane to zero-label tasks. It is a leaf: the
 // Labels pane shows a minimal detail and Esc returns to the table.
 func (l *labelsModel) enterNoneLeaf() {
+	l.tableCursor = l.cursor
 	l.level = lLevelDetail
 	l.detail = labelDetailState{leaf: "none"}
 	l.m.tasks.setFocus(taskFocus{mode: focusUnlabeled}, "")
@@ -660,7 +668,8 @@ func (l *labelsModel) renderDetail() string {
 	var b strings.Builder
 	switch l.detail.leaf {
 	case "none":
-		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d tasks with no labels", l.syntheticLeafTaskCount())))
+		count := l.syntheticLeafTaskCount()
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d %s with no labels", count, pluralTasks(count))))
 		b.WriteString("\n")
 		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to namespaces")))
 		return padToHeight(b.String(), l.contentHeight)
@@ -669,7 +678,8 @@ func (l *labelsModel) renderDetail() string {
 		if l.bareTags {
 			ns = "bare tag"
 		}
-		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d tasks with no %s", l.syntheticLeafTaskCount(), ns)))
+		count := l.syntheticLeafTaskCount()
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d %s with no %s", count, pluralTasks(count), ns)))
 		b.WriteString("\n")
 		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to chart")))
 		return padToHeight(b.String(), l.contentHeight)

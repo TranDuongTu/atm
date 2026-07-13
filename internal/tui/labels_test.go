@@ -162,10 +162,13 @@ func TestLabelsL0EnterNoneFiltersUnlabeled(t *testing.T) {
 	if m.tasks.focus.mode != focusUnlabeled {
 		t.Fatalf("focus = %+v want unlabeled", m.tasks.focus)
 	}
-	mustContain(t, m.labels.View(), "1 tasks with no labels")
+	mustContain(t, m.labels.View(), "1 task with no labels")
 	update(t, m, "esc")
 	if m.tasks.focus.mode != focusOff || m.labels.level != lLevelTable {
 		t.Fatalf("esc from none leaf did not return to table/clear: %+v %v", m.tasks.focus, m.labels.level)
+	}
+	if got := m.labels.nsRows[m.labels.cursor].display; got != "(none)" {
+		t.Fatalf("table cursor = %q want (none)", got)
 	}
 }
 
@@ -343,7 +346,7 @@ func TestLabelsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
 	}
-	mustContain(t, m.labels.View(), "1 tasks with no status")
+	mustContain(t, m.labels.View(), "1 task with no status")
 	update(t, m, "esc")
 	if m.labels.level != lLevelChart || m.tasks.focus.mode != focusPresent {
 		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.labels.level, m.tasks.focus)
