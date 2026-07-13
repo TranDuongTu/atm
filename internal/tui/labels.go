@@ -172,8 +172,6 @@ func newBoardsModel(m *Model) boardsModel {
 	return boardsModel{m: m}
 }
 
-func newLabelsModel(m *Model) boardsModel { return newBoardsModel(m) }
-
 func (b *boardsModel) SetSize(w, h int) {
 	if w < 1 {
 		w = 1
@@ -314,18 +312,14 @@ func (b *boardsModel) buildBoardRows(ls []store.Label) []boardRow {
 // via a single-label query because ListTasks swallows expression errors
 // and would conflate a broken board with an empty one.
 func (b *boardsModel) boardCount(full string) (int, bool) {
-	ts, _, err := b.m.store.GroupTasksErr(store.QueryFilters{
+	_, others, err := b.m.store.GroupTasksErr(store.QueryFilters{
 		Project: b.m.projectScope,
 		Labels:  []string{full},
 	})
 	if err != nil {
 		return 0, true
 	}
-	n := 0
-	for _, g := range ts {
-		n += len(g.Tasks)
-	}
-	return n, false
+	return len(others), false
 }
 
 // namespaceTaskCount counts distinct tasks carrying the namespace, the same

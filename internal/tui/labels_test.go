@@ -87,6 +87,40 @@ func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
 	}
 }
 
+// TestBoardsPaneBoardCountSumsMatchingTasks guards the boardCount fix: a
+// board's FullName is never a wildcard, so GroupTasksErr's no-wildcard branch
+// returns the matching tasks as the second return value. The board's Count
+// must equal the number of tasks matching its expression, not 0.
+func TestBoardsPaneBoardCountSumsMatchingTasks(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", testActor); err != nil {
+		t.Fatalf("LabelAdd: %v", err)
+	}
+	mk := func(title string, labels ...string) {
+		if _, err := s.CreateTask("ATM", title, "", labels, testActor); err != nil {
+			t.Fatalf("CreateTask %q: %v", title, err)
+		}
+	}
+	mk("open1", "ATM:status:open")
+	mk("open2", "ATM:status:open")
+	mk("done1", "ATM:status:done")
+
+	b := newTestBoardsModel(t, s, "ATM")
+	b.refresh()
+
+	row, ok := b.row("next-sprint")
+	if !ok {
+		t.Fatalf("next-sprint board missing from rows: %v", b.rowNames())
+	}
+	if row.Count != 2 {
+		t.Errorf("next-sprint Count = %d want 2 (matching tasks)", row.Count)
+	}
+	if row.Broken {
+		t.Errorf("next-sprint marked broken; expression status:open is valid")
+	}
+}
+
 func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 	// An agent invents a namespace without describing it -> the human's
 	// review signal (conventions rule 6) appears in the pane automatically.
