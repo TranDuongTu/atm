@@ -47,6 +47,7 @@ const (
 	formProjectSetName  // project detail: set name
 	formCommentAdd      // task detail: add comment
 	formPersonaCreate   // Projects pane / overlay: add persona
+	formBoardEditor     // Boards pane: new/edit a board (live-validated expr)
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -96,6 +97,10 @@ type Model struct {
 	// formPayload carries context for the form (e.g. which label is being
 	// removed, which task is being edited).
 	formPayload string
+
+	// boardEditor holds the live-validation state for the Boards pane
+	// [n]ew/[e]dit form. Non-nil only while formKind == formBoardEditor.
+	boardEd *boardEditor
 
 	confirm        confirmAction
 	confirmMsg     string
@@ -657,6 +662,7 @@ func (m *Model) closeForm() {
 	m.form = nil
 	m.formKind = formNone
 	m.formPayload = ""
+	m.boardEd = nil
 }
 
 // submitForm performs the action bound to the active form.
@@ -688,6 +694,8 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doCommentAdd(vals)
 	case formPersonaCreate:
 		return m.doPersonaCreate(vals)
+	case formBoardEditor:
+		return m.doBoardEdit(vals)
 	}
 	return nil
 }

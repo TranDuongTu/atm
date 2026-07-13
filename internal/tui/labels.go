@@ -496,6 +496,25 @@ func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		b.m.openLabelAddForm(b.m.projectScope)
+	case "n":
+		if b.m.projectScope == "" {
+			return nil
+		}
+		b.m.openBoardEditorForm(b.m.projectScope, "")
+	case "e":
+		if b.m.projectScope == "" {
+			return nil
+		}
+		if b.cursor < 0 || b.cursor >= len(b.rows) {
+			return nil
+		}
+		r := b.rows[b.cursor]
+		// Only a board (a label with an Expr) is editable; a namespace
+		// row has no expression to edit.
+		if r.Expr == "" {
+			return nil
+		}
+		b.m.openBoardEditorForm(b.m.projectScope, r.Name)
 	case "S":
 		if b.m.projectScope == "" {
 			return nil
@@ -804,7 +823,7 @@ func (b *boardsModel) statusHint() string {
 		}
 		return "[d]esc [l]remove [Esc]back"
 	default:
-		return "[Enter]open [a]dd [S]eed [?]keys"
+		return "[Enter]open [n]ew [e]dit [a]dd [S]eed [?]keys"
 	}
 }
 

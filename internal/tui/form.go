@@ -14,6 +14,10 @@ type formField struct {
 	Required  bool
 	Hint      string
 	Validator func(field, value string) error
+	// Note returns an optional non-error message rendered below the field
+	// (in a success style) when the field's value is valid and non-empty.
+	// Used by the board editor to show the live match count.
+	Note func(field, value string) string
 }
 
 type formFocus int
@@ -260,6 +264,11 @@ func (f *Form) View(styles Styles) string {
 		if errMsg := f.fieldError(i); errMsg != "" {
 			b.WriteString(styles.Error.Render("  x " + errMsg))
 			b.WriteString("\n")
+		} else if fld.Note != nil {
+			if note := fld.Note(fld.Label, fld.Value); note != "" {
+				b.WriteString(styles.Success.Render("  v " + note))
+				b.WriteString("\n")
+			}
 		}
 		b.WriteString("\n")
 	}

@@ -25,13 +25,13 @@ type LabelGroup struct {
 }
 
 func (s *Store) ListTasks(filters QueryFilters) []*Task {
-	out, _ := s.listTasksErr(filters)
+	out, _ := s.ListTasksErr(filters)
 	return out
 }
 
-// listTasksErr is ListTasks plus the error, for callers that must surface a
+// ListTasksErr is ListTasks plus the error, for callers that must surface a
 // bad or cyclic expression instead of silently returning nothing.
-func (s *Store) listTasksErr(filters QueryFilters) ([]*Task, error) {
+func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 	var codes []string
 	if filters.Project != "" {
 		codes = []string{filters.Project}
@@ -112,7 +112,7 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 			return nil, nil, fmt.Errorf("%w: %s", ErrBoardNotAFacet, base)
 		}
 	}
-	inScope, err := s.listTasksErr(filters)
+	inScope, err := s.ListTasksErr(filters)
 	if err != nil {
 		return nil, nil, err
 	}
