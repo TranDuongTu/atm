@@ -160,6 +160,25 @@ Inside the overlay:
 - `r` runs a one-shot reindex.
 - `d` drops the selected model index.
 
+### Boards (Computed Labels)
+
+A board is a label whose membership is computed by an expression over other labels, not asserted task-by-task. Author one with `atm label add --expr`:
+
+```sh
+atm label add --project ATM \
+  --name ATM:next-sprint \
+  --description "open work slated for the next sprint" \
+  --expr "status:open AND sprint:next"
+```
+
+A board name is a valid `--label` value, so listing its members reads like any other query:
+
+```sh
+atm task list --project ATM --label ATM:next-sprint
+```
+
+The Boards pane in the TUI is the human's review surface for boards and namespaces.
+
 ### Lower-Level API
 
 The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:
