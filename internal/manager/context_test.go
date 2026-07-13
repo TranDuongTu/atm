@@ -34,7 +34,7 @@ func TestRenderContextPrinciplesPresent(t *testing.T) {
 	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
 	for _, frag := range []string{
 		"autonomous owner",
-		"relentlessly keep the project organized",
+		"relentlessly and frequently organize",
 		"self-improvement",
 		"label substrate",
 	} {

@@ -55,13 +55,15 @@ Each surface gets one distinct job; no cross-copy.
   deciding, hitting a blocker, starting creative/design/implementation work),
   not on keyword nouns.
 - **`context_v1.md`** → the minimal session instruction: identity line, the
-  "ATM is the ledger" mandate, then two blocks — *read yourself* (the read-only
-  CLIs: `conventions`, `search`, `task show`/`comment list`, `label list`) and
-  *delegate every write to the manager* (dispatch `atm-manager` to record
-  progress / create / label; and when unsure about a project standard, dispatch
-  rather than guess). The developing agent becomes a pure reader + delegator;
-  it issues no mutating commands, so the old `Manager: *` role-boundary is
-  enforced structurally rather than by a rule.
+  "ATM is the ledger" mandate, a *read yourself* block (the read-only CLIs:
+  `conventions`, `search`, `task show`/`comment list`, `label list`), and a short
+  *Working Principles* block whose intent is "delegate every write to the
+  manager": respect the host harness, and "When in doubt, write to the
+  atm-manager." The developing agent stays a pure reader + delegator; it issues
+  no mutating commands, so the old `Manager: *` role-boundary is enforced
+  structurally rather than by a rule. (Original 2026-07-09 wording said
+  "delegate every write to the manager" verbatim; commit eb8f8f5 on 2026-07-12
+  reworded it into the Working Principles block — same intent, new phrasing.)
 
 Format rule: prompt files are unwrapped (one physical line per paragraph/bullet).
 
@@ -69,14 +71,18 @@ Format rule: prompt files are unwrapped (one physical line per paragraph/bullet)
 
 - **Single source of truth** = `internal/manager/context_v1.md`, rewritten to
   **principles + action catalog** (~25 lines):
-  - *Who you are* — three principles: (1) autonomous owner of the project,
-    presenting organized, legible knowledge for agents, humans, and itself;
-    (2) relentlessly organizes and simplifies the mess that disorganized clients
-    create, reading their intention; (3) watches client confusion, keeps its own
-    self-improvement as a separate task bucket resolved in-session, and improves
-    via the label substrate — never by editing this prompt.
-  - *What you do* — short descriptions of four actions: Tracking request,
-    Inquiry & curation (digests its own journal too), Vocabulary, Onboarding.
+  - *Your Principles* — four principles: (1) **Ownership** — autonomous owner of
+    the project, presenting organized, legible knowledge for agents, humans, and
+    itself; (2) **Dive Deep** — stays connected to details and relentlessly
+    surfaces current information; (3) **Simplify** — relentlessly and frequently
+    organizes the project, creating order from chaos; (4) **Earn Trust** —
+    watches client confusion, keeps its own self-improvement as a separate task
+    bucket resolved in-session, and improves via the label substrate — never by
+    editing this prompt. (Original 2026-07-09 wording named three principles
+    under "Who you are"; commit eb8f8f5 on 2026-07-12 expanded to the four
+    named-principle form — same role, reworded.)
+  - *Your Roles* — short descriptions of six roles: Planning, Grooming,
+    Tracking, Asking, Glossary, Onboarding.
   - Per decision, all operational detail is discarded (Truth-discipline, mode
     runbooks, vocabulary schema, onboarding caps/idempotency, inquiry ground-
     truth recording, self-improvement task mechanics, and even the conventions
