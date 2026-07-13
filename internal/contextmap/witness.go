@@ -122,8 +122,16 @@ func (r *Resolver) ChangedSince(rev string) ([]string, error) {
 
 // gitObject returns the object id of the blob or tree at path in HEAD. One call
 // witnesses a file and a directory alike: the id changes exactly when the
-// content under that path changes.
+// content under that path changes. The repo root (".") is witnessed via the
+// root tree of HEAD, since `git rev-parse HEAD:.` is rejected by git.
 func (r *Resolver) gitObject(path string) (string, error) {
+	if path == "." {
+		out, err := r.git("rev-parse", "HEAD^{tree}")
+		if err != nil {
+			return "", errGone
+		}
+		return out, nil
+	}
 	out, err := r.git("rev-parse", "HEAD:"+path)
 	if err != nil {
 		return "", errGone // git exits non-zero when the path is not in HEAD

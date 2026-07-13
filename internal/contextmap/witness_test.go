@@ -165,3 +165,29 @@ func TestChangedSince(t *testing.T) {
 		t.Errorf("ChangedSince = %v, want [new.txt]", changed)
 	}
 }
+
+func TestGitWitnessRepoRoot(t *testing.T) {
+	// The repo root (".") is witnessed via the root tree of HEAD, not
+	// `git rev-parse HEAD:.` (which git rejects). A whole-repo pointer drifts
+	// when any tracked content changes, and stays OK when only the worktree
+	// has untracked noise.
+	repo := newTestRepo(t)
+	r := &Resolver{Repo: repo}
+	src := Source{Kind: KindGit, Locator: "."}
+
+	recorded, err := r.Witness(src)
+	if err != nil {
+		t.Fatalf("Witness repo root: %v", err)
+	}
+	if recorded == "" {
+		t.Fatal("Witness repo root returned empty object id")
+	}
+	if v, err := r.Compare(src, recorded); err != nil || v != VerdictOK {
+		t.Fatalf("unchanged repo root: got %v, %v; want OK", v, err)
+	}
+
+	commitFile(t, repo, "pkg/a.go", "package pkg\n\nfunc New() {}\n")
+	if v, err := r.Compare(src, recorded); err != nil || v != VerdictDrift {
+		t.Fatalf("changed repo root: got %v, %v; want DRIFT", v, err)
+	}
+}
