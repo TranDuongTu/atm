@@ -1583,6 +1583,84 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "FACTS")
 }
 
+// TestTaskDetailScrollDoesNotBreakPaneBorders pins ATM-0100: scrolling the
+// task detail view must only move the Tasks pane content. The Projects and
+// Labels panes (their borders and their content) must stay fixed, and every
+// workspace line must stay exactly m.width columns wide. The bug report
+// described the borders breaking and scrolling bleeding into the other
+// panes; this test pins the correct behavior so a regression is caught.
+func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
+	cases := []struct{ w, h int }{
+		{120, 36},
+		{80, 24},
+		{60, 20},
+	}
+	for _, c := range cases {
+		t.Run(fmt.Sprintf("%dx%d", c.w, c.h), func(t *testing.T) {
+			m := newTestModel(t)
+			m.SetSize(c.w, c.h)
+			seedProject(t, m, "ATM", "Acme Task Manager")
+			desc := strings.Repeat("description line that is reasonably long\n", 30)
+			tk, err := m.store.CreateTask("ATM", "Bug task with a long title to stress the pane width", desc, nil, testActor)
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+			m.refreshAll()
+			update(t, m, "s")
+			update(t, m, "2")
+			update(t, m, "enter")
+			if m.tasks.view != tViewDetail {
+				t.Fatalf("expected tViewDetail, got %v", m.tasks.view)
+			}
+
+			// Snapshot the Projects and Labels pane content before scrolling.
+			projBefore := m.projects.View()
+			labelsBefore := m.labels.View()
+
+			// Scroll the task detail to the bottom and back.
+			for i := 0; i < 40; i++ {
+				update(t, m, "j")
+			}
+			for i := 0; i < 40; i++ {
+				update(t, m, "k")
+			}
+
+			// The Projects and Labels panes must be byte-for-byte unchanged.
+			if got := m.projects.View(); got != projBefore {
+				t.Errorf("Projects pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", projBefore, got)
+			}
+			if got := m.labels.View(); got != labelsBefore {
+				t.Errorf("Labels pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", labelsBefore, got)
+			}
+
+			// Every workspace line must be exactly m.width columns wide so
+			// the three pane borders stay aligned vertically.
+			ws := m.renderWorkspace()
+			for i, line := range strings.Split(ws, "\n") {
+				if w := lipgloss.Width(line); w != m.width {
+					t.Errorf("workspace line %d width=%d want %d (panes misaligned):\n%s", i, w, m.width, ws)
+				}
+			}
+
+			// Switching panes (1 -> 2 -> 3 -> 2) must not change the workspace
+			// geometry either; it only changes which pane is focused.
+			update(t, m, "1")
+			update(t, m, "2")
+			update(t, m, "3")
+			update(t, m, "2")
+			for i, line := range strings.Split(m.renderWorkspace(), "\n") {
+				if w := lipgloss.Width(line); w != m.width {
+					t.Errorf("workspace line %d width=%d want %d after pane switches:\n%s", i, w, m.width, line)
+				}
+			}
+			if m.tasks.view != tViewDetail {
+				t.Errorf("pane switches dropped out of task detail: view=%v", m.tasks.view)
+			}
+			_ = tk
+		})
+	}
+}
+
 func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 50)
