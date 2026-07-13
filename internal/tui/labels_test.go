@@ -103,6 +103,28 @@ func TestLabelsL0NamespaceTableCounts(t *testing.T) {
 	mustContain(t, v, "status")
 }
 
+func TestLabelsL0NamespaceTableUsesFullWidth(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.labels.SetSize(72, 10)
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+
+	lines := strings.Split(m.labels.View(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("table rendered too few lines:\n%s", m.labels.View())
+	}
+	if got := lipgloss.Width(lines[0]); got != m.labels.width {
+		t.Fatalf("header width = %d want %d: %q", got, m.labels.width, lines[0])
+	}
+	if got := lipgloss.Width(lines[1]); got != m.labels.width {
+		t.Fatalf("row width = %d want %d: %q", got, m.labels.width, lines[1])
+	}
+}
+
 func TestLabelsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -278,6 +300,87 @@ func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
 	v := m.labels.View()
 	mustContain(t, v, "(unset)")
 	mustContain(t, v, "█")
+}
+
+func TestLabelsChartHighlightsOnlyName(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+	cursorToChartLabel(t, m, "ATM:status:open")
+
+	line := ""
+	for _, candidate := range strings.Split(m.labels.View(), "\n") {
+		if strings.Contains(candidate, "ATM:status:open") {
+			line = candidate
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("status:open chart row not found:\n%s", m.labels.View())
+	}
+	barAt := strings.Index(line, "█")
+	resetAt := strings.Index(line, "\x1b[0m")
+	if barAt < 0 {
+		t.Fatalf("chart row has no bar:\n%q", line)
+	}
+	if resetAt < 0 {
+		t.Fatalf("chart row has no cursor reset:\n%q", line)
+	}
+	if resetAt > barAt {
+		t.Fatalf("chart cursor styling reaches the bar; reset=%d bar=%d line=%q", resetAt, barAt, line)
+	}
+}
+
+func TestLabelsChartCursorCanStayOnUnset(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateTask("ATM", "b", "", []string{"ATM:priority:high"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToNamespaceRow(t, m, "status")
+	update(t, m, "enter")
+
+	unset := -1
+	for i, r := range m.labels.chartRows() {
+		if r.unset {
+			unset = i
+			break
+		}
+	}
+	if unset < 0 {
+		t.Fatalf("unset row not found")
+	}
+	for m.labels.cursor < unset {
+		update(t, m, "j")
+	}
+	if !m.labels.chartRows()[m.labels.cursor].unset {
+		t.Fatalf("cursor = %d want unset row %d before render", m.labels.cursor, unset)
+	}
+	_ = m.labels.View()
+	if !m.labels.chartRows()[m.labels.cursor].unset {
+		t.Fatalf("cursor moved after render: got %d want unset row %d", m.labels.cursor, unset)
+	}
+	if err := m.store.LabelAdd("ATM:status:later", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.labels.refresh()
+	if !m.labels.chartRows()[m.labels.cursor].unset {
+		t.Fatalf("cursor moved after refresh: got %d want unset row %d", m.labels.cursor, unset)
+	}
 }
 
 func TestLabelsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"atm/internal/store"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // pluralUses returns "use"/"uses" for the given count — neutral over tasks
@@ -185,6 +186,15 @@ func (l *labelsModel) SetSize(w, h int) {
 }
 
 func (l *labelsModel) refresh() {
+	var selectedChart chartRow
+	restoreChart := false
+	if l.level == lLevelChart {
+		rows := l.chartRows()
+		if l.cursor >= 0 && l.cursor < len(rows) {
+			selectedChart = rows[l.cursor]
+			restoreChart = true
+		}
+	}
 	l.rows = nil
 	l.nsRows = nil
 	if l.m.projectScope == "" {
@@ -202,8 +212,38 @@ func (l *labelsModel) refresh() {
 		})
 	}
 	l.nsRows = l.buildNamespaceRows()
-	if l.cursor >= len(l.nsRows) && len(l.nsRows) > 0 {
-		l.cursor = len(l.nsRows) - 1
+	if restoreChart && l.restoreChartCursor(selectedChart) {
+		return
+	}
+	l.clampCursor()
+}
+
+func (l *labelsModel) restoreChartCursor(selected chartRow) bool {
+	rows := l.chartRows()
+	for i, r := range rows {
+		if selected.unset && r.unset {
+			l.cursor = i
+			return true
+		}
+		if !selected.unset && !r.unset && r.full == selected.full {
+			l.cursor = i
+			return true
+		}
+	}
+	return false
+}
+
+func (l *labelsModel) clampCursor() {
+	max := len(l.nsRows) - 1
+	if l.level == lLevelChart {
+		max = len(l.chartRows()) - 1
+	}
+	if max < 0 {
+		l.cursor = 0
+		return
+	}
+	if l.cursor > max {
+		l.cursor = max
 	}
 	if l.cursor < 0 {
 		l.cursor = 0
@@ -589,7 +629,7 @@ func (l *labelsModel) renderTable() string {
 		return padToHeight("no labels", l.contentHeight)
 	}
 	var b strings.Builder
-	header := fmt.Sprintf(" %-20s %8s %8s", "NAMESPACE", "TASKS", "LABELS")
+	header := namespaceTableLine(l.width, "NAMESPACE", "TASKS", "LABELS")
 	b.WriteString(dashboardLine(l.width, l.m.styles.HeaderLabel.Render(header)))
 	b.WriteString("\n")
 
@@ -600,7 +640,7 @@ func (l *labelsModel) renderTable() string {
 		if r.none {
 			labels = "-"
 		}
-		line := fmt.Sprintf(" %-20s %8s %8s", r.display, tasks, labels)
+		line := namespaceTableLine(l.width, r.display, tasks, labels)
 		if i == l.cursor {
 			line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -612,6 +652,14 @@ func (l *labelsModel) renderTable() string {
 		b.WriteString("\n")
 	}
 	return padToHeight(b.String(), l.contentHeight)
+}
+
+func namespaceTableLine(width int, name, tasks, labels string) string {
+	nameW := width - 19 // leading space + two 8-wide numeric columns + separators.
+	if nameW < 8 {
+		nameW = 8
+	}
+	return fitLine(fmt.Sprintf(" %-*s %8s %8s", nameW, name, tasks, labels), width)
 }
 
 func (l *labelsModel) renderChart() string {
@@ -649,10 +697,11 @@ func (l *labelsModel) renderChart() string {
 		if barTotal > 0 {
 			percent = (r.count*100 + barTotal/2) / barTotal
 		}
-		line := fmt.Sprintf(" %-*s %s %4d", nameW, r.full, meterBar(percent, meterW), r.count)
+		name := fmt.Sprintf("%-*s", nameW, r.full)
 		if i == l.cursor {
-			line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			name = l.m.styles.RowCursor.Render(r.full) + spaces(nameW-lipgloss.Width(r.full))
 		}
+		line := fmt.Sprintf(" %s %s %4d", name, meterBar(percent, meterW), r.count)
 		lines = append(lines, dashboardLine(l.width, line))
 	}
 	start, end := windowLines(len(lines), l.cursor, l.pageSize)
