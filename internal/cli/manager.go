@@ -18,11 +18,8 @@ type managerOpts struct {
 	Persona     string
 	Agent       string
 	DefaultArgs []string
-	Planning    bool
-	Grooming    bool
-	Tracking    bool
-	Asking      bool
-	Glossary    bool
+	Curate      bool
+	Recall      bool
 	Onboarding  bool
 	ExtraArgs   []string
 }
@@ -30,11 +27,8 @@ type managerOpts struct {
 type managerAction string
 
 const (
-	managerActionPlanning   managerAction = "planning"
-	managerActionGrooming   managerAction = "grooming"
-	managerActionTracking   managerAction = "tracking"
-	managerActionAsking     managerAction = "asking"
-	managerActionGlossary   managerAction = "glossary"
+	managerActionCurate     managerAction = "curate"
+	managerActionRecall     managerAction = "recall"
 	managerActionOnboarding managerAction = "onboarding"
 )
 
@@ -172,38 +166,29 @@ func managerPluginAgents(target string) ([]string, error) {
 }
 
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
-	cmd.Flags().BoolVar(&opts.Planning, "planning", false, "review backlog readiness, blocked work, and in-flight work")
-	cmd.Flags().BoolVar(&opts.Grooming, "grooming", false, "prioritize and shape the backlog")
-	cmd.Flags().BoolVar(&opts.Tracking, "tracking", false, "curate progress, decisions, questions, and handoffs")
-	cmd.Flags().BoolVar(&opts.Asking, "asking", false, "answer project questions grounded in ledger IDs")
-	cmd.Flags().BoolVar(&opts.Glossary, "glossary", false, "maintain shared project language")
+	cmd.Flags().BoolVar(&opts.Curate, "curate", false, "review backlog, triage, track handoffs, and maintain vocabulary (default)")
+	cmd.Flags().BoolVar(&opts.Recall, "recall", false, "read-only synthesis grounded in ledger IDs; does not mutate")
 	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "learn a repo/project and organize it for later agents")
 }
 
 func validateManagerAction(opts managerOpts) (managerAction, error) {
 	selected := []managerAction{}
-	if opts.Planning {
-		selected = append(selected, managerActionPlanning)
+	if opts.Curate {
+		selected = append(selected, managerActionCurate)
 	}
-	if opts.Grooming {
-		selected = append(selected, managerActionGrooming)
-	}
-	if opts.Tracking {
-		selected = append(selected, managerActionTracking)
-	}
-	if opts.Asking {
-		selected = append(selected, managerActionAsking)
-	}
-	if opts.Glossary {
-		selected = append(selected, managerActionGlossary)
+	if opts.Recall {
+		selected = append(selected, managerActionRecall)
 	}
 	if opts.Onboarding {
 		selected = append(selected, managerActionOnboarding)
 	}
-	if len(selected) != 1 {
-		return "", fmt.Errorf("%w: choose exactly one manager action: --planning, --grooming, --tracking, --asking, --glossary, or --onboarding", ErrUsage)
+	if len(selected) > 1 {
+		return "", fmt.Errorf("%w: choose one manager action: --curate, --recall, or --onboarding", ErrUsage)
 	}
-	return selected[0], nil
+	if len(selected) == 1 {
+		return selected[0], nil
+	}
+	return managerActionCurate, nil
 }
 
 func newManageContextCmd(st *cliState) *cobra.Command {

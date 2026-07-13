@@ -58,6 +58,38 @@ func TestManageRequiresExactlyOneAction(t *testing.T) {
 	}
 }
 
+func TestManageCurateIsDefault(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	h.reset()
+
+	out, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, `"ATM_MANAGER_ACTION": "curate"`) {
+		t.Fatalf("default action should be curate; got:\n%s", out)
+	}
+	_ = c
+}
+
+func TestManageRejectsConflictingActions(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	for _, args := range [][]string{
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--recall"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--recall", "--onboarding"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--onboarding"},
+	} {
+		_, _, code := h.run(args...)
+		if code == ExitSuccess {
+			t.Fatalf("%v should fail (conflicting actions)", args)
+		}
+	}
+}
+
 func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
