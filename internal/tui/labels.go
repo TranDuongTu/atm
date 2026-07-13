@@ -663,7 +663,7 @@ func (b *boardsModel) renderTable() string {
 		return padToHeight("no boards", b.contentHeight)
 	}
 	var sb strings.Builder
-	header := boardTableLine(b.width, "BOARD", "COUNT")
+	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "COUNT")
 	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
 	sb.WriteString("\n")
 
@@ -680,7 +680,7 @@ func (b *boardsModel) renderTable() string {
 		if r.Broken {
 			count = "-"
 		}
-		line := boardTableLine(b.width, name, count)
+		line := boardTableLine(b.width, name, r.Description, count)
 		if i == b.cursor {
 			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -694,21 +694,30 @@ func (b *boardsModel) renderTable() string {
 	return padToHeight(sb.String(), b.contentHeight)
 }
 
-// boardTableLine renders one row of the flat Boards list: a name column and
-// an 8-wide count column. The name column absorbs the warning/broken
-// markers so they stay visible alongside the count. Padding is by display
-// width (lipgloss.Width), not byte length, so ANSI-styled markers and the
-// multi-byte warning glyph do not push the count column out of alignment.
-func boardTableLine(width int, name, count string) string {
-	nameW := width - 10 // leading space + 8-wide count column + separator.
-	if nameW < 8 {
-		nameW = 8
+// boardTableLine renders one row of the flat Boards list: a fixed-width
+// name column, a flexible description column, and an 8-wide count column.
+// Padding is by display width (lipgloss.Width), not byte length, so
+// ANSI-styled markers and the multi-byte warning glyph do not push the
+// count column out of alignment. The name column is narrow (16) so the
+// description — the human's curation signal — gets the bulk of the width.
+func boardTableLine(width int, name, description, count string) string {
+	nameW := 16
+	countW := 8
+	// leading space (1) + 2 inter-column separators (2) = 3
+	descW := width - nameW - countW - 3
+	if descW < 8 {
+		descW = 8
 	}
-	pad := nameW - lipgloss.Width(name)
-	if pad < 0 {
-		pad = 0
+	namePad := nameW - lipgloss.Width(name)
+	if namePad < 0 {
+		namePad = 0
 	}
-	return fitLine(fmt.Sprintf(" %s%s %8s", name, spaces(pad), count), width)
+	desc := truncateRunes(description, descW)
+	descPad := descW - lipgloss.Width(desc)
+	if descPad < 0 {
+		descPad = 0
+	}
+	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
 }
 
 func (b *boardsModel) renderChart() string {

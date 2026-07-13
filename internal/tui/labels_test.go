@@ -298,6 +298,33 @@ func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 	}
 }
 
+// TestBoardsL0ShowsDescriptionColumn guards that the row's description is
+// actually rendered in the table (the pane loads Description but must
+// display it, not just clear the ⚠ flag when one is added).
+func TestBoardsL0ShowsDescriptionColumn(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.boards.SetSize(120, 12) // wide enough that the seeded description is not truncated
+	// status is seeded with a description; sprint is emergent and
+	// undescribed (renders ⚠ and an empty description cell).
+	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	view := m.boards.View()
+	// The header has a DESCRIPTION column.
+	mustContain(t, view, "DESCRIPTION")
+	// The status namespace's seeded description is present.
+	l, err := m.store.LabelShow("ATM:status:*")
+	if err != nil {
+		t.Fatalf("LabelShow ATM:status:*: %v", err)
+	}
+	if l.Description == "" {
+		t.Fatal("seeded status:* descriptor has no description")
+	}
+	mustContain(t, view, l.Description)
+}
+
 func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
