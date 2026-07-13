@@ -125,6 +125,36 @@ func TestCheckAgeIsMeasuredInDays(t *testing.T) {
 	_ = time.Now
 }
 
+func TestCheckRepoRootPointerCoversAllNewTerritory(t *testing.T) {
+	// A whole-repo pointer at "." claims every path in the repo, so no
+	// changed path is NEW. Without the whole-repo fix, a path like "pkg/a.go"
+	// would be reported as NEW even though "." claims it.
+	repo := newTestRepo(t)
+	rec, s, actor := newRecorder(t, repo)
+	whole, _ := s.CreateTask("TST", "Pointer: whole repo", "", nil, actor)
+	if err := rec.Add(whole.ID, "documentation", []Source{{Kind: KindGit, Locator: "."}}); err != nil {
+		t.Fatalf("Add whole-repo: %v", err)
+	}
+
+	commitFile(t, repo, "pkg/a.go", "package pkg\n\nfunc New() {}\n")
+	commitFile(t, repo, "brand_new.go", "package main\n")
+
+	rep, err := Check(s, &Resolver{Repo: repo}, "TST", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(rep.New) != 0 {
+		t.Errorf("NEW = %v, want empty (whole-repo pointer covers everything)", rep.New)
+	}
+	if !containsTask(rep.OK, whole.ID) || !containsTask(rep.Drift, whole.ID) {
+		// Either OK (if content reverted) or DRIFT (content changed) is fine;
+		// the point is the pointer is classified, not silently dropped.
+		if !containsTask(rep.OK, whole.ID) && !containsTask(rep.Drift, whole.ID) {
+			t.Errorf("whole-repo pointer missing from OK and DRIFT: OK=%+v DRIFT=%+v", rep.OK, rep.Drift)
+		}
+	}
+}
+
 func containsTask(fs []Finding, id string) bool {
 	for _, f := range fs {
 		if f.TaskID == id {

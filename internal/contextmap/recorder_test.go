@@ -1,6 +1,8 @@
 package contextmap
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -169,6 +171,33 @@ func TestSupersededTaskLeavesCurrentBoard(t *testing.T) {
 	}
 	if ids[drop.ID] {
 		t.Errorf("current board must not contain the superseded pointer %s", drop.ID)
+	}
+}
+
+func TestStampRefusesWhenSourceIsGone(t *testing.T) {
+	// stamp's contract is "the subject is unchanged in meaning". If the
+	// subject is gone, stamp must refuse -- the manager must retarget (if it
+	// moved) or supersede (if it died). A silent empty witness would lie that
+	// the pointer was re-verified.
+	repo := newTestRepo(t)
+	rec, s, actor := newRecorder(t, repo)
+	task, _ := s.CreateTask("TST", "Code pointer: gone", "", nil, actor)
+	if err := rec.Add(task.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Delete the source directory and commit. The pointer's subject is gone.
+	if err := os.RemoveAll(filepath.Join(repo, "pkg")); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, repo, "other.txt", "x")
+
+	err := rec.Stamp(task.ID)
+	if err == nil {
+		t.Fatal("Stamp on a gone source: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "gone") {
+		t.Errorf("Stamp error = %q, want it to mention 'gone'", err.Error())
 	}
 }
 

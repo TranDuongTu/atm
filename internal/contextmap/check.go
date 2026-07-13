@@ -2,7 +2,6 @@ package contextmap
 
 import (
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -118,13 +117,16 @@ func Check(s *store.Store, r *Resolver, code, since string) (Report, error) {
 }
 
 // isCovered reports whether a changed path falls under any pointer's git
-// source. A pointer at "internal/store" covers "internal/store/task.go".
+// source. A pointer at "internal/store" covers "internal/store/task.go". A
+// whole-repo pointer at "." (or "") covers everything.
 func isCovered(p string, covered map[string]bool) bool {
+	if covered["."] || covered[""] {
+		return true
+	}
 	for c := range covered {
 		if p == c || strings.HasPrefix(p, c+"/") {
 			return true
 		}
 	}
-	// A pointer at a directory also covers files added directly beneath it.
-	return covered[path.Dir(p)]
+	return false
 }

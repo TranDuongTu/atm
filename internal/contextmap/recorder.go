@@ -1,6 +1,7 @@
 package contextmap
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -104,7 +105,10 @@ func (rec *Recorder) writeStamp(taskID, code string, sources []Source) error {
 	stamp := Stamp{Version: StampVersion, At: time.Now().UTC(), Head: head}
 	for _, src := range sources {
 		value, err := rec.Resolver.Witness(src)
-		if err != nil && !isGone(err) {
+		if err != nil {
+			if isGone(err) {
+				return fmt.Errorf("%s: source %s is gone; use retarget or supersede", taskID, src)
+			}
 			return fmt.Errorf("witness %s: %w", src, err)
 		}
 		stamp.Witnesses = append(stamp.Witnesses, Witness{Source: src, Value: value})
@@ -117,7 +121,7 @@ func (rec *Recorder) writeStamp(taskID, code string, sources []Source) error {
 	return err
 }
 
-func isGone(err error) bool { return err != nil && strings.Contains(err.Error(), "subject gone") }
+func isGone(err error) bool { return errors.Is(err, errGone) }
 
 // LatestStamp returns the newest provenance stamp on a task. ok is false when
 // the pointer was never stamped -- check reports that as UNVERIFIED, never as an
