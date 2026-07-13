@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -215,5 +216,19 @@ func TestGetTaskFutureLogSeqIntegrity(t *testing.T) {
 	_, err := s.GetTask(tk.ID)
 	if !IsIntegrity(err) {
 		t.Fatalf("expected ErrIntegrity, got %v", err)
+	}
+}
+
+// I1: computed labels are never stored on tasks.
+func TestCreateTaskRejectsComputedLabel(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_ = s.LabelAdd("ATM:next-sprint", "board", "status:open", testActor)
+
+	if _, err := s.CreateTask("ATM", "t", "", []string{"ATM:next-sprint"}, testActor); !errors.Is(err, ErrComputedLabelOnTask) {
+		t.Fatalf("board on task: err = %v, want ErrComputedLabelOnTask", err)
+	}
+	if _, err := s.CreateTask("ATM", "t2", "", []string{"ATM:status:*"}, testActor); !errors.Is(err, ErrComputedLabelOnTask) {
+		t.Fatalf("namespace on task: err = %v, want ErrComputedLabelOnTask", err)
 	}
 }

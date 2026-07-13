@@ -70,13 +70,13 @@ const testActor = "admin@cli:test"
 func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	// SeedLabels applies all 12 defaults (CreateProject seeding is wired in Task 3).
+	// SeedLabels applies all 16 defaults (CreateProject seeding is wired in Task 3).
 	if err := s.SeedLabels("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
-	if len(ls) != 12 {
-		t.Fatalf("SeedLabels left %d labels, want 12", len(ls))
+	if len(ls) != 16 {
+		t.Fatalf("SeedLabels left %d labels, want 16", len(ls))
 	}
 	l, _ := s.LabelShow("ATM:context:agent")
 	if l.Description == "" {
@@ -90,8 +90,8 @@ func TestCreateProjectSeedsLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
-	if len(ls) != 12 {
-		t.Fatalf("after CreateProject, ATM has %d labels, want 12 (seeded defaults)", len(ls))
+	if len(ls) != 16 {
+		t.Fatalf("after CreateProject, ATM has %d labels, want 16 (seeded defaults)", len(ls))
 	}
 	// Every seeded label has a non-empty description.
 	for _, l := range ls {
@@ -109,7 +109,7 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	// Edit one label's description (human curates).
-	_ = s.LabelAdd("ATM:type:bug", "human edited", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "", testActor)
 	if err := s.SeedLabels("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	if l.Description != "human edited" {
 		t.Fatalf("SeedLabels overwrote edited description: got %q want \"human edited\"", l.Description)
 	}
-	// The other 21 keep their seed descriptions.
+	// The other 15 keep their seed descriptions.
 	l2, _ := s.LabelShow("ATM:status:open")
 	if l2.Description == "" {
 		t.Error("ATM:status:open lost its description after re-seed")
@@ -130,7 +130,7 @@ func TestCreateProjectAppendsLogEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := s.ReadLog("ATM")
-	// 1 project.created + 22 label.upserted (seed) = 23 entries
+	// 1 project.created + 16 label.upserted (seed) = 17 entries
 	if len(entries) < 2 {
 		t.Fatalf("log has %d entries, want >= 2", len(entries))
 	}

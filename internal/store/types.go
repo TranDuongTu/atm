@@ -5,8 +5,17 @@ import "time"
 type Label struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	LogSeq      int    `json:"log_seq,omitempty"`
+	// Expr, when non-empty, makes this a computed label (a "board"): its
+	// membership is derived by evaluating the expression over other labels
+	// rather than asserted by tasks. See docs/superpowers/specs/2026-07-13-computed-labels-boards-design.md
+	Expr   string `json:"expr,omitempty"`
+	LogSeq int    `json:"log_seq,omitempty"`
 }
+
+// IsComputed reports whether membership is derived rather than asserted.
+// True for boards (Expr set) and for namespace labels (name ends in ":*",
+// whose expression is the prefix pattern implicit in the name).
+func (l Label) IsComputed() bool { return l.Expr != "" || IsNamespaceName(l.Name) }
 
 type Project struct {
 	Code      string    `json:"code"`

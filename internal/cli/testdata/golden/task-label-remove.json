@@ -8,7 +8,7 @@
     "labels": [
       "ATM:context:agent"
     ],
-    "log_seq": 20,
+    "log_seq": 24,
     "project_code": "ATM",
     "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",

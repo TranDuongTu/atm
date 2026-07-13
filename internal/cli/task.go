@@ -88,7 +88,7 @@ func newTaskCreateCmd(st *cliState) *cobra.Command {
 }
 
 func newTaskListCmd(st *cliState) *cobra.Command {
-	var project string
+	var project, expr string
 	var labels []string
 	var facets bool
 	cmd := &cobra.Command{
@@ -99,9 +99,17 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			filters := store.QueryFilters{Project: project, Labels: labels}
+			if expr != "" {
+				if _, err := store.ParseExpr(expr); err != nil {
+					return err
+				}
+			}
+			filters := store.QueryFilters{Project: project, Labels: labels, Expr: expr}
 			if facets {
-				groups, others := s.GroupTasks(filters)
+				groups, others, gerr := s.GroupTasksErr(filters)
+				if gerr != nil {
+					return gerr
+				}
 				f := jsonFacets{
 					Groups: groupsToJSON(groups),
 					Others: tasksToJSON(others),
@@ -110,7 +118,10 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 					fmt.Fprint(os.Stdout, renderFacetsText(f))
 				})
 			}
-			ts := s.ListTasks(filters)
+			ts, err := s.ListTasksErr(filters)
+			if err != nil {
+				return err
+			}
 			return st.emit(st.stdout(), map[string]any{"tasks": tasksToJSON(ts)}, func() {
 				fmt.Fprint(os.Stdout, renderTaskListText(tasksToJSON(ts)))
 			})
@@ -119,6 +130,7 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&project, "project", "", "filter by project code")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "label filter (repeatable; full name or wildcard suffix e.g. ATM:status:*)")
 	cmd.Flags().BoolVar(&facets, "facets", false, "group output by wildcard label facets")
+	cmd.Flags().StringVar(&expr, "expr", "", "board expression filter (AND/OR/NOT/parens over bare label names)")
 	return cmd
 }
 

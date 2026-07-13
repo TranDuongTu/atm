@@ -97,7 +97,7 @@ func seedTask(t *testing.T, m *Model, projectCode, title string, labels ...strin
 // seedLabel adds a label to the registry (with optional description).
 func seedLabel(t *testing.T, m *Model, name, desc string) {
 	t.Helper()
-	if err := m.store.LabelAdd(name, desc, testActor); err != nil {
+	if err := m.store.LabelAdd(name, desc, "", testActor); err != nil {
 		t.Fatalf("LabelAdd %s: %v", name, err)
 	}
 	m.refreshAll()
@@ -199,7 +199,7 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	assertLinesWithinWidth("labels", m.labels.View(), innerPaneWidth(rightW))
+	assertLinesWithinWidth("labels", m.boards.View(), innerPaneWidth(rightW))
 	wantPageSize := innerPaneHeight(tasksH) - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
@@ -313,7 +313,7 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Labels")
+	mustContain(t, v, "[3] Boards")
 	mustNotContain(t, v, "1  Projects")
 	mustNotContain(t, v, "4  Help")
 }
@@ -326,7 +326,7 @@ func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
 		v := m.View()
 		mustContain(t, v, "[1] Projects")
 		mustContain(t, v, "[2] Tasks")
-		mustContain(t, v, "[3] Labels")
+		mustContain(t, v, "[3] Boards")
 	}
 }
 
@@ -1132,9 +1132,9 @@ func TestComputeStripDaysRange(t *testing.T) {
 		wantDays int
 	}{
 		{width: 10, wantDays: 7},
-		{width: 69, wantDays: 7}, // (69+1)/10 = 7
-		{width: 79, wantDays: 8}, // (79+1)/10 = 8
-		{width: 139, wantDays:14}, // (139+1)/10 = 14
+		{width: 69, wantDays: 7},   // (69+1)/10 = 7
+		{width: 79, wantDays: 8},   // (79+1)/10 = 8
+		{width: 139, wantDays: 14}, // (139+1)/10 = 14
 		{width: 200, wantDays: 14},
 	}
 	for _, tc := range tests {
@@ -1615,7 +1615,7 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 
 			// Snapshot the Projects and Labels pane content before scrolling.
 			projBefore := m.projects.View()
-			labelsBefore := m.labels.View()
+			labelsBefore := m.boards.View()
 
 			// Scroll the task detail to the bottom and back.
 			for i := 0; i < 40; i++ {
@@ -1629,7 +1629,7 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			if got := m.projects.View(); got != projBefore {
 				t.Errorf("Projects pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", projBefore, got)
 			}
-			if got := m.labels.View(); got != labelsBefore {
+			if got := m.boards.View(); got != labelsBefore {
 				t.Errorf("Labels pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", labelsBefore, got)
 			}
 
@@ -1691,7 +1691,7 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Labels")
+	mustContain(t, v, "[3] Boards")
 	mustContain(t, v, "Task ATM-0001")
 }
 
@@ -2132,13 +2132,13 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	}
 	m.focused = paneLabels
 	update(t, m, "enter") // enter ATM namespace chart
-	if m.labels.level != lLevelChart {
-		t.Fatalf("labels.level = %v want lLevelChart", m.labels.level)
+	if m.boards.level != lLevelChart {
+		t.Fatalf("boards.level = %v want lLevelChart", m.boards.level)
 	}
 	// Pick the first chart row (a concrete label) and drill into detail.
 	update(t, m, "enter")
-	if m.labels.level != lLevelDetail {
-		t.Fatalf("labels.level = %v want lLevelDetail", m.labels.level)
+	if m.boards.level != lLevelDetail {
+		t.Fatalf("boards.level = %v want lLevelDetail", m.boards.level)
 	}
 	if m.tasks.filter == "" {
 		t.Fatal("tasks.filter should be set after label detail drill")
@@ -2180,15 +2180,12 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.tasks.offset != 0 {
 		t.Errorf("tasks.offset = %d want 0", m.tasks.offset)
 	}
-	// Labels pane must return to L0 with no namespace/bareTags selected.
-	if m.labels.level != lLevelTable {
-		t.Errorf("labels.level = %v want lLevelTable", m.labels.level)
+	// Boards pane must return to L0 with no namespace selected.
+	if m.boards.level != lLevelTable {
+		t.Errorf("boards.level = %v want lLevelTable", m.boards.level)
 	}
-	if m.labels.ns != "" {
-		t.Errorf("labels.ns = %q want empty", m.labels.ns)
-	}
-	if m.labels.bareTags {
-		t.Errorf("labels.bareTags = true want false")
+	if m.boards.ns != "" {
+		t.Errorf("boards.ns = %q want empty", m.boards.ns)
 	}
 	// The Tasks pane body must not reference the old project's task.
 	body := m.tasks.View()

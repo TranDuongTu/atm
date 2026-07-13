@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -60,14 +61,18 @@ func ValidateProjectCode(code string) error {
 	return nil
 }
 
-var labelRe = regexp.MustCompile(`^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`)
+var labelRe = regexp.MustCompile(`^[A-Z]{3,6}:[a-z0-9][a-z0-9-]*(:([a-z0-9][a-z0-9-]*|\*))?$`)
 
 func ValidateLabelName(name string) error {
 	if !labelRe.MatchString(name) {
-		return fmt.Errorf("invalid label %q (want ^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$)", name)
+		return fmt.Errorf("invalid label %q (want ^[A-Z]{3,6}:[a-z0-9][a-z0-9-]*(:([a-z0-9][a-z0-9-]*|\\*))?$)", name)
 	}
 	return nil
 }
+
+// IsNamespaceName reports whether name is a namespace label (e.g. "ATM:status:*"),
+// whose membership is every label sharing its prefix.
+func IsNamespaceName(name string) bool { return strings.HasSuffix(name, ":*") }
 
 var TaskIDRe = regexp.MustCompile(`^([A-Z][A-Z0-9-]{1,15})-(\d+)$`)
 

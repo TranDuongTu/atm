@@ -31,6 +31,15 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 			if err := s.labelProjectExistsLocked(l); err != nil {
 				return err
 			}
+			// I1 - a task may only carry stored labels.
+			if IsNamespaceName(l) {
+				return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
+			}
+			if lb, ok, err := cacheGetLabel(db, l); err != nil {
+				return err
+			} else if ok && lb.Expr != "" {
+				return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
+			}
 		}
 		n := p.NextTaskN
 		id := RenderTaskID(projectCode, n)
@@ -294,6 +303,15 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
+		}
+		// I1 - a task may only carry stored labels.
+		if IsNamespaceName(label) {
+			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, label)
+		}
+		if lb, ok, err := cacheGetLabel(db, label); err != nil {
+			return err
+		} else if ok && lb.Expr != "" {
+			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, label)
 		}
 		for _, l := range t.Labels {
 			if l == label {

@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_task_labels_label ON task_labels(label);
 CREATE TABLE IF NOT EXISTS labels (
 	name TEXT PRIMARY KEY,
 	description TEXT NOT NULL DEFAULT '',
+	expr TEXT NOT NULL DEFAULT '',
 	log_seq INTEGER NOT NULL DEFAULT 0
 );
 
@@ -125,6 +126,16 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 			return
 		}
 		if _, err := db.Exec(cacheSchema); err != nil {
+			s.cacheErr = err
+			return
+		}
+		// The labels.expr column was added after the initial schema. CREATE TABLE
+		// IF NOT EXISTS will not add it to an existing cache.db, and the schema
+		// carries no version marker, so ALTER unconditionally and swallow the
+		// "duplicate column" error. cache.db is derived and rebuildable, so the
+		// worst case is always recoverable by deleting it and replaying the log.
+		if _, err := db.Exec(`ALTER TABLE labels ADD COLUMN expr TEXT NOT NULL DEFAULT ''`); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
 			s.cacheErr = err
 			return
 		}
@@ -369,16 +380,16 @@ func SortTaskIDsByFunc(tasks []*Task) {
 // ---- label cache ----
 
 func cacheUpsertLabel(db *sql.DB, l Label) error {
-	_, err := db.Exec(`INSERT INTO labels (name, description, log_seq) VALUES (?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET description=excluded.description, log_seq=excluded.log_seq`,
-		l.Name, l.Description, l.LogSeq)
+	_, err := db.Exec(`INSERT INTO labels (name, description, expr, log_seq) VALUES (?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET description=excluded.description, expr=excluded.expr, log_seq=excluded.log_seq`,
+		l.Name, l.Description, l.Expr, l.LogSeq)
 	return err
 }
 
 func cacheGetLabel(db *sql.DB, name string) (Label, bool, error) {
 	var l Label
-	err := db.QueryRow(`SELECT name, description, log_seq FROM labels WHERE name = ?`, name).
-		Scan(&l.Name, &l.Description, &l.LogSeq)
+	err := db.QueryRow(`SELECT name, description, expr, log_seq FROM labels WHERE name = ?`, name).
+		Scan(&l.Name, &l.Description, &l.Expr, &l.LogSeq)
 	if err == sql.ErrNoRows {
 		return Label{}, false, nil
 	}
@@ -399,7 +410,7 @@ func escapeLike(s string) string {
 }
 
 func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label, error) {
-	query := `SELECT name, description, log_seq FROM labels WHERE 1=1`
+	query := `SELECT name, description, expr, log_seq FROM labels WHERE 1=1`
 	var args []any
 	if projectPrefix != "" {
 		query += ` AND name LIKE ? ESCAPE '\'`
@@ -418,7 +429,7 @@ func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label
 	var out []Label
 	for rows.Next() {
 		var l Label
-		if err := rows.Scan(&l.Name, &l.Description, &l.LogSeq); err != nil {
+		if err := rows.Scan(&l.Name, &l.Description, &l.Expr, &l.LogSeq); err != nil {
 			return nil, err
 		}
 		out = append(out, l)

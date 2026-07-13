@@ -1,6 +1,10 @@
 {
   "labels": [
     {
+      "description": "the kinds of narrative an agent writes on a task",
+      "name": "ATM:comment:*"
+    },
+    {
       "description": "task comment kind: a decision recorded during work",
       "name": "ATM:comment:decision"
     },
@@ -11,6 +15,10 @@
     {
       "description": "task comment kind: a progress note during work",
       "name": "ATM:comment:progress"
+    },
+    {
+      "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
+      "name": "ATM:context:*"
     },
     {
       "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
@@ -29,8 +37,16 @@
       "name": "ATM:context:repository"
     },
     {
+      "description": "optional urgency ranking; absent means default priority",
+      "name": "ATM:priority:*"
+    },
+    {
       "description": "optional prioritization: high; do this first, everything untagged is default priority",
       "name": "ATM:priority:high"
+    },
+    {
+      "description": "lifecycle state of a task; exactly one status label should be present",
+      "name": "ATM:status:*"
     },
     {
       "description": "workflow state: blocked; task cannot proceed pending something else",

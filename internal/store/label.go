@@ -1,11 +1,23 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"atm/internal/seed"
+)
+
+var (
+	// ErrComputedLabelOnTask: a task may only carry stored labels. A computed
+	// label (a board, or a ":*" namespace) is derived, so asserting it on a
+	// task would make the label mean two things at once - see conventions
+	// rule 5, "one label, one meaning".
+	ErrComputedLabelOnTask = errors.New("computed labels cannot be assigned to a task")
+	// ErrBoardNameCollision: ATM:status and ATM:status:* are distinct strings
+	// but both render as "status" in the Boards pane.
+	ErrBoardNameCollision = errors.New("board name collides with a namespace name")
 )
 
 type LabelRemoveResult struct {
@@ -17,7 +29,7 @@ type LabelRemoveResult struct {
 // the cache row. If `description` is empty, the existing description on the
 // live row (if any) is preserved; a non-empty description overwrites it.
 // Contrast with LabelSeed, which is a no-op when the label already exists.
-func (s *Store) LabelAdd(name, description, actor string) error {
+func (s *Store) LabelAdd(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
@@ -27,18 +39,28 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 	if err := s.labelProjectExists(name); err != nil {
 		return err
 	}
+	if expr != "" {
+		if err := s.validateExpr(name, expr); err != nil {
+			return err
+		}
+	}
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
 	code := labelProject(name)
 	return s.WithLock(code, func() error {
-		l := Label{Name: name, Description: description}
-		if description == "" {
+		l := Label{Name: name, Description: description, Expr: expr}
+		if description == "" || expr == "" {
 			if existing, ok, err := cacheGetLabel(db, name); err != nil {
 				return err
 			} else if ok {
-				l.Description = existing.Description
+				if description == "" {
+					l.Description = existing.Description
+				}
+				if expr == "" {
+					l.Expr = existing.Expr
+				}
 			}
 		}
 		now := Now()
@@ -57,9 +79,63 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 	})
 }
 
+// validateExpr parses expr, rejects a name collision, and walks the board
+// reference graph to reject cycles. Called on the write path. It is NOT the
+// only cycle defence: a merge can synthesize a cycle no replica wrote, which
+// is why resolve.go carries a visited-set guard too. See ATM-0105-c0004.
+func (s *Store) validateExpr(name, expr string) error {
+	code := labelProject(name)
+
+	// I3 - a board may not shadow a namespace.
+	for _, l := range s.LabelList(code, "") {
+		if IsNamespaceName(l.Name) && strings.TrimSuffix(l.Name, ":*") == name {
+			return fmt.Errorf("%w: %s vs %s", ErrBoardNameCollision, name, l.Name)
+		}
+	}
+
+	n, err := ParseExpr(expr)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUsage, err)
+	}
+
+	// I2 (write half) - walk references depth-first from this label.
+	live := map[string]Label{}
+	for _, l := range s.LabelList(code, "") {
+		live[l.Name] = l
+	}
+	live[name] = Label{Name: name, Expr: expr} // the label as it WOULD be
+
+	visiting := map[string]bool{}
+	var walk func(full string, node Node) error
+	walk = func(full string, node Node) error {
+		for _, atom := range Atoms(node) {
+			ref := code + ":" + atom
+			l, ok := live[ref]
+			if !ok || l.Expr == "" {
+				continue // stored label or namespace - a leaf, cannot cycle
+			}
+			if visiting[ref] {
+				return fmt.Errorf("%w: %s", ErrCyclicExpr, ref)
+			}
+			visiting[ref] = true
+			sub, err := ParseExpr(l.Expr)
+			if err != nil {
+				return fmt.Errorf("board %s: %w", ref, err)
+			}
+			if err := walk(ref, sub); err != nil {
+				return err
+			}
+			delete(visiting, ref)
+		}
+		return nil
+	}
+	visiting[name] = true
+	return walk(name, n)
+}
+
 // LabelSeed upserts a label but only sets the description when the label is
 // newly created. Existing labels keep their descriptions.
-func (s *Store) LabelSeed(name, description, actor string) error {
+func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
@@ -81,17 +157,19 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 			return nil
 		}
 		now := Now()
+		l := Label{Name: name, Description: description, Expr: expr}
 		entry, err := s.appendLogLocked(code, LogEntry{
 			At:      now,
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
 			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(Label{Name: name, Description: description}),
+			Payload: mustMarshal(l),
 		})
 		if err != nil {
 			return err
 		}
-		return cacheUpsertLabel(db, Label{Name: name, Description: description, LogSeq: entry.Seq})
+		l.LogSeq = entry.Seq
+		return cacheUpsertLabel(db, l)
 	})
 }
 
@@ -100,7 +178,7 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 func (s *Store) SeedLabels(code, actor string) error {
 	for _, l := range seed.Labels {
 		full := code + ":" + l.Suffix
-		if err := s.LabelSeed(full, l.Description, actor); err != nil {
+		if err := s.LabelSeed(full, l.Description, l.Expr, actor); err != nil {
 			return err
 		}
 	}
@@ -122,12 +200,12 @@ func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
 			Subject: Subject{Kind: "label", Name: full},
-			Payload: mustMarshal(Label{Name: full, Description: l.Description}),
+			Payload: mustMarshal(Label{Name: full, Description: l.Description, Expr: l.Expr}),
 		})
 		if err != nil {
 			return err
 		}
-		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, LogSeq: entry.Seq}); err != nil {
+		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, Expr: l.Expr, LogSeq: entry.Seq}); err != nil {
 			return err
 		}
 	}

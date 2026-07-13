@@ -42,11 +42,13 @@ const (
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
-	formTaskLabelAdd    // task detail: add label
-	formTaskLabelRemove // task detail: remove label
-	formProjectSetName  // project detail: set name
-	formCommentAdd      // task detail: add comment
-	formPersonaCreate   // Projects pane / overlay: add persona
+	formTaskLabelAdd      // task detail: add label
+	formTaskLabelRemove   // task detail: remove label
+	formProjectSetName    // project detail: set name
+	formCommentAdd        // task detail: add comment
+	formPersonaCreate     // Projects pane / overlay: add persona
+	formBoardEditor       // Boards pane: new/edit a board (live-validated expr)
+	formNamespaceDescribe // Boards pane: edit a namespace descriptor (description-only)
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -86,7 +88,7 @@ type Model struct {
 
 	projects projectsModel
 	tasks    tasksModel
-	labels   labelsModel
+	boards   boardsModel
 	actors   actorsModel
 	help     helpModel
 
@@ -96,6 +98,10 @@ type Model struct {
 	// formPayload carries context for the form (e.g. which label is being
 	// removed, which task is being edited).
 	formPayload string
+
+	// boardEditor holds the live-validation state for the Boards pane
+	// [n]ew/[e]dit form. Non-nil only while formKind == formBoardEditor.
+	boardEd *boardEditor
 
 	confirm        confirmAction
 	confirmMsg     string
@@ -163,7 +169,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
-	m.labels = newLabelsModel(m)
+	m.boards = newBoardsModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 	m.plugins = []plugin{newIndexerPlugin()}
@@ -193,7 +199,7 @@ func (m *Model) SetSize(w, h int) {
 	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
-	m.labels.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
+	m.boards.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
 	if m.helpOverlay != helpNone {
 		bw, bh := m.helpBoxSize()
 		m.help.SetSize(bw, bh)
@@ -327,7 +333,7 @@ func innerPaneHeight(height int) int {
 func (m *Model) refreshAll() {
 	m.projects.refresh()
 	m.tasks.refresh()
-	m.labels.refresh()
+	m.boards.refresh()
 	m.help.refresh()
 	m.lastRefreshAt = store.Now()
 }
@@ -612,7 +618,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			}
 		}
 		if m.focused == paneLabels {
-			return m.labels.handleKey(k)
+			return m.boards.handleKey(k)
 		}
 		// No detail to leave: ignore.
 		return nil
@@ -624,7 +630,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case paneTasks:
 		return m.tasks.handleKey(k)
 	case paneLabels:
-		return m.labels.handleKey(k)
+		return m.boards.handleKey(k)
 	}
 	return nil
 }
@@ -660,6 +666,7 @@ func (m *Model) closeForm() {
 	m.form = nil
 	m.formKind = formNone
 	m.formPayload = ""
+	m.boardEd = nil
 }
 
 // submitForm performs the action bound to the active form.
@@ -691,6 +698,10 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doCommentAdd(vals)
 	case formPersonaCreate:
 		return m.doPersonaCreate(vals)
+	case formBoardEditor:
+		return m.doBoardEdit(vals)
+	case formNamespaceDescribe:
+		return m.doNamespaceDescribe(vals)
 	}
 	return nil
 }
@@ -800,9 +811,9 @@ func (m *Model) renderWorkspace() string {
 
 	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
 	tasks := m.renderPane(paneTasks, rightW, tasksH, "[2] Tasks", m.tasks.View())
-	labels := m.renderPane(paneLabels, rightW, labelsH, "[3] Labels", m.labels.View())
+	boards := m.renderPane(paneLabels, rightW, labelsH, "[3] Boards", m.boards.View())
 
-	right := lipgloss.JoinVertical(lipgloss.Left, tasks, labels)
+	right := lipgloss.JoinVertical(lipgloss.Left, tasks, boards)
 	return lipgloss.JoinHorizontal(lipgloss.Top, projects, right)
 }
 
@@ -822,7 +833,7 @@ func (m *Model) statusHint() string {
 	case paneTasks:
 		return m.tasks.statusHint()
 	case paneLabels:
-		return m.labels.statusHint()
+		return m.boards.statusHint()
 	}
 	return "[?]keys [C]conventions"
 }
