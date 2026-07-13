@@ -264,6 +264,40 @@ func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 	}
 }
 
+// TestBoardsL0CountColumnAlignsDespiteMarkers guards the boardTableLine
+// display-width fix: rows carrying the ⚠ warning glyph (ANSI-styled and
+// multi-byte) must not push the COUNT column out of alignment. Every row —
+// plain or ⚠-flagged — must render at the pane's display width, so the count
+// column's right edge lines up.
+func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.boards.SetSize(72, 12)
+	// A seeded namespace (status) gets a description; an emergent one
+	// (sprint) does not, so it renders the ⚠ marker.
+	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	lines := strings.Split(m.boards.View(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("table rendered too few lines:\n%s", m.boards.View())
+	}
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		if got := lipgloss.Width(ln); got != m.boards.width {
+			t.Errorf("line %d display width = %d want %d (count column drifted on a marked row): %q", i, got, m.boards.width, ln)
+		}
+	}
+	// Confirm at least one marked row was actually rendered, so the
+	// test is not vacuously passing on plain rows only.
+	if !strings.Contains(m.boards.View(), "⚠") {
+		t.Fatalf("no ⚠ marker rendered — test is vacuous:\n%s", m.boards.View())
+	}
+}
+
 func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -319,6 +353,64 @@ func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
 	// The Tasks pane should show only the matching task.
 	mustContain(t, m.tasks.View(), "open1")
 	mustNotContain(t, m.tasks.View(), "done1")
+}
+
+// TestBoardsL0EditNamespaceOpensDescriptorEditor guards that [e] on a
+// namespace row (which has no Expr) opens a description-only editor for its
+// <ns>:* descriptor, and that saving upserts the descriptor so the ⚠ flag
+// clears. A human curates undescribed namespaces this way (conventions rule 6).
+func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// sprint is emergent (a task carries ATM:sprint:next) and undescribed.
+	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
+	update(t, m, "s")
+	update(t, m, "3")
+
+	// Before: the sprint row is flagged.
+	cursorToNamespaceRow(t, m, "sprint")
+	r, ok := m.boards.row("sprint")
+	if !ok || !r.NeedsDescription {
+		t.Fatalf("sprint must be flagged before describing: %+v", r)
+	}
+
+	// [e] on the namespace row opens the descriptor form, not the board editor.
+	update(t, m, "e")
+	if m.form == nil || m.formKind != formNamespaceDescribe {
+		t.Fatalf("[e] on namespace must open formNamespaceDescribe; form=%v kind=%v", m.form, m.formKind)
+	}
+	// The form's read-only namespace field is pre-filled; the description
+	// field is the second field and is empty (it was undescribed).
+	if got := m.form.Fields[0].Value; got != "sprint" {
+		t.Errorf("namespace field = %q want sprint", got)
+	}
+
+	// Type a description into the description field.
+	update(t, m, "tab") // move from namespace to description
+	for _, r := range "work slated for the next sprint" {
+		update(t, m, string(r))
+	}
+	// Enter on the last field submits.
+	update(t, m, "enter")
+	if m.form != nil {
+		t.Fatalf("form should be closed after submit")
+	}
+
+	// The descriptor was upserted: ATM:sprint:* now has a description.
+	l, err := m.store.LabelShow("ATM:sprint:*")
+	if err != nil {
+		t.Fatalf("LabelShow ATM:sprint:*: %v", err)
+	}
+	if l.Description != "work slated for the next sprint" {
+		t.Errorf("descriptor description = %q want the typed text", l.Description)
+	}
+
+	// After refresh the ⚠ flag clears.
+	m.boards.refresh()
+	r, ok = m.boards.row("sprint")
+	if !ok || r.NeedsDescription {
+		t.Errorf("sprint must not be flagged after describing: %+v", r)
+	}
 }
 
 func TestBoardsEscFromChartRestoresTableCursor(t *testing.T) {

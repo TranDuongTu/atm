@@ -42,12 +42,13 @@ const (
 	formTaskCreate
 	formTaskSetTitle
 	formTaskSetDescription
-	formTaskLabelAdd    // task detail: add label
-	formTaskLabelRemove // task detail: remove label
-	formProjectSetName  // project detail: set name
-	formCommentAdd      // task detail: add comment
-	formPersonaCreate   // Projects pane / overlay: add persona
-	formBoardEditor     // Boards pane: new/edit a board (live-validated expr)
+	formTaskLabelAdd      // task detail: add label
+	formTaskLabelRemove   // task detail: remove label
+	formProjectSetName    // project detail: set name
+	formCommentAdd        // task detail: add comment
+	formPersonaCreate     // Projects pane / overlay: add persona
+	formBoardEditor       // Boards pane: new/edit a board (live-validated expr)
+	formNamespaceDescribe // Boards pane: edit a namespace descriptor (description-only)
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -696,6 +697,8 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doPersonaCreate(vals)
 	case formBoardEditor:
 		return m.doBoardEdit(vals)
+	case formNamespaceDescribe:
+		return m.doNamespaceDescribe(vals)
 	}
 	return nil
 }

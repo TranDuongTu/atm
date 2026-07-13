@@ -509,12 +509,15 @@ func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		r := b.rows[b.cursor]
-		// Only a board (a label with an Expr) is editable; a namespace
-		// row has no expression to edit.
-		if r.Expr == "" {
-			return nil
+		// A board (a label with an Expr) opens the full board editor.
+		// A namespace row (no Expr) opens a description-only editor for
+		// its descriptor label (<ns>:*) — this is how a human curates the
+		// ⚠-flagged undescribed namespaces conventions rule 6 calls out.
+		if r.Expr != "" {
+			b.m.openBoardEditorForm(b.m.projectScope, r.Name)
+		} else if r.Expandable {
+			b.m.openNamespaceDescribeForm(b.m.projectScope, r.Name, r.Description)
 		}
-		b.m.openBoardEditorForm(b.m.projectScope, r.Name)
 	case "S":
 		if b.m.projectScope == "" {
 			return nil
@@ -693,13 +696,19 @@ func (b *boardsModel) renderTable() string {
 
 // boardTableLine renders one row of the flat Boards list: a name column and
 // an 8-wide count column. The name column absorbs the warning/broken
-// markers so they stay visible alongside the count.
+// markers so they stay visible alongside the count. Padding is by display
+// width (lipgloss.Width), not byte length, so ANSI-styled markers and the
+// multi-byte warning glyph do not push the count column out of alignment.
 func boardTableLine(width int, name, count string) string {
 	nameW := width - 10 // leading space + 8-wide count column + separator.
 	if nameW < 8 {
 		nameW = 8
 	}
-	return fitLine(fmt.Sprintf(" %-*s %8s", nameW, name, count), width)
+	pad := nameW - lipgloss.Width(name)
+	if pad < 0 {
+		pad = 0
+	}
+	return fitLine(fmt.Sprintf(" %s%s %8s", name, spaces(pad), count), width)
 }
 
 func (b *boardsModel) renderChart() string {
@@ -877,6 +886,43 @@ func (m *Model) doLabelDescribe(vals map[string]string) tea.Cmd {
 		m.showToast("error: " + err.Error())
 		return nil
 	}
+	m.refreshAll()
+	return nil
+}
+
+// --- namespace descriptor form (used by [e] on a namespace row) ---
+
+// openNamespaceDescribeForm opens a description-only form for a namespace
+// descriptor label (<code>:<ns>:*). The namespace name is fixed (shown as a
+// read-only hint); only the description is editable. Submit upserts the
+// descriptor via LabelAdd, which creates it if absent or overwrites the
+// description if present. This is the curation path for the ⚠-flagged
+// undescribed namespaces conventions rule 6 asks a human to reconcile.
+func (m *Model) openNamespaceDescribeForm(code, ns, currentDesc string) {
+	fields := []formField{
+		{Label: "namespace", Required: true, Value: ns, Hint: "fixed — edit description below"},
+		{Label: "description", Required: false, Value: currentDesc, Hint: "what this namespace means (overwrites)"},
+	}
+	f := NewForm(fmt.Sprintf("Describe namespace  %s:%s:*", code, ns), fields)
+	f.Title = fmt.Sprintf("Describe namespace  %s:%s:*", code, ns)
+	m.form = f
+	m.formKind = formNamespaceDescribe
+	// Stash the code + ns so the submit handler can rebuild the descriptor
+	// name; the form's own "namespace" field is read-only display.
+	m.formPayload = code + ":" + ns
+}
+
+// doNamespaceDescribe handles submit of the namespace-describe form. It
+// upserts the <code>:<ns>:* descriptor with the typed description.
+func (m *Model) doNamespaceDescribe(vals map[string]string) tea.Cmd {
+	payload := m.formPayload
+	desc := vals["description"]
+	full := payload + ":*"
+	if err := m.store.LabelAdd(full, desc, "", m.actor); err != nil {
+		m.showToast("error: " + err.Error())
+		return nil
+	}
+	m.showToast(fmt.Sprintf("saved descriptor %s", full))
 	m.refreshAll()
 	return nil
 }
