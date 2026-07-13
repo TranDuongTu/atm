@@ -87,11 +87,19 @@ Three atom forms:
 
 ## Storage and event source
 
-One new log action: `label_set_expr`.
+**No new log action is required.** The existing `label.upserted` event marshals the entire `Label` struct as its payload (`internal/store/label.go:45-51`) and replay unmarshals it whole (`internal/store/log.go:380-389`). Adding `Expr` to the struct therefore carries it through the log, the replay, and the rebuild with no change to the action enum. The event vocabulary does not grow at all.
 
-Its CRDT rule is the **last-writer-wins register keyed on the HLC stamp that D4 already specifies for label descriptions** (`docs/eventsource/00-architecture.md:58`). No new resolution semantics. The event vocabulary and the future interop spec grow by one clause in an existing rule, not by one concept. Sync, merge, and tombstoning are inherited from `Label` unchanged.
+The CRDT rule is the **last-writer-wins register keyed on the HLC stamp that D4 already specifies for label descriptions** (`docs/eventsource/00-architecture.md:58`) — `Expr` simply joins that list. No new resolution semantics. Sync, merge, and tombstoning are inherited from `Label` unchanged.
 
-`cache.db`'s labels table gains an `expr` column. The log remains the sole source of truth; the cache stays derived and rebuildable.
+`cache.db`'s labels table gains an `expr` column. Because the schema is created with `CREATE TABLE IF NOT EXISTS` and carries no version marker, an existing `cache.db` needs a guarded `ALTER TABLE labels ADD COLUMN expr` on open. The log remains the sole source of truth; the cache stays derived and rebuildable, so a failed migration is always recoverable by deleting `cache.db` and replaying.
+
+**Label names must widen.** `ValidateLabelName` (`internal/store/store.go:65-70`) enforces `^[A-Z]{3,6}(:[a-z0-9][a-z0-9-]*){1,2}$`. A board name (`ATM:next-sprint`) is *already legal* under this — but a namespace descriptor (`ATM:status:*`) is not, because `*` is rejected. The regex becomes:
+
+```
+^[A-Z]{3,6}:[a-z0-9][a-z0-9-]*(:([a-z0-9][a-z0-9-]*|\*))?$
+```
+
+which admits `ATM:stale`, `ATM:next-sprint`, `ATM:status:open`, and `ATM:status:*`, while still rejecting `ATM:status:open:*`.
 
 ## Query engine
 
