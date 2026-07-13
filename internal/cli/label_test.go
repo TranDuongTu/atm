@@ -123,3 +123,38 @@ func TestLabelSeedTextOutput(t *testing.T) {
 		t.Fatalf("text output missing 'seeded 16 labels into ATM': %s", out)
 	}
 }
+
+func TestLabelAddWithExprCreatesBoard(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--store", sp, "--name", "ATM:sprint:next", "--actor", "admin@cli:unset")
+	_, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:next-sprint",
+		"--description", "the sprint board", "--expr", "status:open AND sprint:next",
+		"--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("label add --expr exit = %d stderr=%s", code, h.stderr.String())
+	}
+
+	out, _, code := h.run("label", "show", "--store", sp, "--name", "ATM:next-sprint")
+	if code != 0 {
+		t.Fatalf("label show exit = %d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "status:open AND sprint:next") {
+		t.Fatalf("label show must render the expression; got:\n%s", out)
+	}
+}
+
+func TestLabelAddRejectsBadExpr(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, code := h.run("label", "add", "--store", sp, "--name", "ATM:bad",
+		"--description", "d", "--expr", "status:open AND", "--actor", "admin@cli:unset")
+	if code == 0 {
+		t.Fatal("a malformed expression must fail the command")
+	}
+}

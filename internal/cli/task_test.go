@@ -201,3 +201,20 @@ func TestTaskIDFlagNeitherSet(t *testing.T) {
 		t.Fatalf("expected non-zero exit when neither --task nor --id set")
 	}
 }
+
+func TestTaskListWithExpr(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "open-task", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "done-task", "--label", "ATM:status:done", "--actor", "admin@cli:unset")
+
+	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--expr", "NOT status:done")
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "open-task") || strings.Contains(out, "done-task") {
+		t.Fatalf("--expr must filter; got:\n%s", out)
+	}
+}

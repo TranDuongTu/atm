@@ -52,6 +52,13 @@ type jsonProject struct {
 type jsonLabel struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Expr        string `json:"expr,omitempty"`
+}
+
+// IsComputed reports whether this label's membership is derived (a board or
+// namespace label) rather than asserted by tasks.
+func (l jsonLabel) IsComputed() bool {
+	return l.Expr != "" || store.IsNamespaceName(l.Name)
 }
 
 type jsonLabelGroup struct {
@@ -126,7 +133,7 @@ func projectsToJSON(ps []*store.Project) []jsonProject {
 }
 
 func labelToJSON(l store.Label) jsonLabel {
-	return jsonLabel{Name: l.Name, Description: l.Description}
+	return jsonLabel{Name: l.Name, Description: l.Description, Expr: l.Expr}
 }
 
 func labelsToJSON(ls []store.Label) []jsonLabel {
@@ -197,10 +204,14 @@ func renderProjectListText(ps []jsonProject) string {
 func renderLabelListText(ls []jsonLabel) string {
 	var b strings.Builder
 	for _, l := range ls {
+		marker := " "
+		if l.IsComputed() {
+			marker = "*"
+		}
 		if l.Description == "" {
-			fmt.Fprintf(&b, "%s\n", l.Name)
+			fmt.Fprintf(&b, "%s %s\n", marker, l.Name)
 		} else {
-			fmt.Fprintf(&b, "%s\t%s\n", l.Name, l.Description)
+			fmt.Fprintf(&b, "%s %s\t%s\n", marker, l.Name, l.Description)
 		}
 	}
 	return b.String()
