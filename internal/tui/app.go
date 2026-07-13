@@ -104,6 +104,8 @@ type Model struct {
 
 	toastMsg string
 
+	lastRefreshAt time.Time
+
 	// plugins holds registered plugins in registration order. No plugins are
 	// registered yet; the indexer (Task 4) will be the first.
 	plugins []plugin
@@ -327,6 +329,7 @@ func (m *Model) refreshAll() {
 	m.tasks.refresh()
 	m.labels.refresh()
 	m.help.refresh()
+	m.lastRefreshAt = store.Now()
 }
 
 // actorOr returns the actor string for the status line. The actor is always
@@ -361,10 +364,10 @@ func (m *Model) Init() tea.Cmd { return refreshTickCmd() }
 type refreshTickMsg struct{}
 
 // refreshTickInterval is how often the TUI polls for external mutations.
-// 1s is frequent enough to feel live without burning measurable CPU: each
-// tick is a refreshAll (~2ms at 80-task scale) gated by the O(1) LastLogSeq
-// check, so a no-op tick against a fresh cache is effectively free.
-const refreshTickInterval = 1 * time.Second
+// 10s keeps background refreshes visible without continuously rewriting the
+// status bar; the indicator reports stale sync only after a missed grace
+// window.
+const refreshTickInterval = 10 * time.Second
 
 func refreshTickCmd() tea.Cmd {
 	return tea.Tick(refreshTickInterval, func(time.Time) tea.Msg { return refreshTickMsg{} })
@@ -851,7 +854,9 @@ func (m *Model) renderStatusLine() string {
 		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
 	}
 	left := strings.Join(parts, "  ")
-	right := strings.Join(dockSegments(m), "  ")
+	rightSegments := dockSegments(m)
+	rightSegments = append(rightSegments, m.refreshRecencySegment())
+	right := strings.Join(rightSegments, "  ")
 	used := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
 	need := used + 2 + rightW
@@ -867,6 +872,48 @@ func (m *Model) renderStatusLine() string {
 		line += spaces(m.width - lw)
 	}
 	return line
+}
+
+func (m *Model) refreshRecencySegment() string {
+	now := store.Now()
+	if !m.lastRefreshAt.IsZero() && !now.Before(m.lastRefreshAt) && now.Sub(m.lastRefreshAt) <= 15*time.Second {
+		return m.refreshRecencyStyleAt(now).Render("✓")
+	}
+	return m.refreshRecencyStyleAt(now).Render("↻ " + refreshAgeLabel(m.lastRefreshAt, now))
+}
+
+func (m *Model) refreshRecencyStyle() lipgloss.Style {
+	return m.refreshRecencyStyleAt(store.Now())
+}
+
+func (m *Model) refreshRecencyStyleAt(now time.Time) lipgloss.Style {
+	if !m.lastRefreshAt.IsZero() && !now.Before(m.lastRefreshAt) && now.Sub(m.lastRefreshAt) <= 10*time.Second {
+		return m.styles.StatusOK
+	}
+	if !m.lastRefreshAt.IsZero() && !now.Before(m.lastRefreshAt) && now.Sub(m.lastRefreshAt) > 15*time.Second {
+		return m.styles.Warning
+	}
+	return m.styles.Status
+}
+
+func refreshAgeLabel(last, now time.Time) string {
+	if last.IsZero() {
+		return "--"
+	}
+	if now.Before(last) {
+		return "now"
+	}
+	age := now.Sub(last)
+	switch {
+	case age < time.Second:
+		return "now"
+	case age < time.Minute:
+		return fmt.Sprintf("%ds ago", int(age.Seconds()))
+	case age < time.Hour:
+		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+	default:
+		return fmt.Sprintf("%dh ago", int(age.Hours()))
+	}
 }
 
 // shortenPath trims a long path to fit maxW columns, keeping the tail.

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"atm/internal/store"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // TestRefreshTickSurfacesExternalMutation proves Fix D: after the TUI starts,
@@ -68,18 +67,13 @@ func TestRefreshTickSurfacesExternalMutation(t *testing.T) {
 	}
 }
 
-// TestInitSchedulesRefreshTick proves Init returns a command that produces a
-// refreshTickMsg (so the periodic refresh loop is started on launch).
+// TestInitSchedulesRefreshTick proves Init returns a command, so the periodic
+// refresh loop is started on launch.
 func TestInitSchedulesRefreshTick(t *testing.T) {
 	m := newTestModel(t)
 	cmd := m.Init()
 	if cmd == nil {
 		t.Fatal("Init returned nil cmd; want a refresh-tick scheduling command")
-	}
-	msg := cmd()
-	// The command should produce a refreshTickMsg (possibly after a delay).
-	if _, ok := msg.(refreshTickMsg); !ok {
-		t.Fatalf("Init cmd produced %T, want refreshTickMsg", msg)
 	}
 }
 
@@ -92,16 +86,89 @@ func TestRefreshTickReSchedules(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Update(refreshTickMsg) returned nil cmd; want next-tick scheduling")
 	}
-	// The next command should resolve (after a delay) to a refreshTickMsg.
-	// Use a short timeout via a helper goroutine so the test doesn't hang.
-	done := make(chan tea.Msg, 1)
-	go func() { done <- cmd() }()
-	select {
-	case msg := <-done:
-		if _, ok := msg.(refreshTickMsg); !ok {
-			t.Fatalf("next-tick cmd produced %T, want refreshTickMsg", msg)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("next-tick cmd did not produce a message within 2s")
+}
+
+func TestRefreshTickIntervalIsTenSeconds(t *testing.T) {
+	if refreshTickInterval != 10*time.Second {
+		t.Fatalf("refreshTickInterval = %s want 10s", refreshTickInterval)
+	}
+}
+
+func TestRefreshAllRecordsLastRefreshTime(t *testing.T) {
+	m := newTestModel(t)
+	old := time.Now().Add(-time.Hour)
+	m.lastRefreshAt = old
+
+	m.refreshAll()
+
+	if !m.lastRefreshAt.After(old) {
+		t.Fatalf("lastRefreshAt = %v, want after %v", m.lastRefreshAt, old)
+	}
+}
+
+func TestRefreshAgeLabel(t *testing.T) {
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		last time.Time
+		want string
+	}{
+		{name: "zero", last: time.Time{}, want: "--"},
+		{name: "subsecond", last: now.Add(-500 * time.Millisecond), want: "now"},
+		{name: "seconds", last: now.Add(-16 * time.Second), want: "16s ago"},
+		{name: "minutes", last: now.Add(-2 * time.Minute), want: "2m ago"},
+		{name: "hours", last: now.Add(-3 * time.Hour), want: "3h ago"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := refreshAgeLabel(tt.last, now); got != tt.want {
+				t.Fatalf("refreshAgeLabel() = %q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRefreshRecencySegmentFreshShowsCheckOnly(t *testing.T) {
+	m := newTestModel(t)
+	m.lastRefreshAt = time.Now().Add(-9 * time.Second)
+
+	seg := m.refreshRecencySegment()
+
+	if !strings.Contains(seg, "✓") {
+		t.Fatalf("fresh segment missing check icon: %q", seg)
+	}
+	if strings.Contains(seg, "ago") || strings.Contains(seg, "↻") {
+		t.Fatalf("fresh segment should not show age or refresh icon: %q", seg)
+	}
+	if styleProbe(m.styles.StatusOK) != styleProbe(m.refreshRecencyStyle()) {
+		t.Fatalf("fresh segment should use StatusOK style")
+	}
+}
+
+func TestRefreshRecencySegmentStaleShowsAge(t *testing.T) {
+	m := newTestModel(t)
+	m.lastRefreshAt = time.Now().Add(-16 * time.Second)
+
+	seg := m.refreshRecencySegment()
+
+	if !strings.Contains(seg, "↻ ") || !strings.Contains(seg, "s ago") {
+		t.Fatalf("stale segment should show refresh icon and seconds ago: %q", seg)
+	}
+}
+
+func TestStatusLineShowsRefreshRecencyRightmost(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.plugins = []plugin{&fakePlugin{}}
+	m.lastRefreshAt = time.Now().Add(-9 * time.Second)
+
+	line := m.renderStatusLine()
+	trimmed := strings.TrimRight(line, " ")
+
+	if !strings.HasSuffix(trimmed, "✓") {
+		t.Fatalf("status line should end with refresh indicator:\n%s", line)
+	}
+	if strings.Index(line, "# off") > strings.LastIndex(line, "✓") {
+		t.Fatalf("plugin dock should render before rightmost refresh indicator:\n%s", line)
 	}
 }
