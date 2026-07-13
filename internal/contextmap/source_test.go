@@ -12,9 +12,9 @@ func TestParseSource(t *testing.T) {
 		{in: "file:/etc/hosts", want: Source{Kind: KindFile, Locator: "/etc/hosts"}},
 		{in: "url:https://go.dev/doc", want: Source{Kind: KindURL, Locator: "https://go.dev/doc"}},
 		{in: "external:jira/ATM-441", want: Source{Kind: KindExternal, Locator: "jira/ATM-441"}},
-		{in: "internal/store", wantErr: true},  // no kind prefix
-		{in: "svn:trunk", wantErr: true},       // unknown kind
-		{in: "git:", wantErr: true},            // empty locator
+		{in: "internal/store", wantErr: true}, // no kind prefix
+		{in: "svn:trunk", wantErr: true},      // unknown kind
+		{in: "git:", wantErr: true},           // empty locator
 		{in: "", wantErr: true},
 	}
 	for _, tt := range tests {
