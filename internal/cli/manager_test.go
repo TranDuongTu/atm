@@ -87,6 +87,21 @@ func TestManageRejectsConflictingActions(t *testing.T) {
 	}
 }
 
+func TestManageOldFlagsRemoved(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	for _, flag := range []string{"--planning", "--grooming", "--tracking", "--glossary", "--asking"} {
+		_, stderr, code := h.run("manage", "--agent", "codex", "--project", "FOO", flag)
+		if code == ExitSuccess {
+			t.Fatalf("old flag %q should be unknown, but exit was 0", flag)
+		}
+		if !strings.Contains(stderr, "unknown flag") {
+			t.Fatalf("old flag %q should error as 'unknown flag'; got stderr=%s", flag, stderr)
+		}
+	}
+}
+
 func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
