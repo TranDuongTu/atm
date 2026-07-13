@@ -118,7 +118,10 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 					fmt.Fprint(os.Stdout, renderFacetsText(f))
 				})
 			}
-			ts := s.ListTasks(filters)
+			ts, err := s.ListTasksErr(filters)
+			if err != nil {
+				return err
+			}
 			return st.emit(st.stdout(), map[string]any{"tasks": tasksToJSON(ts)}, func() {
 				fmt.Fprint(os.Stdout, renderTaskListText(tasksToJSON(ts)))
 			})
