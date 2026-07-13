@@ -8,7 +8,7 @@ func TestLabelAddValidatesRegexAndProjectPrefix(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	for _, bad := range []string{"type:bug", "xyz:type:bug", "ATM:", "ATM:type:", "ATM:Type:Bug"} {
-		if err := s.LabelAdd(bad, "", testActor); err == nil {
+		if err := s.LabelAdd(bad, "", "", testActor); err == nil {
 			t.Fatalf("expected error for label %q", bad)
 		}
 	}
@@ -17,7 +17,7 @@ func TestLabelAddValidatesRegexAndProjectPrefix(t *testing.T) {
 func TestLabelAddRejectsUnknownProjectPrefix(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	if err := s.LabelAdd("XYZ:type:bug", "", testActor); err == nil {
+	if err := s.LabelAdd("XYZ:type:bug", "", "", testActor); err == nil {
 		t.Fatal("expected error for unknown project prefix XYZ")
 	}
 }
@@ -25,13 +25,13 @@ func TestLabelAddRejectsUnknownProjectPrefix(t *testing.T) {
 func TestLabelAddUpsertPreservesDescription(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "first", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "", testActor) // empty desc preserves
+	_ = s.LabelAdd("ATM:type:bug", "first", "", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "", "", testActor) // empty desc preserves
 	l, _ := s.LabelShow("ATM:type:bug")
 	if l.Description != "first" {
 		t.Fatalf("description = %q want first", l.Description)
 	}
-	_ = s.LabelAdd("ATM:type:bug", "second", testActor) // non-empty updates
+	_ = s.LabelAdd("ATM:type:bug", "second", "", testActor) // non-empty updates
 	l, _ = s.LabelShow("ATM:type:bug")
 	if l.Description != "second" {
 		t.Fatalf("description = %q want second", l.Description)
@@ -73,9 +73,9 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	_, _ = s.CreateProject("SCY", "y", testActor)
-	_ = s.LabelAdd("ATM:custom:a", "", testActor)
-	_ = s.LabelAdd("ATM:custom:b", "", testActor)
-	_ = s.LabelAdd("SCY:custom:a", "", testActor)
+	_ = s.LabelAdd("ATM:custom:a", "", "", testActor)
+	_ = s.LabelAdd("ATM:custom:b", "", "", testActor)
+	_ = s.LabelAdd("SCY:custom:a", "", "", testActor)
 	// ATM has 12 seeded + 2 custom = 14.
 	if got := len(s.LabelList("ATM", "")); got != 14 {
 		t.Fatalf("ATM labels = %d want 14", got)
@@ -89,8 +89,8 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 func TestNamespacesDistinctSorted(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:hot", "", testActor) // unnamespaced tag
-	_ = s.LabelAdd("ATM:custom:x", "", testActor)
+	_ = s.LabelAdd("ATM:hot", "", "", testActor) // unnamespaced tag
+	_ = s.LabelAdd("ATM:custom:x", "", "", testActor)
 	got := s.Namespaces("ATM")
 	want := []string{"comment", "context", "custom", "priority", "status"}
 	if len(got) != 5 || got[0] != "comment" || got[4] != "status" {
@@ -101,7 +101,7 @@ func TestNamespacesDistinctSorted(t *testing.T) {
 func TestLabelSeedSetsDescriptionOnCreate(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	if err := s.LabelSeed("ATM:custom:x", "seed desc", testActor); err != nil {
+	if err := s.LabelSeed("ATM:custom:x", "seed desc", "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	l, _ := s.LabelShow("ATM:custom:x")
@@ -113,8 +113,8 @@ func TestLabelSeedSetsDescriptionOnCreate(t *testing.T) {
 func TestLabelSeedPreservesExistingDescription(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "human edited", testActor)
-	if err := s.LabelSeed("ATM:type:bug", "seed default", testActor); err != nil {
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "", testActor)
+	if err := s.LabelSeed("ATM:type:bug", "seed default", "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	l, _ := s.LabelShow("ATM:type:bug")
@@ -127,7 +127,7 @@ func TestLabelAddAppendsLogEntry(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	before, _ := s.LastLogSeq("ATM")
-	if err := s.LabelAdd("ATM:new:thing", "desc", testActor); err != nil {
+	if err := s.LabelAdd("ATM:new:thing", "desc", "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := s.LastLogSeq("ATM")
@@ -139,7 +139,7 @@ func TestLabelAddAppendsLogEntry(t *testing.T) {
 func TestLabelRemoveAppendsTombstone(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "found bug", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "found bug", "", testActor)
 	before, _ := s.LastLogSeq("ATM")
 	res, err := s.LabelRemove("ATM:type:bug", testActor)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestLabelRemoveAppendsTombstone(t *testing.T) {
 func TestRebuildRegeneratesLabelCache(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "d", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "d", "", testActor)
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`DELETE FROM labels WHERE name = ?`, "ATM:type:bug")
 	if _, err := s.Rebuild(); err != nil {
@@ -188,5 +188,26 @@ func TestLabelUsageCountsOnlyProjectMatchingTasks(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("LabelUsage = %d, want 1", n)
+	}
+}
+
+func TestLabelExprSurvivesReplayAndRebuild(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open AND sprint:next", testActor); err != nil {
+		t.Fatalf("LabelAdd: %v", err)
+	}
+	if _, err := s.Rebuild(); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	got, err := s.LabelShow("ATM:next-sprint")
+	if err != nil {
+		t.Fatalf("LabelShow: %v", err)
+	}
+	if got.Expr != "status:open AND sprint:next" {
+		t.Fatalf("Expr = %q, want it to survive rebuild", got.Expr)
+	}
+	if !got.IsComputed() {
+		t.Error("label with an Expr must report IsComputed")
 	}
 }

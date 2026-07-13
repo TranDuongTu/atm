@@ -38,7 +38,7 @@ func newLabelAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.LabelAdd(name, description, actor); err != nil {
+			if err := s.LabelAdd(name, description, "", actor); err != nil {
 				return err
 			}
 			l, err := s.LabelShow(name)

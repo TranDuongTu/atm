@@ -109,7 +109,7 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	// Edit one label's description (human curates).
-	_ = s.LabelAdd("ATM:type:bug", "human edited", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "human edited", "", testActor)
 	if err := s.SeedLabels("ATM", testActor); err != nil {
 		t.Fatal(err)
 	}

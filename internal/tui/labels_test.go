@@ -71,7 +71,7 @@ func TestLabelsL0NamespaceTableCounts(t *testing.T) {
 	mk("c", "ATM:priority:high")
 	mk("d", "ATM:urgent") // bare tag
 	mk("e")               // no labels
-	m.store.LabelAdd("ATM:urgent", "", m.actor)
+	m.store.LabelAdd("ATM:urgent", "", "", m.actor)
 	update(t, m, "s")
 	update(t, m, "3")
 
@@ -206,7 +206,7 @@ func TestLabelsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 		t.Run(size.name, func(t *testing.T) {
 			m := newTestModel(t)
 			seedProject(t, m, "ATM", "Acme")
-			if err := m.store.LabelAdd("ATM:status:open", "selected status description", m.actor); err != nil {
+			if err := m.store.LabelAdd("ATM:status:open", "selected status description", "", m.actor); err != nil {
 				t.Fatal(err)
 			}
 			seedTask(t, m, "ATM", "open", "ATM:status:open")
@@ -252,7 +252,7 @@ func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(120, 80)
-	if err := m.store.LabelAdd("ATM:status:blocked", "", m.actor); err != nil {
+	if err := m.store.LabelAdd("ATM:status:blocked", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
 	mk := func(title string, labels ...string) {
@@ -374,7 +374,7 @@ func TestLabelsChartCursorCanStayOnUnset(t *testing.T) {
 	if !m.labels.chartRows()[m.labels.cursor].unset {
 		t.Fatalf("cursor moved after render: got %d want unset row %d", m.labels.cursor, unset)
 	}
-	if err := m.store.LabelAdd("ATM:status:later", "", m.actor); err != nil {
+	if err := m.store.LabelAdd("ATM:status:later", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
 	m.labels.refresh()

@@ -97,7 +97,7 @@ func seedTask(t *testing.T, m *Model, projectCode, title string, labels ...strin
 // seedLabel adds a label to the registry (with optional description).
 func seedLabel(t *testing.T, m *Model, name, desc string) {
 	t.Helper()
-	if err := m.store.LabelAdd(name, desc, testActor); err != nil {
+	if err := m.store.LabelAdd(name, desc, "", testActor); err != nil {
 		t.Fatalf("LabelAdd %s: %v", name, err)
 	}
 	m.refreshAll()
@@ -1132,9 +1132,9 @@ func TestComputeStripDaysRange(t *testing.T) {
 		wantDays int
 	}{
 		{width: 10, wantDays: 7},
-		{width: 69, wantDays: 7}, // (69+1)/10 = 7
-		{width: 79, wantDays: 8}, // (79+1)/10 = 8
-		{width: 139, wantDays:14}, // (139+1)/10 = 14
+		{width: 69, wantDays: 7},   // (69+1)/10 = 7
+		{width: 79, wantDays: 8},   // (79+1)/10 = 8
+		{width: 139, wantDays: 14}, // (139+1)/10 = 14
 		{width: 200, wantDays: 14},
 	}
 	for _, tc := range tests {

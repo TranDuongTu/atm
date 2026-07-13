@@ -119,8 +119,8 @@ func PluginStatus(agent string, home string) Status {
 }
 
 type assetDest struct {
-	asset  Asset
-	dest   string
+	asset Asset
+	dest  string
 }
 
 func InstallPlugin(agent string, home string, dryRun bool) (InstallResult, error) {

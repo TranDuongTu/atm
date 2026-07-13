@@ -17,7 +17,7 @@ type LabelRemoveResult struct {
 // the cache row. If `description` is empty, the existing description on the
 // live row (if any) is preserved; a non-empty description overwrites it.
 // Contrast with LabelSeed, which is a no-op when the label already exists.
-func (s *Store) LabelAdd(name, description, actor string) error {
+func (s *Store) LabelAdd(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
@@ -33,12 +33,17 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 	}
 	code := labelProject(name)
 	return s.WithLock(code, func() error {
-		l := Label{Name: name, Description: description}
-		if description == "" {
+		l := Label{Name: name, Description: description, Expr: expr}
+		if description == "" || expr == "" {
 			if existing, ok, err := cacheGetLabel(db, name); err != nil {
 				return err
 			} else if ok {
-				l.Description = existing.Description
+				if description == "" {
+					l.Description = existing.Description
+				}
+				if expr == "" {
+					l.Expr = existing.Expr
+				}
 			}
 		}
 		now := Now()
@@ -59,7 +64,7 @@ func (s *Store) LabelAdd(name, description, actor string) error {
 
 // LabelSeed upserts a label but only sets the description when the label is
 // newly created. Existing labels keep their descriptions.
-func (s *Store) LabelSeed(name, description, actor string) error {
+func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
 	}
@@ -81,17 +86,19 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 			return nil
 		}
 		now := Now()
+		l := Label{Name: name, Description: description, Expr: expr}
 		entry, err := s.appendLogLocked(code, LogEntry{
 			At:      now,
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
 			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(Label{Name: name, Description: description}),
+			Payload: mustMarshal(l),
 		})
 		if err != nil {
 			return err
 		}
-		return cacheUpsertLabel(db, Label{Name: name, Description: description, LogSeq: entry.Seq})
+		l.LogSeq = entry.Seq
+		return cacheUpsertLabel(db, l)
 	})
 }
 
@@ -100,7 +107,7 @@ func (s *Store) LabelSeed(name, description, actor string) error {
 func (s *Store) SeedLabels(code, actor string) error {
 	for _, l := range seed.Labels {
 		full := code + ":" + l.Suffix
-		if err := s.LabelSeed(full, l.Description, actor); err != nil {
+		if err := s.LabelSeed(full, l.Description, "", actor); err != nil {
 			return err
 		}
 	}
@@ -122,12 +129,12 @@ func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
 			Subject: Subject{Kind: "label", Name: full},
-			Payload: mustMarshal(Label{Name: full, Description: l.Description}),
+			Payload: mustMarshal(Label{Name: full, Description: l.Description, Expr: ""}),
 		})
 		if err != nil {
 			return err
 		}
-		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, LogSeq: entry.Seq}); err != nil {
+		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, Expr: "", LogSeq: entry.Seq}); err != nil {
 			return err
 		}
 	}
