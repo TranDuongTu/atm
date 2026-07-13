@@ -2106,3 +2106,96 @@ func TestHelpMentionsPluginOverlays(t *testing.T) {
 		t.Errorf("keys help should mention 'g <n>' plugin overlays\n--- content ---\n%s", content)
 	}
 }
+
+// TestSwitchProjectClearsTasksAndLabelsState (ATM-0082) verifies that pressing
+// [s] on a project row resets the Tasks pane's view + filter + cursor and the
+// Labels pane's drill level, so no stale detail/filter from the previously
+// selected project survives into the newly-selected one. The previous handler
+// cleared tasks.filter and called labels.reset() but left tasks.view stuck in
+// tViewDetail when the user had opened a task detail before switching, and it
+// bypassed tasks.setFocus so cursor/offset were not reset either.
+func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "SCY", "Scylla")
+	seedLabel(t, m, "ATM:status:open", "open")
+	seedLabel(t, m, "ATM:status:done", "done")
+	tk := seedTask(t, m, "ATM", "ATM task one", "ATM:status:open")
+	seedTask(t, m, "ATM", "ATM task two", "ATM:status:done")
+
+	// Select ATM, drill into a label detail (which sets a tasks filter), and
+	// open the task detail view so both panes carry non-trivial state.
+	update(t, m, "s")
+	if m.projectScope != "ATM" {
+		t.Fatalf("projectScope = %q want ATM", m.projectScope)
+	}
+	m.focused = paneLabels
+	update(t, m, "enter") // enter ATM namespace chart
+	if m.labels.level != lLevelChart {
+		t.Fatalf("labels.level = %v want lLevelChart", m.labels.level)
+	}
+	// Pick the first chart row (a concrete label) and drill into detail.
+	update(t, m, "enter")
+	if m.labels.level != lLevelDetail {
+		t.Fatalf("labels.level = %v want lLevelDetail", m.labels.level)
+	}
+	if m.tasks.filter == "" {
+		t.Fatal("tasks.filter should be set after label detail drill")
+	}
+	// Open the task detail in the Tasks pane.
+	m.focused = paneTasks
+	m.tasks.openDetail(tk.ID)
+	if m.tasks.view != tViewDetail {
+		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
+	}
+	// Cursors non-zero so we can detect they were reset.
+	m.tasks.cursor = 5
+	m.tasks.offset = 3
+
+	// Switch to SCY via [s] from the Projects pane.
+	m.focused = paneProjects
+	m.projects.cursor = 1 // SCY row
+	update(t, m, "s")
+
+	if m.projectScope != "SCY" {
+		t.Fatalf("projectScope = %q want SCY", m.projectScope)
+	}
+	// Tasks pane must return to the list view, with no leftover filter/focus.
+	if m.tasks.view != tViewList {
+		t.Errorf("tasks.view = %v want tViewList (detail leaked across project switch)", m.tasks.view)
+	}
+	if m.tasks.detail.id != "" {
+		t.Errorf("tasks.detail.id = %q want empty (stale detail survived switch)", m.tasks.detail.id)
+	}
+	if m.tasks.filter != "" {
+		t.Errorf("tasks.filter = %q want empty (stale filter survived switch)", m.tasks.filter)
+	}
+	if m.tasks.focus.mode != focusOff {
+		t.Errorf("tasks.focus.mode = %v want focusOff", m.tasks.focus.mode)
+	}
+	if m.tasks.cursor != 0 {
+		t.Errorf("tasks.cursor = %d want 0", m.tasks.cursor)
+	}
+	if m.tasks.offset != 0 {
+		t.Errorf("tasks.offset = %d want 0", m.tasks.offset)
+	}
+	// Labels pane must return to L0 with no namespace/bareTags selected.
+	if m.labels.level != lLevelTable {
+		t.Errorf("labels.level = %v want lLevelTable", m.labels.level)
+	}
+	if m.labels.ns != "" {
+		t.Errorf("labels.ns = %q want empty", m.labels.ns)
+	}
+	if m.labels.bareTags {
+		t.Errorf("labels.bareTags = true want false")
+	}
+	// The Tasks pane body must not reference the old project's task.
+	body := m.tasks.View()
+	if strings.Contains(body, tk.ID) {
+		t.Errorf("Tasks view still references old project task %q after switch\n--- body ---\n%s", tk.ID, body)
+	}
+	if strings.Contains(body, "ATM") {
+		t.Errorf("Tasks view still references old project ATM after switch\n--- body ---\n%s", body)
+	}
+}

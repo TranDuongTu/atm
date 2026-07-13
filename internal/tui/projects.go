@@ -228,9 +228,17 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "s":
 		if r, ok := p.selected(); ok {
 			p.m.projectScope = r.code
+			// ATM-0082: a project switch is a clean break for the right
+			// column. Reset the Tasks pane via its documented single
+			// channel (setFocus) so view/detail/filter/focus/cursor/offset
+			// all return to a fresh list, and the Labels pane back to L0.
+			// Going through setFocus (rather than poking fields directly)
+			// keeps the invariant that the Tasks pane never edits its own
+			// filter; it also clears stale tViewDetail from a task the
+			// user had open under the previous project.
 			p.m.labels.reset()
-			p.m.tasks.focus = taskFocus{}
-			p.m.tasks.filter = ""
+			p.m.tasks.backToList()
+			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			// D15: auto-start the indexer for the newly-selected project
 			// (starts the watcher if config present; opens the overlay to
 			// configure if not). resetIndexer on the old project is handled
