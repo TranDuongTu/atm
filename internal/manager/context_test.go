@@ -46,7 +46,7 @@ func TestRenderContextPrinciplesPresent(t *testing.T) {
 
 func TestRenderContextActionCatalogPresent(t *testing.T) {
 	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
-	for _, frag := range []string{"Tracking", "Asking", "Glossary", "Onboarding"} {
+	for _, frag := range []string{"Tracking", "Asking", "Glossary", "Mapping"} {
 		if !strings.Contains(got, frag) {
 			t.Errorf("action catalog missing %q", frag)
 		}
