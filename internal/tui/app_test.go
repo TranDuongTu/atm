@@ -210,6 +210,28 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	_ = labelsH
 }
 
+func TestSplitRightColumnHeights75_25(t *testing.T) {
+	cases := []struct {
+		height, wantTop, wantBottom int
+	}{
+		{0, 0, 0},
+		{1, 1, 0},
+		{2, 1, 1}, // bottom must stay >= 1
+		{4, 3, 1},
+		{40, 30, 10},
+		{100, 75, 25},
+	}
+	for _, c := range cases {
+		top, bottom := splitRightColumnHeights(c.height)
+		if top != c.wantTop || bottom != c.wantBottom {
+			t.Errorf("splitRightColumnHeights(%d) = (%d,%d) want (%d,%d)", c.height, top, bottom, c.wantTop, c.wantBottom)
+		}
+		if c.height >= 2 && bottom < 1 {
+			t.Errorf("splitRightColumnHeights(%d): bottom=%d must be >= 1", c.height, bottom)
+		}
+	}
+}
+
 // --- Step 1: pane focus ---
 
 func TestPaneFocusKeys(t *testing.T) {
@@ -336,7 +358,7 @@ func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
 	if projects == tasks || tasks == labels || projects == labels {
 		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q\nlabels=%q", projects, tasks, labels)
 	}
-	mustContain(t, tasks, "[/]filter")
+	mustContain(t, tasks, "[s]ort")
 	mustContain(t, labels, "[a]dd")
 }
 
@@ -378,11 +400,7 @@ func TestThemeCyclePreservesNavigationState(t *testing.T) {
 	seedTask(t, m, "ATM", "open task", "ATM:status:open")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:open" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:open")
 	update(t, m, "enter")
 	if m.tasks.view != tViewDetail {
 		t.Fatalf("setup: expected task detail")
@@ -1137,8 +1155,6 @@ func TestActivityStripeAxisLabels(t *testing.T) {
 	mustContain(t, got, "Yesterday")
 	mustContain(t, got, "Today")
 }
-
-
 func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 48)
@@ -1271,40 +1287,12 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	mustContain(t, body, "LABELS")
 	mustContain(t, body, "UPDATED")
 	mustContain(t, v, "PROJECT: ATM")
-	mustContain(t, v, "FILTER: (none)")
+	mustContain(t, v, "FOCUS: (all)")
 	mustContain(t, v, "SORT: updated-desc")
 	mustContain(t, v, "task one")
 	mustContain(t, v, "ATM-0001")
 	mustContain(t, v, "ATM:status:open")
 	mustContain(t, v, "showing 1-1 of 1")
-}
-
-// TestTasksFilterInlineEditing verifies / enters edit mode, typing and Enter
-// applies the filter and the list restricts.
-func TestTasksFilterInlineEditing(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	seedTask(t, m, "ATM", "done one", "ATM:status:done")
-	update(t, m, "s")
-	update(t, m, "2")
-	update(t, m, "/")
-	if !m.tasks.filterEditing {
-		t.Fatalf("after /: filterEditing = false want true")
-	}
-	for _, r := range "ATM:status:open" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
-	if m.tasks.filterEditing {
-		t.Errorf("after enter: filterEditing = true want false")
-	}
-	if m.tasks.filter != "ATM:status:open" {
-		t.Errorf("filter = %q want ATM:status:open", m.tasks.filter)
-	}
-	v := m.View()
-	mustContain(t, v, "open one")
-	mustNotContain(t, v, "done one")
 }
 
 // TestTasksFlatListExactFilterRestricts verifies an exact filter token narrows
@@ -1316,11 +1304,7 @@ func TestTasksFlatListExactFilterRestricts(t *testing.T) {
 	seedTask(t, m, "ATM", "open feature", "ATM:status:open", "ATM:type:feature")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:open ATM:type:bug" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:open ATM:type:bug")
 	v := m.View()
 	mustContain(t, v, "open bug")
 	mustNotContain(t, v, "open feature")
@@ -1399,16 +1383,12 @@ func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
 func TestTasksGroupedListScrollsWithCursor(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 30; i++ {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)), "ATM:status:open")
 	}
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 
 	total := m.tasks.flatLineCount()
 	lastLeaf := -1
@@ -1446,11 +1426,7 @@ func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
 	}
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 	start := m.tasks.cursor
 	update(t, m, "]")
 	if m.tasks.cursor <= start {
@@ -1474,11 +1450,7 @@ func TestTasksGroupedSingleWildcard(t *testing.T) {
 	seedTask(t, m, "ATM", "untagged")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 	v := m.View()
 	mustContain(t, v, "▾ ATM:status:done")
 	mustContain(t, v, "▾ ATM:status:open")
@@ -1505,11 +1477,7 @@ func TestTasksGroupedNestedWildcards(t *testing.T) {
 	seedTask(t, m, "ATM", "untagged")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:* ATM:type:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:* ATM:type:*")
 	v := m.tasks.View()
 	mustContain(t, v, "▾ ATM:status:open")
 	mustContain(t, v, "▾ ATM:status:done")
@@ -1529,11 +1497,7 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 	seedTask(t, m, "ATM", "done", "ATM:status:done")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 	v := m.View()
 	// Bucket present (count 0 here since every task matches the wildcard).
 	mustContain(t, v, "(no matching labels)")
@@ -1695,21 +1659,6 @@ func TestFormOverlayRendersAsModalOverDimmedBackdrop(t *testing.T) {
 	mustNotContain(t, withOverlay, "[2] Tasks")
 }
 
-func TestTaskFilterEditingKeepsPriorityOverFocusKeys(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "s")
-	update(t, m, "2")
-	update(t, m, "/")
-	update(t, m, "1")
-	if m.focused != paneTasks {
-		t.Fatalf("typing 1 in task filter should not focus Projects")
-	}
-	if m.tasks.filterEdit != "1" {
-		t.Fatalf("filterEdit = %q want 1", m.tasks.filterEdit)
-	}
-}
-
 func TestWorkspaceRendersAtCrampedSizes(t *testing.T) {
 	for _, size := range []struct {
 		w int
@@ -1739,23 +1688,17 @@ func TestTasksEmptyStateNoProject(t *testing.T) {
 	mustContain(t, v, "press [s] in the Projects pane")
 }
 
-// TestTasksEmptyStateFilterNoMatch verifies the filter-no-match empty state
-// (mockup Screen 9, state 2) echoes the offending filter in plain English.
+// TestTasksEmptyStateFocusNoMatch verifies the focus-no-match empty state.
 func TestTasksEmptyStateFilterNoMatch(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:status:done" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:done")
 	v := m.tasks.View()
-	mustContain(t, v, "no tasks match this filter")
-	mustContain(t, v, "ATM:status:done")
-	mustContain(t, v, "[/] to edit filter")
+	mustContain(t, v, "no tasks match this focus")
+	mustContain(t, v, "choose a namespace or label in the Labels pane")
 }
 
 // TestTasksEmptyStateWildcardNoLabels verifies the wildcard-yields-no-labels
@@ -1769,11 +1712,7 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 	seedTask(t, m, "ATM", "task two", "ATM:status:open")
 	update(t, m, "s")
 	update(t, m, "2")
-	update(t, m, "/")
-	for _, r := range "ATM:context:*" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:context:*")
 	v := m.tasks.View()
 	mustContain(t, v, "no labels match wildcard — add labels to tasks")
 	mustContain(t, v, "▾ (no matching labels)")

@@ -186,8 +186,8 @@ atm label list [--project] [--ns]     Labels pane  (list)
 atm label show --name                 — (CLI only)
 
 atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
-atm task list [--project] [--label]   Tasks pane  (list; / for filter)
-atm task list --facets                Tasks pane  (wildcard filter -> grouped)
+atm task list [--project] [--label]   Tasks pane  (selection-only list; Labels pane filters)
+atm task list --facets                CLI wildcard faceting; TUI Labels chart (Tasks mirror)
 atm task show --id                    Tasks pane  [Enter] detail
 atm task set-title --id --title       Task detail  [e]
 atm task set-description --id --desc  Task detail  [d]
@@ -256,7 +256,7 @@ A task is read as: its title (one line of intent), its description (the running 
 
 ## How to search
 
-Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. Wildcard labels (e.g. ` + "`<CODE>:status:*`" + `) drive faceted grouping in the Tasks pane and ` + "`atm task list --facets`" + ` on the CLI. In the TUI, press ` + "`/`" + ` in the Tasks pane to edit the filter. Combine labels to narrow: ` + "`--label <CODE>:status:open --label <CODE>:priority:high`" + ` is high-priority open work.
+Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. On the CLI, facet tokens such as ` + "`<CODE>:status:*`" + ` drive faceting via ` + "`atm task list --facets`" + `. In the TUI, filtering is a Labels-pane drill-down from the namespace table to a chart and then label detail; the Tasks pane is a selection-only mirror of the Labels cursor. Combine labels to narrow on the CLI: ` + "`--label <CODE>:status:open --label <CODE>:priority:high`" + ` is high-priority open work.
 
 ## Agent first-contact sequence
 

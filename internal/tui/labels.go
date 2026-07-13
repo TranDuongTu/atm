@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"atm/internal/seed"
+	"atm/internal/store"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // pluralUses returns "use"/"uses" for the given count — neutral over tasks
@@ -18,6 +20,13 @@ func pluralUses(n int) string {
 		return "use"
 	}
 	return "uses"
+}
+
+func pluralTasks(n int) string {
+	if n == 1 {
+		return "task"
+	}
+	return "tasks"
 }
 
 // labelSuffixRe validates the suffix the user types in the label add/remove
@@ -49,6 +58,12 @@ func (m *Model) openLabelAddForm(code string) {
 
 // openLabelRemoveForm opens the remove-label form bound to the given project code.
 func (m *Model) openLabelRemoveForm(code string) {
+	m.openLabelRemoveFormFor(code, "")
+}
+
+// openLabelRemoveFormFor opens the remove-label form with a known suffix.
+// Used when the Labels pane has a real label under the cursor.
+func (m *Model) openLabelRemoveFormFor(code, suffix string) {
 	validator := func(field, value string) error {
 		if value == "" {
 			return nil
@@ -59,7 +74,7 @@ func (m *Model) openLabelRemoveForm(code string) {
 		return nil
 	}
 	fields := []formField{
-		{Label: "name", Required: true, Hint: "<namespace>:<value> or <tag>", Validator: validator},
+		{Label: "name", Required: true, Value: suffix, Hint: "<namespace>:<value> or <tag>", Validator: validator},
 	}
 	f := NewForm(fmt.Sprintf("Remove label  %s:", code), fields)
 	f.Title = fmt.Sprintf("Remove label  %s:", code)
@@ -102,21 +117,24 @@ type labelsModel struct {
 	m             *Model
 	width         int
 	contentHeight int
-	rows          []labelRow
-	entries       []labelEntry
-	chartNS       string // active "usage by label" chart namespace ("" = list view)
-	cursor        int
+	rows          []labelRow // all project labels (flat, used to build tables/charts)
+	nsRows        []nsRow    // L0 table rows
+	level         lLevel
+	ns            string // active namespace at chart/detail (real ns name; "" when bareTags)
+	bareTags      bool   // active pseudo-namespace is the bare-tags bucket
+	cursor        int    // indexes the current level's row slice
+	tableCursor   int    // L0 cursor saved before entering a chart
 	offset        int
 	pageSize      int
-	view          lView
 	detail        labelDetailState
 }
 
-type lView int
+type lLevel int
 
 const (
-	lViewList lView = iota
-	lViewDetail
+	lLevelTable  lLevel = iota // L0 namespace table
+	lLevelChart                // L1 per-namespace chart
+	lLevelDetail               // L2 label detail (or unset/none leaf)
 )
 
 type labelRow struct {
@@ -126,25 +144,26 @@ type labelRow struct {
 	usage       int
 }
 
-type labelEntryKind int
-
-const (
-	entryHeaderNS labelEntryKind = iota
-	entryHeaderTags
-	entryRow
-)
-
-// labelEntry is one navigable line in the Labels list: a namespace header, the
-// tags header, or a label row. The cursor indexes the entries slice so headers
-// are selectable (Enter on a namespace header facets the Tasks pane).
-type labelEntry struct {
-	kind labelEntryKind
-	ns   string   // set for entryHeaderNS
-	row  labelRow // set for entryRow
+// nsRow is one row of the L0 namespace table. For real namespaces key is the
+// namespace name; the synthetic rows set bareTags or none instead.
+type nsRow struct {
+	key      string
+	display  string
+	tasks    int
+	labels   int
+	bareTags bool
+	none     bool
 }
 
 type labelDetailState struct {
-	row labelRow
+	row  labelRow
+	leaf string // "" for a real label; "unset" or "none" for the synthetic leaves
+}
+
+type chartRow struct {
+	full  string
+	count int
+	unset bool
 }
 
 func newLabelsModel(m *Model) labelsModel {
@@ -160,94 +179,276 @@ func (l *labelsModel) SetSize(w, h int) {
 	}
 	l.width = w
 	l.contentHeight = h
-	l.pageSize = h - 3 // caption + blank + footer
+	l.pageSize = h - 2 // table header + trailing line
 	if l.pageSize < 1 {
 		l.pageSize = 1
 	}
 }
 
 func (l *labelsModel) refresh() {
+	var selectedChart chartRow
+	restoreChart := false
+	if l.level == lLevelChart {
+		rows := l.chartRows()
+		if l.cursor >= 0 && l.cursor < len(rows) {
+			selectedChart = rows[l.cursor]
+			restoreChart = true
+		}
+	}
 	l.rows = nil
+	l.nsRows = nil
 	if l.m.projectScope == "" {
 		return
 	}
-	ls := l.m.store.LabelList(l.m.projectScope, "")
-	usage, _ := l.m.store.LabelUsageGrouped(l.m.projectScope)
+	scope := l.m.projectScope
+	ls := l.m.store.LabelList(scope, "")
+	usage, _ := l.m.store.LabelUsageGrouped(scope)
 	for _, lab := range ls {
-		n := usage[lab.Name]
-		suffix := strings.TrimPrefix(lab.Name, l.m.projectScope+":")
 		l.rows = append(l.rows, labelRow{
-			suffix:      suffix,
+			suffix:      strings.TrimPrefix(lab.Name, scope+":"),
 			full:        lab.Name,
 			description: lab.Description,
-			usage:       n,
+			usage:       usage[lab.Name],
 		})
 	}
-	l.rebuildEntries()
-	if l.cursor >= len(l.entries) && len(l.entries) > 0 {
-		l.cursor = len(l.entries) - 1
+	l.nsRows = l.buildNamespaceRows()
+	if restoreChart && l.restoreChartCursor(selectedChart) {
+		return
+	}
+	l.clampCursor()
+}
+
+func (l *labelsModel) restoreChartCursor(selected chartRow) bool {
+	rows := l.chartRows()
+	for i, r := range rows {
+		if selected.unset && r.unset {
+			l.cursor = i
+			return true
+		}
+		if !selected.unset && !r.unset && r.full == selected.full {
+			l.cursor = i
+			return true
+		}
+	}
+	return false
+}
+
+func (l *labelsModel) clampCursor() {
+	max := len(l.nsRows) - 1
+	if l.level == lLevelChart {
+		max = len(l.chartRows()) - 1
+	}
+	if max < 0 {
+		l.cursor = 0
+		return
+	}
+	if l.cursor > max {
+		l.cursor = max
 	}
 	if l.cursor < 0 {
 		l.cursor = 0
 	}
 }
 
-// rebuildEntries flattens l.rows into the navigable entries list: namespace
-// headers (alphabetical) each followed by their rows, then a tags header with
-// unnamespaced rows. Mirrors the grouping renderList uses.
-func (l *labelsModel) rebuildEntries() {
-	l.entries = nil
-	byNS := map[string][]labelRow{}
-	var tags []labelRow
+// buildNamespaceRows aggregates the project's labels and tasks into the L0
+// table: one row per real namespace (alphabetical), then a "tags" row for
+// bare labels, then a "(none)" row for zero-label tasks. Synthetic rows are
+// omitted when empty. TASKS counts distinct tasks; LABELS counts labels.
+func (l *labelsModel) buildNamespaceRows() []nsRow {
+	scope := l.m.projectScope
+	labelCount := map[string]int{}
+	bareLabelCount := 0
 	var nsOrder []string
 	seenNS := map[string]bool{}
 	for _, r := range l.rows {
 		parts := strings.SplitN(r.suffix, ":", 2)
 		if len(parts) == 2 {
-			if !seenNS[parts[0]] {
-				seenNS[parts[0]] = true
-				nsOrder = append(nsOrder, parts[0])
+			ns := parts[0]
+			if !seenNS[ns] {
+				seenNS[ns] = true
+				nsOrder = append(nsOrder, ns)
 			}
-			byNS[parts[0]] = append(byNS[parts[0]], r)
+			labelCount[ns]++
 		} else {
-			tags = append(tags, r)
+			bareLabelCount++
 		}
 	}
 	sort.Strings(nsOrder)
+
+	nsTaskCount := map[string]int{}
+	bareTaskCount := 0
+	noneTaskCount := 0
+	for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+		if len(tk.Labels) == 0 {
+			noneTaskCount++
+			continue
+		}
+		seen := map[string]bool{}
+		hasBare := false
+		for _, full := range tk.Labels {
+			suffix := strings.TrimPrefix(full, scope+":")
+			parts := strings.SplitN(suffix, ":", 2)
+			if len(parts) == 2 {
+				if !seen[parts[0]] {
+					seen[parts[0]] = true
+					nsTaskCount[parts[0]]++
+				}
+			} else {
+				hasBare = true
+			}
+		}
+		if hasBare {
+			bareTaskCount++
+		}
+	}
+
+	var out []nsRow
 	for _, ns := range nsOrder {
-		l.entries = append(l.entries, labelEntry{kind: entryHeaderNS, ns: ns})
-		for _, r := range byNS[ns] {
-			l.entries = append(l.entries, labelEntry{kind: entryRow, row: r})
-		}
+		out = append(out, nsRow{key: ns, display: ns, tasks: nsTaskCount[ns], labels: labelCount[ns]})
 	}
-	if len(tags) > 0 {
-		l.entries = append(l.entries, labelEntry{kind: entryHeaderTags})
-		for _, r := range tags {
-			l.entries = append(l.entries, labelEntry{kind: entryRow, row: r})
-		}
+	if bareLabelCount > 0 {
+		out = append(out, nsRow{display: "tags", tasks: bareTaskCount, labels: bareLabelCount, bareTags: true})
 	}
+	if noneTaskCount > 0 {
+		out = append(out, nsRow{display: "(none)", tasks: noneTaskCount, none: true})
+	}
+	return out
+}
+
+// enterTable returns the pane to L0 and clears the Tasks-pane focus so the
+// Tasks pane shows all tasks. cursor is preserved so Esc lands where the user
+// drilled from.
+func (l *labelsModel) enterTable() {
+	l.level = lLevelTable
+	l.ns = ""
+	l.bareTags = false
+	l.cursor = l.tableCursor
+	if l.cursor >= len(l.nsRows) {
+		l.cursor = len(l.nsRows) - 1
+	}
+	if l.cursor < 0 {
+		l.cursor = 0
+	}
+	l.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+}
+
+// enterChart drills into a namespace row's chart and focuses the Tasks pane on
+// tasks carrying that namespace. cursor is reset to the top of the chart.
+func (l *labelsModel) enterChart(r nsRow) {
+	l.tableCursor = l.cursor
+	l.level = lLevelChart
+	l.ns = r.key
+	l.bareTags = r.bareTags
+	l.cursor = 0
+	l.offset = 0
+	if r.bareTags {
+		l.m.tasks.setFocus(taskFocus{mode: focusPresent, bareTags: true}, "")
+		return
+	}
+	l.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.key}, facetToken(l.m.projectScope, r.key))
+}
+
+// chartRows returns the active namespace's per-label task counts plus a
+// trailing (unset) row for tasks lacking the namespace. Real namespaces use
+// GroupTasks; the tags pseudo-namespace is counted locally since no single
+// wildcard selects bare labels.
+func (l *labelsModel) chartRows() []chartRow {
+	scope := l.m.projectScope
+	var rows []chartRow
+	unset := 0
+	if l.bareTags {
+		bareCount := map[string]int{}
+		for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+			if taskHasBareTag(scope, tk) {
+				for _, full := range tk.Labels {
+					if !strings.Contains(strings.TrimPrefix(full, scope+":"), ":") {
+						bareCount[full]++
+					}
+				}
+			} else {
+				unset++
+			}
+		}
+		for _, r := range l.rows {
+			if !strings.Contains(r.suffix, ":") {
+				rows = append(rows, chartRow{full: r.full, count: bareCount[r.full]})
+			}
+		}
+	} else {
+		groups, others := l.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: []string{facetToken(scope, l.ns)}})
+		counts := map[string]int{}
+		for _, g := range groups {
+			counts[g.Label] = len(g.Tasks)
+		}
+		for _, r := range l.rows {
+			if strings.HasPrefix(r.suffix, l.ns+":") {
+				rows = append(rows, chartRow{full: r.full, count: counts[r.full]})
+			}
+		}
+		unset = len(others)
+	}
+	if unset > 0 {
+		rows = append(rows, chartRow{full: "(unset)", count: unset, unset: true})
+	}
+	return rows
+}
+
+// enterDetail opens a label's detail (L2) and focuses the Tasks pane on that
+// exact label as a flat list.
+func (l *labelsModel) enterDetail(r labelRow) {
+	l.level = lLevelDetail
+	l.detail = labelDetailState{row: r}
+	l.m.tasks.setFocus(taskFocus{mode: focusOff}, r.full)
+}
+
+// enterUnsetLeaf focuses the Tasks pane on tasks lacking the active namespace.
+func (l *labelsModel) enterUnsetLeaf() {
+	l.level = lLevelDetail
+	l.detail = labelDetailState{leaf: "unset"}
+	if l.bareTags {
+		l.m.tasks.setFocus(taskFocus{mode: focusAbsent, bareTags: true}, "")
+		return
+	}
+	l.m.tasks.setFocus(taskFocus{mode: focusAbsent, ns: l.ns}, facetToken(l.m.projectScope, l.ns))
+}
+
+// enterNoneLeaf filters the Tasks pane to zero-label tasks. It is a leaf: the
+// Labels pane shows a minimal detail and Esc returns to the table.
+func (l *labelsModel) enterNoneLeaf() {
+	l.tableCursor = l.cursor
+	l.level = lLevelDetail
+	l.detail = labelDetailState{leaf: "none"}
+	l.m.tasks.setFocus(taskFocus{mode: focusUnlabeled}, "")
+}
+
+// reset returns the pane to L0 and clears Tasks focus. Called on project switch
+// so no stale filter survives.
+func (l *labelsModel) reset() {
+	l.level = lLevelTable
+	l.ns = ""
+	l.bareTags = false
+	l.cursor = 0
+	l.tableCursor = 0
+	l.offset = 0
+	l.detail = labelDetailState{}
 }
 
 func (l *labelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
-	switch l.view {
-	case lViewList:
-		return l.handleListKey(k)
-	case lViewDetail:
+	switch l.level {
+	case lLevelTable:
+		return l.handleTableKey(k)
+	case lLevelChart:
+		return l.handleChartKey(k)
+	case lLevelDetail:
 		return l.handleDetailKey(k)
 	}
 	return nil
 }
 
-func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
-	if l.activeChartNS() != "" {
-		if k.String() == "esc" {
-			l.chartNS = ""
-		}
-		return nil
-	}
+func (l *labelsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "j", "down":
-		if l.cursor < len(l.entries)-1 {
+		if l.cursor < len(l.nsRows)-1 {
 			l.cursor++
 		}
 	case "k", "up":
@@ -258,8 +459,8 @@ func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		l.cursor = 0
 	case "]":
 		l.cursor += l.pageSize
-		if l.cursor > len(l.entries)-1 {
-			l.cursor = len(l.entries) - 1
+		if l.cursor > len(l.nsRows)-1 {
+			l.cursor = len(l.nsRows) - 1
 		}
 		if l.cursor < 0 {
 			l.cursor = 0
@@ -274,120 +475,124 @@ func (l *labelsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		l.m.openLabelAddForm(l.m.projectScope)
-	case "d":
-		if l.m.projectScope == "" {
-			return nil
-		}
-		l.m.openLabelDescribeForm()
-	case "l":
-		if l.m.projectScope == "" {
-			return nil
-		}
-		l.m.openLabelRemoveForm(l.m.projectScope)
 	case "S":
 		if l.m.projectScope == "" {
 			return nil
 		}
 		return l.seedDefaults()
 	case "enter":
-		if l.cursor < 0 || l.cursor >= len(l.entries) {
+		if l.cursor < 0 || l.cursor >= len(l.nsRows) {
 			return nil
 		}
-		e := l.entries[l.cursor]
-		switch e.kind {
-		case entryHeaderNS:
-			if l.m.projectScope == "" {
-				return nil
-			}
-			l.toggleNamespaceFacet(e.ns)
-		case entryHeaderTags:
-			// no-op: bare tags have no namespace to facet on.
-		case entryRow:
-			if l.m.projectScope == "" {
-				return nil
-			}
-			l.toggleLabelFacet(e.row.full)
-		}
-	case "i":
-		if l.cursor < 0 || l.cursor >= len(l.entries) {
+		r := l.nsRows[l.cursor]
+		if r.none {
+			l.enterNoneLeaf()
 			return nil
 		}
-		e := l.entries[l.cursor]
-		if e.kind == entryRow {
-			l.detail = labelDetailState{row: e.row}
-			l.view = lViewDetail
-		}
+		l.enterChart(r)
 	}
 	return nil
+}
+
+func (l *labelsModel) handleChartKey(k tea.KeyMsg) tea.Cmd {
+	rows := l.chartRows()
+	switch k.String() {
+	case "j", "down":
+		if l.cursor < len(rows)-1 {
+			l.cursor++
+		}
+	case "k", "up":
+		if l.cursor > 0 {
+			l.cursor--
+		}
+	case "g":
+		l.cursor = 0
+	case "]":
+		l.cursor += l.pageSize
+		if l.cursor > len(rows)-1 {
+			l.cursor = len(rows) - 1
+		}
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
+	case "[":
+		l.cursor -= l.pageSize
+		if l.cursor < 0 {
+			l.cursor = 0
+		}
+	case "d":
+		if r, ok := l.chartLabelRow(); ok {
+			l.m.openLabelDescribeFormFor(r.suffix, r.description)
+		}
+	case "l":
+		if r, ok := l.chartLabelRow(); ok {
+			l.m.openLabelRemoveFormFor(l.m.projectScope, r.suffix)
+		}
+	case "enter":
+		if l.cursor < 0 || l.cursor >= len(rows) {
+			return nil
+		}
+		if rows[l.cursor].unset {
+			l.enterUnsetLeaf()
+			return nil
+		}
+		if r, ok := l.chartLabelRow(); ok {
+			l.enterDetail(r)
+		}
+	case "esc":
+		l.enterTable()
+	}
+	return nil
+}
+
+// chartLabelRow returns the labelRow under the chart cursor, or ok=false when
+// the cursor is on the (unset) row or out of range.
+func (l *labelsModel) chartLabelRow() (labelRow, bool) {
+	rows := l.chartRows()
+	if l.cursor < 0 || l.cursor >= len(rows) || rows[l.cursor].unset {
+		return labelRow{}, false
+	}
+	full := rows[l.cursor].full
+	for _, r := range l.rows {
+		if r.full == full {
+			return r, true
+		}
+	}
+	return labelRow{}, false
 }
 
 func (l *labelsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
-	case "j", "down":
-	case "k", "up":
 	case "d":
-		l.m.openLabelDescribeFormFor(l.detail.row.suffix, l.detail.row.description)
+		if l.detail.leaf == "" {
+			l.m.openLabelDescribeFormFor(l.detail.row.suffix, l.detail.row.description)
+		}
 	case "l":
-		l.m.openLabelRemoveForm(l.m.projectScope)
+		if l.detail.leaf == "" {
+			l.m.openLabelRemoveFormFor(l.m.projectScope, l.detail.row.suffix)
+		}
 	case "esc":
-		l.view = lViewList
+		// A real label detail and the (unset) leaf sit above the chart; the
+		// (none) leaf sits above the table.
+		if l.detail.leaf == "none" {
+			l.enterTable()
+			return nil
+		}
+		l.reenterChart()
 	}
 	return nil
 }
 
-func (l *labelsModel) selected() (labelRow, bool) {
-	if l.cursor < 0 || l.cursor >= len(l.entries) {
-		return labelRow{}, false
+// reenterChart re-applies the L1 chart state for the active namespace. Used by
+// Esc from a label detail or the (unset) leaf.
+func (l *labelsModel) reenterChart() {
+	r := nsRow{key: l.ns, bareTags: l.bareTags, display: l.ns}
+	if l.bareTags {
+		r.display = "tags"
 	}
-	e := l.entries[l.cursor]
-	if e.kind != entryRow {
-		return labelRow{}, false
-	}
-	return e.row, true
-}
-
-// activeChartNS returns the namespace currently charted, self-healing to "" if
-// its facet token is no longer present in the Tasks filter (e.g. the user
-// edited or cleared the filter directly).
-func (l *labelsModel) activeChartNS() string {
-	if l.chartNS == "" {
-		return ""
-	}
-	if !filterHasToken(l.m.tasks.filter, facetToken(l.m.projectScope, l.chartNS)) {
-		l.chartNS = ""
-	}
-	return l.chartNS
-}
-
-// toggleNamespaceFacet toggles the ns wildcard facet in the Tasks filter and
-// the Labels chart view. If the facet is present it is removed and the chart
-// closes; otherwise it is added and the chart opens for ns. Refreshes the
-// Tasks pane so grouping updates immediately.
-func (l *labelsModel) toggleNamespaceFacet(ns string) {
-	token := facetToken(l.m.projectScope, ns)
-	if filterHasToken(l.m.tasks.filter, token) {
-		l.m.tasks.filter = filterRemoveToken(l.m.tasks.filter, token)
-		l.chartNS = ""
-	} else {
-		l.m.tasks.filter = filterAddToken(l.m.tasks.filter, token)
-		l.chartNS = ns
-	}
-	l.m.tasks.cursor = 0
-	l.m.tasks.refresh()
-}
-
-// toggleLabelFacet toggles a label's exact filter token (e.g. ATM:status:open)
-// in the Tasks filter. The Labels pane stays on the flat list — exact-label
-// filtering does not open the chart. Refreshes the Tasks pane so the result
-// set updates immediately.
-func (l *labelsModel) toggleLabelFacet(full string) {
-	if filterHasToken(l.m.tasks.filter, full) {
-		l.m.tasks.filter = filterRemoveToken(l.m.tasks.filter, full)
-	} else {
-		l.m.tasks.filter = filterAddToken(l.m.tasks.filter, full)
-	}
-	l.m.tasks.cursor = 0
-	l.m.tasks.refresh()
+	tableCursor := l.tableCursor
+	l.enterChart(r)
+	l.tableCursor = tableCursor
 }
 
 func (l *labelsModel) seedDefaults() tea.Cmd {
@@ -401,19 +606,6 @@ func (l *labelsModel) seedDefaults() tea.Cmd {
 }
 
 func (l *labelsModel) View() string {
-	if l.view == lViewList && l.activeChartNS() != "" {
-		return l.renderChart()
-	}
-	switch l.view {
-	case lViewList:
-		return l.renderList()
-	case lViewDetail:
-		return l.renderDetail()
-	}
-	return ""
-}
-
-func (l *labelsModel) renderList() string {
 	if l.m.projectScope == "" {
 		lines := []string{
 			l.m.styles.EmptyHead.Render("no project selected"),
@@ -422,160 +614,206 @@ func (l *labelsModel) renderList() string {
 		}
 		return padToHeight(centerLinesBoth(lines, l.width, l.contentHeight), l.contentHeight)
 	}
-	if len(l.rows) == 0 {
+	switch l.level {
+	case lLevelChart:
+		return l.renderChart()
+	case lLevelDetail:
+		return l.renderDetail()
+	default:
+		return l.renderTable()
+	}
+}
+
+func (l *labelsModel) renderTable() string {
+	if len(l.nsRows) == 0 {
 		return padToHeight("no labels", l.contentHeight)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("project: %s   total labels: %d", l.m.projectScope, len(l.rows))))
+	header := namespaceTableLine(l.width, "NAMESPACE", "TASKS", "LABELS")
+	b.WriteString(dashboardLine(l.width, l.m.styles.HeaderLabel.Render(header)))
 	b.WriteString("\n")
 
-	// Build one display line per entry; the cursor indexes l.entries directly,
-	// so headers are highlightable cursor stops. lineRowOrd tracks the 1-based
-	// label-row ordinal for each line (-1 for headers) to render the footer.
-	var bodyLines []string
-	var lineRowOrd []int
-	cursorLine := 0
-	rowOrd := 0
-	for i, e := range l.entries {
-		switch e.kind {
-		case entryHeaderNS:
-			line := l.m.styles.NamespaceHeader.Render(e.ns + ":")
-			if i == l.cursor {
-				line = l.m.styles.RowCursor.Render(e.ns + ":")
-				cursorLine = len(bodyLines)
-			}
-			bodyLines = append(bodyLines, dashboardLine(l.width, line))
-			lineRowOrd = append(lineRowOrd, -1)
-		case entryHeaderTags:
-			line := l.m.styles.NamespaceHeader.Render("tags:")
-			if i == l.cursor {
-				line = l.m.styles.RowCursor.Render("tags:")
-				cursorLine = len(bodyLines)
-			}
-			bodyLines = append(bodyLines, dashboardLine(l.width, line))
-			lineRowOrd = append(lineRowOrd, -1)
-		case entryRow:
-			rowOrd++
-			r := e.row
-			desc := r.description
-			if desc == "" {
-				desc = l.m.styles.Warning.Render("needs description")
-			}
-			line := fmt.Sprintf(" %-30s %5d %-5s  %s", r.full, r.usage, pluralUses(r.usage), desc)
-			if i == l.cursor {
-				line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
-				cursorLine = len(bodyLines)
-			} else {
-				line = " " + line
-			}
-			bodyLines = append(bodyLines, dashboardLine(l.width, line))
-			lineRowOrd = append(lineRowOrd, rowOrd)
+	var lines []string
+	for i, r := range l.nsRows {
+		tasks := fmt.Sprintf("%d", r.tasks)
+		labels := fmt.Sprintf("%d", r.labels)
+		if r.none {
+			labels = "-"
 		}
+		line := namespaceTableLine(l.width, r.display, tasks, labels)
+		if i == l.cursor {
+			line = " " + l.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+		}
+		lines = append(lines, dashboardLine(l.width, line))
 	}
-
-	start, end := windowLines(len(bodyLines), cursorLine, l.pageSize)
+	start, end := windowLines(len(lines), l.cursor, l.pageSize)
 	for i := start; i < end; i++ {
-		b.WriteString(bodyLines[i])
+		b.WriteString(lines[i])
 		b.WriteString("\n")
-	}
-	firstOrd, lastOrd := -1, -1
-	for i := start; i < end; i++ {
-		if lineRowOrd[i] < 0 {
-			continue
-		}
-		if firstOrd == -1 {
-			firstOrd = lineRowOrd[i]
-		}
-		lastOrd = lineRowOrd[i]
-	}
-	if firstOrd == -1 {
-		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("showing 0-0 of "+fmt.Sprint(len(l.rows)))))
-	} else {
-		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", firstOrd, lastOrd, len(l.rows)))))
 	}
 	return padToHeight(b.String(), l.contentHeight)
 }
 
-// renderChart renders the "usage by label" bar chart for the active namespace:
-// one meter row per label carrying that namespace. Percentages are each
-// label's share of total usage within the namespace (matching the approved
-// mockup: shares sum to ~100%); counts are absolute project-wide usage
-// across tasks and comments.
+func namespaceTableLine(width int, name, tasks, labels string) string {
+	nameW := width - 19 // leading space + two 8-wide numeric columns + separators.
+	if nameW < 8 {
+		nameW = 8
+	}
+	return fitLine(fmt.Sprintf(" %-*s %8s %8s", nameW, name, tasks, labels), width)
+}
+
 func (l *labelsModel) renderChart() string {
-	ns := l.chartNS
-	var rows []labelRow
-	total := 0
-	for _, e := range l.entries {
-		if e.kind == entryRow && strings.HasPrefix(e.row.suffix, ns+":") {
-			rows = append(rows, e.row)
-			total += e.row.usage
-		}
+	title := l.ns
+	if l.bareTags {
+		title = "tags"
+	}
+	rows := l.chartRows()
+	barTotal := 0
+	for _, r := range rows {
+		barTotal += r.count
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("chart: %s", ns)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, l.m.styles.Muted.Render(fmt.Sprintf("project: %s   namespace: %s", l.m.projectScope, ns))))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("%s  ·  %d tasks", title, l.activeNamespaceTaskCount())))
 	b.WriteString("\n")
 
-	if len(rows) == 0 {
-		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("no labels in this namespace")))
-		b.WriteString("\n")
-	} else {
-		nameW := 0
-		for _, r := range rows {
-			if w := len(r.full); w > nameW {
-				nameW = w
-			}
-		}
-		meterW := l.width - nameW - 16
-		if meterW < 10 {
-			meterW = 10
-		}
-		for _, r := range rows {
-			percent := 0
-			if total > 0 {
-				percent = (r.usage*100 + total/2) / total
-			}
-			line := fmt.Sprintf(" %-*s %s %3d%% %4d", nameW, r.full, meterBar(percent, meterW), percent, r.usage)
-			b.WriteString(dashboardLine(l.width, line))
-			b.WriteString("\n")
+	nameW := 0
+	for _, r := range rows {
+		if w := len(r.full); w > nameW {
+			nameW = w
 		}
 	}
+	if nameW < 8 {
+		nameW = 8
+	}
+	meterW := l.width - nameW - 14
+	if meterW < 10 {
+		meterW = 10
+	}
 
-	b.WriteString("\n")
-	b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to list")))
+	var lines []string
+	for i, r := range rows {
+		percent := 0
+		if barTotal > 0 {
+			percent = (r.count*100 + barTotal/2) / barTotal
+		}
+		name := fmt.Sprintf("%-*s", nameW, r.full)
+		if i == l.cursor {
+			name = l.m.styles.RowCursor.Render(r.full) + spaces(nameW-lipgloss.Width(r.full))
+		}
+		line := fmt.Sprintf(" %s %s %4d", name, meterBar(percent, meterW), r.count)
+		lines = append(lines, dashboardLine(l.width, line))
+	}
+	start, end := windowLines(len(lines), l.cursor, l.pageSize)
+	for i := start; i < end; i++ {
+		b.WriteString(lines[i])
+		b.WriteString("\n")
+	}
+	b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Enter]inspect  [Esc]back")))
 	return padToHeight(b.String(), l.contentHeight)
 }
 
 func (l *labelsModel) renderDetail() string {
-	r := l.detail.row
 	var b strings.Builder
-	fmt.Fprintf(&b, "Label %s\n", r.full)
-	b.WriteString(sepLine("─", 78, l.width, 2))
+	switch l.detail.leaf {
+	case "none":
+		count := l.syntheticLeafTaskCount()
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d %s with no labels", count, pluralTasks(count))))
+		b.WriteString("\n")
+		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to namespaces")))
+		return padToHeight(b.String(), l.contentHeight)
+	case "unset":
+		ns := l.ns
+		if l.bareTags {
+			ns = "bare tag"
+		}
+		count := l.syntheticLeafTaskCount()
+		b.WriteString(dashboardLine(l.width, fmt.Sprintf("%d %s with no %s", count, pluralTasks(count), ns)))
+		b.WriteString("\n")
+		b.WriteString(dashboardLine(l.width, l.m.styles.Muted.Render("[Esc] back to chart")))
+		return padToHeight(b.String(), l.contentHeight)
+	}
+	r := l.detail.row
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
 	b.WriteString("\n")
-	b.WriteString(sectionCaption(l.m.styles, l.width, "FACTS"))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("name        %s", r.full)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	desc := r.description
 	if desc == "" {
 		desc = l.m.styles.Warning.Render("needs description")
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
+	b.WriteString(dashboardLine(l.width, fmt.Sprintf("description %s", desc)))
 	return padToHeight(b.String(), l.contentHeight)
+}
+
+// activeNamespaceTaskCount counts distinct project tasks carrying the active
+// namespace or bare-tag bucket. Chart rows intentionally retain membership
+// counts, so their sum is not suitable for the headline.
+func (l *labelsModel) activeNamespaceTaskCount() int {
+	scope := l.m.projectScope
+	count := 0
+	for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+		if l.bareTags {
+			if taskHasBareTag(scope, tk) {
+				count++
+			}
+			continue
+		}
+		for _, full := range tk.Labels {
+			if strings.HasPrefix(full, scope+":"+l.ns+":") {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+func (l *labelsModel) syntheticLeafTaskCount() int {
+	count := 0
+	for _, tk := range l.m.store.ListTasks(store.QueryFilters{Project: l.m.projectScope}) {
+		switch l.detail.leaf {
+		case "none":
+			if len(tk.Labels) == 0 {
+				count++
+			}
+		case "unset":
+			if l.bareTags {
+				if !taskHasBareTag(l.m.projectScope, tk) {
+					count++
+				}
+				continue
+			}
+			hasNamespace := false
+			for _, full := range tk.Labels {
+				if strings.HasPrefix(full, l.m.projectScope+":"+l.ns+":") {
+					hasNamespace = true
+					break
+				}
+			}
+			if !hasNamespace {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (l *labelsModel) statusHint() string {
 	if l.m.projectScope == "" {
 		return "[?]keys"
 	}
-	if l.activeChartNS() != "" {
-		return "[Esc]back to list"
-	}
-	if l.view == lViewDetail {
+	switch l.level {
+	case lLevelChart:
+		return "[Enter]inspect [d]esc [l]remove [Esc]back"
+	case lLevelDetail:
+		if l.detail.leaf != "" {
+			return "[Esc]back"
+		}
 		return "[d]esc [l]remove [Esc]back"
+	default:
+		return "[Enter]open [a]dd [S]eed [?]keys"
 	}
-	return "[a]dd [d]esc [l]remove [S]eed [Enter]filter [i]nspect [Esc]back [?]keys"
 }
 
 // --- describe form (used by [d] in list and detail) ---

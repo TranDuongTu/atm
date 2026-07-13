@@ -23,11 +23,10 @@ type tasksModel struct {
 	offset   int
 	pageSize int
 
-	// filter / sort
-	filter        string
-	filterEdit    string
-	filterEditing bool
-	sortMode      sortMode
+	// filter / sort / focus
+	filter   string
+	sortMode sortMode
+	focus    taskFocus
 
 	// detail
 	detail taskDetailState
@@ -53,6 +52,31 @@ const (
 	sortUpdatedAsc
 	sortIDAsc
 )
+
+type taskFocusMode int
+
+const (
+	// focusOff renders whatever t.filter yields: empty filter -> all tasks
+	// flat (L0); an exact label token -> that label's tasks flat (L2).
+	focusOff taskFocusMode = iota
+	// focusPresent renders tasks that carry the namespace. Real namespace:
+	// grouped via GroupTasks with others hidden. bareTags: flat predicate.
+	focusPresent
+	// focusAbsent renders tasks that do NOT carry the namespace. Real
+	// namespace: the GroupTasks others bucket, flat. bareTags: flat predicate.
+	focusAbsent
+	// focusUnlabeled renders tasks with zero labels.
+	focusUnlabeled
+)
+
+// taskFocus is the Tasks-pane view state the Labels pane sets on each level
+// entry. ns names a real namespace for present/absent; bareTags switches
+// present/absent to operate on unnamespaced (bare) labels instead.
+type taskFocus struct {
+	mode     taskFocusMode
+	ns       string
+	bareTags bool
+}
 
 func (s sortMode) String() string {
 	switch s {
@@ -122,37 +146,69 @@ func (t *tasksModel) refresh() {
 		t.clampCursor()
 		return
 	}
-	filters := t.parseFilter()
-	ts := t.m.store.ListTasks(store.QueryFilters{Project: t.m.projectScope, Labels: filters})
-	ts = t.applySort(ts)
-	wildcards := wildcardTokens(filters)
-	if len(wildcards) > 0 {
-		// Grouped view.
-		groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: t.m.projectScope, Labels: filters})
-		for _, g := range groups {
-			rows := make([]taskRow, 0, len(g.Tasks))
-			for _, tk := range g.Tasks {
-				rows = append(rows, t.toRow(tk))
+	scope := t.m.projectScope
+	switch t.focus.mode {
+	case focusUnlabeled:
+		for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope})) {
+			if len(tk.Labels) == 0 {
+				t.rows = append(t.rows, t.toRow(tk))
 			}
-			tg := taskGroup{label: g.Label, rows: rows}
-			// For multi-wildcard filters, nest: each deeper wildcard
-			// defines sub-groups within this group. The store returns a
-			// flat bucket per concrete label (union across all wildcards);
-			// the nesting is a presentation concern handled here.
-			if len(wildcards) >= 2 {
-				tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
-				// Leaf rows live only at the deepest level; clear the
-				// top-level rows so they aren't double-rendered.
-				tg.rows = nil
+		}
+	case focusPresent, focusAbsent:
+		if t.focus.bareTags {
+			for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope})) {
+				has := taskHasBareTag(scope, tk)
+				if (t.focus.mode == focusPresent) == has {
+					t.rows = append(t.rows, t.toRow(tk))
+				}
 			}
-			t.groups = append(t.groups, tg)
+			break
 		}
-		for _, tk := range others {
-			t.others = append(t.others, t.toRow(tk))
+		filters := t.parseFilter()
+		groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
+		if t.focus.mode == focusPresent {
+			wildcards := wildcardTokens(filters)
+			for _, g := range groups {
+				rows := make([]taskRow, 0, len(g.Tasks))
+				for _, tk := range g.Tasks {
+					rows = append(rows, t.toRow(tk))
+				}
+				tg := taskGroup{label: g.Label, rows: rows}
+				if len(wildcards) >= 2 {
+					tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+					tg.rows = nil
+				}
+				t.groups = append(t.groups, tg)
+			}
+		} else {
+			for _, tk := range t.applySort(others) {
+				t.rows = append(t.rows, t.toRow(tk))
+			}
 		}
-	} else {
-		for _, tk := range ts {
-			t.rows = append(t.rows, t.toRow(tk))
+	default: // focusOff
+		filters := t.parseFilter()
+		ts := t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters}))
+		if wildcards := wildcardTokens(filters); len(wildcards) > 0 {
+			groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
+			for _, g := range groups {
+				rows := make([]taskRow, 0, len(g.Tasks))
+				for _, tk := range g.Tasks {
+					rows = append(rows, t.toRow(tk))
+				}
+				tg := taskGroup{label: g.Label, rows: rows}
+				if len(wildcards) >= 2 {
+					tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+					tg.rows = nil
+				}
+				t.groups = append(t.groups, tg)
+			}
+			for _, tk := range others {
+				t.others = append(t.others, t.toRow(tk))
+			}
+		} else {
+			for _, tk := range ts {
+				t.rows = append(t.rows, t.toRow(tk))
+			}
 		}
 	}
 	t.clampCursor()
@@ -206,6 +262,29 @@ func (t *tasksModel) parseFilter() []string {
 	return strings.Fields(s)
 }
 
+// taskHasBareTag reports whether t carries at least one unnamespaced (bare)
+// label — a label whose suffix after the "<scope>:" prefix contains no colon.
+func taskHasBareTag(scope string, t *store.Task) bool {
+	for _, full := range t.Labels {
+		suffix := strings.TrimPrefix(full, scope+":")
+		if !strings.Contains(suffix, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+// setFocus applies a complete Tasks-pane view state (focus + filter) in one
+// step, resets the cursor, and refreshes. This is the single channel the
+// Labels pane drives; the Tasks pane never edits its own filter.
+func (t *tasksModel) setFocus(f taskFocus, filter string) {
+	t.focus = f
+	t.filter = filter
+	t.cursor = 0
+	t.offset = 0
+	t.refresh()
+}
+
 func (t *tasksModel) hasWildcard() bool {
 	for _, tok := range t.parseFilter() {
 		if isWildcardTUI(tok) {
@@ -213,6 +292,21 @@ func (t *tasksModel) hasWildcard() bool {
 		}
 	}
 	return false
+}
+
+// grouped reports whether the list should render as grouped facets (vs a flat
+// row list). Only a real-namespace present focus (or a legacy focusOff wildcard
+// filter) groups; absent/unlabeled/bare-tag focuses are always flat, even
+// though their filter may still carry a wildcard token.
+func (t *tasksModel) grouped() bool {
+	switch t.focus.mode {
+	case focusPresent:
+		return !t.focus.bareTags
+	case focusOff:
+		return t.hasWildcard()
+	default:
+		return false
+	}
 }
 
 func isWildcardTUI(l string) bool { return strings.HasSuffix(l, ":*") }
@@ -364,10 +458,6 @@ func (t *tasksModel) clampCursor() {
 }
 
 func (t *tasksModel) handleKey(k tea.KeyMsg) tea.Cmd {
-	// Filter editing takes priority (header is the input).
-	if t.filterEditing {
-		return t.handleFilterEditKey(k)
-	}
 	switch t.view {
 	case tViewList:
 		return t.handleListKey(k)
@@ -375,37 +465,6 @@ func (t *tasksModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		return t.handleDetailKey(k)
 	}
 	return nil
-}
-
-func (t *tasksModel) handleFilterEditKey(k tea.KeyMsg) tea.Cmd {
-	switch k.String() {
-	case "enter":
-		t.filter = t.filterEdit
-		t.filterEditing = false
-		t.cursor = 0
-		t.refresh()
-		return nil
-	case "esc":
-		t.cancelFilterEdit()
-		return nil
-	case "backspace":
-		if len(t.filterEdit) > 0 {
-			t.filterEdit = t.filterEdit[:len(t.filterEdit)-1]
-		}
-		return nil
-	case " ":
-		t.filterEdit += " "
-		return nil
-	}
-	if k.Type == tea.KeyRunes {
-		t.filterEdit += string(k.Runes)
-	}
-	return nil
-}
-
-func (t *tasksModel) cancelFilterEdit() {
-	t.filterEditing = false
-	t.filterEdit = ""
 }
 
 func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -423,19 +482,6 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "[":
 		t.cursor -= t.listPageSize()
 		t.clampCursor()
-	case "/":
-		if t.m.projectScope == "" {
-			return nil
-		}
-		t.filterEditing = true
-		t.filterEdit = t.filter
-	case "c":
-		if t.filter == "" {
-			return nil
-		}
-		t.filter = ""
-		t.cursor = 0
-		t.refresh()
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % 3
@@ -446,7 +492,7 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 		t.openCreateForm()
 	case "enter":
-		if t.hasWildcard() {
+		if t.grouped() {
 			// Enter is context-sensitive: toggle a header, or open detail
 			// on a leaf row (spec Screen 7). The (no matching labels)
 			// header is not collapsible but its rows are openable.
@@ -529,13 +575,15 @@ func (t *tasksModel) cursorUp() {
 // flatLineCount returns the number of logical lines (headers + rows) the
 // list view presents — used for cursor bounds and paging.
 func (t *tasksModel) flatLineCount() int {
-	if t.hasWildcard() {
+	if t.grouped() {
 		n := 0
 		for _, g := range t.groups {
 			n += groupLineCount(g)
 		}
-		n++ // (no matching labels) header
-		n += len(t.others)
+		if t.focus.mode == focusOff {
+			n++ // (no matching labels) header
+			n += len(t.others)
+		}
 		return n
 	}
 	return len(t.rows)
@@ -561,7 +609,7 @@ func groupLineCount(g taskGroup) int {
 }
 
 func (t *tasksModel) openDetailAtCursor() tea.Cmd {
-	if !t.hasWildcard() {
+	if !t.grouped() {
 		if t.cursor >= 0 && t.cursor < len(t.rows) {
 			return t.openDetail(t.rows[t.cursor].id)
 		}
@@ -573,7 +621,7 @@ func (t *tasksModel) openDetailAtCursor() tea.Cmd {
 // grouped view, or (zero, false) if the cursor is on a group/bucket header
 // (or out of range). Used to make `Enter` context-sensitive per the spec.
 func (t *tasksModel) rowAtCursor() (taskRow, bool) {
-	if !t.hasWildcard() {
+	if !t.grouped() {
 		return taskRow{}, false
 	}
 	idx := 0
@@ -584,14 +632,16 @@ func (t *tasksModel) rowAtCursor() (taskRow, bool) {
 			idx = next
 		}
 	}
-	// (no matching labels) bucket: header then rows.
-	if idx == t.cursor {
-		return taskRow{}, false
-	}
-	idx++
-	// rows in the top-level (no matching labels) bucket are not nested.
-	if t.cursor >= idx && t.cursor < idx+len(t.others) {
-		return t.others[t.cursor-idx], true
+	if t.focus.mode == focusOff {
+		// (no matching labels) bucket: header then rows.
+		if idx == t.cursor {
+			return taskRow{}, false
+		}
+		idx++
+		// rows in the top-level (no matching labels) bucket are not nested.
+		if t.cursor >= idx && t.cursor < idx+len(t.others) {
+			return t.others[t.cursor-idx], true
+		}
 	}
 	return taskRow{}, false
 }
@@ -627,7 +677,7 @@ func rowInGroup(g taskGroup, start, cursor int) (row taskRow, ok bool, next int)
 }
 
 func (t *tasksModel) toggleGroupAtCursor() tea.Cmd {
-	if !t.hasWildcard() {
+	if !t.grouped() {
 		return nil
 	}
 	idx := 0
@@ -792,17 +842,31 @@ func (t *tasksModel) headerLine() string {
 	if proj == "" {
 		proj = "(none)"
 	}
-	filt := t.filter
-	if t.filterEditing {
-		filt = t.filterEdit + "_"
+	return fmt.Sprintf("PROJECT: %s    FOCUS: %s    SORT: %s", proj, t.focusCaption(), t.sortMode)
+}
+
+// focusCaption is a read-only description of why the Tasks list is scoped,
+// derived from the focus set by the Labels pane. Empty focus reads "(all)".
+func (t *tasksModel) focusCaption() string {
+	switch t.focus.mode {
+	case focusPresent:
+		if t.focus.bareTags {
+			return "bare tags"
+		}
+		return t.focus.ns
+	case focusAbsent:
+		if t.focus.bareTags {
+			return "no bare tags"
+		}
+		return "no " + t.focus.ns
+	case focusUnlabeled:
+		return "unlabeled"
+	default: // focusOff
+		if f := strings.TrimSpace(t.filter); f != "" {
+			return f // exact-label token at L2
+		}
+		return "(all)"
 	}
-	if filt == "" {
-		filt = "(none)"
-	}
-	if t.filterEditing && t.filterEdit == "" {
-		filt = "_"
-	}
-	return fmt.Sprintf("PROJECT: %s    FILTER: %s    SORT: %s", proj, filt, t.sortMode)
 }
 
 func (t *tasksModel) renderList() string {
@@ -820,7 +884,7 @@ func (t *tasksModel) renderList() string {
 		return padToHeight(b.String(), t.contentHeight)
 	}
 
-	if t.hasWildcard() {
+	if t.grouped() {
 		t.renderGroupedList(&b)
 	} else {
 		t.renderFlatList(&b)
@@ -851,13 +915,10 @@ func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
 
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	if len(t.rows) == 0 {
-		filter := strings.Join(t.parseFilter(), " and ")
 		t.renderEmptyState(b, []string{
-			t.m.styles.EmptyHead.Render("no tasks match this filter"),
+			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyDim.Render(fmt.Sprintf("no task carries %s", filter)),
-			"",
-			t.m.styles.EmptyText.Render(fmt.Sprintf("%s to edit filter, or clear it to see all tasks", t.m.styles.EmptyKey.Render("[/]"))),
+			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
 		})
 		return
 	}
@@ -886,6 +947,15 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
+	if t.focus.mode == focusPresent && len(t.groups) == 0 {
+		t.renderEmptyState(b, []string{
+			t.m.styles.EmptyHead.Render("no tasks match this focus"),
+			"",
+			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
+		})
+		return
+	}
+
 	// Check the wildcard-yields-no-labels state.
 	if len(t.groups) == 0 {
 		b.WriteString(centerLinesBoth([]string{
@@ -903,35 +973,36 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	for _, g := range t.groups {
 		idx = t.renderGroup(&body, g, 0, idx)
 	}
-	// (no matching labels) bucket — always rendered, last. Stays flat (no
-	// nesting): these tasks matched no wildcard, so there is nothing to
-	// sub-bucket them by.
-	header := t.m.styles.GroupHeader.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
-	if idx == t.cursor {
-		header = t.m.styles.RowCursor.Render(header)
-	}
-	body.WriteString(dashboardLine(t.width, header))
-	body.WriteString("\n")
-	idx++
-	for _, r := range t.others {
-		labels := "(no labels)"
-		if len(r.labels) > 0 {
-			labels = strings.Join(r.labels, " ")
-		}
-		titleW := t.width - 6
-		if titleW < 20 {
-			titleW = 20
-		}
-		if titleW > 32 {
-			titleW = 32
-		}
-		line := fmt.Sprintf("  %s   id %s   labels %s   updated %s", truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
+	if t.focus.mode == focusOff {
+		// (no matching labels) bucket is legacy focusOff behavior. It stays
+		// flat (no nesting): these tasks matched no wildcard.
+		header := t.m.styles.GroupHeader.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
 		if idx == t.cursor {
-			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			header = t.m.styles.RowCursor.Render(header)
 		}
-		body.WriteString(dashboardLine(t.width, line))
+		body.WriteString(dashboardLine(t.width, header))
 		body.WriteString("\n")
 		idx++
+		for _, r := range t.others {
+			labels := "(no labels)"
+			if len(r.labels) > 0 {
+				labels = strings.Join(r.labels, " ")
+			}
+			titleW := t.width - 6
+			if titleW < 20 {
+				titleW = 20
+			}
+			if titleW > 32 {
+				titleW = 32
+			}
+			line := fmt.Sprintf("  %s   id %s   labels %s   updated %s", truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
+			if idx == t.cursor {
+				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			}
+			body.WriteString(dashboardLine(t.width, line))
+			body.WriteString("\n")
+			idx++
+		}
 	}
 
 	lines := strings.Split(strings.TrimSuffix(body.String(), "\n"), "\n")
@@ -1052,7 +1123,7 @@ func (t *tasksModel) groupPageSize() int {
 // used by the "[" / "]" page-jump keys (and matching the size the renderer
 // windows by, so a jump always lands on a page boundary).
 func (t *tasksModel) listPageSize() int {
-	if t.hasWildcard() {
+	if t.grouped() {
 		return t.groupPageSize()
 	}
 	return t.pageSize
@@ -1071,11 +1142,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	hint := "[/]filter [c]lear [s]ort [a]dd [Enter]detail [?]keys"
-	if t.filterEditing {
-		hint = "[Enter]apply [Esc]cancel"
-	}
-	return hint
+	return "[s]ort [a]dd [Enter]detail [?]keys"
 }
 
 // --- form openers ---

@@ -297,8 +297,12 @@ func splitRightColumnHeights(height int) (int, int) {
 	if height < 2 {
 		return height, 0
 	}
-	top := height / 2
+	top := height * 75 / 100
 	bottom := height - top
+	if bottom < 1 {
+		bottom = 1
+		top = height - bottom
+	}
 	return top, bottom
 }
 
@@ -527,10 +531,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
 	}
 
-	if m.focused == paneTasks && m.tasks.filterEditing {
-		return m.tasks.handleKey(k)
-	}
-
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -607,18 +607,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 				m.tasks.backToList()
 				return nil
 			}
-			if m.tasks.filterEditing {
-				m.tasks.cancelFilterEdit()
-				return nil
-			}
 		}
-		if m.focused == paneLabels && m.labels.view == lViewDetail {
-			m.labels.view = lViewList
-			return nil
-		}
-		if m.focused == paneLabels && m.labels.chartNS != "" {
-			m.labels.chartNS = ""
-			return nil
+		if m.focused == paneLabels {
+			return m.labels.handleKey(k)
 		}
 		// No detail to leave: ignore.
 		return nil
