@@ -9,13 +9,13 @@ import (
 	"atm/internal/manager"
 )
 
-func TestManageCodexPlanningLaunchJSON(t *testing.T) {
+func TestManageCodexCurateLaunchJSON(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--planning")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--curate")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -23,14 +23,14 @@ func TestManageCodexPlanningLaunchJSON(t *testing.T) {
 		t.Fatalf("child name = %q, want codex", c.name)
 	}
 	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manage-codex-planning-launch", got)
+	compareGolden(t, "manage-codex-curate-launch", got)
 }
 
 func TestManageLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
 
-	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--planning")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--curate")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
@@ -43,17 +43,61 @@ func TestManageLaunchAutoCreatesProject(t *testing.T) {
 	}
 }
 
-func TestManageRequiresExactlyOneAction(t *testing.T) {
+func TestManageActionSelection(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+
+	// No action flag: Curate is the default, so this succeeds.
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("no-flag default should succeed (curate); exit=%d stderr=%s", code, h.stderr.String())
+	}
+}
+
+func TestManageCurateIsDefault(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	h.reset()
+
+	out, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, `"ATM_MANAGER_ACTION": "curate"`) {
+		t.Fatalf("default action should be curate; got:\n%s", out)
+	}
+	_ = c
+}
+
+func TestManageRejectsConflictingActions(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
 	for _, args := range [][]string{
-		{"manage", "--agent", "codex", "--project", "FOO"},
-		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--grooming"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--recall"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--recall", "--onboarding"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--onboarding"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
-			t.Fatalf("%v should fail", args)
+			t.Fatalf("%v should fail (conflicting actions)", args)
+		}
+	}
+}
+
+func TestManageOldFlagsRemoved(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	for _, flag := range []string{"--planning", "--grooming", "--tracking", "--glossary", "--asking"} {
+		_, stderr, code := h.run("manage", "--agent", "codex", "--project", "FOO", flag)
+		if code == ExitSuccess {
+			t.Fatalf("old flag %q should be unknown, but exit was 0", flag)
+		}
+		if !strings.Contains(stderr, "unknown flag") {
+			t.Fatalf("old flag %q should error as 'unknown flag'; got stderr=%s", flag, stderr)
 		}
 	}
 }
@@ -62,8 +106,8 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	for _, args := range [][]string{
-		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--dry-run"},
-		{"manage", "--agent", "codex", "--project", "FOO", "--planning", "--actor", "manager@codex:unset"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--dry-run"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--actor", "manager@codex:unset"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
@@ -101,9 +145,20 @@ func TestMappingAndOnboardingTogetherIsOneAction(t *testing.T) {
 	}
 }
 
-func TestNoActionIsUsageError(t *testing.T) {
-	if _, err := validateManagerAction(managerOpts{}); err == nil {
-		t.Error("want usage error when no action is selected")
+func TestNoActionDefaultsToCurate(t *testing.T) {
+	// ATM-0120: Curate is the default when no action flag is passed.
+	got, err := validateManagerAction(managerOpts{})
+	if err != nil {
+		t.Fatalf("validateManagerAction: %v", err)
+	}
+	if got != managerActionCurate {
+		t.Errorf("no action: got %q, want %q (default)", got, managerActionCurate)
+	}
+}
+
+func TestMultipleActionsIsUsageError(t *testing.T) {
+	if _, err := validateManagerAction(managerOpts{Curate: true, Recall: true}); err == nil {
+		t.Error("want usage error when more than one action is selected")
 	}
 }
 
@@ -132,13 +187,13 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 	captureChild(h)
 	h.reset()
 
-	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--planning", "--persona", "ops")
+	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--curate", "--persona", "ops")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	for _, want := range []string{
 		`"ATM_PERSONA": "ops"`,
-		`"ATM_MANAGER_ACTION": "planning"`,
+		`"ATM_MANAGER_ACTION": "curate"`,
 		`"ATM_ACTOR": "ops@claude:unset"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -149,7 +204,7 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 
 func TestManagerCommandRemoved(t *testing.T) {
 	h := newGoldenHarness(t)
-	_, _, code := h.run("manager", "codex", "--project", "FOO", "--planning")
+	_, _, code := h.run("manager", "codex", "--project", "FOO", "--curate")
 	if code == ExitSuccess {
 		t.Fatalf("atm manager should be removed")
 	}
@@ -183,12 +238,12 @@ func TestManageContextRendersPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking", "Asking", "Glossary", "Mapping", "conventions"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "Mapping", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
 	}
-	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary"} {
+	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding"} {
 		if strings.Contains(got, old) {
 			t.Errorf("manage-context output still contains old term %q", old)
 		}

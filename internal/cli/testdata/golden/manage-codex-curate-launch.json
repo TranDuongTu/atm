@@ -9,7 +9,7 @@
     "ATM_ACTOR": "manager@codex:unset",
     "ATM_BIN": "/ATM_BIN",
     "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
-    "ATM_MANAGER_ACTION": "planning",
+    "ATM_MANAGER_ACTION": "curate",
     "ATM_PERSONA": "manager",
     "ATM_PROJECT": "FOO",
     "ATM_ROLE": "manager",

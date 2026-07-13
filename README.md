@@ -27,11 +27,9 @@ atm                            # dashboard: tasks, projects, labels, activity
 atm dev --project ATM          # developer session (run inside the working repo)
 atm dev --project ATM --agent claude
 
-atm manage --project ATM --planning     # review open work, keep statuses honest
-atm manage --project ATM --grooming     # prioritize and shape the backlog
-atm manage --project ATM --tracking     # curate progress, decisions, handoffs
-atm manage --project ATM --asking       # answer project questions from the ledger
-atm manage --project ATM --glossary     # maintain shared project language
+atm manage --project ATM                # curate the backlog (default action)
+atm manage --project ATM --recall       # answer project questions from the ledger (read-only)
+atm manage --project ATM --onboarding   # learn a repo and organize it for later agents
 ```
 
 ## Why I Built ATM
@@ -102,7 +100,7 @@ Use a persona for one session with `--persona`:
 
 ```sh
 atm dev --project ATM --persona reviewer
-atm manage --project ATM --planning --persona manager
+atm manage --project ATM --curate --persona manager
 ```
 
 `atm init` records your default agent separately from personas. Use `atm agents` when you want to inspect readiness, change the default host, or save default host-agent args:
@@ -117,7 +115,7 @@ For one-off launches, override the host with `--agent` and pass host-agent args 
 
 ```sh
 atm dev --project ATM --agent codex -- --yolo
-atm manage --project ATM --agent claude --planning -- --dangerously-skip-permission
+atm manage --project ATM --agent claude --curate -- --dangerously-skip-permission
 ```
 
 ### Semantic Search And Indexing

@@ -18,11 +18,8 @@ type managerOpts struct {
 	Persona     string
 	Agent       string
 	DefaultArgs []string
-	Planning    bool
-	Grooming    bool
-	Tracking    bool
-	Asking      bool
-	Glossary    bool
+	Curate      bool
+	Recall      bool
 	Mapping     bool
 	Onboarding  bool
 	ExtraArgs   []string
@@ -31,12 +28,9 @@ type managerOpts struct {
 type managerAction string
 
 const (
-	managerActionPlanning managerAction = "planning"
-	managerActionGrooming managerAction = "grooming"
-	managerActionTracking managerAction = "tracking"
-	managerActionAsking   managerAction = "asking"
-	managerActionGlossary managerAction = "glossary"
-	managerActionMapping  managerAction = "mapping"
+	managerActionCurate  managerAction = "curate"
+	managerActionRecall  managerAction = "recall"
+	managerActionMapping managerAction = "mapping"
 )
 
 func newManageCmd(st *cliState) *cobra.Command {
@@ -173,11 +167,8 @@ func managerPluginAgents(target string) ([]string, error) {
 }
 
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
-	cmd.Flags().BoolVar(&opts.Planning, "planning", false, "review backlog readiness, blocked work, and in-flight work")
-	cmd.Flags().BoolVar(&opts.Grooming, "grooming", false, "prioritize and shape the backlog")
-	cmd.Flags().BoolVar(&opts.Tracking, "tracking", false, "curate progress, decisions, questions, and handoffs")
-	cmd.Flags().BoolVar(&opts.Asking, "asking", false, "answer project questions grounded in ledger IDs")
-	cmd.Flags().BoolVar(&opts.Glossary, "glossary", false, "maintain shared project language")
+	cmd.Flags().BoolVar(&opts.Curate, "curate", false, "review backlog, triage, track handoffs, and maintain vocabulary (default)")
+	cmd.Flags().BoolVar(&opts.Recall, "recall", false, "read-only synthesis grounded in ledger IDs; does not mutate")
 	cmd.Flags().BoolVar(&opts.Mapping, "mapping", false, "reconcile the project's context map against the repo: verify drifted pointers, discover new territory")
 
 	// Deprecated alias. The action was named --onboarding when it was believed to
@@ -190,28 +181,22 @@ func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
 
 func validateManagerAction(opts managerOpts) (managerAction, error) {
 	selected := []managerAction{}
-	if opts.Planning {
-		selected = append(selected, managerActionPlanning)
+	if opts.Curate {
+		selected = append(selected, managerActionCurate)
 	}
-	if opts.Grooming {
-		selected = append(selected, managerActionGrooming)
-	}
-	if opts.Tracking {
-		selected = append(selected, managerActionTracking)
-	}
-	if opts.Asking {
-		selected = append(selected, managerActionAsking)
-	}
-	if opts.Glossary {
-		selected = append(selected, managerActionGlossary)
+	if opts.Recall {
+		selected = append(selected, managerActionRecall)
 	}
 	if opts.Mapping || opts.Onboarding {
 		selected = append(selected, managerActionMapping)
 	}
-	if len(selected) != 1 {
-		return "", fmt.Errorf("%w: choose exactly one manager action: --planning, --grooming, --tracking, --asking, --glossary, or --mapping", ErrUsage)
+	if len(selected) > 1 {
+		return "", fmt.Errorf("%w: choose one manager action: --curate, --recall, or --mapping", ErrUsage)
 	}
-	return selected[0], nil
+	if len(selected) == 1 {
+		return selected[0], nil
+	}
+	return managerActionCurate, nil
 }
 
 func newManageContextCmd(st *cliState) *cobra.Command {
