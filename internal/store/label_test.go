@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -209,5 +210,57 @@ func TestLabelExprSurvivesReplayAndRebuild(t *testing.T) {
 	}
 	if !got.IsComputed() {
 		t.Error("label with an Expr must report IsComputed")
+	}
+}
+
+func TestLabelAddRejectsInvalidExpr(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:broken", "d", "status:open AND", testActor); err == nil {
+		t.Fatal("malformed expression must be rejected at write time")
+	}
+}
+
+// I2, write half. (The read half - a cycle arriving from a merge - is
+// guarded in resolve.go and tested by TestResolverRejectsMergeInducedCycle.)
+func TestLabelAddRejectsCycle(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:a", "d", "status:open", testActor); err != nil {
+		t.Fatalf("seed a: %v", err)
+	}
+	if err := s.LabelAdd("ATM:b", "d", "a", testActor); err != nil {
+		t.Fatalf("seed b: %v", err)
+	}
+	// Now point a at b -> a -> b -> a.
+	err := s.LabelAdd("ATM:a", "d", "b", testActor)
+	if !errors.Is(err, ErrCyclicExpr) {
+		t.Fatalf("err = %v, want ErrCyclicExpr", err)
+	}
+}
+
+func TestLabelAddRejectsSelfReference(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	err := s.LabelAdd("ATM:loop", "d", "loop", testActor)
+	if !errors.Is(err, ErrCyclicExpr) {
+		t.Fatalf("err = %v, want ErrCyclicExpr", err)
+	}
+}
+
+// I3: ATM:status and ATM:status:* are distinct strings but both display as
+// "status" in the Boards pane. CreateTask auto-registers ATM:status:open
+// (a stored value) but not the namespace descriptor ATM:status:*; the
+// collision check keys off a live ATM:status:* label, so seed one first.
+func TestLabelAddRejectsBoardNameCollidingWithNamespace(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:status:*", "namespace", "", testActor); err != nil {
+		t.Fatalf("seed namespace: %v", err)
+	}
+	_, _ = s.CreateTask("ATM", "t", "", []string{"ATM:status:open"}, testActor)
+	err := s.LabelAdd("ATM:status", "d", "priority:high", testActor)
+	if !errors.Is(err, ErrBoardNameCollision) {
+		t.Fatalf("err = %v, want ErrBoardNameCollision", err)
 	}
 }
