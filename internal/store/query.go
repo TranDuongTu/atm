@@ -1,14 +1,22 @@
 package store
 
 import (
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
 
 type QueryFilters struct {
 	Project string
-	Labels  []string // AND-intersect; full label names; may include suffix-only
-	// wildcards (e.g. "ATM:status:*", "ATM:*") which declare facets and do NOT restrict.
+	// Labels AND-intersect; full label names. A name may be a board — a
+	// computed label — in which case its expression is evaluated. Suffix
+	// wildcards (e.g. "ATM:status:*", "ATM:*") declare facets and do NOT
+	// restrict; see GroupTasks.
+	Labels []string
+	// Expr is an ad-hoc board expression (AND/OR/NOT/parens over bare label
+	// names). Empty means no expression filter. ANDs with Labels.
+	Expr string
 }
 
 type LabelGroup struct {
@@ -17,6 +25,13 @@ type LabelGroup struct {
 }
 
 func (s *Store) ListTasks(filters QueryFilters) []*Task {
+	out, _ := s.listTasksErr(filters)
+	return out
+}
+
+// listTasksErr is ListTasks plus the error, for callers that must surface a
+// bad or cyclic expression instead of silently returning nothing.
+func (s *Store) listTasksErr(filters QueryFilters) ([]*Task, error) {
 	var codes []string
 	if filters.Project != "" {
 		codes = []string{filters.Project}
@@ -28,7 +43,7 @@ func (s *Store) ListTasks(filters QueryFilters) []*Task {
 	restricting := restrictingTokens(filters.Labels)
 	db, err := s.cacheDB()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []*Task
 	for _, code := range codes {
@@ -36,11 +51,37 @@ func (s *Store) ListTasks(filters QueryFilters) []*Task {
 		if err != nil {
 			continue
 		}
-		for _, t := range tasks {
-			if !taskMatchesLabels(t, restricting) {
-				continue
+		r := newResolver(code, s.LabelList(code, ""))
+
+		// Each restricting token becomes an atom; they AND together. A token
+		// naming a board resolves through its expression, which is what makes
+		// `--label ATM:next-sprint` work with no new flag.
+		var nodes []Node
+		for _, tok := range restricting {
+			nodes = append(nodes, &AtomNode{Name: strings.TrimPrefix(tok, code+":")})
+		}
+		if filters.Expr != "" {
+			n, err := ParseExpr(filters.Expr)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, t)
+			nodes = append(nodes, n)
+		}
+		for _, t := range tasks {
+			ok := true
+			for _, n := range nodes {
+				m, err := r.Matches(t, n)
+				if err != nil {
+					return nil, err
+				}
+				if !m {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				out = append(out, t)
+			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -51,14 +92,33 @@ func (s *Store) ListTasks(filters QueryFilters) []*Task {
 		}
 		return ni < nj
 	})
-	return out
+	return out, nil
 }
 
+// ErrBoardNotAFacet is returned by GroupTasksErr when a wildcard token's base
+// names a board: a board has no members, so faceting by one is meaningless.
+var ErrBoardNotAFacet = errors.New("a board has no members and cannot be a facet")
+
 func (s *Store) GroupTasks(filters QueryFilters) ([]LabelGroup, []*Task) {
-	inScope := s.ListTasks(filters)
+	g, o, _ := s.GroupTasksErr(filters)
+	return g, o
+}
+
+func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error) {
+	// I5: faceting by a board is meaningless — it has no members.
+	for _, w := range wildcardTokens(filters.Labels) {
+		base := strings.TrimSuffix(w, ":*")
+		if l, err := s.LabelShow(base); err == nil && l.Expr != "" {
+			return nil, nil, fmt.Errorf("%w: %s", ErrBoardNotAFacet, base)
+		}
+	}
+	inScope, err := s.listTasksErr(filters)
+	if err != nil {
+		return nil, nil, err
+	}
 	wildcards := wildcardTokens(filters.Labels)
 	if len(wildcards) == 0 {
-		return nil, inScope
+		return nil, inScope, nil
 	}
 	buckets := map[string][]*Task{}
 	order := []string{}
@@ -97,7 +157,7 @@ func (s *Store) GroupTasks(filters QueryFilters) ([]LabelGroup, []*Task) {
 			others = append(others, t)
 		}
 	}
-	return groups, others
+	return groups, others, nil
 }
 
 func restrictingTokens(labels []string) []string {
@@ -125,22 +185,6 @@ func isWildcard(l string) bool { return strings.HasSuffix(l, ":*") }
 func labelMatchesWildcard(label, wildcard string) bool {
 	prefix := strings.TrimSuffix(wildcard, "*")
 	return strings.HasPrefix(label, prefix)
-}
-
-func taskMatchesLabels(t *Task, labels []string) bool {
-	for _, want := range labels {
-		found := false
-		for _, l := range t.Labels {
-			if l == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Store) listTaskIDs(code string) []string {

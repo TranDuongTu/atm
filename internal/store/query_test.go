@@ -84,3 +84,51 @@ func containsID(tasks []*Task, id string) bool {
 	}
 	return false
 }
+
+func TestListTasksByExpr(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_, _ = s.CreateTask("ATM", "a", "", []string{"ATM:status:open", "ATM:priority:high"}, testActor)
+	_, _ = s.CreateTask("ATM", "b", "", []string{"ATM:status:open"}, testActor)
+	_, _ = s.CreateTask("ATM", "c", "", []string{"ATM:status:done", "ATM:priority:high"}, testActor)
+
+	got := s.ListTasks(QueryFilters{Project: "ATM", Expr: "status:open AND priority:high"})
+	if len(got) != 1 || got[0].Title != "a" {
+		t.Fatalf("got %v, want [a]", got)
+	}
+}
+
+func TestListTasksByExprNotNamespaceFindsUntriaged(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_, _ = s.CreateTask("ATM", "triaged", "", []string{"ATM:status:open"}, testActor)
+	_, _ = s.CreateTask("ATM", "untriaged", "", []string{"ATM:type:bug"}, testActor)
+
+	got := s.ListTasks(QueryFilters{Project: "ATM", Expr: "NOT status:*"})
+	if len(got) != 1 || got[0].Title != "untriaged" {
+		t.Fatalf("got %v, want [untriaged]", got)
+	}
+}
+
+func TestListTasksByBoardUsedAsLabelValue(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_ = s.LabelAdd("ATM:next-sprint", "sprint board", "status:open AND sprint:next", testActor)
+	_, _ = s.CreateTask("ATM", "in", "", []string{"ATM:status:open", "ATM:sprint:next"}, testActor)
+	_, _ = s.CreateTask("ATM", "out", "", []string{"ATM:status:done", "ATM:sprint:next"}, testActor)
+
+	got := s.ListTasks(QueryFilters{Project: "ATM", Labels: []string{"ATM:next-sprint"}})
+	if len(got) != 1 || got[0].Title != "in" {
+		t.Fatalf("got %v, want [in]", got)
+	}
+}
+
+func TestGroupTasksRejectsBoardAsFacet(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_ = s.LabelAdd("ATM:next-sprint", "sprint board", "status:open", testActor)
+	_, _, err := s.GroupTasksErr(QueryFilters{Project: "ATM", Labels: []string{"ATM:next-sprint:*"}})
+	if err == nil {
+		t.Fatal("faceting by a board must error")
+	}
+}
