@@ -199,7 +199,7 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	assertLinesWithinWidth("labels", m.labels.View(), innerPaneWidth(rightW))
+	assertLinesWithinWidth("labels", m.boards.View(), innerPaneWidth(rightW))
 	wantPageSize := innerPaneHeight(tasksH) - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
@@ -313,7 +313,7 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Labels")
+	mustContain(t, v, "[3] Boards")
 	mustNotContain(t, v, "1  Projects")
 	mustNotContain(t, v, "4  Help")
 }
@@ -326,7 +326,7 @@ func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
 		v := m.View()
 		mustContain(t, v, "[1] Projects")
 		mustContain(t, v, "[2] Tasks")
-		mustContain(t, v, "[3] Labels")
+		mustContain(t, v, "[3] Boards")
 	}
 }
 
@@ -1615,7 +1615,7 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 
 			// Snapshot the Projects and Labels pane content before scrolling.
 			projBefore := m.projects.View()
-			labelsBefore := m.labels.View()
+			labelsBefore := m.boards.View()
 
 			// Scroll the task detail to the bottom and back.
 			for i := 0; i < 40; i++ {
@@ -1629,7 +1629,7 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			if got := m.projects.View(); got != projBefore {
 				t.Errorf("Projects pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", projBefore, got)
 			}
-			if got := m.labels.View(); got != labelsBefore {
+			if got := m.boards.View(); got != labelsBefore {
 				t.Errorf("Labels pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", labelsBefore, got)
 			}
 
@@ -1691,7 +1691,7 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Labels")
+	mustContain(t, v, "[3] Boards")
 	mustContain(t, v, "Task ATM-0001")
 }
 

@@ -179,15 +179,15 @@ atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [N]
 atm project remove --code             Projects pane  [x]
 
-atm label add --name --desc           Labels pane  [a]dd / [d]esc
-atm label remove --name               Labels pane  [l]
-atm label seed --project              Labels pane  [S]
-atm label list [--project] [--ns]     Labels pane  (list)
+atm label add --name --desc           Boards pane  [a]dd / [d]esc
+atm label remove --name               Boards pane  [l]
+atm label seed --project              Boards pane  [S]
+atm label list [--project] [--ns]     Boards pane  (list)
 atm label show --name                 — (CLI only)
 
 atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
 atm task list [--project] [--label]   Tasks pane  (selection-only list; Labels pane filters)
-atm task list --facets                CLI wildcard faceting; TUI Labels chart (Tasks mirror)
+atm task list --facets                CLI wildcard faceting; TUI Boards chart (Tasks mirror)
 atm task show --id                    Tasks pane  [Enter] detail
 atm task set-title --id --title       Task detail  [e]
 atm task set-description --id --desc  Task detail  [d]
@@ -213,7 +213,7 @@ func keymapTable() string {
 		widths[0], "Key",
 		widths[1], "Projects",
 		widths[2], "Tasks",
-		widths[3], "Labels",
+		widths[3], "Boards",
 		widths[4], "Detail/Overlay",
 	)
 	b.WriteString(strings.Repeat("-", widths[0]+1+widths[1]+1+widths[2]+1+widths[3]+1+widths[4]))
@@ -223,7 +223,7 @@ func keymapTable() string {
 			widths[0], truncateRunes(r.Key, widths[0]),
 			widths[1], truncateRunes(r.Projects, widths[1]),
 			widths[2], truncateRunes(r.Tasks, widths[2]),
-			widths[3], truncateRunes(r.Labels, widths[3]),
+			widths[3], truncateRunes(r.Boards, widths[3]),
 			widths[4], truncateRunes(r.Detail, widths[4]),
 		)
 	}

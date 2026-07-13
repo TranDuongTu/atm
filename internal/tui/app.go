@@ -86,7 +86,7 @@ type Model struct {
 
 	projects projectsModel
 	tasks    tasksModel
-	labels   labelsModel
+	boards   boardsModel
 	actors   actorsModel
 	help     helpModel
 
@@ -161,7 +161,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
-	m.labels = newLabelsModel(m)
+	m.boards = newBoardsModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 	m.plugins = []plugin{newIndexerPlugin()}
@@ -191,7 +191,7 @@ func (m *Model) SetSize(w, h int) {
 	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
-	m.labels.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
+	m.boards.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
 	if m.helpOverlay != helpNone {
 		bw, bh := m.helpBoxSize()
 		m.help.SetSize(bw, bh)
@@ -325,7 +325,7 @@ func innerPaneHeight(height int) int {
 func (m *Model) refreshAll() {
 	m.projects.refresh()
 	m.tasks.refresh()
-	m.labels.refresh()
+	m.boards.refresh()
 	m.help.refresh()
 }
 
@@ -609,7 +609,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			}
 		}
 		if m.focused == paneLabels {
-			return m.labels.handleKey(k)
+			return m.boards.handleKey(k)
 		}
 		// No detail to leave: ignore.
 		return nil
@@ -621,7 +621,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case paneTasks:
 		return m.tasks.handleKey(k)
 	case paneLabels:
-		return m.labels.handleKey(k)
+		return m.boards.handleKey(k)
 	}
 	return nil
 }
@@ -797,9 +797,9 @@ func (m *Model) renderWorkspace() string {
 
 	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
 	tasks := m.renderPane(paneTasks, rightW, tasksH, "[2] Tasks", m.tasks.View())
-	labels := m.renderPane(paneLabels, rightW, labelsH, "[3] Labels", m.labels.View())
+	boards := m.renderPane(paneLabels, rightW, labelsH, "[3] Boards", m.boards.View())
 
-	right := lipgloss.JoinVertical(lipgloss.Left, tasks, labels)
+	right := lipgloss.JoinVertical(lipgloss.Left, tasks, boards)
 	return lipgloss.JoinHorizontal(lipgloss.Top, projects, right)
 }
 
@@ -819,7 +819,7 @@ func (m *Model) statusHint() string {
 	case paneTasks:
 		return m.tasks.statusHint()
 	case paneLabels:
-		return m.labels.statusHint()
+		return m.boards.statusHint()
 	}
 	return "[?]keys [C]conventions"
 }

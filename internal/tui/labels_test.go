@@ -4,24 +4,129 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
 
-// --- Labels pane tests ---
+// --- Boards pane tests ---
 
-func TestLabelsTabEmptyStateNoProject(t *testing.T) {
+// newTestStore opens a fresh temp-dir store for direct store-API tests that
+// do not need a full TUI Model. Auto-initialized.
+func newTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	return s
+}
+
+// newTestBoardsModel builds a *boardsModel scoped to code over the given store,
+// for direct row assertions without driving the full key harness.
+func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel {
+	t.Helper()
+	mm, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: testActor})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mm.projectScope = code
+	return &mm.boards
+}
+
+// rowNames returns the display Names of the Boards pane's flat row list.
+func (b *boardsModel) rowNames() []string {
+	out := make([]string, 0, len(b.rows))
+	for _, r := range b.rows {
+		out = append(out, r.Name)
+	}
+	return out
+}
+
+// row returns the first boardRow whose Name matches, or ok=false.
+func (b *boardsModel) row(name string) (boardRow, bool) {
+	for _, r := range b.rows {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return boardRow{}, false
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_ = s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", testActor)
+
+	m := newTestBoardsModel(t, s, "ATM")
+	m.refresh()
+
+	rows := m.rowNames()
+	// Boards and namespaces sit in ONE flat list, indistinguishable by design.
+	if !contains(rows, "next-sprint") {
+		t.Errorf("board missing from rows: %v", rows)
+	}
+	if !contains(rows, "status") {
+		t.Errorf("namespace missing from rows: %v", rows)
+	}
+	// A board is not a namespace, so it must not appear as one.
+	if contains(rows, "next-sprint:*") {
+		t.Errorf("a board must not render as a namespace: %v", rows)
+	}
+}
+
+func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
+	// An agent invents a namespace without describing it -> the human's
+	// review signal (conventions rule 6) appears in the pane automatically.
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_, _ = s.CreateTask("ATM", "t", "", []string{"ATM:sprint:next"}, testActor)
+
+	m := newTestBoardsModel(t, s, "ATM")
+	m.refresh()
+
+	row, ok := m.row("sprint")
+	if !ok {
+		t.Fatalf("sprint namespace missing from rows: %v", m.rowNames())
+	}
+	if !row.NeedsDescription {
+		t.Error("an undescribed namespace must be flagged for human reconciliation")
+	}
+	row, ok = m.row("status")
+	if !ok {
+		t.Fatalf("status namespace missing from rows: %v", m.rowNames())
+	}
+	if row.NeedsDescription {
+		t.Error("a seeded namespace has a description and must not be flagged")
+	}
+}
+
+// --- Boards pane tests (ported from the Labels pane) ---
+
+func TestBoardsTabEmptyStateNoProject(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3") // focus Labels pane
+	update(t, m, "3") // focus Boards pane
 	if m.focused != paneLabels {
 		t.Fatalf("focus = %v want paneLabels", m.focused)
 	}
-	v := m.labels.View()
+	v := m.boards.View()
 	mustContain(t, v, "no project selected")
 	mustContain(t, v, "press [s] in the Projects pane")
 }
 
-func TestLabelsTabAddLabel(t *testing.T) {
+func TestBoardsTabAddLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
@@ -42,7 +147,7 @@ func TestLabelsTabAddLabel(t *testing.T) {
 	}
 }
 
-func TestLabelsTabSeedKey(t *testing.T) {
+func TestBoardsTabSeedKey(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	_, _ = m.store.LabelRemove("ATM:context:question", testActor)
@@ -58,7 +163,12 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	}
 }
 
-func TestLabelsL0NamespaceTableCounts(t *testing.T) {
+// TestBoardsL0FlatCounts replaces TestLabelsL0NamespaceTableCounts. The L0
+// view is now a flat list of computed labels (boards + namespaces). The old
+// synthetic "tags" and "(none)" rows are gone — bare tags are not computed
+// labels and do not appear; tasks with no labels are not a board. Namespace
+// rows still carry a distinct-task count.
+func TestBoardsL0FlatCounts(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
@@ -69,63 +179,58 @@ func TestLabelsL0NamespaceTableCounts(t *testing.T) {
 	mk("a", "ATM:status:open")
 	mk("b", "ATM:status:done", "ATM:priority:high")
 	mk("c", "ATM:priority:high")
-	mk("d", "ATM:urgent") // bare tag
-	mk("e")               // no labels
-	m.store.LabelAdd("ATM:urgent", "", "", m.actor)
 	update(t, m, "s")
 	update(t, m, "3")
 
-	byKey := map[string]nsRow{}
-	for _, r := range m.labels.nsRows {
-		k := r.key
-		if r.bareTags {
-			k = "__tags__"
-		}
-		if r.none {
-			k = "__none__"
-		}
-		byKey[k] = r
+	byName := map[string]boardRow{}
+	for _, r := range m.boards.rows {
+		byName[r.Name] = r
 	}
-	if got := byKey["status"].tasks; got != 2 {
-		t.Errorf("status tasks = %d want 2", got)
+	if r, ok := byName["status"]; !ok || !r.Expandable {
+		t.Fatalf("status namespace row missing or not expandable: %+v", byName["status"])
+	} else if got := r.Count; got != 2 {
+		t.Errorf("status count = %d want 2", got)
 	}
-	if got := byKey["priority"].tasks; got != 2 {
-		t.Errorf("priority tasks = %d want 2", got)
+	if r, ok := byName["priority"]; !ok || !r.Expandable {
+		t.Fatalf("priority namespace row missing or not expandable: %+v", byName["priority"])
+	} else if got := r.Count; got != 2 {
+		t.Errorf("priority count = %d want 2", got)
 	}
-	if got := byKey["__tags__"].tasks; got != 1 {
-		t.Errorf("tags tasks = %d want 1", got)
+	// Bare tags and (none) are NOT boards; they must not appear in the flat list.
+	if _, ok := byName["tags"]; ok {
+		t.Errorf("bare-tags row must not appear in the flat boards list")
 	}
-	if got := byKey["__none__"].tasks; got != 1 {
-		t.Errorf("none tasks = %d want 1", got)
+	if _, ok := byName["(none)"]; ok {
+		t.Errorf("(none) row must not appear in the flat boards list")
 	}
-	v := m.labels.View()
-	mustContain(t, v, "NAMESPACE")
+	v := m.boards.View()
+	mustContain(t, v, "BOARD")
 	mustContain(t, v, "status")
 }
 
-func TestLabelsL0NamespaceTableUsesFullWidth(t *testing.T) {
+func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	m.labels.SetSize(72, 10)
+	m.boards.SetSize(72, 10)
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
 	update(t, m, "3")
 
-	lines := strings.Split(m.labels.View(), "\n")
+	lines := strings.Split(m.boards.View(), "\n")
 	if len(lines) < 2 {
-		t.Fatalf("table rendered too few lines:\n%s", m.labels.View())
+		t.Fatalf("table rendered too few lines:\n%s", m.boards.View())
 	}
-	if got := lipgloss.Width(lines[0]); got != m.labels.width {
-		t.Fatalf("header width = %d want %d: %q", got, m.labels.width, lines[0])
+	if got := lipgloss.Width(lines[0]); got != m.boards.width {
+		t.Fatalf("header width = %d want %d: %q", got, m.boards.width, lines[0])
 	}
-	if got := lipgloss.Width(lines[1]); got != m.labels.width {
-		t.Fatalf("row width = %d want %d: %q", got, m.labels.width, lines[1])
+	if got := lipgloss.Width(lines[1]); got != m.boards.width {
+		t.Fatalf("row width = %d want %d: %q", got, m.boards.width, lines[1])
 	}
 }
 
-func TestLabelsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
+func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
@@ -135,8 +240,8 @@ func TestLabelsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
 	update(t, m, "enter")
-	if m.labels.level != lLevelChart {
-		t.Fatalf("level = %v want chart", m.labels.level)
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v want chart", m.boards.level)
 	}
 	if m.tasks.filter != "ATM:status:*" {
 		t.Fatalf("filter = %q want ATM:status:*", m.tasks.filter)
@@ -145,15 +250,44 @@ func TestLabelsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 		t.Fatalf("focus = %+v want present/status", m.tasks.focus)
 	}
 	update(t, m, "esc")
-	if m.labels.level != lLevelTable {
-		t.Fatalf("level = %v want table after esc", m.labels.level)
+	if m.boards.level != lLevelTable {
+		t.Fatalf("level = %v want table after esc", m.boards.level)
 	}
 	if m.tasks.filter != "" || m.tasks.focus.mode != focusOff {
 		t.Fatalf("focus/filter not cleared after esc: %q %+v", m.tasks.filter, m.tasks.focus)
 	}
 }
 
-func TestLabelsEscFromChartRestoresTableCursor(t *testing.T) {
+// TestBoardsL0EnterBoardFiltersTasksByLabel replaces the old L0 enter test
+// for namespace drill-down: a board row (a computed label) selects straight
+// to tasks via QueryFilters{Labels: [FullName]} — no chart level.
+func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if err := m.store.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open1", "ATM:status:open")
+	seedTask(t, m, "ATM", "done1", "ATM:status:done")
+	update(t, m, "s")
+	update(t, m, "3")
+	cursorToBoardRow(t, m, "next-sprint")
+	update(t, m, "enter")
+	if m.boards.level != lLevelTable {
+		t.Fatalf("board selection must not leave L0: level = %v", m.boards.level)
+	}
+	if m.tasks.filter != "ATM:next-sprint" {
+		t.Fatalf("tasks filter = %q want ATM:next-sprint", m.tasks.filter)
+	}
+	if m.tasks.focus.mode != focusOff {
+		t.Fatalf("tasks focus = %+v want focusOff (board is an exact-label filter)", m.tasks.focus)
+	}
+	// The Tasks pane should show only the matching task.
+	mustContain(t, m.tasks.View(), "open1")
+	mustNotContain(t, m.tasks.View(), "done1")
+}
+
+func TestBoardsEscFromChartRestoresTableCursor(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
@@ -163,15 +297,19 @@ func TestLabelsEscFromChartRestoresTableCursor(t *testing.T) {
 	update(t, m, "enter")
 	update(t, m, "esc")
 
-	if m.labels.level != lLevelTable {
-		t.Fatalf("level = %v want table", m.labels.level)
+	if m.boards.level != lLevelTable {
+		t.Fatalf("level = %v want table", m.boards.level)
 	}
-	if got := m.labels.nsRows[m.labels.cursor].key; got != "status" {
+	if got := m.boards.rows[m.boards.cursor].Name; got != "status" {
 		t.Fatalf("table cursor = %q want status", got)
 	}
 }
 
-func TestLabelsL0EnterNoneFiltersUnlabeled(t *testing.T) {
+// TestBoardsL0HasNoNoneRow replaces TestLabelsL0EnterNoneFiltersUnlabeled.
+// The flat boards list has no synthetic "(none)" row: a task with no labels
+// is not a computed label. The focusUnlabeled mode still exists in the Tasks
+// pane (driven elsewhere), but the Boards pane no longer surfaces it as a row.
+func TestBoardsL0HasNoNoneRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "naked", "", nil, m.actor); err != nil {
@@ -179,22 +317,14 @@ func TestLabelsL0EnterNoneFiltersUnlabeled(t *testing.T) {
 	}
 	update(t, m, "s")
 	update(t, m, "3")
-	cursorToNoneRow(t, m)
-	update(t, m, "enter")
-	if m.tasks.focus.mode != focusUnlabeled {
-		t.Fatalf("focus = %+v want unlabeled", m.tasks.focus)
-	}
-	mustContain(t, m.labels.View(), "1 task with no labels")
-	update(t, m, "esc")
-	if m.tasks.focus.mode != focusOff || m.labels.level != lLevelTable {
-		t.Fatalf("esc from none leaf did not return to table/clear: %+v %v", m.tasks.focus, m.labels.level)
-	}
-	if got := m.labels.nsRows[m.labels.cursor].display; got != "(none)" {
-		t.Fatalf("table cursor = %q want (none)", got)
+	for _, r := range m.boards.rows {
+		if r.Name == "(none)" {
+			t.Fatalf("(none) row must not appear in flat boards list: %+v", r)
+		}
 	}
 }
 
-func TestLabelsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
+func TestBoardsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 	for _, size := range []struct {
 		name string
 		w    int
@@ -218,7 +348,7 @@ func TestLabelsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 			cursorToChartLabel(t, m, "ATM:status:open")
 			update(t, m, "enter")
 
-			view := m.labels.View()
+			view := m.boards.View()
 			mustContain(t, view, "name        ATM:status:open")
 			mustContain(t, view, "usage       1 use")
 			mustContain(t, view, "description selected status description")
@@ -228,27 +358,27 @@ func TestLabelsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 
 func cursorToNamespaceRow(t *testing.T, m *Model, ns string) {
 	t.Helper()
-	for i, r := range m.labels.nsRows {
-		if r.key == ns && !r.bareTags && !r.none {
-			m.labels.cursor = i
+	for i, r := range m.boards.rows {
+		if r.Name == ns && r.Expandable {
+			m.boards.cursor = i
 			return
 		}
 	}
-	t.Fatalf("namespace row %q not found", ns)
+	t.Fatalf("namespace row %q not found in boards rows: %v", ns, m.boards.rowNames())
 }
 
-func cursorToNoneRow(t *testing.T, m *Model) {
+func cursorToBoardRow(t *testing.T, m *Model, name string) {
 	t.Helper()
-	for i, r := range m.labels.nsRows {
-		if r.none {
-			m.labels.cursor = i
+	for i, r := range m.boards.rows {
+		if r.Name == name {
+			m.boards.cursor = i
 			return
 		}
 	}
-	t.Fatalf("(none) row not found")
+	t.Fatalf("board row %q not found in boards rows: %v", name, m.boards.rowNames())
 }
 
-func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
+func TestBoardsChartCursorAndUnsetRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(120, 80)
@@ -270,7 +400,7 @@ func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
 	cursorToNamespaceRow(t, m, "status")
 	update(t, m, "enter") // into chart
 
-	rows := m.labels.chartRows()
+	rows := m.boards.chartRows()
 	// open(2), blocked(0), done(1), unset(1) in this fixture.
 	var openCount, blockedCount, unsetCount int
 	sawUnset := false
@@ -297,12 +427,12 @@ func TestLabelsChartCursorAndUnsetRow(t *testing.T) {
 	if !sawBlocked || blockedCount != 0 {
 		t.Errorf("blocked row missing or wrong: saw=%v count=%d want 0", sawBlocked, blockedCount)
 	}
-	v := m.labels.View()
+	v := m.boards.View()
 	mustContain(t, v, "(unset)")
 	mustContain(t, v, "█")
 }
 
-func TestLabelsChartHighlightsOnlyName(t *testing.T) {
+func TestBoardsChartHighlightsOnlyName(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
@@ -318,14 +448,14 @@ func TestLabelsChartHighlightsOnlyName(t *testing.T) {
 	cursorToChartLabel(t, m, "ATM:status:open")
 
 	line := ""
-	for _, candidate := range strings.Split(m.labels.View(), "\n") {
+	for _, candidate := range strings.Split(m.boards.View(), "\n") {
 		if strings.Contains(candidate, "ATM:status:open") {
 			line = candidate
 			break
 		}
 	}
 	if line == "" {
-		t.Fatalf("status:open chart row not found:\n%s", m.labels.View())
+		t.Fatalf("status:open chart row not found:\n%s", m.boards.View())
 	}
 	barAt := strings.Index(line, "█")
 	resetAt := strings.Index(line, "\x1b[0m")
@@ -340,7 +470,7 @@ func TestLabelsChartHighlightsOnlyName(t *testing.T) {
 	}
 }
 
-func TestLabelsChartCursorCanStayOnUnset(t *testing.T) {
+func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
@@ -355,7 +485,7 @@ func TestLabelsChartCursorCanStayOnUnset(t *testing.T) {
 	update(t, m, "enter")
 
 	unset := -1
-	for i, r := range m.labels.chartRows() {
+	for i, r := range m.boards.chartRows() {
 		if r.unset {
 			unset = i
 			break
@@ -364,26 +494,26 @@ func TestLabelsChartCursorCanStayOnUnset(t *testing.T) {
 	if unset < 0 {
 		t.Fatalf("unset row not found")
 	}
-	for m.labels.cursor < unset {
+	for m.boards.cursor < unset {
 		update(t, m, "j")
 	}
-	if !m.labels.chartRows()[m.labels.cursor].unset {
-		t.Fatalf("cursor = %d want unset row %d before render", m.labels.cursor, unset)
+	if !m.boards.chartRows()[m.boards.cursor].unset {
+		t.Fatalf("cursor = %d want unset row %d before render", m.boards.cursor, unset)
 	}
-	_ = m.labels.View()
-	if !m.labels.chartRows()[m.labels.cursor].unset {
-		t.Fatalf("cursor moved after render: got %d want unset row %d", m.labels.cursor, unset)
+	_ = m.boards.View()
+	if !m.boards.chartRows()[m.boards.cursor].unset {
+		t.Fatalf("cursor moved after render: got %d want unset row %d", m.boards.cursor, unset)
 	}
 	if err := m.store.LabelAdd("ATM:status:later", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.labels.refresh()
-	if !m.labels.chartRows()[m.labels.cursor].unset {
-		t.Fatalf("cursor moved after refresh: got %d want unset row %d", m.labels.cursor, unset)
+	m.boards.refresh()
+	if !m.boards.chartRows()[m.boards.cursor].unset {
+		t.Fatalf("cursor moved after refresh: got %d want unset row %d", m.boards.cursor, unset)
 	}
 }
 
-func TestLabelsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
+func TestBoardsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "both", "ATM:status:open", "ATM:status:done")
@@ -394,10 +524,10 @@ func TestLabelsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
 	cursorToNamespaceRow(t, m, "status")
 	update(t, m, "enter")
 
-	mustContain(t, m.labels.View(), "status  ·  2 tasks")
+	mustContain(t, m.boards.View(), "status  ·  2 tasks")
 }
 
-func TestLabelsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
+func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
@@ -410,25 +540,25 @@ func TestLabelsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	cursorToChartLabel(t, m, "ATM:status:open")
 	update(t, m, "enter") // detail
 
-	if m.labels.level != lLevelDetail {
-		t.Fatalf("level = %v want detail", m.labels.level)
+	if m.boards.level != lLevelDetail {
+		t.Fatalf("level = %v want detail", m.boards.level)
 	}
 	if m.tasks.filter != "ATM:status:open" || m.tasks.focus.mode != focusOff {
 		t.Fatalf("tasks focus/filter = %+v %q want off/exact", m.tasks.focus, m.tasks.filter)
 	}
-	mustContain(t, m.labels.View(), "name        ATM:status:open")
+	mustContain(t, m.boards.View(), "name        ATM:status:open")
 
 	// Esc returns to the chart and re-applies present focus.
 	update(t, m, "esc")
-	if m.labels.level != lLevelChart {
-		t.Fatalf("level = %v want chart after esc", m.labels.level)
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v want chart after esc", m.boards.level)
 	}
 	if m.tasks.filter != "ATM:status:*" || m.tasks.focus.mode != focusPresent {
 		t.Fatalf("chart focus not restored: %+v %q", m.tasks.focus, m.tasks.filter)
 	}
 }
 
-func TestLabelsChartEnterUnsetFiltersAbsent(t *testing.T) {
+func TestBoardsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
@@ -449,14 +579,14 @@ func TestLabelsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
 	}
-	mustContain(t, m.labels.View(), "1 task with no status")
+	mustContain(t, m.boards.View(), "1 task with no status")
 	update(t, m, "esc")
-	if m.labels.level != lLevelChart || m.tasks.focus.mode != focusPresent {
-		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.labels.level, m.tasks.focus)
+	if m.boards.level != lLevelChart || m.tasks.focus.mode != focusPresent {
+		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.boards.level, m.tasks.focus)
 	}
 }
 
-func TestLabelsChartRemovePrefillsCursorLabel(t *testing.T) {
+func TestBoardsChartRemovePrefillsCursorLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
@@ -477,7 +607,7 @@ func TestLabelsChartRemovePrefillsCursorLabel(t *testing.T) {
 	}
 }
 
-func TestLabelsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
+func TestBoardsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
@@ -499,7 +629,7 @@ func TestLabelsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
 	}
 }
 
-func TestLabelsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
+func TestBoardsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:priority:high"}, m.actor); err != nil {
@@ -523,9 +653,9 @@ func TestLabelsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
 
 func cursorToChartLabel(t *testing.T, m *Model, full string) {
 	t.Helper()
-	for i, r := range m.labels.chartRows() {
+	for i, r := range m.boards.chartRows() {
 		if r.full == full {
-			m.labels.cursor = i
+			m.boards.cursor = i
 			return
 		}
 	}
@@ -534,9 +664,9 @@ func cursorToChartLabel(t *testing.T, m *Model, full string) {
 
 func cursorToChartUnset(t *testing.T, m *Model) {
 	t.Helper()
-	for i, r := range m.labels.chartRows() {
+	for i, r := range m.boards.chartRows() {
 		if r.unset {
-			m.labels.cursor = i
+			m.boards.cursor = i
 			return
 		}
 	}

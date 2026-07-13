@@ -228,7 +228,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "s":
 		if r, ok := p.selected(); ok {
 			p.m.projectScope = r.code
-			p.m.labels.reset()
+			p.m.boards.reset()
 			p.m.tasks.focus = taskFocus{}
 			p.m.tasks.filter = ""
 			// D15: auto-start the indexer for the newly-selected project
@@ -246,7 +246,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			}
 			cmd := autoStartIndexer(p.m, r.code)
 			p.m.tasks.refresh()
-			p.m.labels.refresh()
+			p.m.boards.refresh()
 			return cmd
 		}
 	case "a":

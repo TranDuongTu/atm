@@ -11,12 +11,12 @@ type keymap struct{}
 func defaultKeymap() keymap { return keymap{} }
 
 // keyEntry is one row of the global keymap reference table (help Section 2).
-// Columns: Key | Projects | Tasks | Labels | Detail.
+// Columns: Key | Projects | Tasks | Boards | Detail.
 type keyEntry struct {
 	Key      string
 	Projects string
 	Tasks    string
-	Labels   string
+	Boards   string
 	Detail   string
 }
 
@@ -25,7 +25,7 @@ var keymapRows = []keyEntry{
 	{"1/2/3", "focus pane", "focus pane", "focus pane", "focus pane"},
 	{"j/k", "move cursor", "move cursor", "move cursor", "scroll"},
 	{"g", "top of list", "top of list", "top of list", "top"},
-	{"Enter", "open detail", "open detail / toggle group", "drill into namespace / open label detail", "confirm overlay"},
+	{"Enter", "open detail", "open detail / toggle group", "drill into namespace / open label detail / select board", "confirm overlay"},
 	{"Esc", "back", "back", "back up a level", "back / cancel overlay"},
 	{"s", "select project", "cycle sort", "-", "-"},
 	{"S", "-", "-", "seed default labels", "-"},
