@@ -16,7 +16,7 @@
       "created_at": "TIMESTAMP",
       "created_by": "admin@cli:unset",
       "history": [],
-      "log_seq": 16,
+      "log_seq": 20,
       "name": "Demo Project",
       "next_task_n": 2,
       "updated_at": "TIMESTAMP",

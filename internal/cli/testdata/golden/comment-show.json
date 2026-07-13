@@ -8,12 +8,12 @@
         "action": "comment.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 19
+        "seq": 23
       }
     ],
     "id": "ATM-0001-c0001",
     "labels": [],
-    "log_seq": 19,
+    "log_seq": 23,
     "task_id": "ATM-0001",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"

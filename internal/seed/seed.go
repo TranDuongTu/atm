@@ -11,12 +11,16 @@
 package seed
 
 // Label is one default label to seed into a new project. Suffix is the
-// "<namespace>:<value>" or "<tag>" portion; the project code prefix is
-// prepended at apply time. Description is the intention statement
-// surfaced in the Labels tab and read by agents during first-contact.
+// "<namespace>:<value>", "<namespace>:*" (a namespace descriptor), or
+// "<tag>" portion; the project code prefix is prepended at apply time.
+// Description is the intention statement surfaced in the Labels tab and
+// read by agents during first-contact. Expr, when non-empty, seeds a
+// computed label (a board); no default board is seeded today, so the
+// field exists for future use and zero-fills for every current entry.
 type Label struct {
 	Suffix      string
 	Description string
+	Expr        string
 }
 
 // Labels is the single source of truth for the default label set seeded
@@ -33,17 +37,28 @@ type Label struct {
 // "do this first". Everything else (type, fixit, stale, finer status
 // granularity, medium/low priority) is invented on demand when an
 // agent's intent genuinely diverges — per code-of-conduct rule #3.
+//
+// The four `:*` entries are namespace descriptors: they give a
+// namespace its meaning record (a description) so a reader knows what
+// the axis is. They are optional metadata, not a gate — an unseeded
+// namespace (e.g. `type:*`) still works, it just surfaces as
+// undescribed in the Boards pane. `type:*` is intentionally NOT seeded
+// because `type` is invented on demand.
 var Labels = []Label{
-	{"status:open", "workflow state: open; task is not started or is being considered"},
-	{"status:in-progress", "workflow state: in-progress; someone is actively working on this"},
-	{"status:done", "workflow state: done; task is complete"},
-	{"status:blocked", "workflow state: blocked; task cannot proceed pending something else"},
-	{"priority:high", "optional prioritization: high; do this first, everything untagged is default priority"},
-	{"context:agent", "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know"},
-	{"context:repository", "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient"},
-	{"context:documentation", "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it"},
-	{"context:question", "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding"},
-	{"comment:progress", "task comment kind: a progress note during work"},
-	{"comment:decision", "task comment kind: a decision recorded during work"},
-	{"comment:open-question", "task comment kind: an open question raised during work"},
+	{Suffix: "status:*", Description: "lifecycle state of a task; exactly one status label should be present"},
+	{Suffix: "status:open", Description: "workflow state: open; task is not started or is being considered"},
+	{Suffix: "status:in-progress", Description: "workflow state: in-progress; someone is actively working on this"},
+	{Suffix: "status:done", Description: "workflow state: done; task is complete"},
+	{Suffix: "status:blocked", Description: "workflow state: blocked; task cannot proceed pending something else"},
+	{Suffix: "priority:*", Description: "optional urgency ranking; absent means default priority"},
+	{Suffix: "priority:high", Description: "optional prioritization: high; do this first, everything untagged is default priority"},
+	{Suffix: "context:*", Description: "index tasks whose description is the payload: agent directions, repos, docs, questions"},
+	{Suffix: "context:agent", Description: "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know"},
+	{Suffix: "context:repository", Description: "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient"},
+	{Suffix: "context:documentation", Description: "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it"},
+	{Suffix: "context:question", Description: "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding"},
+	{Suffix: "comment:*", Description: "the kinds of narrative an agent writes on a task"},
+	{Suffix: "comment:progress", Description: "task comment kind: a progress note during work"},
+	{Suffix: "comment:decision", Description: "task comment kind: a decision recorded during work"},
+	{Suffix: "comment:open-question", Description: "task comment kind: an open question raised during work"},
 }

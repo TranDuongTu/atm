@@ -50,8 +50,8 @@ func TestLabelsTabSeedKey(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "3")
 	update(t, m, "S")
-	if !strings.Contains(m.toastMsg, "seeded 12 labels into ATM") {
-		t.Fatalf("toast = %q, want seeded 12 labels into ATM", m.toastMsg)
+	if !strings.Contains(m.toastMsg, "seeded 16 labels into ATM") {
+		t.Fatalf("toast = %q, want seeded 16 labels into ATM", m.toastMsg)
 	}
 	if _, err := m.store.LabelShow("ATM:context:question"); err != nil {
 		t.Errorf("ATM:context:question not restored after seed: %v", err)

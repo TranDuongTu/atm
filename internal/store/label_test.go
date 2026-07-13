@@ -77,9 +77,9 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	_ = s.LabelAdd("ATM:custom:a", "", "", testActor)
 	_ = s.LabelAdd("ATM:custom:b", "", "", testActor)
 	_ = s.LabelAdd("SCY:custom:a", "", "", testActor)
-	// ATM has 12 seeded + 2 custom = 14.
-	if got := len(s.LabelList("ATM", "")); got != 14 {
-		t.Fatalf("ATM labels = %d want 14", got)
+	// ATM has 16 seeded + 2 custom = 18.
+	if got := len(s.LabelList("ATM", "")); got != 18 {
+		t.Fatalf("ATM labels = %d want 18", got)
 	}
 	// Filter to the custom namespace.
 	if got := len(s.LabelList("ATM", "custom")); got != 2 {
@@ -245,6 +245,36 @@ func TestLabelAddRejectsSelfReference(t *testing.T) {
 	err := s.LabelAdd("ATM:loop", "d", "loop", testActor)
 	if !errors.Is(err, ErrCyclicExpr) {
 		t.Fatalf("err = %v, want ErrCyclicExpr", err)
+	}
+}
+
+func TestSeedAddsNamespaceDescriptors(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	l, err := s.LabelShow("ATM:status:*")
+	if err != nil {
+		t.Fatalf("namespace descriptor must be seeded: %v", err)
+	}
+	if l.Description == "" {
+		t.Error("seeded namespace descriptor must carry a description")
+	}
+	if !l.IsComputed() {
+		t.Error("a namespace label is computed")
+	}
+}
+
+// I4 — a namespace with no descriptor still works; the descriptor is
+// optional metadata, never a gate.
+func TestUnseededNamespaceStillUsable(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_, err := s.CreateTask("ATM", "t", "", []string{"ATM:sprint:next"}, testActor)
+	if err != nil {
+		t.Fatalf("using an undescribed namespace must work: %v", err)
+	}
+	got := s.ListTasks(QueryFilters{Project: "ATM", Expr: "sprint:*"})
+	if len(got) != 1 {
+		t.Fatalf("got %d tasks, want 1", len(got))
 	}
 }
 

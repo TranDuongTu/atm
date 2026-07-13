@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var suffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`)
+var suffixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*|:\*)?$`)
 
 func TestLabelsNonEmpty(t *testing.T) {
 	if len(Labels) == 0 {
@@ -39,9 +39,9 @@ func TestLabelsDescriptionsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestLabelsCountIs12(t *testing.T) {
-	if len(Labels) != 12 {
-		t.Fatalf("seed.Labels has %d entries, want 12", len(Labels))
+func TestLabelsCountIs16(t *testing.T) {
+	if len(Labels) != 16 {
+		t.Fatalf("seed.Labels has %d entries, want 16", len(Labels))
 	}
 }
 
@@ -66,6 +66,40 @@ func TestCommentLabelsPresent(t *testing.T) {
 	for _, suffix := range want {
 		if !have[suffix] {
 			t.Errorf("%q missing from seed.Labels", suffix)
+		}
+	}
+}
+
+func TestNamespaceDescriptorsSeeded(t *testing.T) {
+	want := map[string]string{
+		"status:*":   "lifecycle state of a task; exactly one status label should be present",
+		"priority:*": "optional urgency ranking; absent means default priority",
+		"context:*":  "index tasks whose description is the payload: agent directions, repos, docs, questions",
+		"comment:*":  "the kinds of narrative an agent writes on a task",
+	}
+	have := map[string]Label{}
+	for _, l := range Labels {
+		have[l.Suffix] = l
+	}
+	for suffix, desc := range want {
+		l, ok := have[suffix]
+		if !ok {
+			t.Errorf("namespace descriptor %q missing from seed.Labels", suffix)
+			continue
+		}
+		if l.Description != desc {
+			t.Errorf("namespace descriptor %q description = %q want %q", suffix, l.Description, desc)
+		}
+		if l.Expr != "" {
+			t.Errorf("namespace descriptor %q must not carry an Expr (implicit), got %q", suffix, l.Expr)
+		}
+	}
+}
+
+func TestTypeNamespaceNotSeeded(t *testing.T) {
+	for _, l := range Labels {
+		if l.Suffix == "type:*" {
+			t.Errorf("type:* must NOT be seeded — type is invented on demand, found %q", l.Suffix)
 		}
 	}
 }

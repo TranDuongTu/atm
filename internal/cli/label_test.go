@@ -100,8 +100,8 @@ func TestGoldenLabelSeed(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, `"seeded": 12`) {
-		t.Fatalf("missing seeded: 12 in JSON output: %s", out)
+	if !strings.Contains(out, `"seeded": 16`) {
+		t.Fatalf("missing seeded: 16 in JSON output: %s", out)
 	}
 	if !strings.Contains(out, `"ATM:context:question"`) {
 		t.Fatalf("missing ATM:context:question in seed output: %s", out)
@@ -119,7 +119,7 @@ func TestLabelSeedTextOutput(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, "seeded 12 labels into ATM") {
-		t.Fatalf("text output missing 'seeded 12 labels into ATM': %s", out)
+	if !strings.Contains(out, "seeded 16 labels into ATM") {
+		t.Fatalf("text output missing 'seeded 16 labels into ATM': %s", out)
 	}
 }

@@ -178,7 +178,7 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 func (s *Store) SeedLabels(code, actor string) error {
 	for _, l := range seed.Labels {
 		full := code + ":" + l.Suffix
-		if err := s.LabelSeed(full, l.Description, "", actor); err != nil {
+		if err := s.LabelSeed(full, l.Description, l.Expr, actor); err != nil {
 			return err
 		}
 	}
@@ -200,12 +200,12 @@ func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
 			Subject: Subject{Kind: "label", Name: full},
-			Payload: mustMarshal(Label{Name: full, Description: l.Description, Expr: ""}),
+			Payload: mustMarshal(Label{Name: full, Description: l.Description, Expr: l.Expr}),
 		})
 		if err != nil {
 			return err
 		}
-		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, Expr: "", LogSeq: entry.Seq}); err != nil {
+		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, Expr: l.Expr, LogSeq: entry.Seq}); err != nil {
 			return err
 		}
 	}

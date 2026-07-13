@@ -33,6 +33,10 @@
     "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:priority:high is high-priority open work.",
     "seeded_labels": [
       {
+        "description": "lifecycle state of a task; exactly one status label should be present",
+        "suffix": "status:*"
+      },
+      {
         "description": "workflow state: open; task is not started or is being considered",
         "suffix": "status:open"
       },
@@ -49,8 +53,16 @@
         "suffix": "status:blocked"
       },
       {
+        "description": "optional urgency ranking; absent means default priority",
+        "suffix": "priority:*"
+      },
+      {
         "description": "optional prioritization: high; do this first, everything untagged is default priority",
         "suffix": "priority:high"
+      },
+      {
+        "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
+        "suffix": "context:*"
       },
       {
         "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
@@ -67,6 +79,10 @@
       {
         "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
         "suffix": "context:question"
+      },
+      {
+        "description": "the kinds of narrative an agent writes on a task",
+        "suffix": "comment:*"
       },
       {
         "description": "task comment kind: a progress note during work",
