@@ -114,3 +114,61 @@ func TestFormActiveCursorCellFitsModal(t *testing.T) {
 	f := NewForm("Edit title", fields)
 	assertNoFormLineExceeds(t, f, styles, ceiling)
 }
+
+// TestFormActiveFieldShowsCursorForLongValue reproduces the regression
+// introduced by the ATM-0091 fix's head-truncation: the form's input model
+// appends runes to fld.Value and renders the cursor as a trailing underline
+// cell after the value, so the cursor is always at the END of the buffer. A
+// head-truncation (fitLine) shows the start of a long value and hides the
+// cursor (and any newly typed runes) off the right edge — the user can no
+// longer see what they type. The active field must instead show a tail
+// window of the value so the trailing cursor cell and the most recently
+// typed runes stay visible within the field width.
+func TestFormActiveFieldShowsCursorForLongValue(t *testing.T) {
+	styles := buildStyles(themeGraphite)
+	// Use a distinguishable value: "AAAA...Z" so the head (A's) and tail (Z)
+	// do not overlap. Head-truncation would show A's and hide the Z.
+	long := strings.Repeat("A", 320) + "Z" // 321 chars; tail is "...Z"
+	fields := []formField{
+		{Label: "title", Required: true, Value: long, Hint: "new task title"},
+	}
+	f := NewForm("Edit title", fields)
+	f.zone = focusFields
+	f.cursor = 0
+
+	view := f.View(styles)
+	// The tail of the value (the last rune the user would see next to the
+	// cursor) must be visible, not just the head of A's.
+	if !strings.Contains(view, "Z") {
+		t.Fatalf("tail of long value not visible in active field (cursor off-screen); expected to see 'Z' near the cursor\n--- view ---\n%s", view)
+	}
+	// And the cursor cell (underline-styled space) must be rendered.
+	cursorCell := styles.FieldValue.Underline(true).Render(" ")
+	if !strings.Contains(view, cursorCell) {
+		t.Fatalf("active field's trailing cursor cell not visible in view\n--- view ---\n%s", view)
+	}
+}
+
+// TestFormInactiveFieldShowsValueHeadForLongValue confirms that a long value
+// on a NON-active field still shows the head (start) of the value, since
+// there is no cursor to keep visible there. This preserves the original
+// ATM-0091 fix's intent (no overflow) for non-focused rows while only the
+// active row switches to a tail window.
+func TestFormInactiveFieldShowsValueHeadForLongValue(t *testing.T) {
+	styles := buildStyles(themeGraphite)
+	// Distinguishable value: head is "H" + A's, tail is A's + "Z".
+	long := "H" + strings.Repeat("A", 319) + "Z" // 321 chars
+	fields := []formField{
+		{Label: "title", Required: true, Value: long, Hint: "new task title"},
+		{Label: "description", Required: false, Value: "", Hint: "new description"},
+	}
+	f := NewForm("Edit title", fields)
+	// Focus the second field so the first (title) is inactive.
+	f.zone = focusFields
+	f.cursor = 1
+
+	view := f.View(styles)
+	if !strings.Contains(view, "H") {
+		t.Fatalf("head of long value not visible on inactive field; expected to see 'H'\n--- view ---\n%s", view)
+	}
+}

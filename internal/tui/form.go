@@ -220,17 +220,33 @@ func (f *Form) View(styles Styles) string {
 		active := f.zone == focusFields && i == f.cursor
 		label := styles.FieldLabel.Render(fld.Label + ":")
 		// Render the typed value plain, and only the trailing cursor cell with
-		// an underline so the input text itself is not underlined. The value is
-		// truncated to the form's inner width (less label, separator, and the
-		// active cursor cell) so a long prefilled value cannot grow the
-		// Dialog-bordered modal past its declared width (ATM-0091).
+		// an underline so the input text itself is not underlined. The value
+		// is truncated to the form's inner width (less label, separator, and
+		// the active cursor cell) so a long prefilled value cannot grow the
+		// Dialog-bordered modal past its declared width (ATM-0091). The
+		// active field shows the TAIL of the value (fitLineFrom from the end)
+		// so the trailing cursor cell and the most recently typed runes stay
+		// visible; the form's input model only appends runes, so the cursor
+		// is always at the end of fld.Value. Inactive fields show the head
+		// (fitLine) since there is no cursor to keep on-screen.
 		labelW := lipgloss.Width(label)
 		cursorW := 0
 		if active {
 			cursorW = 1
 		}
 		valueW := innerW - labelW - 1 /*sep*/ - cursorW
-		val := styles.FieldValue.Render(fitLine(fld.Value, valueW))
+		var shown string
+		if active {
+			totalW := lipgloss.Width(fld.Value)
+			start := 0
+			if totalW > valueW {
+				start = totalW - valueW
+			}
+			shown = fitLineFrom(fld.Value, start, valueW)
+		} else {
+			shown = fitLine(fld.Value, valueW)
+		}
+		val := styles.FieldValue.Render(shown)
 		if active {
 			val += styles.FieldValue.Underline(true).Render(" ")
 		}
