@@ -192,12 +192,12 @@ func TestManageContextRendersPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Tracking", "Asking", "Glossary", "Onboarding", "conventions"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "Onboarding", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
 	}
-	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary"} {
+	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary"} {
 		if strings.Contains(got, old) {
 			t.Errorf("manage-context output still contains old term %q", old)
 		}
