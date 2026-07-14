@@ -309,6 +309,19 @@ Every input is byte-identical on every copy of the log, so **any two machines up
 
 ---
 
+# Implementation refinements (ATM-0106 implementation phase)
+
+The reference implementation is `internal/eventsource` (see `docs/superpowers/specs/2026-07-14-eventsource-core-v2-design.md` for the full list of implementation decisions). Two D6 refinements and two L2 clarifications discovered during implementation are recorded here so the spec stays honest:
+
+- **Creation events carry no `subject.id`** — an event cannot contain its own hash. The v1 alias moves from `subject.id` to `payload.alias` during the upgrade; `subject.id` on every non-creation event holds the entity identity as specified.
+- **The D6 "carried across unchanged" row is refined**: the upgrade also (a) synthesizes identity references `task_ref`/`reply_to_ref` on `comment.created` from the v1 alias references, which stay in the payload verbatim; (b) synthesizes per-slot membership deltas (`payload.label`) on `*.label-added/-removed` from consecutive v1 snapshots — a pure function of the log, so D6's purity rule is untouched; (c) materializes absent `description`/`expr` keys on `label.upserted` as `""`, converting v1's replace-the-record semantics into v2's write-present-keys slot semantics without changing any outcome.
+- **`label.upserted` writes the label's existence slot as "live"** — remove-then-reupsert resurrects a label, matching v1 semantics; concurrent upsert‖remove resolves live (keep beats drop).
+- **The HLC total order carries a defensive fourth key** (the event id): two different projects upgraded under `_v1` can collide on `(p, l, replica)` after a cross-project merge; the id keeps the fold deterministic there.
+- **JSON `null` is an absent list, not a list containing the empty string.** The v1 log writes `"labels": null` for any entity created with no labels (a nil Go slice marshals to `null`), and `encoding/json` decodes `null` into a `string` without error. A payload accessor that decodes a scalar before a list therefore yields `[""]` — a phantom empty-string label on every such entity. The reference implementation treats a `null` payload value as an absent list. This was caught by the equivalence capstone and by nothing else: every unit test asserts the model against itself, while the capstone asserts it against a real v1 log.
+- **A label is also computed when its name ends `:*` (a namespace label), not only when its `expression` slot resolves non-empty** — the reference implementation's `LabelState.IsComputed` is `Expr != "" || isNamespaceName(Name)`, mirroring v1's `store.Label.IsComputed` (`Expr != "" || IsNamespaceName(Name)`) exactly, so v1 and v2 agree on which labels are computed.
+
+---
+
 # What this spec does not decide
 
 - **On-disk layout** of the DAG, and how cross-project merge is represented — L3.

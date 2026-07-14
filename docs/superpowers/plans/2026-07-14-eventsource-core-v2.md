@@ -56,8 +56,10 @@ docs/eventsource/01-core-data-model.md   Task 13 (amendment section)
 
 - [ ] **Step 1: Add the dependency**
 
+Run from the repository root of the CURRENT checkout (do not `cd` to an absolute path — this plan executes in a worktree, and installing into a different checkout leaves this one unable to compile):
+
 ```bash
-cd /home/ttran/projects/scyllas/atm && go get github.com/gowebpki/jcs@latest && go mod tidy
+go get github.com/gowebpki/jcs@latest && go mod tidy
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -2113,11 +2115,19 @@ type LabelState struct {
 	UpdatedBy   string
 }
 
+// isNamespaceName reports whether a label name denotes a namespace label.
+// Namespace-ness is a property of the name alone, so it holds even for a
+// label with no stored record. Sole definition of the ":*" rule.
+func isNamespaceName(name string) bool {
+	return strings.HasSuffix(name, ":*")
+}
+
 // IsComputed reports whether membership is derived rather than asserted:
-// boards (Expr set) and namespace labels (name ends in ":*"). For a
-// computed label every membership slot is inert (L2-6).
+// boards (Expr set) and namespace labels. For a computed label every
+// membership slot is inert (L2-6). Sole definition of the L2-6 rule — every
+// other site delegates here rather than restating it.
 func (l *LabelState) IsComputed() bool {
-	return l.Expr != "" || strings.HasSuffix(l.Name, ":*")
+	return l.Expr != "" || isNamespaceName(l.Name)
 }
 
 // FoldEvents builds the DAG and folds it.
@@ -2186,11 +2196,13 @@ func Fold(d *DAG) *State {
 		}
 	}
 
+	// A label may be referenced by a membership slot without ever having been
+	// upserted, so there may be no LabelState to ask; fall back to the name.
 	computed := func(name string) bool {
-		if l := st.Labels[name]; l != nil && l.Expr != "" {
-			return true
+		if l := st.Labels[name]; l != nil {
+			return l.IsComputed()
 		}
-		return strings.HasSuffix(name, ":*")
+		return isNamespaceName(name)
 	}
 
 	// Pass 2 — membership and contested, iterating slots in sorted order
@@ -2236,15 +2248,23 @@ func Fold(d *DAG) *State {
 
 	// Pass 3 — UpdatedAt/UpdatedBy from the HLC-greatest maximal writer
 	// across each entity's slots (creation included, so it is the floor).
+	// Both loops iterate sorted keys — `keys` from Pass 2, then the entity ids
+	// — per the global constraint that fold output never reads map order.
 	lastWrite := map[string]*Event{}
-	for k, ws := range maximal {
-		for _, w := range ws {
+	for _, k := range keys {
+		for _, w := range maximal[k] {
 			if cur := lastWrite[k.entity]; cur == nil || CompareEvents(cur, w.event) < 0 {
 				lastWrite[k.entity] = w.event
 			}
 		}
 	}
-	for entity, e := range lastWrite {
+	entities := make([]string, 0, len(lastWrite))
+	for entity := range lastWrite {
+		entities = append(entities, entity)
+	}
+	sort.Strings(entities)
+	for _, entity := range entities {
+		e := lastWrite[entity]
 		switch {
 		case st.Projects[entity] != nil:
 			st.Projects[entity].UpdatedAt, st.Projects[entity].UpdatedBy = e.At, e.Actor
@@ -2992,6 +3012,10 @@ func TestUpgradeV1Errors(t *testing.T) {
 	cases := map[string]string{
 		"malformed line":    "{not json}\n",
 		"dangling alias":    `{"seq":1,"at":"2026-07-01T10:00:00Z","actor":"a","action":"task.title-changed","subject":{"kind":"task","id":"ATM-0009"},"payload":{"title":"x"}}` + "\n",
+		// A project event whose code has no project.created must abort too —
+		// tolerating it would emit an event with an empty subject.id that the
+		// fold then silently drops (spec decision 13).
+		"dangling project":  `{"seq":1,"at":"2026-07-01T10:00:00Z","actor":"a","action":"project.name-changed","subject":{"kind":"project","code":"ZZZ"},"payload":{"name":"x"}}` + "\n",
 		"duplicate creation": `{"seq":1,"at":"2026-07-01T10:00:00Z","actor":"a","action":"task.created","subject":{"kind":"task","id":"ATM-0001"},"payload":{"id":"ATM-0001","title":"a","labels":[]}}` + "\n" + `{"seq":2,"at":"2026-07-01T10:00:01Z","actor":"a","action":"task.created","subject":{"kind":"task","id":"ATM-0001"},"payload":{"id":"ATM-0001","title":"b","labels":[]}}` + "\n",
 	}
 	for name, log := range cases {
@@ -3134,9 +3158,15 @@ func UpgradeV1(logData []byte) (*UpgradeResult, error) {
 				}
 				subject.ID = id
 			case "project":
-				if id, ok := res.IdentityByAlias[subject.Code]; ok {
-					subject.ID = id
+				// Same rule as task/comment: a dangling reference aborts the
+				// upgrade (spec decision 13 — lossless or it does not happen).
+				// Tolerating the miss would emit an event with an empty
+				// subject.id, which collectWrites silently drops.
+				id, ok := res.IdentityByAlias[subject.Code]
+				if !ok {
+					return nil, fmt.Errorf("eventsource: upgrade: line %d: %s event for unknown project %q", lineNo, v1.Action, subject.Code)
 				}
+				subject.ID = id
 			}
 		}
 

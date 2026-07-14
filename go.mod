@@ -6,6 +6,7 @@ require (
 	github.com/NimbleMarkets/ntcharts v0.5.1
 	github.com/charmbracelet/bubbletea v1.2.2
 	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/gowebpki/jcs v1.0.1
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.15.2
 	github.com/spf13/cobra v1.8.1
