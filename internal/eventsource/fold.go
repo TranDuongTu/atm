@@ -35,7 +35,10 @@ type slotWrite struct {
 // slot the last writer is the LWW winner. Reported structurally — filtering
 // same-outcome noise is board-vocabulary policy, not fold policy (spec
 // decision 9). Membership slots of computed labels are inert and never
-// reported.
+// reported. Because dangling writes are inert rather than errors (spec
+// decision 10), Entity may name an entity with no creation event in the
+// set and so appear in none of State.Projects/Tasks/Comments/Labels —
+// callers must not assume a lookup by Entity succeeds.
 type ContestedSlot struct {
 	Entity  string
 	Kind    string

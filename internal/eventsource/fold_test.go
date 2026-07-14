@@ -247,6 +247,40 @@ func TestFoldTasksByCreationUsesHLCStamp(t *testing.T) {
 	}
 }
 
+func TestFoldTasksByCreationStableOnHLCTie(t *testing.T) {
+	// Two clocks seeded identically both produce {P: 1001, L: 0} on their
+	// first Tick(), so two tasks authored on the SAME replica — one per
+	// clock — get byte-identical CreatedHLC and CreatedReplica. Only the
+	// entity id can break the tie. compareCreation's final
+	// strings.Compare(a.ID, b.ID) exists exactly for this case: without it
+	// these two entities compare equal, and TasksByCreation ranges a Go map
+	// (randomized iteration order per range) into sort.Slice, which is
+	// UNSTABLE — so the returned order would vary from call to call.
+	ca, cb := testClock(1000), testClock(1000)
+	t1 := testEvent(t, ca, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-a", "title": "a"})
+	t2 := testEvent(t, cb, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-b", "title": "b"})
+	if t1.HLC != t2.HLC || t1.Replica != t2.Replica {
+		t.Fatalf("test setup broken: want identical creation hlc/replica, got %+v/%s vs %+v/%s",
+			t1.HLC, t1.Replica, t2.HLC, t2.Replica)
+	}
+	if t1.ID == t2.ID {
+		t.Fatal("test setup broken: want distinct entity ids")
+	}
+	want := []string{t1.ID, t2.ID}
+	if t2.ID < t1.ID {
+		want = []string{t2.ID, t1.ID}
+	}
+	st := fold(t, t1, t2)
+	for i := 0; i < 50; i++ {
+		got := st.TasksByCreation()
+		if len(got) != 2 || got[0].ID != want[0] || got[1].ID != want[1] {
+			t.Fatalf("run %d: order = [%s, %s], want the id-sorted order %v", i, got[0].ID, got[1].ID, want)
+		}
+	}
+}
+
 func TestFoldUpdatedMetaTracksWinningWriter(t *testing.T) {
 	// Author the edit directly (not via testEvent) so its actor and at
 	// differ from the creation's — otherwise the assertion is vacuous.

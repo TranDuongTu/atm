@@ -318,6 +318,7 @@ The reference implementation is `internal/eventsource` (see `docs/superpowers/sp
 - **`label.upserted` writes the label's existence slot as "live"** — remove-then-reupsert resurrects a label, matching v1 semantics; concurrent upsert‖remove resolves live (keep beats drop).
 - **The HLC total order carries a defensive fourth key** (the event id): two different projects upgraded under `_v1` can collide on `(p, l, replica)` after a cross-project merge; the id keeps the fold deterministic there.
 - **JSON `null` is an absent list, not a list containing the empty string.** The v1 log writes `"labels": null` for any entity created with no labels (a nil Go slice marshals to `null`), and `encoding/json` decodes `null` into a `string` without error. A payload accessor that decodes a scalar before a list therefore yields `[""]` — a phantom empty-string label on every such entity. The reference implementation treats a `null` payload value as an absent list. This was caught by the equivalence capstone and by nothing else: every unit test asserts the model against itself, while the capstone asserts it against a real v1 log.
+- **A label is also computed when its name ends `:*` (a namespace label), not only when its `expression` slot resolves non-empty** — the reference implementation's `LabelState.IsComputed` is `Expr != "" || isNamespaceName(Name)`, mirroring v1's `store.Label.IsComputed` (`Expr != "" || IsNamespaceName(Name)`) exactly, so v1 and v2 agree on which labels are computed.
 
 ---
 

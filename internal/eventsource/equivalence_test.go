@@ -21,7 +21,12 @@ const actor = "admin@cli:test"
 // v1 log, FoldEvents(UpgradeV1(log)) reproduces store.Replay exactly on every
 // field that survives into v2 — titles, descriptions, bodies, label membership,
 // existence, aliases and cross-entity references. Timestamps and the retired
-// NextTaskN/NextCommentN counters are out of scope by design.
+// NextTaskN/NextCommentN counters are out of scope by design. Known, intentional
+// divergence not exercised by this scenario: if a v1 ledger ever assigned a
+// BOARD label (one carrying an expr) to a task, store.Replay lists it in
+// task.Labels while the v2 fold correctly drops it (L2-6 — computed-label
+// membership is derived, never asserted; the raw event is still preserved in
+// the log). This scenario only ever assigns plain labels, so it never hits that case.
 func TestFoldOfUpgradeMatchesReplay(t *testing.T) {
 	root := t.TempDir()
 	s, err := store.Open(root)
