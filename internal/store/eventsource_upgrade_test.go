@@ -247,6 +247,72 @@ func TestArchiveV2FileNeverOverwritesAPreviousArchive(t *testing.T) {
 	}
 }
 
+// A label that a task already carries can be turned INTO a board (`atm label
+// add --expr` on the same name) and later removed. LabelRemove deletes only
+// the label record — the name stays on the task — so the v1 replay still
+// lists it while the v2 fold drops the membership slot as inert (the label
+// state is still there, Tombstoned, and still computed). The compare oracle
+// must resolve computed-ness against ALL fold label states, tombstoned
+// included, or such a store can never be upgraded again.
+func TestUpgradeToleratesMembershipOfARemovedBoardLabel(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "carries the label", "", []string{"ATM:hot"}, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	// The plain label the task carries becomes a board...
+	if err := s.LabelAdd("ATM:hot", "now a board", "status:open", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	// ...and is then removed. The task keeps the name (RetainedUsage).
+	res, err := s.LabelRemove("ATM:hot", "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RetainedUsage == 0 {
+		t.Fatal("precondition: the task must still carry the removed label name")
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatalf("upgrade refused a store whose task carries a removed board label: %v", err)
+	}
+	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
+		t.Fatalf("format = %q, want v2", f)
+	}
+}
+
+// Rollback rebuilds the cache from v1 BEFORE flipping the format. If the v2
+// freshness row survived that rebuild, a crash in the window (or any later v2
+// reader) would see format=v2, a matching last_v2_event_count, and v1-derived
+// rows: a coherent-looking cache missing every post-cutover v2 write.
+func TestRollbackClearsV2FreshnessRow(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
+		t.Fatal(err)
+	} else if !ok {
+		t.Fatal("precondition: upgrade must record a v2 freshness row")
+	}
+	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("v2 freshness row survived rollback (count=%d): a v1-derived cache would look fresh to a v2 reader", n)
+	}
+}
+
 func TestUpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {

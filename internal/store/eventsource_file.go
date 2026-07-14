@@ -134,6 +134,13 @@ func (s *Store) archiveV2FileLocked(code, reason string) (string, error) {
 		if err := f.Close(); err != nil {
 			return "", err
 		}
-		return dst, os.Rename(path, dst)
+		if err := os.Rename(path, dst); err != nil {
+			// Drop the reservation: a 0-byte events.v2.<reason>.<ts>.jsonl left
+			// behind is indistinguishable from a real archive to verify/doctor,
+			// and would claim to hold events it never received.
+			_ = os.Remove(dst)
+			return "", err
+		}
+		return dst, nil
 	}
 }

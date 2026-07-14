@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"atm/internal/eventsource"
@@ -135,6 +136,7 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 			return err
 		}
 		if err := os.Rename(tmp, s.eventsV2Path(code)); err != nil {
+			_ = os.Remove(tmp)
 			return err
 		}
 		if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
@@ -227,20 +229,25 @@ func (s *Store) compareV2FoldToV1Replay(code string, st *eventsource.State) erro
 		}
 	}
 
-	// computed reports whether membership in name is derived (L2-6) and so
-	// is not comparable between the two sides. Checked against both sides'
-	// label records so a label defined on only one side still counts.
+	// computed reports whether membership in name is derived (L2-6) and so is
+	// not comparable between the two sides. It MIRRORS Fold's own closure
+	// (internal/eventsource/fold.go): ask the fold's label state — ALL of them,
+	// tombstoned included, because Fold decides inertness from st.Labels[name]
+	// regardless of Tombstoned — and fall back to the name for a label that was
+	// never upserted. A label that became a board and was then REMOVED is the
+	// case that makes this load-bearing: LabelRemove drops the record but leaves
+	// the name on the task, so v1 still lists it, the fold still drops it, and a
+	// live-only view of the label maps would refuse the upgrade forever.
+	// v1Labels is consulted only as a belt-and-braces fallback for a label the
+	// fold never saw at all.
 	computed := func(name string) bool {
-		if IsNamespaceName(name) {
-			return true
+		if l := st.Labels[name]; l != nil {
+			return l.IsComputed()
 		}
-		if l, ok := v1Labels[name]; ok && l.Expr != "" {
-			return true
+		if l, ok := v1Labels[name]; ok {
+			return l.IsComputed()
 		}
-		if l, ok := v2Labels[name]; ok && l.Expr != "" {
-			return true
-		}
-		return false
+		return IsNamespaceName(name)
 	}
 	assertedLabels := func(in []string) []string {
 		out := make([]string, 0, len(in))
@@ -275,7 +282,7 @@ func (s *Store) compareV2FoldToV1Replay(code string, st *eventsource.State) erro
 			return fmt.Errorf("%w: upgrade of %q: task %s description: v2 %q, v1 %q", ErrIntegrity, code, want.ID, got.Description, want.Description)
 		}
 		gotLabels, wantLabels := assertedLabels(got.Labels), assertedLabels(want.Labels)
-		if !equalStrings(gotLabels, wantLabels) {
+		if !slices.Equal(gotLabels, wantLabels) {
 			return fmt.Errorf("%w: upgrade of %q: task %s labels: v2 %v, v1 %v", ErrIntegrity, code, want.ID, gotLabels, wantLabels)
 		}
 	}
@@ -322,23 +329,11 @@ func (s *Store) compareV2FoldToV1Replay(code string, st *eventsource.State) erro
 			return fmt.Errorf("%w: upgrade of %q: comment %s reply-to: v2 %q, v1 %q", ErrIntegrity, code, want.ID, gotReply, want.ReplyTo)
 		}
 		gotLabels, wantLabels := assertedLabels(got.Labels), assertedLabels(want.Labels)
-		if !equalStrings(gotLabels, wantLabels) {
+		if !slices.Equal(gotLabels, wantLabels) {
 			return fmt.Errorf("%w: upgrade of %q: comment %s labels: v2 %v, v1 %v", ErrIntegrity, code, want.ID, gotLabels, wantLabels)
 		}
 	}
 	return nil
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // UpgradeAllToV2 upgrades every v1-active project on disk and then flips the
@@ -435,6 +430,14 @@ func (s *Store) RollbackProjectToV1(code string) (*RollbackReport, error) {
 // rebuildProjectCacheFromV1Locked mirrors the per-project body of Rebuild:
 // sweep the project's cache rows, then replay its v1 log and re-insert the
 // live set (project row, tasks, comments, labels).
+//
+// It also drops the project's v2 freshness row (cacheDeleteProjectRows only
+// touches entity tables, never meta). Rollback rebuilds the cache BEFORE it
+// flips the format, so a crash in that window would otherwise leave
+// format=v2 + v1-derived rows + a last_v2_event_count that still matches the
+// live events.v2.jsonl: a cache that looks fresh to a v2 reader while missing
+// every post-cutover v2 write. The rows these v1 rebuilds insert were never
+// projected from a v2 file, so no v2 freshness claim may survive them.
 func (s *Store) rebuildProjectCacheFromV1Locked(code string) error {
 	st, err := s.Replay(code)
 	if err != nil && !IsIntegrity(err) {
@@ -445,6 +448,9 @@ func (s *Store) rebuildProjectCacheFromV1Locked(code string) error {
 		return err
 	}
 	if err := cacheDeleteProjectRows(db, code); err != nil {
+		return err
+	}
+	if err := cacheClearV2Freshness(db, code); err != nil {
 		return err
 	}
 	if st.Project != nil {
