@@ -68,7 +68,13 @@ The spec carries a format version. Nodes negotiate a common version on sync (cap
 
 ### D6 — The current log is format v1; upgrade is a lossless local replay
 
-This suite defines format v2. An existing `log.jsonl` is treated as v1 and upgraded by a one-time local replay: each existing entry is canonicalized and hashed (D1), assigned an HLC derived from its recorded `at` and the local replica id (D2), and parented onto the prior local frontier to reconstruct a linear DAG (D2). The upgrade is mechanical and lossless — not the wholesale delete-and-rebuild prior ATM specs used — because a single-node linear history is a degenerate DAG. Derived views (`cache.db`, vectors) rebuild from the upgraded log as they do today.
+This suite defines format v2. An existing `log.jsonl` is treated as v1 and upgraded by a one-time local replay: each existing entry is canonicalized and hashed (D1), assigned an HLC (D2), and parented onto the prior frontier to reconstruct a linear DAG (D2). The upgrade is mechanical and lossless — not the wholesale delete-and-rebuild prior ATM specs used — because a single-node linear history is a degenerate DAG. Derived views (`cache.db`, vectors) rebuild from the upgraded log as they do today.
+
+**The upgrade must be a pure function of the v1 log.** No local or replica-specific input may enter the canonical bytes of an upgraded event. A store is portable by directory copy, so the same project is routinely upgraded on more than one machine; if the local replica id fed the hash, each machine would compute a *different* event id for the same historical event, and on the first sync every event in the shared history would appear twice. Because a task's identity is its creation event (L1), every task would fork in two — the whole ledger duplicates.
+
+Concretely: upgraded events carry a reserved replica id (`_v1`, identical on every machine) and an HLC derived solely from the entry's recorded `at` and `seq`. Both are already in the v1 log and are byte-identical on every copy of it, so any two machines upgrading the same log produce byte-identical v2 DAGs and converge trivially. `at` and `seq` are the only ordering information v1 ever recorded, and are therefore the only honest source for the upgraded HLC.
+
+A v1 node cannot sync at all: it has no hashes, no HLC, and no DAG, so it cannot participate. Upgrading is a *precondition* for distribution, not a compatibility mode — and after the upgrade the log simply *is* v2, so no dual-format reader exists in the steady state. All v1 knowledge lives in the one-time migration path and nowhere else. (D5's version negotiation governs v2 and beyond; it was never about v1.)
 
 ## Invariants preserved from today's model
 
