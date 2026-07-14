@@ -212,11 +212,9 @@ func (s *Store) Init(storePath string) error {
 	if _, err := s.cacheDB(); err != nil {
 		return err
 	}
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return err
-	}
-	return s.writeStoreMeta(m)
+	// Materialize store.json (defaults included) under the store-scoped lock:
+	// an init racing a concurrent writer must not clobber its update.
+	return s.mutateStoreMeta(func(*StoreMeta) error { return nil })
 }
 
 func (s *Store) StorePath() string { return s.Root }

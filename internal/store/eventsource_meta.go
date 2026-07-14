@@ -87,6 +87,35 @@ func (s *Store) writeStoreMeta(m *StoreMeta) error {
 	return WriteJSON(s.storeMetaPath(), m)
 }
 
+// storeMetaLockName names the store-SCOPED lock that serializes every
+// read-modify-write of store.json. StoreMeta is store-wide (ProjectFormats,
+// ReplicaID, LastHLC) but every writer holds at most a PER-PROJECT lock, so
+// two projects racing on store.json lose each other's updates: a dropped
+// ProjectFormats entry makes a v2-media project resolve as v1 through the
+// ActiveFormat fallback and sends its next write to log.jsonl. v2 authoring
+// makes store.json an RMW on every event append, so the window is live, not
+// admin-only. The name cannot collide with a project code (^[A-Z]{3,6}$) —
+// same trick as WithLock("personas").
+//
+// LOCK ORDER: project lock -> store-meta lock. WithLock is NOT reentrant, so
+// never take this lock twice, and never take a project lock while holding it.
+const storeMetaLockName = "store-meta"
+
+// mutateStoreMeta runs a read-modify-write of store.json under the
+// store-scoped lock. It is the ONLY path that may write store.json.
+func (s *Store) mutateStoreMeta(fn func(m *StoreMeta) error) error {
+	return s.WithLock(storeMetaLockName, func() error {
+		m, err := s.readStoreMeta()
+		if err != nil {
+			return err
+		}
+		if err := fn(m); err != nil {
+			return err
+		}
+		return s.writeStoreMeta(m)
+	})
+}
+
 // projectFormat resolves the effective StoreFormat for code: ProjectFormats[code]
 // if present, else ActiveFormat, else v1. The rest of this plan maintains the
 // invariant that every v2-media project carries an explicit ProjectFormats
@@ -110,27 +139,23 @@ func (s *Store) projectFormat(code string) (StoreFormat, error) {
 }
 
 func (s *Store) setProjectFormat(code string, f StoreFormat) error {
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return err
-	}
-	if m.ProjectFormats == nil {
-		m.ProjectFormats = map[string]StoreFormat{}
-	}
-	m.ProjectFormats[code] = f
-	return s.writeStoreMeta(m)
+	return s.mutateStoreMeta(func(m *StoreMeta) error {
+		if m.ProjectFormats == nil {
+			m.ProjectFormats = map[string]StoreFormat{}
+		}
+		m.ProjectFormats[code] = f
+		return nil
+	})
 }
 
 // removeProjectFormat deletes a project's explicit format entry. Used by
 // RemoveProject (Task 8): a deleted project must not leave a stale "v2"
 // entry that would make a later recreation read as v2 with no event file.
 func (s *Store) removeProjectFormat(code string) error {
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return err
-	}
-	delete(m.ProjectFormats, code)
-	return s.writeStoreMeta(m)
+	return s.mutateStoreMeta(func(m *StoreMeta) error {
+		delete(m.ProjectFormats, code)
+		return nil
+	})
 }
 
 // SetActiveFormat sets the store default format, which governs only project
@@ -143,21 +168,19 @@ func (s *Store) SetActiveFormat(f StoreFormat) error {
 	if f != StoreFormatV1 && f != StoreFormatV2 {
 		return fmt.Errorf("%w: unknown store format %q", ErrUsage, f)
 	}
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return err
-	}
-	if f == StoreFormatV2 {
-		codes, err := s.projectCodesOnDisk()
-		if err != nil {
-			return err
-		}
-		for _, code := range codes {
-			if _, ok := m.ProjectFormats[code]; !ok {
-				return fmt.Errorf("%w: project %q has no explicit format entry; run 'atm store upgrade --all' before setting the active format to v2", ErrConflict, code)
+	return s.mutateStoreMeta(func(m *StoreMeta) error {
+		if f == StoreFormatV2 {
+			codes, err := s.projectCodesOnDisk()
+			if err != nil {
+				return err
+			}
+			for _, code := range codes {
+				if _, ok := m.ProjectFormats[code]; !ok {
+					return fmt.Errorf("%w: project %q has no explicit format entry; run 'atm store upgrade --all' before setting the active format to v2", ErrConflict, code)
+				}
 			}
 		}
-	}
-	m.ActiveFormat = f
-	return s.writeStoreMeta(m)
+		m.ActiveFormat = f
+		return nil
+	})
 }

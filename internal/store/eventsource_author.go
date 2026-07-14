@@ -59,13 +59,16 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
 		return err
 	}
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return err
-	}
-	h := ev.HLC
-	m.LastHLC = &h
-	return s.writeStoreMeta(m)
+	// store.json is store-wide but this writer only holds the project lock,
+	// so the read-modify-write must go through the store-scoped lock or a
+	// concurrent writer in another project would drop our (or their)
+	// ProjectFormats entry. Nesting a DIFFERENT lock name inside the project
+	// lock is safe; WithLock is not reentrant on the same name.
+	return s.mutateStoreMeta(func(m *StoreMeta) error {
+		h := ev.HLC
+		m.LastHLC = &h
+		return nil
+	})
 }
 
 // resolveTaskRef and resolveCommentRef map a user-facing alias to the
@@ -112,14 +115,35 @@ func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, 
 	return ev, s.commitV2AuthorLocked(code, ev)
 }
 
+// takenTaskAliases and takenCommentAliases build the collision sets handed to
+// the alias minter: every alias the fold currently holds (tombstoned entities
+// included — their aliases are still resolvable, so reuse would be ambiguous).
+// A hit extends the minted prefix (eventsource.mintAlias), which is the only
+// mechanism keeping local lookups unambiguous.
+func takenTaskAliases(st *eventsource.State) func(string) bool {
+	taken := map[string]bool{}
+	for _, t := range st.Tasks {
+		taken[t.Alias] = true
+	}
+	return func(a string) bool { return taken[a] }
+}
+
+// Comment aliases need only disambiguate within their own task, so the set is
+// scoped to comments whose task_ref is taskRef.
+func takenCommentAliases(st *eventsource.State, taskRef string) func(string) bool {
+	taken := map[string]bool{}
+	for _, c := range st.Comments {
+		if c.TaskRef == taskRef {
+			taken[c.Alias] = true
+		}
+	}
+	return func(a string) bool { return taken[a] }
+}
+
 func (s *Store) appendV2TaskCreatedLocked(code, title, description string, labels []string, actor string) (*eventsource.Event, string, error) {
 	ctx, err := s.beginV2AuthorLocked(code)
 	if err != nil {
 		return nil, "", err
-	}
-	taken := map[string]bool{}
-	for _, t := range ctx.state.Tasks {
-		taken[t.Alias] = true
 	}
 	ev, alias, err := eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 		ProjectCode: code,
@@ -128,7 +152,7 @@ func (s *Store) appendV2TaskCreatedLocked(code, title, description string, label
 		Title:       title,
 		Description: description,
 		Labels:      labels,
-	}, func(a string) bool { return taken[a] })
+	}, takenTaskAliases(ctx.state))
 	if err != nil {
 		return nil, "", err
 	}
@@ -150,12 +174,6 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 			return nil, "", err
 		}
 	}
-	taken := map[string]bool{}
-	for _, c := range ctx.state.Comments {
-		if c.TaskRef == taskRef {
-			taken[c.Alias] = true
-		}
-	}
 	ev, alias, err := eventsource.NewCommentCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.CommentCreateDraft{
 		TaskAlias:  taskAlias,
 		TaskRef:    taskRef,
@@ -164,7 +182,7 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 		Actor:      actor,
 		Body:       body,
 		Labels:     labels,
-	}, func(a string) bool { return taken[a] })
+	}, takenCommentAliases(ctx.state, taskRef))
 	if err != nil {
 		return nil, "", err
 	}
@@ -176,15 +194,25 @@ func (s *Store) currentReplicaIDLocked() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if m.ReplicaID == "" {
-		id, err := eventsource.MintReplicaID(rand.Reader)
-		if err != nil {
-			return "", err
-		}
-		m.ReplicaID = id
-		if err := s.writeStoreMeta(m); err != nil {
-			return "", err
-		}
+	if m.ReplicaID != "" {
+		return m.ReplicaID, nil
 	}
-	return m.ReplicaID, nil
+	// First use: mint under the store-scoped lock, re-reading inside it so a
+	// replica id minted by a racing writer wins instead of being clobbered.
+	var id string
+	err = s.mutateStoreMeta(func(m *StoreMeta) error {
+		if m.ReplicaID == "" {
+			minted, err := eventsource.MintReplicaID(rand.Reader)
+			if err != nil {
+				return err
+			}
+			m.ReplicaID = minted
+		}
+		id = m.ReplicaID
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
