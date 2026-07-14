@@ -37,8 +37,9 @@ users; the diff/translation logic in both directions; the CLI commands; and the
 - **ATM-0106** (eventsource-core-v2): event identity, HLC, DAG, fold, alias
   minting/resolution, v1→v2 upgrade. The adapter emits and reads v2 events
   through this library.
-- **ATM-0107** (L3 — on-disk DAG layout for the distributed eventsource): the
-  adapter reads/writes `log.jsonl` through whatever L3 defines.
+- **ATM-0107** (L3 — storage layout for the distributed eventsource): the
+  adapter reads/writes the canonical v2 event source L3 defines
+  (`projects/<CODE>/events.v2.jsonl` in the proposed L3 spec).
 - **ATM-0108** (L4 — sync & transport protocol): the adapter implements L4's
   `SyncTarget` interface (or successor) for GitHub. If L4's interface shifts,
   this adapter shifts with it — that coupling is documented.
@@ -78,7 +79,7 @@ on L5, not a blocker for it.
         (GitHub → v2)  │             │  (v2 → GitHub API)
                         ▼             ▼
         ┌─────────────────────────────────────────────┐
-        │   v2 eventsource (log.jsonl) — ATM-0106/07  │
+        │ v2 eventsource (events.v2.jsonl) — ATM-0106/07 │
         │   source of truth; GitHub is one replica     │
         └─────────────────────────────────────────────┘
                         ▲
@@ -161,7 +162,7 @@ no `github.repo` configured has no GitHub adapter — it's a pure local project.
 ### Reverse projection is regenerable
 
 Because every link is stored as a payload field on the event, the adapter can
-drop the entire GitHub side and rebuild it from `log.jsonl` via the fold: walk
+drop the entire GitHub side and rebuild it from the v2 event source via the fold: walk
 the folded `State`, emit one issue per task, one comment per comment, one label
 per label. This is the same "derived view" contract the audit-log redesign set
 for `cache.db`.
@@ -218,8 +219,8 @@ for v1 to ship; the default `collaborator@github:<login>` is sufficient.
 ## Diff/translation logic
 
 The key invariant: **the v2 eventsource is authoritative; the GitHub side is a
-replica reconciled to the fold.** Both directions emit v2 events into
-`log.jsonl`; the GitHub API is never the source of truth.
+replica reconciled to the fold.** Both directions emit v2 events into the L3
+event source; the GitHub API is never the source of truth.
 
 ### Direction 1 — Ingest (GitHub → v2 events)
 
