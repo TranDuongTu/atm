@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 )
 
@@ -85,6 +86,18 @@ func TestEventsourceV2ListOrderFollowsCreationNotAlias(t *testing.T) {
 		}
 		want = append(want, tk.ID)
 	}
+	// Two comments seeded BEFORE the cutover, so that after it the task carries
+	// a mixed-generation thread: v1 numeric aliases (c0001, c0002) alongside the
+	// v2 hash aliases minted below. That is the exact shape the CLI transcript
+	// showed rendering out of order.
+	var wantC []string
+	for i := 1; i <= 2; i++ {
+		c, err := s.CreateComment(want[0], fmt.Sprintf("v1 note %d", i), nil, "", "admin@cli:unset")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantC = append(wantC, c.ID)
+	}
 	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
@@ -110,10 +123,26 @@ func TestEventsourceV2ListOrderFollowsCreationNotAlias(t *testing.T) {
 		}
 	}
 
-	// Same for the comment thread on an upgraded (numeric-aliased) task.
-	var wantC []string
+	// Same for the comment thread on the upgraded (numeric-aliased) task, which
+	// now mixes both alias generations: c0001, c0002 from v1, hash aliases after.
 	for i := 1; i <= 6; i++ {
-		c, err := s.CreateComment(want[0], fmt.Sprintf("note %d", i), nil, "", "admin@cli:unset")
+		c, err := s.CreateComment(want[0], fmt.Sprintf("v2 note %d", i), nil, "", "admin@cli:unset")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantC = append(wantC, c.ID)
+	}
+	// The pre-fix read path ordered a thread by id. A numeric alias always sorts
+	// ahead of a hash one (c0001 < c39d9 as text), so the mixed generations alone
+	// do NOT discriminate: only the hash aliases' relative order does, and six
+	// random hashes land in creation order about once in 720 runs -- an id-asc
+	// sort could pass by luck. Append comments until the creation-ordered thread
+	// is provably NOT in id order, so that any id-asc read must fail this test.
+	for n := 0; ascendingByID(wantC); n++ {
+		if n >= 20 {
+			t.Fatalf("could not build a thread whose creation order differs from id order: %v", wantC)
+		}
+		c, err := s.CreateComment(want[0], fmt.Sprintf("v2 tiebreak %d", n), nil, "", "admin@cli:unset")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,4 +164,11 @@ func TestEventsourceV2ListOrderFollowsCreationNotAlias(t *testing.T) {
 			t.Fatalf("ListComments order = %v, want creation order %v", gotC, wantC)
 		}
 	}
+}
+
+// ascendingByID reports whether ids (in creation order) also happen to be in
+// ascending id order -- i.e. whether an id-asc read would render them the same
+// way, which would make an ordering assertion over them vacuous.
+func ascendingByID(ids []string) bool {
+	return sort.SliceIsSorted(ids, func(i, j int) bool { return ids[i] < ids[j] })
 }
