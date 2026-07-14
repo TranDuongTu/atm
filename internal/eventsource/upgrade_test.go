@@ -223,6 +223,39 @@ func TestUpgradeV1FoldedStateMatchesV1Semantics(t *testing.T) {
 	}
 }
 
+// TestUpgradeV1ProjectSubjectResolutionSucceeds exercises the SUCCESS side
+// of the project-subject-resolution arm (upgrade.go's default case, kind
+// "project"), which the golden fixture and the error table never reach: the
+// error table only ever hits the dangling-project abort. Real v1 logs do
+// emit project.name-changed and project.removed (internal/store/project.go),
+// so this arm runs for real and needs its own coverage.
+func TestUpgradeV1ProjectSubjectResolutionSucceeds(t *testing.T) {
+	log := `{"seq":1,"at":"2026-07-01T10:00:00Z","actor":"a","action":"project.created","subject":{"kind":"project","code":"ATM"},"payload":{"code":"ATM","name":"Attention Task Manager"}}` + "\n" +
+		`{"seq":2,"at":"2026-07-01T10:00:01Z","actor":"a","action":"project.name-changed","subject":{"kind":"project","code":"ATM"},"payload":{"name":"Renamed"}}` + "\n"
+	res, err := UpgradeV1([]byte(log))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 2 {
+		t.Fatalf("upgraded %d events, want 2", len(res.Events))
+	}
+	created, renamed := res.Events[0], res.Events[1]
+
+	wantID := res.IdentityByAlias["ATM"]
+	if wantID == "" {
+		t.Fatal("IdentityByAlias[\"ATM\"] is empty, want the project.created identity")
+	}
+	if wantID != created.ID {
+		t.Errorf("IdentityByAlias[\"ATM\"] = %q, want the project.created event id %q", wantID, created.ID)
+	}
+	if renamed.Subject.ID != wantID {
+		t.Errorf("project.name-changed subject.id = %q, want resolved identity %q", renamed.Subject.ID, wantID)
+	}
+	if renamed.Subject.Code != "ATM" {
+		t.Errorf("project.name-changed subject.code = %q, want %q", renamed.Subject.Code, "ATM")
+	}
+}
+
 func TestUpgradeV1Errors(t *testing.T) {
 	cases := map[string]string{
 		"malformed line": "{not json}\n",
