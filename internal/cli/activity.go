@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"atm/internal/activity"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -27,8 +26,15 @@ func newActivityCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return err
 			}
-			entries, err := s.ReadLog(project)
-			if err != nil && !store.IsIntegrity(err) {
+			// ReadLogCached, not ReadLog: ReadLog is v1-only by design (it must
+			// keep reading the frozen log.jsonl for rollback), while
+			// ReadLogCached dispatches on the project's effective format and
+			// serves the v2 event file as compatibility entries. activity.Build
+			// is unchanged. It already applies v1's lenient posture to a
+			// malformed v1 tail internally, so any error reaching here is worth
+			// surfacing (a corrupt v2 event file yields no entries at all).
+			entries, err := s.ReadLogCached(project)
+			if err != nil {
 				return err
 			}
 			groups := activity.Aggregate(activity.Build(entries), groupBy)

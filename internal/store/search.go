@@ -63,7 +63,10 @@ func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error
 			return scored, false, nil
 		}
 	}
-	textHits := s.textSearch(p.Project, p.QueryText, p.Kind, p.K)
+	textHits, err := s.textSearch(p.Project, p.QueryText, p.Kind, p.K)
+	if err != nil {
+		return nil, true, err
+	}
 	return textHits, true, nil
 }
 
@@ -83,12 +86,47 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
-func (s *Store) textSearch(code, query, kind string, k int) []Hit {
+// textSearch is the keyword fallback behind Search. On a v2-active project it
+// folds the event file (through the freshness-gated cache rows) instead of
+// replaying the frozen v1 log, which after cutover holds no entity created
+// since the upgrade.
+func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	qtokens := tokenize(query)
 	if len(qtokens) == 0 {
-		return nil
+		return nil, nil
 	}
 	var hits []Hit
+	if f, _ := s.projectFormat(code); f == StoreFormatV2 {
+		tasks, comments, err := s.v2CompatEntities(code)
+		if err != nil {
+			// An integrity failure must never render as "no results" -- the v1
+			// branch below can only ever be stale, never silently empty. Every
+			// other error class keeps v1's lenient posture: no hits, no error.
+			if IsIntegrity(err) {
+				return nil, err
+			}
+			return nil, nil
+		}
+		if kind == "" || kind == "all" || kind == "task" {
+			for _, t := range tasks {
+				if score := tokenOverlap(qtokens, tokenize(taskDocumentText(t))); score > 0 {
+					hits = append(hits, Hit{ID: t.ID, Kind: "task", Score: float64(score), Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"})
+				}
+			}
+		}
+		if kind == "" || kind == "all" || kind == "comment" {
+			for _, c := range comments {
+				if score := tokenOverlap(qtokens, tokenize(commentDocumentText(c))); score > 0 {
+					hits = append(hits, Hit{ID: c.ID, Kind: "comment", Score: float64(score), Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"})
+				}
+			}
+		}
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+		if len(hits) > k {
+			hits = hits[:k]
+		}
+		return hits, nil
+	}
 	if kind == "" || kind == "all" || kind == "task" {
 		if st, err := s.Replay(code); err == nil && st != nil {
 			for _, t := range st.Tasks {
@@ -113,7 +151,7 @@ func (s *Store) textSearch(code, query, kind string, k int) []Hit {
 	if len(hits) > k {
 		hits = hits[:k]
 	}
-	return hits
+	return hits, nil
 }
 
 func tokenize(s string) []string {
@@ -148,7 +186,11 @@ func snippet(s string, max int) string {
 func dedupVectorsByID(entries []VectorEntry) []VectorEntry {
 	latest := map[string]VectorEntry{}
 	for _, e := range entries {
-		if cur, ok := latest[e.ID]; !ok || e.LogSeq > cur.LogSeq {
+		// >= not >: file order is append order, so on a tied LogSeq the later
+		// entry is the newer embedding. v1 was indifferent (seqs strictly
+		// increase); v2 re-embeddings reuse the entity's stable creation
+		// ordinal, so first-wins would pin the STALE vector.
+		if cur, ok := latest[e.ID]; !ok || e.LogSeq >= cur.LogSeq {
 			latest[e.ID] = e
 		}
 	}

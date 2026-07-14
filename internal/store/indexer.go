@@ -36,12 +36,30 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	if meta != nil {
 		lastIndexed = meta.LastLogSeq
 	}
-	st, err := s.Replay(code)
-	if err != nil {
+	// Format dispatch: a v2-active project's live entities come from the fold
+	// (through the freshness-gated cache rows), never from the frozen v1 log --
+	// otherwise nothing created after cutover is ever embedded and semantic
+	// search silently rots. The staleness decision for v2 rests on the text
+	// hash, which is exact and content-addressed; the LogSeq <= lastIndexed fast
+	// path stays harmless (creation ordinals are always <= the stored event
+	// count) and the hash check does the real work.
+	var tasks []*Task
+	var comments []*Comment
+	if f, err := s.projectFormat(code); err != nil {
 		return nil, err
-	}
-	if st == nil {
-		return nil, nil
+	} else if f == StoreFormatV2 {
+		if tasks, comments, err = s.v2CompatEntities(code); err != nil {
+			return nil, err
+		}
+	} else {
+		st, err := s.Replay(code)
+		if err != nil {
+			return nil, err
+		}
+		if st == nil {
+			return nil, nil
+		}
+		tasks, comments = st.Tasks, st.Comments
 	}
 	existing := map[string]string{}
 	if existingEntries, _ := s.ReadVectors(code, slug); existingEntries != nil {
@@ -50,7 +68,7 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 		}
 	}
 	var pending []IndexDoc
-	for _, t := range st.Tasks {
+	for _, t := range tasks {
 		if t.LogSeq <= lastIndexed {
 			if h, ok := existing[t.ID]; ok && h == hashText(taskDocumentText(t)) {
 				continue
@@ -61,7 +79,7 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 			LogSeq: t.LogSeq, Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels,
 		})
 	}
-	for _, c := range st.Comments {
+	for _, c := range comments {
 		if c.LogSeq <= lastIndexed {
 			if h, ok := existing[c.ID]; ok && h == hashText(commentDocumentText(c)) {
 				continue
@@ -87,6 +105,23 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (Ind
 	pending, err := s.PendingIndex(code, slug)
 	if err != nil {
 		return IndexResult{}, err
+	}
+	// passSeq is the sequence the finished batch is fresh AT: for v1 the max
+	// indexed doc seq (existing behavior, unchanged); for v2 the event count at
+	// pass START -- conservative, so events appended mid-pass keep the index
+	// reported "behind" and trigger another pass instead of being silently
+	// marked indexed. VectorMeta.LastLogSeq and IndexResult.LogSeq then live in
+	// the same sequence space LastLogSeq reports, so the "events behind"
+	// arithmetic in cli/index.go and tui/indexer.go works with zero changes there.
+	isV2 := false
+	if f, ferr := s.projectFormat(code); ferr == nil && f == StoreFormatV2 {
+		isV2 = true
+	}
+	passSeq := 0
+	if isV2 {
+		if passSeq, err = s.LastLogSeq(code); err != nil {
+			return IndexResult{}, err
+		}
 	}
 	res := IndexResult{Model: slug}
 	if len(pending) == 0 {
@@ -118,6 +153,13 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (Ind
 		if doc.LogSeq > maxSeq {
 			maxSeq = doc.LogSeq
 		}
+	}
+	if isV2 {
+		// A v2 doc's LogSeq is its creation ORDINAL, not a position in the event
+		// file: the max over the batch would understate (or wildly misreport)
+		// how much of the event file this index has seen. The pass-start event
+		// count is the watermark that makes "behind" arithmetic meaningful.
+		maxSeq = passSeq
 	}
 	if err := s.WriteVectorBatch(code, slug, entries, maxSeq); err != nil {
 		return res, err

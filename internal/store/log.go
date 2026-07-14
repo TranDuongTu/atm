@@ -158,6 +158,12 @@ func marshalLogLine(e LogEntry) ([]byte, error) {
 	return append(raw, '\n'), nil
 }
 
+// ReadLog reads projects/<CODE>/log.jsonl. It is v1-only BY DESIGN and must
+// NEVER grow a format branch: Replay, lastProjectEventSeq,
+// compareV2FoldToV1Replay and RollbackProjectToV1 all depend on it reading the
+// v1 bytes even for a v2-active project (the frozen log is the rollback
+// artifact). Views that must follow the project's effective format go through
+// readLogForViews instead.
 func (s *Store) ReadLog(code string) ([]LogEntry, error) {
 	f, err := os.Open(s.logPath(code))
 	if err != nil {
@@ -216,7 +222,22 @@ func (s *Store) detectPartialTail(code string) *partialTailError {
 	return &partialTailError{bytes: len(tail)}
 }
 
+// LastLogSeq is THE staleness probe every poller in the codebase uses (Watch,
+// tui/indexer.go, cli/index.go's Behind count, ReadLogCached's cross-process
+// freshness check). It therefore has to answer in whatever sequence space the
+// project's format actually advances in.
+//
+// For a v2-active project the v1 log is frozen at the cutover seq, so the v1
+// answer never changes again and every poller sleeps forever. The v2 sequence
+// surface is the EVENT COUNT (spec L3-11): monotonic under local appends (the
+// only writer before L4 sync) and the same value the cache freshness row
+// records.
 func (s *Store) LastLogSeq(code string) (int, error) {
+	if f, err := s.projectFormat(code); err != nil {
+		return 0, err
+	} else if f == StoreFormatV2 {
+		return s.v2EventCount(code)
+	}
 	// No WithLock here: callers (getProjectWithRebuild, getTaskWithRebuild)
 	// already hold the project lock, and WithLock is non-reentrant. The
 	// cache.db read is process-serialized by MaxOpenConns(1) + WAL; the
@@ -224,6 +245,31 @@ func (s *Store) LastLogSeq(code string) (int, error) {
 	// contention with concurrent appenders is not a concern (the cache row
 	// gets populated and subsequent calls are O(1)).
 	return s.lastLogSeqLocked(code)
+}
+
+// readLogForViews returns the project's history as compatibility []LogEntry
+// from whichever format the project is ACTIVE on — the read behind every
+// log-derived view (History, ReadLogCached and, through it, activity.Build).
+//
+// The error postures of the two formats differ because the underlying reads do:
+// v1's ReadLog returns every entry that parsed ALONGSIDE an ErrIntegrity for a
+// malformed tail, so the long-standing lenient posture (keep the partial view;
+// verify/doctor report the damage) is preserved by dropping it here. The v2 read
+// is strict and yields NOTHING on an integrity error, so that error is returned
+// bare: swallowing it would render a corrupt event file as an empty view.
+func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if f == StoreFormatV2 {
+		return s.readV2LogEntries(code)
+	}
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return nil, err
+	}
+	return entries, nil
 }
 
 // lastLogSeqLocked returns the project's last log seq. Caller MUST hold the
@@ -302,8 +348,11 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 		s.logSnapMu.Unlock()
 	}
 
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
+	// Format-dispatched re-scan. The memoization and invalidation logic above is
+	// format-agnostic: the v2 entries' last Seq equals the event count, which is
+	// exactly what the branched LastLogSeq returns for the staleness comparison.
+	entries, err := s.readLogForViews(code)
+	if err != nil {
 		return nil, err
 	}
 	builtSeq := 0
@@ -415,8 +464,16 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 	return st, nil
 }
 
+// History renders one subject's event trail. The compatibility entries carry
+// the entity's ALIAS in Subject.ID for both formats, so the v1-shaped callers
+// (cli/task.go, cli/comment.go, cli/project.go, tui/comments.go, tui/projects.go)
+// and subjectMatch itself are unchanged.
+//
+// It has no error channel and has always swallowed read errors; an integrity
+// failure surfaces through verify/doctor and through every read path that CAN
+// return one (ReadLogCached, the list reads, the point reads).
 func (s *Store) History(code string, subject Subject) []HistoryView {
-	entries, _ := s.ReadLog(code)
+	entries, _ := s.readLogForViews(code)
 	var out []HistoryView
 	for _, e := range entries {
 		if !subjectMatch(e.Subject, subject) {

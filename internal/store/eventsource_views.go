@@ -83,3 +83,85 @@ func v2SubjectDisplay(st *eventsource.State, ev *eventsource.Event) string {
 	}
 	return su.Kind + " " + id
 }
+
+// readV2LogEntries renders the v2 event file as compatibility []LogEntry:
+// events sorted by CompareEvents (the deterministic total order), Seq set to the
+// 1-based ordinal in that order, and subject aliases restored from the fold so
+// v1-shaped consumers (activity.Build, History's subjectMatch) keep working
+// unchanged. The DAG is strictly richer than a linear log; this flattening is a
+// deliberate L3 display decision — DAG-aware views are L4's problem.
+//
+// The read is strict: an integrity failure returns NO entries, so callers with
+// an error channel must surface it rather than render an empty view.
+func (s *Store) readV2LogEntries(code string) ([]LogEntry, error) {
+	snap, err := s.readV2File(code, false)
+	if err != nil {
+		return nil, err
+	}
+	state, err := eventsource.FoldEvents(snap.Events)
+	if err != nil {
+		return nil, err
+	}
+	alias := func(id string) string {
+		if t, ok := state.Tasks[id]; ok {
+			return t.Alias
+		}
+		if c, ok := state.Comments[id]; ok {
+			return c.Alias
+		}
+		return id
+	}
+	events := append([]*eventsource.Event(nil), snap.Events...)
+	sort.SliceStable(events, func(i, j int) bool { return eventsource.CompareEvents(events[i], events[j]) < 0 })
+	out := make([]LogEntry, 0, len(events))
+	for i, ev := range events {
+		subj := Subject{Kind: ev.Subject.Kind, Code: ev.Subject.Code, Name: ev.Subject.Name}
+		switch ev.Subject.Kind {
+		case "task", "comment":
+			id := ev.Subject.ID
+			if id == "" {
+				id = ev.ID // creation event: the entity's identity IS the event id
+			}
+			subj.ID = alias(id)
+		}
+		out = append(out, LogEntry{Seq: i + 1, At: ev.At, Actor: ev.Actor, Action: ev.Action, Subject: subj, Payload: ev.Payload})
+	}
+	return out, nil
+}
+
+// v2CompatEntities returns the project's live tasks and comments as
+// compatibility rows, through the freshness-gated cache — the same rows list
+// commands display, so search and indexing never disagree with `atm task list`.
+// Chosen over a direct fold to avoid a second projection code path (spec
+// "Log-derived views").
+//
+// It calls ensureV2CacheFresh, which takes the project lock: never call this
+// from a context that already holds it (WithLock is not reentrant).
+func (s *Store) v2CompatEntities(code string) ([]*Task, []*Comment, error) {
+	if err := s.ensureV2CacheFresh(code); err != nil {
+		return nil, nil, err
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, nil, err
+	}
+	tasks, err := cacheListTasksForProject(db, code)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, err := cacheListCommentIDsForProject(db, code)
+	if err != nil {
+		return nil, nil, err
+	}
+	var comments []*Comment
+	for _, id := range ids {
+		c, ok, err := cacheGetComment(db, id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ok {
+			comments = append(comments, c)
+		}
+	}
+	return tasks, comments, nil
+}
