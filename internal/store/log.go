@@ -352,8 +352,14 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 	// format-agnostic: the v2 entries' last Seq equals the event count, which is
 	// exactly what the branched LastLogSeq returns for the staleness comparison.
 	entries, err := s.readLogForViews(code)
-	if err != nil {
+	if err != nil && !IsIntegrity(err) {
 		return nil, err
+	}
+	if err != nil {
+		// Integrity failure: hand back the recoverable prefix ALONGSIDE the error
+		// (v1's posture, now v2's too) and never memoize it — a damaged view must
+		// not freeze into the snapshot and must not be mistaken for a fresh one.
+		return entries, err
 	}
 	builtSeq := 0
 	if len(entries) > 0 {
@@ -466,14 +472,24 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 
 // History renders one subject's event trail. The compatibility entries carry
 // the entity's ALIAS in Subject.ID for both formats, so the v1-shaped callers
-// (cli/task.go, cli/comment.go, cli/project.go, tui/comments.go, tui/projects.go)
-// and subjectMatch itself are unchanged.
+// (tui/comments.go, tui/projects.go) and subjectMatch itself are unchanged.
 //
-// It has no error channel and has always swallowed read errors; an integrity
-// failure surfaces through verify/doctor and through every read path that CAN
-// return one (ReadLogCached, the list reads, the point reads).
+// This is the error-free wrapper the TUI keeps calling: it renders whatever the
+// read produced (for a v2 integrity failure, the recoverable prefix). Callers
+// that CAN report an error — every CLI caller does — must use HistoryE instead,
+// so a corrupt event file surfaces as a real error rather than a short history.
 func (s *Store) History(code string, subject Subject) []HistoryView {
-	entries, _ := s.readLogForViews(code)
+	out, _ := s.HistoryE(code, subject)
+	return out
+}
+
+// HistoryE is History with an error channel. The rendered rows and the error are
+// BOTH returned: a v2 integrity failure yields the recoverable prefix alongside
+// ErrIntegrity, mirroring v1's long-standing partial-view posture, so a caller
+// that tolerates integrity errors still gets everything that parsed and a caller
+// that does not gets the failure.
+func (s *Store) HistoryE(code string, subject Subject) ([]HistoryView, error) {
+	entries, err := s.readLogForViews(code)
 	var out []HistoryView
 	for _, e := range entries {
 		if !subjectMatch(e.Subject, subject) {
@@ -481,7 +497,7 @@ func (s *Store) History(code string, subject Subject) []HistoryView {
 		}
 		out = append(out, HistoryView{Seq: e.Seq, Action: e.Action, Actor: e.Actor, At: e.At})
 	}
-	return out
+	return out, err
 }
 
 func subjectMatch(a, b Subject) bool {

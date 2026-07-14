@@ -96,7 +96,14 @@ func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 		return nil, nil
 	}
 	var hits []Hit
-	if f, _ := s.projectFormat(code); f == StoreFormatV2 {
+	// The format lookup is propagated, never swallowed: a failed lookup that fell
+	// through to the v1 branch would silently search the FROZEN log.jsonl of a
+	// v2-active project and report "no results" for entities that plainly exist.
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if f == StoreFormatV2 {
 		tasks, comments, err := s.v2CompatEntities(code)
 		if err != nil {
 			// An integrity failure must never render as "no results" -- the v1

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"bytes"
+	"os"
 	"sort"
 	"time"
 
@@ -91,13 +93,63 @@ func v2SubjectDisplay(st *eventsource.State, ev *eventsource.Event) string {
 // unchanged. The DAG is strictly richer than a linear log; this flattening is a
 // deliberate L3 display decision — DAG-aware views are L4's problem.
 //
-// The read is strict: an integrity failure returns NO entries, so callers with
-// an error channel must surface it rather than render an empty view.
+// The read is strict about REPORTING: an integrity failure is always returned.
+// It is lenient about RENDERING: the error comes back alongside the recoverable
+// prefix of the event file (the events before the first damaged line), mirroring
+// v1's ReadLog, which returns everything that parsed plus ErrIntegrity. Callers
+// with an error channel must surface the error (HistoryE and its CLI callers do);
+// the ones that deliberately tolerate it (tui/projects.go's summary pane) then
+// still get a partial view instead of a silently empty one.
 func (s *Store) readV2LogEntries(code string) ([]LogEntry, error) {
 	snap, err := s.readV2File(code, false)
 	if err != nil {
-		return nil, err
+		if !IsIntegrity(err) {
+			return nil, err
+		}
+		entries, perr := s.v2LogEntriesFrom(s.readV2EventPrefix(code))
+		if perr != nil {
+			// Not even a prefix folds (a damaged line early in the file, a
+			// dangling parent): nothing renderable, but the integrity error --
+			// never a bare empty view -- is what the caller gets.
+			return nil, err
+		}
+		return entries, err
 	}
+	return s.v2LogEntriesFrom(snap.Events)
+}
+
+// readV2EventPrefix parses the longest prefix of COMMITTED lines (complete,
+// newline-terminated -- L3-7) that parse cleanly, stopping at the first damaged
+// line. It is the recovery read behind readV2LogEntries' partial view and reports
+// no error of its own: its whole job is to salvage what it can from a file the
+// strict read already rejected.
+func (s *Store) readV2EventPrefix(code string) []*eventsource.Event {
+	raw, err := os.ReadFile(s.eventsV2Path(code))
+	if err != nil {
+		return nil
+	}
+	body := raw
+	if n := len(raw); n > 0 && raw[n-1] != '\n' {
+		body = raw[:bytes.LastIndexByte(raw, '\n')+1] // drop the uncommitted tail
+	}
+	var events []*eventsource.Event
+	lines := bytes.Split(body, []byte("\n"))
+	for i, line := range lines {
+		if i == len(lines)-1 && len(line) == 0 {
+			break // split artifact after the final newline
+		}
+		ev, err := eventsource.Parse(line)
+		if err != nil {
+			break // first damaged committed line ends the recoverable prefix
+		}
+		events = append(events, ev)
+	}
+	return events
+}
+
+// v2LogEntriesFrom folds an event set and renders it as compatibility []LogEntry.
+func (s *Store) v2LogEntriesFrom(evs []*eventsource.Event) ([]LogEntry, error) {
+	snap := &V2FileSnapshot{Events: evs}
 	state, err := eventsource.FoldEvents(snap.Events)
 	if err != nil {
 		return nil, err

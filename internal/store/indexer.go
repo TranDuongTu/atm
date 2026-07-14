@@ -113,10 +113,15 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (Ind
 	// marked indexed. VectorMeta.LastLogSeq and IndexResult.LogSeq then live in
 	// the same sequence space LastLogSeq reports, so the "events behind"
 	// arithmetic in cli/index.go and tui/indexer.go works with zero changes there.
-	isV2 := false
-	if f, ferr := s.projectFormat(code); ferr == nil && f == StoreFormatV2 {
-		isV2 = true
+	// Propagated, not swallowed: a swallowed lookup error would silently fall to
+	// the v1 watermark on a v2-active project and freeze the index's freshness
+	// arithmetic. (PendingIndex already errors on the same lookup one call
+	// earlier, but relying on that is coupling, not a guarantee.)
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return IndexResult{}, err
 	}
+	isV2 := f == StoreFormatV2
 	passSeq := 0
 	if isV2 {
 		if passSeq, err = s.LastLogSeq(code); err != nil {

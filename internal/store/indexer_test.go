@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"regexp"
 	"testing"
 )
 
@@ -111,6 +113,102 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 	_, err := s.ReindexOnce("ATM", fake, nil)
 	if !IsUsage(err) {
 		t.Errorf("err = %v, want ErrUsage (no embedding config)", err)
+	}
+}
+
+// v2 hash aliases are "<CODE>-" + >=6 hex chars (eventsource.MintTaskAlias),
+// never the v1 sequential "ATM-0001" form.
+var v2TaskAliasRe = regexp.MustCompile(`^ATM-[0-9a-f]{6,}$`)
+
+// TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount pins the COMPOSED
+// indexer path on a v2-active project end to end: the task created after
+// cutover is discovered, embedded, stored under its hash alias, and the pass
+// leaves VectorMeta.LastLogSeq in EVENT-COUNT space -- i.e. `atm index status`
+// reports Behind == 0 and Watch does not spin. Without the isV2 watermark
+// (indexer.go's `maxSeq = passSeq`), LastLogSeq lands on a creation ordinal and
+// the index reports itself permanently behind.
+func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "embed me after cutover", "body", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v2TaskAliasRe.MatchString(tk.ID) {
+		t.Fatalf("task id = %q, want a v2 hash alias (test is not exercising v2)", tk.ID)
+	}
+	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
+	res, err := s.ReindexOnce("ATM", fake, nil)
+	if err != nil {
+		t.Fatalf("ReindexOnce on v2: %v", err)
+	}
+	if res.Indexed == 0 {
+		t.Fatal("indexed = 0: nothing created after cutover was embedded; semantic search silently rots")
+	}
+	vecs, err := s.ReadVectors("ATM", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, v := range vecs {
+		if v.ID == tk.ID && v.Kind == "task" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("vectors = %#v, want one under the task's hash alias %s", vecs, tk.ID)
+	}
+	count, err := s.v2EventCount("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := s.VectorMeta("ATM", "m")
+	if err != nil || meta == nil {
+		t.Fatalf("VectorMeta = %#v, %v", meta, err)
+	}
+	if meta.LastLogSeq != count {
+		t.Fatalf("VectorMeta.LastLogSeq = %d, want the v2 event count %d (index would report itself %d events behind forever)", meta.LastLogSeq, count, count-meta.LastLogSeq)
+	}
+	if res.LogSeq != count {
+		t.Fatalf("IndexResult.LogSeq = %d, want the v2 event count %d (Watch's lastSeq lives in this space)", res.LogSeq, count)
+	}
+	last, err := s.LastLogSeq("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if behind := last - meta.LastLogSeq; behind != 0 {
+		t.Fatalf("behind = %d, want 0 right after a successful pass", behind)
+	}
+}
+
+// TestReindexOnceOnV2PropagatesFormatLookupError: a failed format lookup must
+// never fall back to the v1 watermark path (Minor 4). With store.json unreadable
+// the pass has to fail loudly.
+func TestReindexOnceOnV2PropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
+	if _, err := s.ReindexOnce("ATM", fake, nil); err == nil {
+		t.Fatal("ReindexOnce swallowed a format-lookup failure and indexed anyway")
 	}
 }
 

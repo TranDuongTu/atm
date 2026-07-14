@@ -152,7 +152,10 @@ func newTaskShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hv := s.History(t.ProjectCode, store.Subject{Kind: "task", ID: t.ID})
+			hv, err := s.HistoryE(t.ProjectCode, store.Subject{Kind: "task", ID: t.ID})
+			if err != nil {
+				return err
+			}
 			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, hv)}, func() {
 				jt := taskToJSON(t, hv)
 				fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", jt.ID, jt.Title, formatLabels(jt.Labels))

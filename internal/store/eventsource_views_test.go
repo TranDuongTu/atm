@@ -1,6 +1,99 @@
 package store
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+// corruptV2File appends a complete-but-unparseable line to the project's event
+// file: a committed line that is NOT a repairable partial tail, i.e. a genuine
+// integrity failure.
+func corruptV2File(t *testing.T, s *Store, code string) {
+	t.Helper()
+	f, err := os.OpenFile(s.eventsV2Path(code), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("{ this is not an event }\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestHistoryESurfacesV2IntegrityErrorWithPartialView is the standing ruling
+// (Tasks 5 and 9): an integrity error is surfaced, NEVER rendered as an empty or
+// frozen view. HistoryE carries the error to the CLI callers; the error-free
+// History wrapper the TUI uses still renders the recoverable prefix, so
+// tui/projects.go's deliberate IsIntegrity tolerance keeps its partial view.
+func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corruptV2File(t, s, "ATM")
+
+	hv, err := s.HistoryE("ATM", Subject{Kind: "task", ID: tk.ID})
+	if !IsIntegrity(err) {
+		t.Fatalf("HistoryE err = %v, want ErrIntegrity (a corrupt event file must never render as a clean history)", err)
+	}
+	if len(hv) == 0 {
+		t.Fatal("HistoryE returned no rows: the recoverable prefix must come back alongside the error")
+	}
+	if got := s.History("ATM", Subject{Kind: "task", ID: tk.ID}); len(got) != len(hv) {
+		t.Fatalf("History wrapper = %d rows, want the same partial view (%d) it has always rendered", len(got), len(hv))
+	}
+}
+
+// TestReadLogCachedReturnsPartialV2ViewOnIntegrityError pins the shape
+// tui/projects.go's summary pane relies on: entries + ErrIntegrity, exactly like
+// v1's ReadLog -- not nil entries, which would silently blank the pane.
+func TestReadLogCachedReturnsPartialV2ViewOnIntegrityError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	corruptV2File(t, s, "ATM")
+
+	entries, err := s.ReadLogCached("ATM")
+	if !IsIntegrity(err) {
+		t.Fatalf("ReadLogCached err = %v, want ErrIntegrity", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("ReadLogCached returned no entries with the integrity error: the TUI's IsIntegrity tolerance renders an EMPTY pane")
+	}
+}
+
+// TestTextSearchPropagatesFormatLookupError: swallowing the lookup error would
+// drop a v2-active project into the v1 branch and search the FROZEN log.jsonl
+// (Minor 3).
+func TestTextSearchPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "quantum flux capacitor", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.textSearch("ATM", "quantum capacitor", "", 5)
+	if err == nil {
+		t.Fatalf("textSearch = %#v, nil: a failed format lookup silently searched the v1 log", hits)
+	}
+}
 
 func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	s := testStore(t)
