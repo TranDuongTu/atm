@@ -86,7 +86,10 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hv := s.History(p.Code, store.Subject{Kind: "project", Code: p.Code})
+			hv, err := s.HistoryE(p.Code, store.Subject{Kind: "project", Code: p.Code})
+			if err != nil {
+				return err
+			}
 			pj := projectToJSON(p, hv)
 			if cfg, _ := s.GetProjectConfig(code); cfg != nil {
 				pj.Embedding = cfg.Embedding

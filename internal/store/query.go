@@ -46,7 +46,39 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		return nil, err
 	}
 	var out []*Task
+	formats := make(map[string]StoreFormat, len(codes))
 	for _, code := range codes {
+		// The project-scoped list read has no freshness gate of its own: under
+		// v1 every mutator write-throughs the cache inside the project lock, so
+		// the rows could not lag the log. Under v2 an EXTERNAL append (a second
+		// process, or a writer that died between the append commit point and its
+		// reprojection) leaves the cache legitimately behind the event file, and
+		// nothing else on this path would ever notice. Gate it.
+		//
+		// The lookup error is PROPAGATED, not swallowed: with store.json
+		// unreadable a swallowed lookup yields f == "", skips the v2 branch
+		// (and its freshness gate), and serves stale cache rows with a nil
+		// error -- the same silent v2 -> ungated-v1 degradation textSearch and
+		// ReindexOnce already refuse.
+		f, err := s.projectFormat(code)
+		if err != nil {
+			return nil, err
+		}
+		formats[code] = f
+		if f == StoreFormatV2 {
+			if err := s.ensureV2CacheFresh(code); err != nil {
+				// An integrity error is on-disk truth, not a cache-DB hiccup:
+				// surface it (matching store show's ErrIntegrity) rather than
+				// silently reporting "no tasks". The lenient continue below
+				// is reserved for the error class it was actually written
+				// for -- see the human ruling on Task 5 Findings 1/2 for the
+				// integrity/non-integrity split this mirrors.
+				if IsIntegrity(err) {
+					return nil, err
+				}
+				continue // match the existing per-code lenient error posture
+			}
+		}
 		tasks, err := cacheListTasksForProject(db, code)
 		if err != nil {
 			continue
@@ -90,7 +122,24 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		if ci != cj {
 			return ci < cj
 		}
-		return ni < nj
+		// Within one project, v1 orders by the numeric alias segment: it is a
+		// zero-padded creation counter, so id-asc IS creation order. A v2 alias
+		// is a content hash, and a v2 project routinely holds BOTH generations
+		// (numeric aliases carried over by the upgrade plus hash aliases born
+		// after cutover), so id-asc there is meaningless noise -- it interleaves
+		// them by hex luck. The projector stamps Task.LogSeq with the fold's
+		// creation ordinal (TasksByCreation, i.e. the HLC creation stamp), which
+		// the spec names as the true creation order; use it.
+		if formats[ci] == StoreFormatV2 {
+			if out[i].LogSeq != out[j].LogSeq {
+				return out[i].LogSeq < out[j].LogSeq
+			}
+			return out[i].ID < out[j].ID
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return out[i].ID < out[j].ID
 	})
 	return out, nil
 }

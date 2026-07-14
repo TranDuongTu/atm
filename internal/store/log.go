@@ -90,7 +90,13 @@ func (s *Store) logPath(code string) string {
 
 func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
 
-func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
+// appendLog is a raw v1-log append under a bare WithLock, with NO format
+// dispatch: on a v2-active project it would write log.jsonl and break the
+// branch's central invariant (the v1 log is FROZEN, byte-identical, and is the
+// rollback artifact). It is deliberately unexported and has no production
+// callers — every mutator reaches the log through a format-dispatched path.
+// Do not export it; add the dispatch to a caller instead.
+func (s *Store) appendLog(code string, e LogEntry) (LogEntry, error) {
 	if !validActions[e.Action] {
 		return LogEntry{}, fmt.Errorf("%w: unknown action %q", ErrUsage, e.Action)
 	}
@@ -107,7 +113,7 @@ func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
 
 // appendLogLocked assigns Seq, appends one line to projects/<CODE>/log.jsonl,
 // and fsyncs. Caller MUST already hold the project lock — this is the
-// re-entrancy-safe variant of AppendLog for write-first paths that already
+// re-entrancy-safe variant of appendLog for write-first paths that already
 // run inside WithLock.
 func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
 	last, err := s.lastLogSeqLocked(code)
@@ -158,6 +164,12 @@ func marshalLogLine(e LogEntry) ([]byte, error) {
 	return append(raw, '\n'), nil
 }
 
+// ReadLog reads projects/<CODE>/log.jsonl. It is v1-only BY DESIGN and must
+// NEVER grow a format branch: Replay, lastProjectEventSeq,
+// compareV2FoldToV1Replay and RollbackProjectToV1 all depend on it reading the
+// v1 bytes even for a v2-active project (the frozen log is the rollback
+// artifact). Views that must follow the project's effective format go through
+// readLogForViews instead.
 func (s *Store) ReadLog(code string) ([]LogEntry, error) {
 	f, err := os.Open(s.logPath(code))
 	if err != nil {
@@ -216,7 +228,22 @@ func (s *Store) detectPartialTail(code string) *partialTailError {
 	return &partialTailError{bytes: len(tail)}
 }
 
+// LastLogSeq is THE staleness probe every poller in the codebase uses (Watch,
+// tui/indexer.go, cli/index.go's Behind count, ReadLogCached's cross-process
+// freshness check). It therefore has to answer in whatever sequence space the
+// project's format actually advances in.
+//
+// For a v2-active project the v1 log is frozen at the cutover seq, so the v1
+// answer never changes again and every poller sleeps forever. The v2 sequence
+// surface is the EVENT COUNT (spec L3-11): monotonic under local appends (the
+// only writer before L4 sync) and the same value the cache freshness row
+// records.
 func (s *Store) LastLogSeq(code string) (int, error) {
+	if f, err := s.projectFormat(code); err != nil {
+		return 0, err
+	} else if f == StoreFormatV2 {
+		return s.v2EventCount(code)
+	}
 	// No WithLock here: callers (getProjectWithRebuild, getTaskWithRebuild)
 	// already hold the project lock, and WithLock is non-reentrant. The
 	// cache.db read is process-serialized by MaxOpenConns(1) + WAL; the
@@ -224,6 +251,36 @@ func (s *Store) LastLogSeq(code string) (int, error) {
 	// contention with concurrent appenders is not a concern (the cache row
 	// gets populated and subsequent calls are O(1)).
 	return s.lastLogSeqLocked(code)
+}
+
+// readLogForViews returns the project's history as compatibility []LogEntry
+// from whichever format the project is ACTIVE on — the read behind every
+// log-derived view (History, ReadLogCached and, through it, activity.Build).
+//
+// The error postures of the two formats differ because the underlying reads do:
+// v1's ReadLog returns every entry that parsed ALONGSIDE an ErrIntegrity for a
+// malformed tail, so the long-standing lenient posture (keep the partial view;
+// verify/doctor report the damage) is preserved by dropping it here.
+//
+// The v2 read returns the recoverable prefix alongside the ErrIntegrity, and
+// that error is propagated rather than dropped: swallowing it would render a
+// corrupt event file as a silently truncated view. Callers that can tolerate
+// damage (the TUI project summary) keep consuming the prefix; callers that
+// cannot (the CLI) surface the error. Note the asymmetry with v1 above: v2
+// mirrors v1's partial ROWS, but not v1's swallowed error.
+func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if f == StoreFormatV2 {
+		return s.readV2LogEntries(code)
+	}
+	entries, err := s.ReadLog(code)
+	if err != nil && !IsIntegrity(err) {
+		return nil, err
+	}
+	return entries, nil
 }
 
 // lastLogSeqLocked returns the project's last log seq. Caller MUST hold the
@@ -302,9 +359,18 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 		s.logSnapMu.Unlock()
 	}
 
-	entries, err := s.ReadLog(code)
+	// Format-dispatched re-scan. The memoization and invalidation logic above is
+	// format-agnostic: the v2 entries' last Seq equals the event count, which is
+	// exactly what the branched LastLogSeq returns for the staleness comparison.
+	entries, err := s.readLogForViews(code)
 	if err != nil && !IsIntegrity(err) {
 		return nil, err
+	}
+	if err != nil {
+		// Integrity failure: hand back the recoverable prefix ALONGSIDE the error
+		// (v1's posture, now v2's too) and never memoize it — a damaged view must
+		// not freeze into the snapshot and must not be mistaken for a fresh one.
+		return entries, err
 	}
 	builtSeq := 0
 	if len(entries) > 0 {
@@ -415,8 +481,26 @@ func (s *Store) Replay(code string) (*ReplayState, error) {
 	return st, nil
 }
 
+// History renders one subject's event trail. The compatibility entries carry
+// the entity's ALIAS in Subject.ID for both formats, so the v1-shaped callers
+// (tui/comments.go, tui/projects.go) and subjectMatch itself are unchanged.
+//
+// This is the error-free wrapper the TUI keeps calling: it renders whatever the
+// read produced (for a v2 integrity failure, the recoverable prefix). Callers
+// that CAN report an error — every CLI caller does — must use HistoryE instead,
+// so a corrupt event file surfaces as a real error rather than a short history.
 func (s *Store) History(code string, subject Subject) []HistoryView {
-	entries, _ := s.ReadLog(code)
+	out, _ := s.HistoryE(code, subject)
+	return out
+}
+
+// HistoryE is History with an error channel. The rendered rows and the error are
+// BOTH returned: a v2 integrity failure yields the recoverable prefix alongside
+// ErrIntegrity, mirroring v1's long-standing partial-view posture, so a caller
+// that tolerates integrity errors still gets everything that parsed and a caller
+// that does not gets the failure.
+func (s *Store) HistoryE(code string, subject Subject) ([]HistoryView, error) {
+	entries, err := s.readLogForViews(code)
 	var out []HistoryView
 	for _, e := range entries {
 		if !subjectMatch(e.Subject, subject) {
@@ -424,7 +508,7 @@ func (s *Store) History(code string, subject Subject) []HistoryView {
 		}
 		out = append(out, HistoryView{Seq: e.Seq, Action: e.Action, Actor: e.Actor, At: e.At})
 	}
-	return out
+	return out, err
 }
 
 func subjectMatch(a, b Subject) bool {

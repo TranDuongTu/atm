@@ -11,14 +11,14 @@ import (
 func TestAppendLogMonotoneSeq(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	e1, err := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
+	e1, err := s.appendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if e1.Seq != 1 {
 		t.Fatalf("first seq = %d want 1", e1.Seq)
 	}
-	e2, _ := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectNameChanged, Subject: Subject{Kind: "project", Code: "ATM"}})
+	e2, _ := s.appendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectNameChanged, Subject: Subject{Kind: "project", Code: "ATM"}})
 	if e2.Seq != 2 {
 		t.Fatalf("second seq = %d want 2", e2.Seq)
 	}
@@ -31,7 +31,7 @@ func TestAppendLogMonotoneSeq(t *testing.T) {
 func TestAppendLogRejectsUnknownAction(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, err := s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: "bogus.action", Subject: Subject{Kind: "project", Code: "ATM"}})
+	_, err := s.appendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: "bogus.action", Subject: Subject{Kind: "project", Code: "ATM"}})
 	if !IsUsage(err) {
 		t.Fatalf("expected ErrUsage for unknown action, got %v", err)
 	}
@@ -44,7 +44,7 @@ func TestAppendLogRejectsUnknownAction(t *testing.T) {
 func TestReadLogTruncatesMalformedTail(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
+	_, _ = s.appendLog("ATM", LogEntry{At: Now(), Actor: "a", Action: ActionProjectCreated, Subject: Subject{Kind: "project", Code: "ATM"}})
 	// Append garbage bytes simulating a crash mid-write.
 	p := s.logPath("ATM")
 	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
@@ -82,13 +82,13 @@ func TestReplayDeterministicAndTombstones(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
 	// project.created
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
 	// task.created
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
 	// task.label-added (full Task after state with label)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskLabelAdded, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskLabelAdded, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
 	// task.removed (tombstone)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{"ATM:type:bug"}}))
 
 	st1, err := s.Replay("ATM")
 	if err != nil {
@@ -110,9 +110,9 @@ func TestReplayDeterministicAndTombstones(t *testing.T) {
 func TestReplayLabelUpsertedAndRemoved(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "first"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionLabelRemoved, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "first"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionLabelUpserted, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionLabelRemoved, Subject{Kind: "label", Name: "ATM:type:bug"}, Label{Name: "ATM:type:bug", Description: "second"}))
 	st, _ := s.Replay("ATM")
 	for _, l := range st.Labels {
 		if l.Name == "ATM:type:bug" {
@@ -123,7 +123,7 @@ func TestReplayLabelUpsertedAndRemoved(t *testing.T) {
 
 // TestReplayStampsLogSeqFromEntrySeq is a regression test proving that
 // Replay() stamps each entity's LogSeq from the log entry's own seq (as
-// assigned by AppendLog), not from whatever LogSeq value happened to be
+// assigned by appendLog), not from whatever LogSeq value happened to be
 // baked into the JSON payload at marshal time (which is always 0, since
 // payloads are marshaled before the entry's seq is known). For a task
 // updated multiple times, the final LogSeq must equal the seq of the LAST
@@ -131,11 +131,11 @@ func TestReplayLabelUpsertedAndRemoved(t *testing.T) {
 func TestReplayStampsLogSeqFromEntrySeq(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
 	// task.created (payload LogSeq baked in as 0)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
 	// task.title-changed (payload LogSeq still baked in as 0)
-	e3, _ := s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
+	e3, _ := s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
 
 	st, err := s.Replay("ATM")
 	if err != nil {
@@ -168,13 +168,13 @@ func TestReplayReconstructsNextTaskNFromTaskLogEntriesNotProjectPayload(t *testi
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
 	// project.created payload carries a stale NextTaskN=2.
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x", NextTaskN: 2}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t1", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "t2", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
 	// Remove the highest-numbered task (tombstone at N=3); its number must
 	// never be reused even though it no longer appears in st.Tasks.
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskRemoved, Subject{Kind: "task", ID: "ATM-0003"}, Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "t3", Labels: []string{}}))
 
 	st, err := s.Replay("ATM")
 	if err != nil {
@@ -194,9 +194,9 @@ func TestReplayReconstructsNextTaskNFromTaskLogEntriesNotProjectPayload(t *testi
 func TestHistoryProjection(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", Title: "other"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", Title: "other"}))
 	hv := s.History("ATM", Subject{Kind: "task", ID: "ATM-0001"})
 	if len(hv) != 2 {
 		t.Fatalf("history for ATM-0001 len = %d want 2", len(hv))

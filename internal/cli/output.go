@@ -23,22 +23,32 @@ type jsonHistory struct {
 }
 
 type jsonTask struct {
-	ID          string        `json:"id"`
-	ProjectCode string        `json:"project_code"`
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Labels      []string      `json:"labels"`
-	LogSeq      int           `json:"log_seq"`
-	History     []jsonHistory `json:"history"`
-	CreatedAt   string        `json:"created_at"`
-	CreatedBy   string        `json:"created_by"`
-	UpdatedAt   string        `json:"updated_at"`
-	UpdatedBy   string        `json:"updated_by"`
+	ID          string   `json:"id"`
+	ProjectCode string   `json:"project_code"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Labels      []string `json:"labels"`
+	// LogSeq is the v1 log sequence number for a v1-active project. For a
+	// v2-active project this field is repurposed (Task 3's projector) to
+	// carry the v2 creation ordinal instead — a deliberate reuse of the
+	// field, not the v1 log seq.
+	LogSeq    int           `json:"log_seq"`
+	History   []jsonHistory `json:"history"`
+	CreatedAt string        `json:"created_at"`
+	CreatedBy string        `json:"created_by"`
+	UpdatedAt string        `json:"updated_at"`
+	UpdatedBy string        `json:"updated_by"`
 }
 
 type jsonProject struct {
-	Code      string                 `json:"code"`
-	Name      string                 `json:"name"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+	// NextTaskN is the v1 sequential task-numbering cursor. It has no
+	// meaning for a v2-active project: projectFromV2 (v2 projector) leaves
+	// it 0, since v2 task aliases are hash-derived, not sequential, and
+	// every v1 project has NextTaskN >= 1 so 0 is unambiguous. JSON keeps
+	// the field (value 0) for a v2-active project; text output renders it
+	// as "-" via renderNextTaskN.
 	NextTaskN int                    `json:"next_task_n"`
 	LogSeq    int                    `json:"log_seq"`
 	History   []jsonHistory          `json:"history"`
@@ -189,14 +199,24 @@ func renderTaskListText(ts []jsonTask) string {
 	return b.String()
 }
 
+// renderNextTaskN renders a project's NextTaskN for text output. 0 means a
+// v2-active project (aliases are hash-derived, not sequential; see
+// jsonProject.NextTaskN), which is not meaningful to show as a task count.
+func renderNextTaskN(n int) string {
+	if n == 0 {
+		return "-" // v2-active project: aliases are hash-derived, not sequential
+	}
+	return fmt.Sprintf("%d", n)
+}
+
 func renderProjectText(p jsonProject) string {
-	return fmt.Sprintf("%s\t%s\t%d\t%s", p.Code, p.Name, p.NextTaskN, renderTime(p.UpdatedAt))
+	return fmt.Sprintf("%s\t%s\t%s\t%s", p.Code, p.Name, renderNextTaskN(p.NextTaskN), renderTime(p.UpdatedAt))
 }
 
 func renderProjectListText(ps []jsonProject) string {
 	var b strings.Builder
 	for _, p := range ps {
-		fmt.Fprintf(&b, "%s\t%s\t%d\t%s\n", p.Code, p.Name, p.NextTaskN, renderTime(p.UpdatedAt))
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", p.Code, p.Name, renderNextTaskN(p.NextTaskN), renderTime(p.UpdatedAt))
 	}
 	return b.String()
 }
@@ -218,11 +238,15 @@ func renderLabelListText(ls []jsonLabel) string {
 }
 
 type jsonComment struct {
-	ID        string        `json:"id"`
-	TaskID    string        `json:"task_id"`
-	ReplyTo   string        `json:"reply_to,omitempty"`
-	Body      string        `json:"body"`
-	Labels    []string      `json:"labels"`
+	ID      string   `json:"id"`
+	TaskID  string   `json:"task_id"`
+	ReplyTo string   `json:"reply_to,omitempty"`
+	Body    string   `json:"body"`
+	Labels  []string `json:"labels"`
+	// LogSeq is the v1 log sequence number for a v1-active project. For a
+	// v2-active project this field is repurposed (Task 3's projector) to
+	// carry the v2 creation ordinal instead — a deliberate reuse of the
+	// field, not the v1 log seq.
 	LogSeq    int           `json:"log_seq"`
 	History   []jsonHistory `json:"history"`
 	CreatedAt string        `json:"created_at"`

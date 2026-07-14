@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-// TestLastLogSeqCachedAfterAppend proves Fix A: after AppendLog writes the
+// TestLastLogSeqCachedAfterAppend proves Fix A: after appendLog writes the
 // meta row, LastLogSeq returns the cached value WITHOUT re-reading log.jsonl.
 // We verify this by deleting the log file after the append — if LastLogSeq
 // still returns the right number, it read the cache, not the file.
 func TestLastLogSeqCachedAfterAppend(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
 
 	// Delete the log file. If LastLogSeq reads the file, it would return 0
 	// or error. The cached meta row must still return 2.
@@ -37,8 +37,8 @@ func TestLastLogSeqCachedAfterAppend(t *testing.T) {
 func TestLastLogSeqFallsBackToFileOnCacheMiss(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
 
 	// Wipe the meta row to simulate a fresh cache.db against an existing log.
 	db, _ := s.cacheDB()
@@ -75,9 +75,9 @@ func TestLastLogSeqFallsBackToFileOnCacheMiss(t *testing.T) {
 func TestLastLogSeqReplayPopulatesMeta(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
 
 	// Wipe the meta row.
 	db, _ := s.cacheDB()
@@ -126,13 +126,13 @@ func TestLastLogSeqFreshProjectReturnsZero(t *testing.T) {
 func TestLastLogSeqExternalAppendBumpsMeta(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
 	if last, _ := s.LastLogSeq("ATM"); last != 3 {
 		t.Fatalf("before 4th append LastLogSeq = %d want 3", last)
 	}
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t3"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t3"}))
 	if last, _ := s.LastLogSeq("ATM"); last != 4 {
 		t.Fatalf("after 4th append LastLogSeq = %d want 4", last)
 	}
@@ -155,7 +155,7 @@ func TestLastLogSeqNonDefaultStoreRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
 	if last, _ := s.LastLogSeq("ATM"); last != 1 {
 		t.Fatalf("nested root LastLogSeq = %d want 1", last)
 	}

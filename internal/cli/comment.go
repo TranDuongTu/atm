@@ -95,7 +95,10 @@ func newCommentShowCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			code, _, _, _ := store.ParseCommentID(id)
-			hv := s.History(code, store.Subject{Kind: "comment", ID: c.ID})
+			hv, err := s.HistoryE(code, store.Subject{Kind: "comment", ID: c.ID})
+			if err != nil {
+				return err
+			}
 			return st.emit(st.stdout(), map[string]any{"comment": commentToJSON(c, hv)}, func() {
 				fmt.Fprint(os.Stdout, renderCommentText(commentToJSON(c, hv)))
 			})

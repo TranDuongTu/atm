@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"atm/internal/eventsource"
 	"atm/internal/seed"
 )
 
@@ -44,12 +45,28 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 			return err
 		}
 	}
+	code := labelProject(name)
+	if f, err := s.dispatchFormat(code); err != nil {
+		return err
+	} else if f == StoreFormatV2 {
+		// Only the fields being SET go into the payload (the writesOf action
+		// table): an omitted key writes no slot, so the label's existing
+		// description/expr survives — exactly the v1 "empty means keep" rule,
+		// expressed in the event model instead of by re-reading the cache.
+		payload := map[string]any{}
+		if description != "" {
+			payload["description"] = description
+		}
+		if expr != "" {
+			payload["expr"] = expr
+		}
+		return s.labelUpsertV2(code, name, actor, payload)
+	}
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
-	code := labelProject(name)
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		l := Label{Name: name, Description: description, Expr: expr}
 		if description == "" || expr == "" {
 			if existing, ok, err := cacheGetLabel(db, name); err != nil {
@@ -145,12 +162,17 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	if err := s.labelProjectExists(name); err != nil {
 		return err
 	}
+	code := labelProject(name)
+	if f, err := s.dispatchFormat(code); err != nil {
+		return err
+	} else if f == StoreFormatV2 {
+		return s.labelSeedV2(code, name, description, expr, actor)
+	}
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
-	code := labelProject(name)
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		if _, ok, err := cacheGetLabel(db, name); err != nil {
 			return err
 		} else if ok {
@@ -223,9 +245,14 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var result *LabelRemoveResult
 	code := labelProject(name)
-	err = s.WithLock(code, func() error {
+	if f, err := s.dispatchFormat(code); err != nil {
+		return nil, err
+	} else if f == StoreFormatV2 {
+		return s.labelRemoveV2(code, name, actor)
+	}
+	var result *LabelRemoveResult
+	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		l, ok, err := cacheGetLabel(db, name)
 		if err != nil {
 			return err
@@ -255,6 +282,112 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 		return nil
 	})
 	return result, err
+}
+
+// ---- v2 label mutators ----
+
+// labelUpsertV2 emits label.upserted. A label's NAME is its identity in the
+// fold, so the subject carries the name and there is nothing to resolve.
+func (s *Store) labelUpsertV2(code, name, actor string, payload map[string]any) error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: eventsource.Subject{Kind: "label", Name: name},
+			Payload: payload,
+		}); err != nil {
+			return err
+		}
+		return s.reprojectV2Locked(code)
+	})
+}
+
+// labelSeedV2 is LabelSeed's v2 body: a no-op when the label is already live
+// in the fold (the fold, not cache.db, is the authority for a v2 project).
+func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
+		ctx, err := s.beginV2AuthorLocked(code)
+		if err != nil {
+			return err
+		}
+		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
+			return nil
+		}
+		payload := map[string]any{"description": description}
+		if expr != "" {
+			payload["expr"] = expr
+		}
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: eventsource.Subject{Kind: "label", Name: name},
+			Payload: payload,
+		}); err != nil {
+			return err
+		}
+		return s.reprojectV2Locked(code)
+	})
+}
+
+func (s *Store) labelRemoveV2(code, name, actor string) (*LabelRemoveResult, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return nil, err
+	}
+	var result *LabelRemoveResult
+	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
+		ctx, err := s.beginV2AuthorLocked(code)
+		if err != nil {
+			return err
+		}
+		if l, ok := ctx.state.Labels[name]; !ok || l.Tombstoned {
+			return fmt.Errorf("%w: label %q", ErrNotFound, name)
+		}
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  ActionLabelRemoved,
+			Subject: eventsource.Subject{Kind: "label", Name: name},
+		}); err != nil {
+			return err
+		}
+		if err := s.reprojectV2Locked(code); err != nil {
+			return err
+		}
+		// Retained usage: entities still carrying the (now unregistered) name.
+		count, err := cacheCountTasksWithLabelGlobally(db, name)
+		if err != nil {
+			return err
+		}
+		result = &LabelRemoveResult{RetainedUsage: count}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// labelProjectExistsV2Locked validates a label's project from inside a v2
+// mutator that already holds `code`'s lock. For a label in the project being
+// mutated the fold has already proved the project live, so there is nothing to
+// check; a label naming a FOREIGN project falls back to the cache row rather
+// than getProjectLocked, whose v1 freshness checks are meaningless for a
+// v2-active project (Task 9 branches those).
+func (s *Store) labelProjectExistsV2Locked(name, code string) error {
+	lc := labelProject(name)
+	if lc == code {
+		return nil
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		return err
+	}
+	if _, ok, err := cacheGetProject(db, lc); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, lc, name)
+	}
+	return nil
 }
 
 func (s *Store) LabelList(project, namespace string) []Label {

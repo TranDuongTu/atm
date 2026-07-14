@@ -104,6 +104,45 @@ func cacheGetLastLogSeq(db *sql.DB, code string) (int, bool, error) {
 	return v, true, nil
 }
 
+// v2FreshnessMetaKey for the per-project last-projected v2 event count row.
+func v2FreshnessMetaKey(code string) string { return "last_v2_event_count:" + code }
+
+// cacheSetV2Freshness upserts the per-project v2 freshness row: the event
+// count of the events.v2.jsonl file the cache was last projected from.
+// Analogous to cacheSetLastLogSeq but keyed on the v2 event count rather
+// than a v1 log seq, since v2 files have no monotonic seq column.
+func cacheSetV2Freshness(db *sql.DB, code string, eventCount int) error {
+	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		v2FreshnessMetaKey(code), eventCount)
+	return err
+}
+
+// cacheClearV2Freshness removes the project's v2 freshness row, so a later
+// reader sees "never projected from a v2 file" rather than a stale count that
+// happens to match. Called by every path that re-derives the project's cache
+// rows from something OTHER than a v2 fold (today: the v1 rebuild rollback
+// runs); cacheDeleteProjectRows sweeps entity tables only and never meta.
+func cacheClearV2Freshness(db *sql.DB, code string) error {
+	_, err := db.Exec(`DELETE FROM meta WHERE key = ?`, v2FreshnessMetaKey(code))
+	return err
+}
+
+// cacheGetV2Freshness returns the cached v2 event count and a found flag. A
+// missing row returns (0, false) so the caller can tell "never projected"
+// apart from "projected at count 0".
+func cacheGetV2Freshness(db *sql.DB, code string) (int, bool, error) {
+	var v int
+	err := db.QueryRow(`SELECT value FROM meta WHERE key = ?`, v2FreshnessMetaKey(code)).Scan(&v)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return v, true, nil
+}
+
 // cacheDB returns the store's single shared *sql.DB, opening and migrating it
 // on first use. WAL mode lets short-lived CLI invocations for different
 // projects avoid contending on reads; MaxOpenConns(1) keeps this process's
@@ -138,6 +177,36 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 			!strings.Contains(err.Error(), "duplicate column name") {
 			s.cacheErr = err
 			return
+		}
+		// v2 projection columns: identity carries the eventsource entity ID
+		// (opaque to v1 readers) and alias carries the same value as id/name
+		// for v1 rows but lets a future identity-keyed lookup distinguish a
+		// v2 row from a v1 one. Guarded the same way as the expr column
+		// above: cache.db is derived and rebuildable, so the worst case is
+		// always recoverable by deleting it and replaying the log.
+		for _, stmt := range []string{
+			`ALTER TABLE projects ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE tasks ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE tasks ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE comments ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE comments ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE labels ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
+		} {
+			if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+				s.cacheErr = err
+				return
+			}
+		}
+		for _, stmt := range []string{
+			`CREATE INDEX IF NOT EXISTS idx_tasks_identity ON tasks(identity)`,
+			`CREATE INDEX IF NOT EXISTS idx_tasks_alias ON tasks(alias)`,
+			`CREATE INDEX IF NOT EXISTS idx_comments_identity ON comments(identity)`,
+			`CREATE INDEX IF NOT EXISTS idx_comments_alias ON comments(alias)`,
+		} {
+			if _, err := db.Exec(stmt); err != nil {
+				s.cacheErr = err
+				return
+			}
 		}
 		s.cacheDBConn = db
 	})
@@ -373,7 +442,10 @@ func SortTaskIDsByFunc(tasks []*Task) {
 		if ci != cj {
 			return ci < cj
 		}
-		return ni < nj
+		if ni != nj {
+			return ni < nj
+		}
+		return tasks[i].ID < tasks[j].ID
 	})
 }
 
