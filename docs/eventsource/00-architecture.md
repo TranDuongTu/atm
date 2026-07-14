@@ -95,8 +95,8 @@ Deferred to the sub-specs, on purpose: the exact canonical serialization and has
 | Spec | Layer | Status |
 |------|-------|--------|
 | `00-architecture.md` | overview | Proposed (this doc) |
-| `01-core-data-model.md` | L0 + L1 + L2 | Not started (next) |
-| `02-storage-layout.md` | L3 | Not started |
+| `01-core-data-model.md` | L0 + L1 + L2 | Proposed |
+| `02-storage-layout.md` | L3 | Not started (next) |
 | `03-sync-transport.md` | L4 | Not started |
 | `04-identity-trust-auth.md` | L5 | Not started |
 | `05-versioning-compat.md` | X | Not started |
