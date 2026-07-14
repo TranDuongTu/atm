@@ -10,7 +10,7 @@ Labels are global and per-project. The seeded defaults (status, priority, contex
 
 ## Where tasks live
 
-Tasks live in the store, one JSON file per task, scoped to a project. `atm task list --project <CODE>` lists them. Each task has an ID (`<CODE>-<NNNN>`), a title, a description, and a label set. The description is free-form text — agents write what they are doing, what they found, what they decided, so the next agent or human can pick up where they left off.
+Tasks live in the store, one JSON file per task, scoped to a project. `atm task list --project <CODE>` lists them. Each task has an ID — `<CODE>-<NNNN>` on a v1 project, `<CODE>-<hex>` on an EventSource v2 one (an upgraded project keeps its old numeric ids and mints hex ones for new tasks) — a title, a description, and a label set. The description is free-form text — agents write what they are doing, what they found, what they decided, so the next agent or human can pick up where they left off.
 
 ## How to read a task and its labels
 
@@ -98,6 +98,7 @@ Agents working in an ATM project follow these rules to keep the label substrate 
 - Extra agent args: pass host-agent flags after `--` (e.g. `atm dev --project <CODE> -- --yolo`); persistent per-agent defaults may be set with `atm agents args <name> -- <flags>` or via `ATM_<AGENT>_ARGS`. ATM passes args through verbatim and does not validate them.
 - `atm store upgrade --project <CODE>` — upgrade a preserved v1 log to side-by-side EventSource v2 storage.
 - `atm store upgrade --all` — upgrade every project and make new projects be born v2.
+- `atm store rollback --project <CODE> --to v1` — switch an upgraded project back to its preserved v1 log (v2-only writes are not exported back; refused for a project born v2).
 - `atm store set-format --format v1|v2` — override only the birth/default format (v2 refused while any project lacks an explicit entry).
 
 Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.

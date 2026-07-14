@@ -417,7 +417,8 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	// file, and this read has no other freshness check on its path. A caller
 	// holding this task's project lock would deadlock here (WithLock is not
 	// reentrant) -- confirmed none of ListComments' callers do.
-	if f, _ := s.projectFormat(code); f == StoreFormatV2 {
+	f, _ := s.projectFormat(code)
+	if f == StoreFormatV2 {
 		if err := s.ensureV2CacheFresh(code); err != nil {
 			return nil, err
 		}
@@ -432,6 +433,22 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	}
 	if out == nil {
 		out = []*Comment{}
+	}
+	if f == StoreFormatV2 {
+		// cacheListComments returns id-asc. Under v1 that IS thread order (the
+		// -cNNNN segment is a zero-padded per-task creation counter), but a v2
+		// comment alias is a content hash, so id-asc renders the narrative in
+		// hash order -- a reply can print above the comment it answers. The
+		// projector stamps Comment.LogSeq with the per-task creation ordinal
+		// from the fold (CommentsByCreation, i.e. HLC creation order), which is
+		// the honest thread order; sort on it. Ordinals may have gaps (tombstoned
+		// comments consume one) but stay monotone in creation order.
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].LogSeq != out[j].LogSeq {
+				return out[i].LogSeq < out[j].LogSeq
+			}
+			return out[i].ID < out[j].ID
+		})
 	}
 	return out, nil
 }

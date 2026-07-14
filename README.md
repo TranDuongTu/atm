@@ -110,6 +110,8 @@ atm store rollback --project ATM --to v1
 
 Rollback does not copy v2-only writes back into v1. If you write more data while back on v1, run upgrade again; ATM rebuilds the v2 event file from the current v1 log and moves the previous v2 file aside.
 
+After cutover the project keeps every id it already had — an upgraded `ATM-0001` stays `ATM-0001` — but new tasks and comments get hash-derived ids (`ATM-9f3c1a`, `ATM-9f3c1a-c8b2`) instead of the old numeric counters. Both generations are accepted everywhere an id is accepted, so existing scripts keep working. The counters themselves are gone on v2: `atm project show` renders `next_task_n` as `-`, and lists and comment threads are ordered by event creation order rather than by id.
+
 Both commands guard their preconditions: `atm store upgrade` refuses a project that is already v2-active (upgrade reads from the v1 log; re-upgrade is only legal after a rollback), and a re-run of `atm store upgrade --all` skips projects that already cut over — retrying after a partial failure never rewrites a live v2 project. `atm store rollback` refuses a project that has no `log.jsonl` (a project born v2 has no v1 state to roll back to).
 
 ## Build And Verify
