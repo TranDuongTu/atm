@@ -46,20 +46,43 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 			return rep, err
 		}
 		if format == StoreFormatV2 {
+			// Match v1's discipline three lines below: tolerate an integrity
+			// error on THIS project by skipping it and moving on to the
+			// remaining projects, rather than aborting the whole-store
+			// rebuild. Any other error is a real operational failure and
+			// still aborts.
 			snap, err := s.verifyV2File(code)
 			if err != nil {
-				return rep, err
+				if !IsIntegrity(err) {
+					return rep, err
+				}
+				continue
 			}
 			state, err := eventsource.FoldEvents(snap.Events)
 			if err != nil {
-				return rep, err
+				if !IsIntegrity(err) {
+					return rep, err
+				}
+				continue
 			}
 			if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
 				return rep, err
 			}
 			rep.Projects++
 			rep.Tasks += len(state.Tasks)
-			rep.Labels += len(state.Labels)
+			// Fold this v2 project's live label names into the same
+			// store-global, name-keyed set the v1 path below uses (the
+			// "labels" cache table has no project_code column — see
+			// eventsource_projector.go's cacheDeleteProjectRows comment) so
+			// a name shared with another project (v1 or v2) is counted once,
+			// not once per project. Tombstoned entries are excluded to match
+			// cacheProjectFromV2State, which never upserts them.
+			for name, l := range state.Labels {
+				if l.Tombstoned {
+					continue
+				}
+				mergedLabels[name] = Label{Name: l.Name, Description: l.Description, Expr: l.Expr}
+			}
 			continue
 		}
 		st, err := s.Replay(code)
@@ -93,6 +116,6 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 			return rep, err
 		}
 	}
-	rep.Labels += len(mergedLabels)
+	rep.Labels = len(mergedLabels)
 	return rep, nil
 }

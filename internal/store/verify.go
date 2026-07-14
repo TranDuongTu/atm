@@ -64,6 +64,9 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		defer s.populateAuxReports(code, report)
 		snap, err := s.verifyV2File(code)
 		if err != nil {
+			if !IsIntegrity(err) {
+				return nil, err
+			}
 			report.LogOK = false
 			report.Diverged = true
 			return report, nil
@@ -73,6 +76,9 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		report.LogEntries = snap.EventCount
 		state, err := eventsource.FoldEvents(snap.Events)
 		if err != nil {
+			if !IsIntegrity(err) {
+				return nil, err
+			}
 			report.LogOK = false
 			report.Diverged = true
 			return report, nil
