@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rewire ATM's live store to use side-by-side v2 EventSource storage while preserving v1 `log.jsonl` for rollback and re-upgrade.
+**Goal:** Rewire ATM's live store to use side-by-side v2 EventSource storage while preserving v1 `log.jsonl` for rollback and re-upgrade, after the ATM-0125 alias-authoring blocker is resolved.
 
 **Architecture:** Each project gets `projects/<CODE>/events.v2.jsonl` as the canonical v2 source of truth, with v1 `projects/<CODE>/log.jsonl` left untouched. `internal/store` remains the API consumed by CLI/TUI and dispatches by active project format; `cache.db` stays derived and rebuildable from either v1 replay or v2 fold. Upgrade writes a temp v2 file, verifies it, rebuilds cache, and activates v2 only after all checks pass.
 
@@ -10,7 +10,8 @@
 
 ## Global Constraints
 
-- Do not start implementation until ATM-0106 has landed and `internal/eventsource` exists.
+- Do not start implementation until ATM-0106 has landed, `internal/eventsource` exists, and ATM-0125 is closed.
+- ATM-0125 is a hard blocker for this plan because L3 authors the first v2-native `task.created` and `comment.created` events; those events cannot safely mint stored aliases until ATM-0125 amends the L1 minting rule and adds the core authoring helper.
 - `projects/<CODE>/log.jsonl` is preserved untouched by upgrade, rollback, and re-upgrade.
 - `projects/<CODE>/events.v2.jsonl` stores one canonical raw v2 event JSON object per line and is the v2 source of truth.
 - `cache.db`, `eventsource.json`, v2 freshness rows, frontier caches, alias indexes, and vector indexes are derived and rebuildable.
@@ -54,14 +55,25 @@ Modify existing files:
 
 **Files:**
 - Read: `internal/eventsource/*`
+- Read: `atm task show --task ATM-0125 --output json`
 - Read: `docs/eventsource/01-core-data-model.md`
 - Read: `docs/eventsource/02-storage-layout.md`
 
 **Interfaces:**
-- Consumes: ATM-0106 package `internal/eventsource`.
+- Consumes: ATM-0106 package `internal/eventsource` and the ATM-0125 alias-authoring fix.
 - Produces: A verified starting point; no repository change.
 
-- [ ] **Step 1: Confirm ATM-0106 core package exists**
+- [ ] **Step 1: Confirm ATM-0125 is closed**
+
+Run:
+
+```bash
+atm task show --task ATM-0125 --output json
+```
+
+Expected: task labels include `ATM:status:done`. If ATM-0125 is still open, stop. Do not execute L3 storage tasks, because v2-native task/comment creation would mint aliases from an unstable preimage.
+
+- [ ] **Step 2: Confirm ATM-0106 core package exists**
 
 Run:
 
@@ -72,7 +84,7 @@ go test ./internal/eventsource
 
 Expected: both commands succeed. If `internal/eventsource` is missing, stop and implement/merge ATM-0106 first.
 
-- [ ] **Step 2: Confirm expected ATM-0106 API**
+- [ ] **Step 3: Confirm expected ATM-0125 authoring API**
 
 Run:
 
@@ -80,9 +92,9 @@ Run:
 rg -n "func UpgradeV1|func BuildDAG|func Fold|func FoldEvents|func NewEvent|func NewTaskCreated|func NewCommentCreated|func MintReplicaID|type State|type Event|type Draft|type Clock" internal/eventsource
 ```
 
-Expected: matches for all listed functions/types. If `NewTaskCreated` or `NewCommentCreated` is absent, stop and add an ATM-0106 amendment before L3 execution; task/comment creation aliases cannot be safely invented in L3 because the L1 alias rule is part of event identity.
+Expected: matches for all listed functions/types, or equivalent task/comment creation helpers documented by the ATM-0125 closing comment. If the helper names differ from `NewTaskCreated` / `NewCommentCreated`, update Task 7 and Task 8 of this plan before implementation. If no creation helpers exist, stop; L3 must not rediscover alias ordering locally.
 
-- [ ] **Step 3: Confirm baseline verification**
+- [ ] **Step 4: Confirm baseline verification**
 
 Run:
 
@@ -2322,4 +2334,4 @@ git commit -m "test(ATM-0107): cover eventsource v2 storage end to end"
 
 ## Execution Handoff
 
-Plan execution must wait until ATM-0106 is implemented and merged. After that, execute the tasks in order. Use frequent commits exactly as listed so failures can be bisected by storage layer.
+Plan execution must wait until ATM-0125 is closed. The current merged ATM-0106 output includes `internal/eventsource`, `MintTaskAlias`, `MintCommentAlias`, and generic `NewEvent`, but it does **not** include a safe end-to-end creation helper for v2-authored tasks/comments. After ATM-0125 closes, rerun Task 0, refresh helper names in Tasks 7-8 if needed, then execute tasks in order. Use frequent commits exactly as listed so failures can be bisected by storage layer.
