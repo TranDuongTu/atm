@@ -46,7 +46,7 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 		}
 	}
 	code := labelProject(name)
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return err
 	} else if f == StoreFormatV2 {
 		// Only the fields being SET go into the payload (the writesOf action
@@ -66,7 +66,7 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		l := Label{Name: name, Description: description, Expr: expr}
 		if description == "" || expr == "" {
 			if existing, ok, err := cacheGetLabel(db, name); err != nil {
@@ -163,7 +163,7 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 		return err
 	}
 	code := labelProject(name)
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return err
 	} else if f == StoreFormatV2 {
 		return s.labelSeedV2(code, name, description, expr, actor)
@@ -172,7 +172,7 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		if _, ok, err := cacheGetLabel(db, name); err != nil {
 			return err
 		} else if ok {
@@ -246,13 +246,13 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 		return nil, err
 	}
 	code := labelProject(name)
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return nil, err
 	} else if f == StoreFormatV2 {
 		return s.labelRemoveV2(code, name, actor)
 	}
 	var result *LabelRemoveResult
-	err = s.WithLock(code, func() error {
+	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		l, ok, err := cacheGetLabel(db, name)
 		if err != nil {
 			return err
@@ -289,7 +289,7 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 // labelUpsertV2 emits label.upserted. A label's NAME is its identity in the
 // fold, so the subject carries the name and there is nothing to resolve.
 func (s *Store) labelUpsertV2(code, name, actor string, payload map[string]any) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		if _, err := s.appendV2Locked(code, V2Draft{
 			Actor:   actor,
 			Action:  ActionLabelUpserted,
@@ -305,7 +305,7 @@ func (s *Store) labelUpsertV2(code, name, actor string, payload map[string]any) 
 // labelSeedV2 is LabelSeed's v2 body: a no-op when the label is already live
 // in the fold (the fold, not cache.db, is the authority for a v2 project).
 func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -335,7 +335,7 @@ func (s *Store) labelRemoveV2(code, name, actor string) (*LabelRemoveResult, err
 		return nil, err
 	}
 	var result *LabelRemoveResult
-	err = s.WithLock(code, func() error {
+	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err

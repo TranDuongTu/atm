@@ -16,7 +16,7 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	if f, err := s.projectFormat(projectCode); err != nil {
+	if f, err := s.dispatchFormat(projectCode); err != nil {
 		return nil, err
 	} else if f == StoreFormatV2 {
 		return s.createTaskV2(projectCode, title, description, labels, actor)
@@ -26,7 +26,7 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 		return nil, err
 	}
 	var created *Task
-	err = s.WithLock(projectCode, func() error {
+	err = s.withProjectFormatLock(projectCode, StoreFormatV1, func() error {
 		p, err := s.getProjectLocked(projectCode)
 		if err != nil {
 			return err
@@ -106,7 +106,7 @@ func (s *Store) taskProjectFormat(id string) (string, StoreFormat, error) {
 	if !ok {
 		return "", "", fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
-	f, err := s.projectFormat(code)
+	f, err := s.dispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -145,7 +145,7 @@ func (s *Store) validateTaskLabelsV2Locked(code string, labels []string) error {
 // event identity — L3 never mints one itself (ATM-0125).
 func (s *Store) createTaskV2(projectCode, title, description string, labels []string, actor string) (*Task, error) {
 	var created *Task
-	err := s.WithLock(projectCode, func() error {
+	err := s.withProjectFormatLock(projectCode, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(projectCode)
 		if err != nil {
 			return err
@@ -186,7 +186,7 @@ func (s *Store) createTaskV2(projectCode, title, description string, labels []st
 // mutateTaskV2 appends one v2 task event against the task's IDENTITY (the fold
 // keys every slot write off subject.id, never the alias) and reprojects.
 func (s *Store) mutateTaskV2(code, id, action, actor string, payload map[string]any) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -209,7 +209,7 @@ func (s *Store) mutateTaskV2(code, id, action, actor string, payload map[string]
 
 // taskLabelAddV2 auto-registers the label (v1 parity) and asserts membership.
 func (s *Store) taskLabelAddV2(code, id, label, actor string) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -454,7 +454,7 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
@@ -523,7 +523,7 @@ func (s *Store) RemoveTask(id, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err
@@ -563,7 +563,7 @@ func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), ac
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		t, err := s.getTaskLocked(id)
 		if err != nil {
 			return err

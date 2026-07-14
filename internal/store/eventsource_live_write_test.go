@@ -139,8 +139,13 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	// the read path Task 9 branches by format; the v2 WRITE, which is Task 8's
 	// job, is correct — the event is in the file and the fold, and
 	// cacheProjectFromV2State wrote the right row before GetProject undid it.
-	// (Task and comment reads are unaffected: their v2 hash aliases match no
-	// v1 log subject, so the staleness check finds nothing to rebuild from.)
+	//
+	// Task and comment reads happen to survive on an UPGRADED project only
+	// because its frozen v1 log supplies a LastLogSeq large enough to clear the
+	// staleness check. They are NOT generally safe: on a V2-BORN project (no
+	// log.jsonl, so LastLogSeq is 0) GetTask/GetComment hard-fail with
+	// ErrIntegrity, because cacheProjectFromV2State stores the v2 creation
+	// ordinal in LogSeq. TestV2ReadPathIsBrokenUntilTask9 pins that.
 	snap, err := s.verifyV2File("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -215,6 +220,213 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
 		t.Fatalf("rollback of a v2-born project = %v, want ErrConflict", err)
 	}
+}
+
+// mustRead returns the file's bytes, or nil when it does not exist.
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// TestMutatorRechecksFormatUnderLock covers the TOCTOU between a mutator's
+// PRE-LOCK format read (which picks the v1 or v2 body) and its acquisition of
+// the project lock. `atm` is multi-process — WithLock is a cross-process flock —
+// so another process can cut the project over (upgrade) or back (rollback) in
+// exactly that window. testHookAfterDispatchFormat makes the window
+// deterministic instead of racing goroutines at it.
+//
+// Without the under-lock re-check the upgrade direction is silent corruption:
+// the v1 body appends to log.jsonl on a project that is now v2-active (the
+// plan's hardest constraint is that log.jsonl stays byte-identical) and the
+// task never reaches events.v2.jsonl. The rollback direction is the mirror.
+func TestMutatorRechecksFormatUnderLock(t *testing.T) {
+	t.Run("upgrade lands in the window: no v1 append", func(t *testing.T) {
+		s := testStore(t)
+		if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+			t.Fatal(err)
+		}
+		before := mustRead(t, s.logPath("ATM"))
+
+		fired := false
+		testHookAfterDispatchFormat = func(code string) {
+			if fired || code != "ATM" {
+				return
+			}
+			fired = true
+			// Another process upgrades the project while our mutator sits
+			// between its format read and the project lock.
+			if _, err := s.UpgradeProjectToV2(code); err != nil {
+				t.Errorf("upgrade in hook: %v", err)
+			}
+		}
+		t.Cleanup(func() { testHookAfterDispatchFormat = nil })
+
+		_, err := s.CreateTask("ATM", "racy", "d", nil, "admin@cli:unset")
+		if !fired {
+			t.Fatal("hook never fired: CreateTask no longer reads the format before taking the lock")
+		}
+		// The corruption first, the error contract second.
+		if after := mustRead(t, s.logPath("ATM")); string(after) != string(before) {
+			t.Error("v1 body ran on a now-v2-active project: log.jsonl changed")
+		}
+		if !IsConflict(err) {
+			t.Errorf("CreateTask across an upgrade = %v, want ErrConflict", err)
+		}
+	})
+
+	t.Run("rollback lands in the window: no v2 append", func(t *testing.T) {
+		s := testStore(t)
+		if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+			t.Fatal(err)
+		}
+		before := mustRead(t, s.eventsV2Path("ATM"))
+
+		fired := false
+		testHookAfterDispatchFormat = func(code string) {
+			if fired || code != "ATM" {
+				return
+			}
+			fired = true
+			if _, err := s.RollbackProjectToV1(code); err != nil {
+				t.Errorf("rollback in hook: %v", err)
+			}
+		}
+		t.Cleanup(func() { testHookAfterDispatchFormat = nil })
+
+		_, err := s.CreateTask("ATM", "racy", "d", nil, "admin@cli:unset")
+		if !fired {
+			t.Fatal("hook never fired: CreateTask no longer reads the format before taking the lock")
+		}
+		if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
+			t.Error("v2 body ran on a now-v1 project: events.v2.jsonl changed")
+		}
+		if !IsConflict(err) {
+			t.Errorf("CreateTask across a rollback = %v, want ErrConflict", err)
+		}
+	})
+}
+
+// TestCreateCommentV2OnMissingTaskAppendsNothing: an event append is DURABLE,
+// so every reference a v2 mutation depends on must be validated BEFORE the
+// first append. createCommentV2 used to auto-register the comment's labels
+// first and only discover the missing task inside appendV2CommentCreatedLocked
+// — committing label.upserted events for a comment that never happened, and
+// (because the error path skips reprojectV2Locked) leaving cache.db and the v2
+// freshness count behind the file.
+func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	before := mustRead(t, s.eventsV2Path("ATM"))
+
+	// The task ref is resolved through the fold, so the error is eventsource's
+	// own "no entity matches" rather than store.ErrNotFound; what this test is
+	// about is that it arrives BEFORE anything is written.
+	_, err := s.CreateComment("ATM-9999", "body", []string{"ATM:area:orphan"}, "", "admin@cli:unset")
+	if err == nil {
+		t.Fatal("CreateComment on a nonexistent task must fail")
+	}
+	if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
+		t.Fatal("failed CreateComment appended events to events.v2.jsonl")
+	}
+	if _, err := s.LabelShow("ATM:area:orphan"); !IsNotFound(err) {
+		t.Fatalf("failed CreateComment registered its labels: LabelShow = %v", err)
+	}
+	// Same rule for the reply-to reference.
+	tk, err := s.CreateTask("ATM", "t", "d", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = mustRead(t, s.eventsV2Path("ATM"))
+	_, err = s.CreateComment(tk.ID, "body", []string{"ATM:area:orphan"}, tk.ID+"-c9999", "admin@cli:unset")
+	if err == nil {
+		t.Fatal("CreateComment with a nonexistent reply-to must fail")
+	}
+	if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
+		t.Fatal("failed CreateComment (bad reply-to) appended events to events.v2.jsonl")
+	}
+	if _, err := s.LabelShow("ATM:area:orphan"); !IsNotFound(err) {
+		t.Fatalf("failed CreateComment (bad reply-to) registered its labels: LabelShow = %v", err)
+	}
+}
+
+// TestV2ReadPathIsBrokenUntilTask9 is a MARKER TEST. Every assertion below
+// asserts KNOWN-BROKEN behaviour on purpose: Task 8 rewired the WRITE path only,
+// and the read path (getProjectWithRebuild / getTaskWithRebuild /
+// getCommentWithRebuild) is still v1-only. cacheProjectFromV2State stores a v2
+// CREATION ORDINAL in Task.LogSeq/Comment.LogSeq, and a v2-BORN project has no
+// log.jsonl at all — so LastLogSeq is 0 and the v1 freshness check `LogSeq >
+// LastSeq` hard-fails. On-disk truth is intact in every case here; only the
+// read path lies.
+//
+// WHEN TASK 9 LANDS THIS TEST FAILS. That is its job. Do not delete it — flip
+// each assertion to the correct one (reads succeed and return the v2 state).
+func TestV2ReadPathIsBrokenUntilTask9(t *testing.T) {
+	t.Run("v2-born task and comment reads hard-fail with ErrIntegrity", func(t *testing.T) {
+		s := testStore(t)
+		if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.CreateProject("ATM", "born v2", "admin@cli:unset"); err != nil {
+			t.Fatal(err)
+		}
+		tk, err := s.CreateTask("ATM", "v2 born task", "d", nil, "admin@cli:unset")
+		if err != nil {
+			t.Fatalf("the WRITE must work: %v", err)
+		}
+		cm, err := s.CreateComment(tk.ID, "body", nil, "", "admin@cli:unset")
+		if err != nil {
+			t.Fatalf("the WRITE must work: %v", err)
+		}
+		// BROKEN (Task 9): `atm task show` on a v2-born task exits 5 with
+		// "integrity: task ... cache LogSeq=1 > log LastSeq=0".
+		if _, err := s.GetTask(tk.ID); !IsIntegrity(err) {
+			t.Fatalf("GetTask on a v2-born task = %v; if Task 9 has landed the read path, FLIP this assertion to require success", err)
+		}
+		if _, err := s.GetComment(cm.ID); !IsIntegrity(err) {
+			t.Fatalf("GetComment on a v2-born comment = %v; if Task 9 has landed the read path, FLIP this assertion to require success", err)
+		}
+		// ListTasks has no staleness check, so it works today — which is why
+		// the Task 8 suite was green: nothing read a v2-born task by id.
+		if got := s.ListTasks(QueryFilters{Project: "ATM"}); len(got) != 1 {
+			t.Fatalf("ListTasks = %d tasks, want 1 (the on-disk truth is intact)", len(got))
+		}
+	})
+
+	t.Run("upgraded-project GetProject reverts a v2 rename", func(t *testing.T) {
+		s := testStore(t)
+		if _, err := s.CreateProject("ATM", "original", "admin@cli:unset"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetProjectName("ATM", "renamed", "admin@cli:unset"); err != nil {
+			t.Fatal(err)
+		}
+		// BROKEN (Task 9): lastProjectEventSeq matches the FROZEN v1 log's
+		// project.created (keyed on Subject.Code), so getProjectWithRebuild
+		// judges the v2-projected row stale and rebuilds it from v1 — reverting
+		// the name that is correctly recorded in events.v2.jsonl and the fold.
+		p, err := s.GetProject("ATM")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Name != "original" {
+			t.Fatalf("GetProject name = %q; if Task 9 has landed the read path, FLIP this assertion to want %q", p.Name, "renamed")
+		}
+	})
 }
 
 func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {

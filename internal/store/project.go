@@ -38,7 +38,7 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	// Birth format: projectFormat on a not-yet-existing project has no
 	// ProjectFormats entry to find, so it resolves to the store's ActiveFormat
 	// — which `atm store upgrade --all` / `set-format --format v2` flip to v2.
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return nil, err
 	} else if f == StoreFormatV2 {
 		return s.createProjectV2(code, name, actor)
@@ -48,7 +48,12 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 		return nil, err
 	}
 	var created *Project
-	err = s.WithLock(code, func() error {
+	// The birth format is re-checked under the lock like every other mutator's:
+	// a concurrent `atm store set-format --format v2` (or an `upgrade --all`
+	// that flips ActiveFormat) between the read above and the lock would
+	// otherwise give this project v1 media while the store believes new projects
+	// are born v2.
+	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		if err := s.projectMediaExists(code); err != nil {
 			return err
 		}
@@ -113,7 +118,7 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		return nil, err
 	}
 	var created *Project
-	err = s.WithLock(code, func() error {
+	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		if err := s.projectMediaExists(code); err != nil {
 			return err
 		}
@@ -221,6 +226,17 @@ func (s *Store) getProjectLocked(code string) (*Project, error) {
 // the rebuild-from-log call itself gets invoked: wrapped in a fresh
 // s.WithLock (GetProject, for callers that do not already hold the lock) or
 // called directly (getProjectLocked, for callers that do).
+//
+// TODO(Task 9): this body is v1-only and must branch on the project's effective
+// format. On a v2-active project the staleness checks below compare a
+// v2-derived cache row against the v1 log and are meaningless: for an UPGRADED
+// project lastProjectEventSeq still matches the frozen log's project.created (on
+// Subject.Code), so every read rebuilds the project row from v1 and reverts any
+// v2 project.name-changed. The same v1-only staleness check in
+// getTaskWithRebuild (task.go) and getCommentWithRebuild (comment.go) hard-fails
+// with ErrIntegrity ("cache LogSeq=N > log LastSeq=0") on a v2-BORN project,
+// which has no log.jsonl at all. See TestV2ReadPathIsBrokenUntilTask9, which
+// pins the current broken behaviour and MUST be flipped when this is fixed.
 func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -354,7 +370,7 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return err
 	} else if f == StoreFormatV2 {
 		return s.setProjectNameV2(code, name, actor)
@@ -363,7 +379,7 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		p, err := s.getProjectLocked(code)
 		if err != nil {
 			return err
@@ -390,7 +406,7 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 // setProjectNameV2 emits project.name-changed against the project's identity
 // (never its code: the fold keys slot writes off subject.id).
 func (s *Store) setProjectNameV2(code, name, actor string) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -415,7 +431,7 @@ func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
 		return err
 	}
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return err
 	} else if f == StoreFormatV2 {
 		return s.removeProjectV2(code)
@@ -424,7 +440,7 @@ func (s *Store) RemoveProject(code, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		if err := s.hasTasksGuard(code); err != nil {
 			return err
 		}
@@ -465,7 +481,7 @@ func (s *Store) removeProjectV2(code string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		if err := s.hasTasksGuard(code); err != nil {
 			return err
 		}
@@ -477,6 +493,16 @@ func (s *Store) removeProjectV2(code string) error {
 			return err
 		}
 		// 1. Delete the project directory (events.v2.jsonl, vectors, config).
+		//
+		// CRASH-WINDOW DECISION (media first, entry second): a crash between
+		// steps 1 and 2 leaves ProjectFormats[code]="v2" with no media, so a
+		// recreation goes to createProjectV2 regardless of ActiveFormat — which
+		// is coherent (createProjectV2 starts from an empty event file anyway,
+		// and it rewrites the same entry) and strictly safer than the reverse
+		// order, where the entry would be gone while v2 media survived: on a
+		// v1-default store that project would then read as v1 with no log.jsonl,
+		// breaking the invariant that every v2-media project carries an explicit
+		// entry.
 		if err := os.RemoveAll(s.projectDir(code)); err != nil {
 			return err
 		}

@@ -37,7 +37,7 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 			return nil, err
 		}
 	}
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.dispatchFormat(code); err != nil {
 		return nil, err
 	} else if f == StoreFormatV2 {
 		return s.createCommentV2(code, taskID, body, labels, replyTo, actor)
@@ -47,7 +47,7 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 		return nil, err
 	}
 	var created *Comment
-	err = s.WithLock(code, func() error {
+	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		t, err := s.getTaskLocked(taskID)
 		if err != nil {
 			return err
@@ -120,7 +120,7 @@ func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
 	if !ok {
 		return "", "", fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
-	f, err := s.projectFormat(code)
+	f, err := s.dispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -135,7 +135,28 @@ func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
 // bookkeeping and has no meaning under v2's hash aliases.
 func (s *Store) createCommentV2(code, taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
 	var created *Comment
-	err := s.WithLock(code, func() error {
+	err := s.withProjectFormatLock(code, StoreFormatV2, func() error {
+		// Resolve the task (and reply-to) reference BEFORE appending anything.
+		// appendV2CommentCreatedLocked resolves them too — that is where the
+		// values actually used come from — but an event append is DURABLE, so
+		// discovering there that the task does not exist would already have
+		// committed the label.upserted events below, and the error path skips
+		// reprojectV2Locked, leaving cache.db and the v2 freshness count behind
+		// the file. v1's CreateComment (getTaskLocked first) and createTaskV2
+		// (resolveProjectRef + label validation first) both validate first;
+		// this is the same rule.
+		ctx, err := s.beginV2AuthorLocked(code)
+		if err != nil {
+			return err
+		}
+		if _, err := ctx.resolveTaskRef(taskID); err != nil {
+			return err
+		}
+		if replyTo != "" {
+			if _, err := ctx.resolveCommentRef(replyTo); err != nil {
+				return err
+			}
+		}
 		if err := s.appendV2LabelUpsertsLocked(code, labels, actor); err != nil {
 			return err
 		}
@@ -166,7 +187,7 @@ func (s *Store) createCommentV2(code, taskID, body string, labels []string, repl
 // mutateCommentV2 appends one v2 comment event against the comment's IDENTITY
 // and reprojects.
 func (s *Store) mutateCommentV2(code, id, action, actor string, payload map[string]any) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -189,7 +210,7 @@ func (s *Store) mutateCommentV2(code, id, action, actor string, payload map[stri
 
 // commentLabelAddV2 auto-registers the label (v1 parity) and asserts membership.
 func (s *Store) commentLabelAddV2(code, id, label, actor string) error {
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
@@ -400,7 +421,7 @@ func (s *Store) RemoveComment(id, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
@@ -442,7 +463,7 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err
@@ -493,7 +514,7 @@ func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Tim
 	if err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
 		c, err := s.getCommentLocked(id)
 		if err != nil {
 			return err

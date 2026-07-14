@@ -138,6 +138,59 @@ func (s *Store) projectFormat(code string) (StoreFormat, error) {
 	return StoreFormatV1, nil
 }
 
+// testHookAfterDispatchFormat, when non-nil, runs inside dispatchFormat AFTER
+// the pre-lock format read and BEFORE the caller takes the project lock. It is
+// the seam that lets a test flip a project's format deterministically inside
+// the TOCTOU window instead of racing goroutines at it. Production leaves it
+// nil; only tests in this package assign it.
+var testHookAfterDispatchFormat func(code string)
+
+// dispatchFormat is the PRE-LOCK format read every live mutator makes to pick
+// its v1 or v2 body. It is ADVISORY ONLY: `atm` is multi-process (WithLock is a
+// cross-process flock precisely because concurrent processes are expected), so
+// another process may cut the project over (upgrade) or back (rollback) between
+// this read and this mutator acquiring the project lock. The body selected here
+// is therefore re-checked under the lock by withProjectFormatLock, which is the
+// authoritative gate.
+func (s *Store) dispatchFormat(code string) (StoreFormat, error) {
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return "", err
+	}
+	if testHookAfterDispatchFormat != nil {
+		testHookAfterDispatchFormat(code)
+	}
+	return f, nil
+}
+
+// withProjectFormatLock takes the project lock and re-checks, UNDER it, that the
+// project's effective format is still `want` — the format whose body the caller
+// selected from its pre-lock dispatchFormat read. Without this re-check, an
+// upgrade landing in that window makes the v1 body append to log.jsonl on a
+// now-v2-active project (violating the byte-identical-v1-log constraint AND
+// losing the write, which never reaches events.v2.jsonl); a rollback landing
+// there makes the v2 body append to events.v2.jsonl on a now-v1 project. Both
+// are silent corruption. ErrConflict — which the caller may simply retry — is
+// not. UpgradeProjectToV2 has carried exactly this re-check since Task 4; every
+// live mutator now does too.
+//
+// LOCK ORDER: unchanged. This adds no new lock — projectFormat just reads
+// store.json (it takes no store-meta lock; only the store.json read-MODIFY-write
+// in mutateStoreMeta does) — so the only lock held here is the project's, and
+// the project -> store-meta order the v2 authoring path relies on is untouched.
+func (s *Store) withProjectFormatLock(code string, want StoreFormat, fn func() error) error {
+	return s.WithLock(code, func() error {
+		f, err := s.projectFormat(code)
+		if err != nil {
+			return err
+		}
+		if f != want {
+			return fmt.Errorf("%w: project %q changed format (%s -> %s) while this write waited for the project lock; retry", ErrConflict, code, want, f)
+		}
+		return fn()
+	})
+}
+
 func (s *Store) setProjectFormat(code string, f StoreFormat) error {
 	return s.mutateStoreMeta(func(m *StoreMeta) error {
 		if m.ProjectFormats == nil {
