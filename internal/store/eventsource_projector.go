@@ -27,7 +27,7 @@ func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State, even
 		}
 	}
 	commentAlias := func(id string) string {
-		if c, ok := st.Comments[id]; ok {
+		if c, ok := st.Comments[id]; ok && !c.Tombstoned {
 			return c.Alias
 		}
 		return ""
@@ -69,10 +69,17 @@ func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State, even
 	return cacheSetV2Freshness(db, code, eventCount)
 }
 
-// cacheDeleteProjectRows removes the project's task/comment rows and the
-// project row itself — the per-project mirror of the global wipe Rebuild
-// does. Labels stay: the labels table is store-global (merged across
-// projects), so only tombstoned names are deleted, above.
+// cacheDeleteProjectRows removes the project's task/comment/label rows and
+// the project row itself — the per-project mirror of the global wipe
+// Rebuild does. The labels table is store-global (merged across projects),
+// so it has no project_code column; a project's own labels are scoped by
+// the "<CODE>:" name prefix instead, the same scoping cacheListLabels uses.
+// Sweeping here (not just deleting tombstoned names in the fold loop below)
+// matters because that loop only ever visits label names present in the
+// CURRENT fold — a label that was live in a previously-projected fold but
+// is simply absent from the new one (e.g. a re-upgrade discarded the
+// branch that upserted it) would otherwise never be visited, and its row
+// would survive indefinitely.
 func cacheDeleteProjectRows(db *sql.DB, code string) error {
 	for _, stmt := range []string{
 		`DELETE FROM comment_labels WHERE comment_id IN (SELECT c.id FROM comments c JOIN tasks t ON t.id = c.task_id WHERE t.project_code = ?)`,
@@ -84,6 +91,9 @@ func cacheDeleteProjectRows(db *sql.DB, code string) error {
 		if _, err := db.Exec(stmt, code); err != nil {
 			return err
 		}
+	}
+	if _, err := db.Exec(`DELETE FROM labels WHERE name LIKE ? ESCAPE '\'`, escapeLike(code)+":%"); err != nil {
+		return err
 	}
 	return nil
 }
