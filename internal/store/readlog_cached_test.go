@@ -13,8 +13,8 @@ import (
 func TestReadLogCachedServesFromMemory(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
 
 	first, err := s.ReadLogCached("ATM")
 	if err != nil {
@@ -44,13 +44,13 @@ func TestReadLogCachedServesFromMemory(t *testing.T) {
 func TestReadLogCachedInvalidatesOnNewAppend(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
 	first, _ := s.ReadLogCached("ATM")
 	if len(first) != 1 {
 		t.Fatalf("first call entries = %d want 1", len(first))
 	}
 	// New append bumps last_log_seq (cache.db row) — snapshot must invalidate.
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
 	second, _ := s.ReadLogCached("ATM")
 	if len(second) != 2 {
 		t.Fatalf("after append entries = %d want 2 (snapshot invalidated)", len(second))
@@ -62,8 +62,8 @@ func TestReadLogCachedInvalidatesOnNewAppend(t *testing.T) {
 func TestReadLogCachedConcurrentSafe(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
@@ -113,7 +113,7 @@ func TestReadLogCachedFreshProjectReturnsEmpty(t *testing.T) {
 func TestReadLogCachedExternalAppendDetected(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.AppendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
+	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", Name: "x"}))
 	first, _ := s.ReadLogCached("ATM")
 	if len(first) != 1 {
 		t.Fatalf("first call entries = %d want 1", len(first))

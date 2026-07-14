@@ -180,3 +180,49 @@ func TestListCommentsSeesV2AppendWithoutCacheProjection(t *testing.T) {
 		t.Fatalf("ListComments = %d comments without %q: comment list read is not freshness-gated", len(comments), alias)
 	}
 }
+
+// TestListTasksErrPropagatesFormatLookupError and
+// TestListCommentsPropagatesFormatLookupError pin the final-review Important-3:
+// both list reads used to do `f, _ := s.projectFormat(code)`. With store.json
+// unreadable, f == "", the v2 branch (and with it the freshness gate) is skipped,
+// and the caller gets stale cache rows with a NIL error. Same reasoning as
+// TestTextSearchPropagatesFormatLookupError / TestReindexOnceOnV2Propagates-
+// FormatLookupError: a swallowed lookup silently degrades a v2 project to the
+// ungated v1 path.
+func TestListTasksErrPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListTasksErr(QueryFilters{Project: "ATM"})
+	if err == nil {
+		t.Fatalf("ListTasksErr = %d tasks, nil: a failed format lookup silently served ungated cache rows", len(got))
+	}
+}
+
+func TestListCommentsPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateComment(tk.ID, "body", nil, "", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListComments(tk.ID)
+	if err == nil {
+		t.Fatalf("ListComments = %d comments, nil: a failed format lookup silently served ungated cache rows", len(got))
+	}
+}

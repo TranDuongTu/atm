@@ -417,7 +417,14 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	// file, and this read has no other freshness check on its path. A caller
 	// holding this task's project lock would deadlock here (WithLock is not
 	// reentrant) -- confirmed none of ListComments' callers do.
-	f, _ := s.projectFormat(code)
+	//
+	// The lookup error is PROPAGATED, not swallowed: a swallowed lookup leaves
+	// f == "", skips the v2 branch (and its freshness gate), and serves stale
+	// cache rows with a nil error. Same reasoning as ListTasksErr / textSearch.
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
 	if f == StoreFormatV2 {
 		if err := s.ensureV2CacheFresh(code); err != nil {
 			return nil, err

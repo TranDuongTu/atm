@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -452,5 +453,108 @@ func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {
 	// follows ActiveFormat, and on a v1-default store yields a clean v1 project.
 	if _, err := s.CreateProject("ATM", "recreated", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestRemoveProjectRefusesUnprojectedV2Task pins the final-review Critical: the
+// "is this project empty?" guard must be answered from the FOLD, not from cache
+// rows. Under v2 a lagging cache is a designed-for state (an external append, or
+// a writer that died between the append commit point and its reprojection), and
+// RemoveProject's os.RemoveAll of the project dir is IRREVERSIBLE — it takes
+// events.v2.jsonl with it. Every other v2 read path got a freshness gate; this
+// one, the only one whose failure destroys data, did not.
+func TestRemoveProjectRefusesUnprojectedV2Task(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	// A writer that fsynced its commit point and died before reprojecting: the
+	// event line is truth, the cache holds no task row for it.
+	var alias string
+	if err := s.WithLock("ATM", func() error {
+		_, a, err := s.appendV2TaskCreatedLocked("ATM", "unprojected live task", "", nil, "admin@cli:unset")
+		alias = a
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := s.RemoveProject("ATM", "admin@cli:unset")
+	if err == nil {
+		t.Fatalf("RemoveProject with unprojected live task %q = nil: DATA LOSS, the event file was deleted", alias)
+	}
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("RemoveProject err = %v, want ErrConflict (same refusal v1's hasTasksGuard produces)", err)
+	}
+	if _, statErr := os.Stat(s.eventsV2Path("ATM")); statErr != nil {
+		t.Fatalf("events.v2.jsonl gone after a refused RemoveProject: %v", statErr)
+	}
+	// And the task is still there once the cache catches up.
+	if _, err := s.GetTask(alias); err != nil {
+		t.Fatalf("GetTask(%q) after the refused removal: %v", alias, err)
+	}
+}
+
+// TestV2ActiveMissingEntityWritesReturnErrNotFound is the WRITE-surface mirror of
+// TestV2ActiveMissingEntityReadsReturnErrNotFound. The read side was pinned; the
+// write side regressed, because every v2 mutator resolves through
+// v2AuthorCtx.resolveTaskRef/resolveCommentRef, which returned the raw
+// eventsource.ErrNoMatch. That is not wrapped in store.ErrNotFound, so
+// cli.CodeForError fell through to "generic" and `atm task set-title --task
+// <typo>` exited 1 instead of 3.
+func TestV2ActiveMissingEntityWritesReturnErrNotFound(t *testing.T) {
+	s := testStore(t)
+	if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "real", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingTask := "ATM-999999"
+	missingComment := "ATM-999999-c1111"
+	realTaskMissingComment := tk.ID + "-c9999"
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{"SetTitle", func() error { return s.SetTitle(missingTask, "t", "admin@cli:unset") }},
+		{"SetDescription", func() error { return s.SetDescription(missingTask, "d", "admin@cli:unset") }},
+		{"TaskLabelAdd", func() error { return s.TaskLabelAdd(missingTask, "ATM:status:open", "admin@cli:unset") }},
+		{"TaskLabelRemove", func() error { return s.TaskLabelRemove(missingTask, "ATM:status:open", "admin@cli:unset") }},
+		{"RemoveTask", func() error { return s.RemoveTask(missingTask, "admin@cli:unset") }},
+		{"SetCommentBody", func() error { return s.SetCommentBody(missingComment, "b", "admin@cli:unset") }},
+		{"CommentLabelAdd", func() error {
+			return s.CommentLabelAdd(missingComment, "ATM:status:open", "admin@cli:unset")
+		}},
+		{"CommentLabelRemove", func() error {
+			return s.CommentLabelRemove(missingComment, "ATM:status:open", "admin@cli:unset")
+		}},
+		{"RemoveComment", func() error { return s.RemoveComment(missingComment, "admin@cli:unset") }},
+		{"CreateComment/missing-task", func() error {
+			_, err := s.CreateComment(missingTask, "b", nil, "", "admin@cli:unset")
+			return err
+		}},
+		{"CreateComment/missing-reply-to", func() error {
+			_, err := s.CreateComment(tk.ID, "b", nil, realTaskMissingComment, "admin@cli:unset")
+			return err
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.call()
+			if !IsNotFound(err) {
+				t.Fatalf("%s on a missing v2 entity = %v, want ErrNotFound (CLI exit 3, not generic exit 1)", c.name, err)
+			}
+			if errors.Is(err, eventsource.ErrNoMatch) {
+				t.Fatalf("%s leaked eventsource.ErrNoMatch through the compatibility API: %v", c.name, err)
+			}
+		})
 	}
 }

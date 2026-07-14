@@ -90,7 +90,13 @@ func (s *Store) logPath(code string) string {
 
 func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
 
-func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
+// appendLog is a raw v1-log append under a bare WithLock, with NO format
+// dispatch: on a v2-active project it would write log.jsonl and break the
+// branch's central invariant (the v1 log is FROZEN, byte-identical, and is the
+// rollback artifact). It is deliberately unexported and has no production
+// callers — every mutator reaches the log through a format-dispatched path.
+// Do not export it; add the dispatch to a caller instead.
+func (s *Store) appendLog(code string, e LogEntry) (LogEntry, error) {
 	if !validActions[e.Action] {
 		return LogEntry{}, fmt.Errorf("%w: unknown action %q", ErrUsage, e.Action)
 	}
@@ -107,7 +113,7 @@ func (s *Store) AppendLog(code string, e LogEntry) (LogEntry, error) {
 
 // appendLogLocked assigns Seq, appends one line to projects/<CODE>/log.jsonl,
 // and fsyncs. Caller MUST already hold the project lock — this is the
-// re-entrancy-safe variant of AppendLog for write-first paths that already
+// re-entrancy-safe variant of appendLog for write-first paths that already
 // run inside WithLock.
 func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
 	last, err := s.lastLogSeqLocked(code)

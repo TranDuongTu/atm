@@ -517,14 +517,23 @@ func (s *Store) removeProjectV2(code string) error {
 		return err
 	}
 	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		if err := s.hasTasksGuard(code); err != nil {
-			return err
-		}
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
 			return err
 		}
 		if _, err := ctx.resolveProjectRef(code); err != nil {
+			return err
+		}
+		// The "is this project empty?" guard is answered from the FOLD, not
+		// from cache rows (hasTasksGuard, the v1 answer). Under v2 a lagging
+		// cache is a designed-for state -- an external append, or a writer that
+		// died between the append commit point and its reprojection, leaves the
+		// cache legitimately behind the event file -- and step 1 below is an
+		// IRREVERSIBLE os.RemoveAll that takes events.v2.jsonl with it. Every
+		// other v2 read path is freshness-gated; this one cannot be (the gate
+		// takes the project lock we already hold, and WithLock is not
+		// reentrant), so it consults the truth it already has in hand.
+		if err := v2HasTasksGuardLocked(code, ctx); err != nil {
 			return err
 		}
 		// 1. Delete the project directory (events.v2.jsonl, vectors, config).
@@ -552,6 +561,19 @@ func (s *Store) removeProjectV2(code string) error {
 		}
 		return cacheClearV2Freshness(db, code)
 	})
+}
+
+// v2HasTasksGuardLocked is hasTasksGuard's fold-sourced twin: it counts LIVE
+// (non-tombstoned) tasks in the authoring context's fold and refuses with the
+// exact error hasTasksGuard would have produced. Caller MUST hold the project
+// lock (the ctx it takes can only be built under it).
+func v2HasTasksGuardLocked(code string, ctx *v2AuthorCtx) error {
+	for _, t := range ctx.state.Tasks {
+		if !t.Tombstoned {
+			return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
+		}
+	}
+	return nil
 }
 
 func (s *Store) hasTasksGuard(code string) error {

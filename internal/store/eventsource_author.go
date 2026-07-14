@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 
 	"atm/internal/eventsource"
@@ -76,24 +77,40 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 // identity the event model needs (subject.id, task_ref, reply_to_ref).
 // An alias collision surfaces as *eventsource.AmbiguousError — the caller
 // reports the candidates; never silently pick one (L1-4).
+//
+// Both go through resolveV2Ref, which translates the eventsource-layer errors
+// into the store's sentinels. That translation is the whole point: EVERY v2
+// mutator resolves here, and internal/store is the compatibility API the CLI
+// keys its exit codes off (cli.CodeForError -> errors.Is(err, ErrNotFound)).
+// Returning eventsource.ErrNoMatch raw made `atm task set-title --task <typo>`
+// exit 1 (generic) instead of 3 (not-found) and leaked an "eventsource:" prefix
+// into user-facing output. The read side was pinned by
+// TestV2ActiveMissingEntityReadsReturnErrNotFound; this is its write-side twin.
 func (c *v2AuthorCtx) resolveTaskRef(alias string) (string, error) {
-	m, err := c.state.Resolve(alias)
-	if err != nil {
-		return "", err
-	}
-	if m.Kind != "task" {
-		return "", fmt.Errorf("%w: %q is a %s, not a task", ErrUsage, alias, m.Kind)
-	}
-	return m.ID, nil
+	return c.resolveV2Ref(alias, "task")
 }
 
 func (c *v2AuthorCtx) resolveCommentRef(alias string) (string, error) {
+	return c.resolveV2Ref(alias, "comment")
+}
+
+func (c *v2AuthorCtx) resolveV2Ref(alias, kind string) (string, error) {
 	m, err := c.state.Resolve(alias)
 	if err != nil {
+		if errors.Is(err, eventsource.ErrNoMatch) {
+			return "", fmt.Errorf("%w: %s %q", ErrNotFound, kind, alias)
+		}
+		var amb *eventsource.AmbiguousError
+		if errors.As(err, &amb) {
+			// No v1 sentinel exists for an ambiguous id (v1 ids are exact), so
+			// this is a caller-input problem: ErrUsage (CLI exit 2). The
+			// candidate list rides along in the message — never pick one (L1-4).
+			return "", fmt.Errorf("%w: %s", ErrUsage, amb.Error())
+		}
 		return "", err
 	}
-	if m.Kind != "comment" {
-		return "", fmt.Errorf("%w: %q is a %s, not a comment", ErrUsage, alias, m.Kind)
+	if m.Kind != kind {
+		return "", fmt.Errorf("%w: %q is a %s, not a %s", ErrUsage, alias, m.Kind, kind)
 	}
 	return m.ID, nil
 }

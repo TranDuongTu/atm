@@ -54,7 +54,16 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		// process, or a writer that died between the append commit point and its
 		// reprojection) leaves the cache legitimately behind the event file, and
 		// nothing else on this path would ever notice. Gate it.
-		f, _ := s.projectFormat(code)
+		//
+		// The lookup error is PROPAGATED, not swallowed: with store.json
+		// unreadable a swallowed lookup yields f == "", skips the v2 branch
+		// (and its freshness gate), and serves stale cache rows with a nil
+		// error -- the same silent v2 -> ungated-v1 degradation textSearch and
+		// ReindexOnce already refuse.
+		f, err := s.projectFormat(code)
+		if err != nil {
+			return nil, err
+		}
 		formats[code] = f
 		if f == StoreFormatV2 {
 			if err := s.ensureV2CacheFresh(code); err != nil {
