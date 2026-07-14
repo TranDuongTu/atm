@@ -122,6 +122,9 @@ func collectWrites(d *DAG) map[slotKey][]slotWrite {
 			if w.slot.entity == "" {
 				continue // malformed subject: nothing to attach to
 			}
+			if w.slot.kind == SlotMembership && w.slot.field == "" {
+				continue // malformed field: empty label name
+			}
 			if seen[w.slot] == nil {
 				seen[w.slot] = map[string]bool{}
 			}

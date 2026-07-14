@@ -118,6 +118,20 @@ func TestMaximalWritersConcurrentWritesAreBothMaximal(t *testing.T) {
 	}
 }
 
+func TestCollectWritesDropsEmptyLabelName(t *testing.T) {
+	c := testClock(1000)
+	created := testEvent(t, c, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-1", "title": "t", "labels": []string{""}})
+	d, err := BuildDAG([]*Event{created})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := collectWrites(d)
+	if _, ok := ws[slotKey{created.ID, SlotMembership, ""}]; ok {
+		t.Error("empty label name should not produce a membership slot")
+	}
+}
+
 func TestCollectWritesDedupesPerEventAndSlot(t *testing.T) {
 	c := testClock(1000)
 	created := testEvent(t, c, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
