@@ -81,6 +81,8 @@ If any step fails before activation, the project stays on v1 and `log.jsonl` rem
 
 Rollback is an explicit active-format switch back to v1. It does not export v2-only events into v1. This is acceptable because v1 is a safety fallback, not the long-term mode.
 
+Rollback also rebuilds the project's `cache.db` rows from the v1 replay before returning. The cache otherwise still holds v2-derived rows whose freshness bookkeeping (`LogSeq`, `NextTaskN`) is meaningless to v1 readers and writers, which would trip integrity checks or produce stale reads immediately after the switch.
+
 If v1 accepts new writes after rollback, re-upgrade is allowed. The re-upgrade reads the current v1 log from scratch, moves any existing `events.v2.jsonl` aside, and writes a fresh v2 file. Unchanged v1 entries produce the same v2 event ids because D6 is a pure function of the v1 bytes. New v1 suffix entries produce new v2 events at the end of the upgraded linear chain.
 
 ATM must not silently merge an archived v2 branch with the re-upgraded v1 branch. Archived v2 files are evidence for manual recovery, not automatic inputs.
@@ -101,6 +103,8 @@ For a v2-active project, every mutation authors a v2 event directly:
 10. Update metadata and cache while still holding the lock, or leave them to be rebuilt later.
 
 No writer may author from a frontier captured before it acquired the project lock. This is what makes two ATM sessions on the same machine and store safe: the first writer commits, the second writer then derives a frontier that includes the first event and authors a causal descendant.
+
+Authored events reference entities by identity, not alias: mutations set `subject.id` to the target's identity hash, and comment creation carries `payload.task_ref` / `payload.reply_to_ref` identities. The writer resolves user-facing aliases to identities from the fold computed under the same lock; an ambiguous alias is an error surfaced to the caller with the candidates, never a silent pick. Task and comment creation goes through the core authoring helpers (`NewTaskCreated`, `NewCommentCreated`, `NewProjectCreated`), which own alias minting (ATM-0125).
 
 ## Crash recovery
 

@@ -8,6 +8,8 @@
 
 **Tech Stack:** Go 1.22+, existing `modernc.org/sqlite` cache, existing per-project `WithLock`, existing Cobra CLI, and the ATM-0106 `internal/eventsource` package.
 
+**Revised 2026-07-14** against the merged `internal/eventsource` API (commit `88f9b1b`, post ATM-0125): state types embed `EntityMeta` (no `Meta` field), comments carry `TaskRef`/`ReplyToRef` identities (not aliases), labels use `Expr` (not `Expression`), `TaskState` has no `ProjectCode`, creation helpers take a trailing `taken func(string) bool`, and `CommentsByCreation(taskRef)` filters by task identity. The revamp also fixes the partial-tail repair logic, reorders upgrade verification before cutover, adds the spec-required semantic comparison against v1 replay, makes projection delete-then-insert, rebuilds the cache on rollback, and threads alias-to-identity resolution through v2 authoring.
+
 ## Global Constraints
 
 - Do not start implementation until ATM-0106 has landed, `internal/eventsource` exists, and ATM-0125 is closed.
@@ -92,7 +94,7 @@ Run:
 rg -n "func UpgradeV1|func BuildDAG|func Fold|func FoldEvents|func NewEvent|func NewTaskCreated|func NewCommentCreated|func MintReplicaID|type State|type Event|type Draft|type Clock" internal/eventsource
 ```
 
-Expected: matches for all listed functions/types, or equivalent task/comment creation helpers documented by the ATM-0125 closing comment. If the helper names differ from `NewTaskCreated` / `NewCommentCreated`, update Task 7 and Task 8 of this plan before implementation. If no creation helpers exist, stop; L3 must not rediscover alias ordering locally.
+Expected: matches for all listed functions/types. Confirmed 2026-07-14 against commit `88f9b1b`: the helpers exist as `NewTaskCreated(clock, replica, parents, TaskCreateDraft, taken)` and `NewCommentCreated(clock, replica, parents, CommentCreateDraft, taken)` — note the trailing `taken func(string) bool` (nil-safe), plus `NewProjectCreated(clock, replica, parents, ProjectCreateDraft)`. `CommentCreateDraft` requires `TaskAlias` and `TaskRef` (task identity) and takes `ReplyToRef` (comment identity) — there is no `ProjectCode` or `ReplyToAlias` field. If any of this no longer matches, stop and re-review; L3 must not rediscover alias ordering locally.
 
 - [ ] **Step 4: Confirm baseline verification**
 
@@ -211,6 +213,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"atm/internal/eventsource"
 )
 
 type StoreFormat string
@@ -224,7 +228,7 @@ type StoreMeta struct {
 	ActiveFormat    StoreFormat            `json:"active_format,omitempty"`
 	ReplicaID       string                 `json:"replica_id,omitempty"`
 	StoreInstanceID string                 `json:"store_instance_id,omitempty"`
-	LastHLC         map[string]int64       `json:"last_hlc,omitempty"`
+	LastHLC         *eventsource.HLC       `json:"last_hlc,omitempty"`
 	ProjectFormats map[string]StoreFormat `json:"project_formats,omitempty"`
 	CreatedAt       time.Time              `json:"created_at,omitempty"`
 	UpdatedAt       time.Time              `json:"updated_at,omitempty"`
@@ -369,6 +373,7 @@ git commit -m "feat(ATM-0107): add eventsource v2 metadata and format state"
 - Consumes: `internal/eventsource.Parse`, `eventsource.BuildDAG`, `eventsource.Fold`, `eventsV2Path`.
 - Produces:
   - `type V2FileSnapshot struct`
+  - `func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, error)` — path-parameterized so Task 4 can verify a temp file before cutover
   - `func (s *Store) readV2File(code string, repairTail bool) (*V2FileSnapshot, error)`
   - `func (s *Store) verifyV2File(code string) (*V2FileSnapshot, error)`
   - `func (s *Store) appendV2EventLineLocked(code string, raw []byte) error`
@@ -485,7 +490,7 @@ Create `internal/store/eventsource_file.go`:
 package store
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -503,53 +508,47 @@ type V2FileSnapshot struct {
 	Frontier       []string
 }
 
-func (s *Store) readV2File(code string, repairTail bool) (*V2FileSnapshot, error) {
-	path := s.eventsV2Path(code)
-	f, err := os.Open(path)
+// readV2FileAt reads a v2 event file. The commit point is a complete,
+// newline-terminated line (L3-7): every byte after the last '\n' is an
+// uncommitted partial tail — even if it happens to parse as JSON. A
+// bufio.Scanner would hide that distinction (it yields an unterminated
+// tail as a normal line), so the split is done on the raw bytes.
+func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, error) {
+	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return &V2FileSnapshot{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+
+	body, tail := raw, 0
+	if n := len(raw); n > 0 && raw[n-1] != '\n' {
+		cut := bytes.LastIndexByte(raw, '\n') + 1
+		body, tail = raw[:cut], n-cut
+	}
+	if tail > 0 {
+		if !repairTail {
+			return nil, fmt.Errorf("%w: %s has %d bytes of uncommitted partial tail", ErrIntegrity, path, tail)
+		}
+		if err := os.Truncate(path, int64(len(body))); err != nil {
+			return nil, err
+		}
+	}
 
 	var events []*eventsource.Event
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	offset := int64(0)
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		line := append([]byte(nil), scanner.Bytes()...)
-		offset += int64(len(line) + 1)
+	lines := bytes.Split(body, []byte("\n"))
+	for i, line := range lines {
+		if i == len(lines)-1 && len(line) == 0 {
+			break // split artifact after the final newline
+		}
 		ev, err := eventsource.Parse(line)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s:%d: %v", ErrIntegrity, path, lineNo, err)
+			// A complete line that fails to parse is an integrity error,
+			// never a repair target (spec crash-recovery rules).
+			return nil, fmt.Errorf("%w: %s:%d: %v", ErrIntegrity, path, i+1, err)
 		}
 		events = append(events, ev)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	truncated := 0
-	if st.Size() > offset {
-		if !repairTail {
-			return nil, fmt.Errorf("%w: %s has malformed partial tail", ErrIntegrity, path)
-		}
-		truncated = int(st.Size() - offset)
-		if err := os.Truncate(path, offset); err != nil {
-			return nil, err
-		}
-		st, err = os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	dag, err := eventsource.BuildDAG(events)
@@ -559,21 +558,20 @@ func (s *Store) readV2File(code string, repairTail bool) (*V2FileSnapshot, error
 	return &V2FileSnapshot{
 		Events:         events,
 		EventCount:     len(events),
-		FileSize:       st.Size(),
-		TruncatedBytes: truncated,
+		FileSize:       int64(len(body)),
+		TruncatedBytes: tail,
 		Frontier:       dag.Frontier(),
 	}, nil
 }
 
+func (s *Store) readV2File(code string, repairTail bool) (*V2FileSnapshot, error) {
+	return s.readV2FileAt(s.eventsV2Path(code), repairTail)
+}
+
+// verifyV2File is the strict read: parse, recompute ids, validate parents,
+// build the DAG — and never repair.
 func (s *Store) verifyV2File(code string) (*V2FileSnapshot, error) {
-	snap, err := s.readV2File(code, false)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := eventsource.BuildDAG(snap.Events); err != nil {
-		return nil, fmt.Errorf("%w: %s DAG: %v", ErrIntegrity, s.eventsV2Path(code), err)
-	}
-	return snap, nil
+	return s.readV2File(code, false)
 }
 
 func (s *Store) appendV2EventLineLocked(code string, raw []byte) error {
@@ -635,12 +633,13 @@ git commit -m "feat(ATM-0107): add v2 event file IO and verification"
 - Modify: `internal/store/cache.go`
 
 **Interfaces:**
-- Consumes: `eventsource.State`, `eventsource.ProjectState`, `eventsource.TaskState`, `eventsource.CommentState`, `eventsource.LabelState` from ATM-0106.
+- Consumes: `eventsource.State`, `eventsource.ProjectState`, `eventsource.TaskState`, `eventsource.CommentState`, `eventsource.LabelState` from ATM-0106. These types embed `EntityMeta` (fields `ID`, `Alias`, `Tombstoned`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` are promoted — there is no `Meta` field); comments reference their task and reply target by identity (`TaskRef`, `ReplyToRef`); labels use `Expr`; `TaskState` has no `ProjectCode` (the event file is per-project).
 - Produces:
-  - `func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State) error`
-  - `func projectFromV2(code string, p *eventsource.ProjectState, ordinal int) *Project`
+  - `func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State, eventCount int) error`
+  - `func cacheDeleteProjectRows(db *sql.DB, code string) error`
+  - `func projectFromV2(p *eventsource.ProjectState) *Project`
   - `func taskFromV2(code string, t *eventsource.TaskState, ordinal int) *Task`
-  - `func commentFromV2(c *eventsource.CommentState, ordinal int) *Comment`
+  - `func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, ordinal int) *Comment`
   - `func labelFromV2(l *eventsource.LabelState, ordinal int) Label`
   - guarded cache schema columns: `identity`, `alias`, and v2 freshness meta rows.
 
@@ -682,7 +681,7 @@ func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", state); err != nil {
+	if err := s.cacheProjectFromV2State("ATM", state, 2); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.GetProject("ATM")
@@ -745,67 +744,110 @@ Modify `internal/store/cache.go` after the existing guarded `ALTER TABLE labels 
 
 - [ ] **Step 4: Implement v2 projection**
 
-Create `internal/store/eventsource_projector.go` using the ATM-0106 struct fields named in `docs/superpowers/specs/2026-07-14-eventsource-core-v2-design.md`: `Meta`, `Alias`, `Tombstoned`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy`, `Title`, `Description`, `Labels`, `TaskAlias`, `ReplyToAlias`, `Body`, `Name`, and `Expression`.
+Create `internal/store/eventsource_projector.go`. The ATM-0106 state types embed `EntityMeta`, so meta fields are promoted (`t.Alias`, `t.Tombstoned`, ...). Comments carry identities (`TaskRef`, `ReplyToRef`); the projector maps them back to aliases through `st.Tasks` / `st.Comments`. Projection is delete-then-insert for the project's rows: an upsert-only projector would leave tombstoned entities and rows from a discarded v2 branch (re-upgrade) in the cache.
 
 ```go
 package store
 
 import (
+	"database/sql"
 	"sort"
 
 	"atm/internal/eventsource"
 )
 
-func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State) error {
+// cacheProjectFromV2State replaces the project's cache rows with the live
+// entities of a v2 fold. eventCount is the number of events in the file the
+// fold came from; it is the v2 freshness key.
+func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State, eventCount int) error {
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
+	if err := cacheDeleteProjectRows(db, code); err != nil {
+		return err
+	}
 	for _, p := range st.Projects {
-		if p.Meta.Alias != code {
+		if p.Code != code || p.Tombstoned {
 			continue
 		}
-		if err := cacheUpsertProject(db, projectFromV2(code, p, len(st.Frontier))); err != nil {
+		if err := cacheUpsertProject(db, projectFromV2(p)); err != nil {
 			return err
 		}
 	}
-	for i, t := range st.TasksByCreation() {
-		if t.ProjectCode != code && t.ProjectCode != "" {
+	commentAlias := func(id string) string {
+		if c, ok := st.Comments[id]; ok {
+			return c.Alias
+		}
+		return ""
+	}
+	ordinal := 0
+	for _, t := range st.TasksByCreation() {
+		ordinal++
+		if t.Tombstoned {
 			continue
 		}
-		if t.Meta.Tombstoned {
+		if err := cacheUpsertTask(db, taskFromV2(code, t, ordinal)); err != nil {
+			return err
+		}
+		for i, c := range st.CommentsByCreation(t.ID) {
+			if c.Tombstoned {
+				continue
+			}
+			if err := cacheUpsertComment(db, commentFromV2(c, t.Alias, commentAlias(c.ReplyToRef), i+1)); err != nil {
+				return err
+			}
+		}
+	}
+	names := make([]string, 0, len(st.Labels))
+	for name, l := range st.Labels {
+		if l.Tombstoned {
+			if _, err := db.Exec(`DELETE FROM labels WHERE name = ?`, name); err != nil {
+				return err
+			}
 			continue
 		}
-		if err := cacheUpsertTask(db, taskFromV2(code, t, i+1)); err != nil {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for i, name := range names {
+		if err := cacheUpsertLabel(db, labelFromV2(st.Labels[name], i+1)); err != nil {
 			return err
 		}
 	}
-	for i, c := range st.CommentsByCreation("") {
-		if c.Meta.Tombstoned {
-			continue
-		}
-		if err := cacheUpsertComment(db, commentFromV2(c, i+1)); err != nil {
-			return err
-		}
-	}
-	for i, l := range sortedV2Labels(st.Labels) {
-		if err := cacheUpsertLabel(db, labelFromV2(l, i+1)); err != nil {
-			return err
-		}
-	}
-	return cacheSetV2Freshness(db, code, len(st.Frontier))
+	return cacheSetV2Freshness(db, code, eventCount)
 }
 
-func projectFromV2(code string, p *eventsource.ProjectState, ordinal int) *Project {
+// cacheDeleteProjectRows removes the project's task/comment rows and the
+// project row itself — the per-project mirror of the global wipe Rebuild
+// does. Labels stay: the labels table is store-global (merged across
+// projects), so only tombstoned names are deleted, above.
+func cacheDeleteProjectRows(db *sql.DB, code string) error {
+	for _, stmt := range []string{
+		`DELETE FROM comment_labels WHERE comment_id IN (SELECT c.id FROM comments c JOIN tasks t ON t.id = c.task_id WHERE t.project_code = ?)`,
+		`DELETE FROM comments WHERE task_id IN (SELECT id FROM tasks WHERE project_code = ?)`,
+		`DELETE FROM task_labels WHERE task_id IN (SELECT id FROM tasks WHERE project_code = ?)`,
+		`DELETE FROM tasks WHERE project_code = ?`,
+		`DELETE FROM projects WHERE code = ?`,
+	} {
+		if _, err := db.Exec(stmt, code); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func projectFromV2(p *eventsource.ProjectState) *Project {
+	// NextTaskN and LogSeq are v1 bookkeeping; they are meaningless for a
+	// v2-active project, and every v2 read path must branch by format
+	// before the v1 freshness checks that would read them (Task 9).
 	return &Project{
-		Code:      code,
+		Code:      p.Code,
 		Name:      p.Name,
-		NextTaskN: 0,
-		LogSeq:    ordinal,
-		CreatedAt: p.Meta.CreatedAt,
-		CreatedBy: p.Meta.CreatedBy,
-		UpdatedAt: p.Meta.UpdatedAt,
-		UpdatedBy: p.Meta.UpdatedBy,
+		CreatedAt: p.CreatedAt,
+		CreatedBy: p.CreatedBy,
+		UpdatedAt: p.UpdatedAt,
+		UpdatedBy: p.UpdatedBy,
 	}
 }
 
@@ -813,42 +855,42 @@ func taskFromV2(code string, t *eventsource.TaskState, ordinal int) *Task {
 	labels := append([]string(nil), t.Labels...)
 	sort.Strings(labels)
 	return &Task{
-		ID:          t.Meta.Alias,
+		ID:          t.Alias,
 		ProjectCode: code,
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      labels,
 		LogSeq:      ordinal,
-		CreatedAt:   t.Meta.CreatedAt,
-		CreatedBy:   t.Meta.CreatedBy,
-		UpdatedAt:   t.Meta.UpdatedAt,
-		UpdatedBy:   t.Meta.UpdatedBy,
+		CreatedAt:   t.CreatedAt,
+		CreatedBy:   t.CreatedBy,
+		UpdatedAt:   t.UpdatedAt,
+		UpdatedBy:   t.UpdatedBy,
 	}
 }
 
-func commentFromV2(c *eventsource.CommentState, ordinal int) *Comment {
+func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, ordinal int) *Comment {
 	labels := append([]string(nil), c.Labels...)
 	sort.Strings(labels)
 	return &Comment{
-		ID:        c.Meta.Alias,
-		TaskID:    c.TaskAlias,
-		ReplyTo:   c.ReplyToAlias,
+		ID:        c.Alias,
+		TaskID:    taskAlias,
+		ReplyTo:   replyToAlias,
 		Body:      c.Body,
 		Labels:    labels,
 		LogSeq:    ordinal,
-		CreatedAt: c.Meta.CreatedAt,
-		CreatedBy: c.Meta.CreatedBy,
-		UpdatedAt: c.Meta.UpdatedAt,
-		UpdatedBy: c.Meta.UpdatedBy,
+		CreatedAt: c.CreatedAt,
+		CreatedBy: c.CreatedBy,
+		UpdatedAt: c.UpdatedAt,
+		UpdatedBy: c.UpdatedBy,
 	}
 }
 
 func labelFromV2(l *eventsource.LabelState, ordinal int) Label {
-	return Label{Name: l.Name, Description: l.Description, Expr: l.Expression, LogSeq: ordinal}
+	return Label{Name: l.Name, Description: l.Description, Expr: l.Expr, LogSeq: ordinal}
 }
 ```
 
-Also add `cacheSetV2Freshness`/`cacheGetV2Freshness` helpers in `cache.go` using `meta` keys like `last_v2_event_count:<CODE>`.
+Also add `cacheSetV2Freshness`/`cacheGetV2Freshness` helpers in `cache.go` using `meta` keys like `last_v2_event_count:<CODE>`; the stored value is the event count of the file the cache was projected from.
 
 - [ ] **Step 5: Run tests**
 
@@ -877,13 +919,15 @@ git commit -m "feat(ATM-0107): project v2 fold state into cache rows"
 - Create: `internal/store/eventsource_upgrade_test.go`
 
 **Interfaces:**
-- Consumes: `eventsource.UpgradeV1`, `readV2File`, `verifyV2File`, `cacheProjectFromV2State`, `setProjectFormat`.
+- Consumes: `eventsource.UpgradeV1(logData []byte) (*UpgradeResult, error)`, `readV2FileAt`, `verifyV2File`, `cacheProjectFromV2State`, `setProjectFormat`, `s.Replay`.
 - Produces:
   - `type UpgradeReport struct`
   - `type RollbackReport struct`
   - `func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error)`
   - `func (s *Store) UpgradeAllToV2() ([]UpgradeReport, error)`
   - `func (s *Store) RollbackProjectToV1(code string) (*RollbackReport, error)`
+  - `func (s *Store) compareV2FoldToV1Replay(code string, st *eventsource.State) error`
+  - `func (s *Store) rebuildProjectCacheFromV1Locked(code string) error`
 
 - [ ] **Step 1: Write failing upgrade tests**
 
@@ -1010,18 +1054,6 @@ type RollbackReport struct {
 func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 	rep := &UpgradeReport{Project: code, Format: StoreFormatV2}
 	err := s.WithLock(code, func() error {
-		if _, err := s.projectFormat(code); err != nil {
-			return err
-		}
-		if _, err := os.Stat(s.eventsV2Path(code)); err == nil {
-			archived, err := s.archiveV2FileLocked(code, "reupgrade")
-			if err != nil {
-				return err
-			}
-			rep.ArchivedPath = archived
-		} else if err != nil && !os.IsNotExist(err) {
-			return err
-		}
 		raw, err := os.ReadFile(s.logPath(code))
 		if err != nil {
 			return err
@@ -1030,6 +1062,8 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 		if err != nil {
 			return err
 		}
+
+		// 1. Write the candidate file. Nothing existing is touched yet.
 		tmp := s.eventsV2Path(code) + ".tmp"
 		if err := os.MkdirAll(filepath.Dir(tmp), 0o755); err != nil {
 			return err
@@ -1055,18 +1089,45 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 		if err := f.Close(); err != nil {
 			return err
 		}
-		if err := os.Rename(tmp, s.eventsV2Path(code)); err != nil {
-			return err
-		}
-		snap, err := s.verifyV2File(code)
+
+		// 2. Verify the candidate BEFORE it becomes events.v2.jsonl (L3-3):
+		// re-read it, recompute every id, validate parents, build the DAG,
+		// and fold.
+		snap, err := s.readV2FileAt(tmp, false)
 		if err != nil {
+			_ = os.Remove(tmp)
 			return err
 		}
 		state, err := eventsource.FoldEvents(snap.Events)
 		if err != nil {
+			_ = os.Remove(tmp)
 			return err
 		}
-		if err := s.cacheProjectFromV2State(code, state); err != nil {
+
+		// 3. Semantic comparison against the current v1 replay (spec upgrade
+		// step 6). The package-level equivalence test guards the code path;
+		// this guards the user's actual data at cutover time.
+		if err := s.compareV2FoldToV1Replay(code, state); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+
+		// 4. Only now displace the previous v2 file (re-upgrade) and cut over.
+		// A failed upgrade must leave both the v1 log and any prior v2 file
+		// exactly as they were.
+		if _, err := os.Stat(s.eventsV2Path(code)); err == nil {
+			archived, err := s.archiveV2FileLocked(code, "reupgrade")
+			if err != nil {
+				return err
+			}
+			rep.ArchivedPath = archived
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Rename(tmp, s.eventsV2Path(code)); err != nil {
+			return err
+		}
+		if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
 			return err
 		}
 		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
@@ -1076,6 +1137,19 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 		return nil
 	})
 	return rep, err
+}
+
+// compareV2FoldToV1Replay fails the upgrade when the v2 fold and the v1
+// replay disagree on any semantic field ATM exposes today, keyed by alias:
+// the project's name; the live task set with title, description, and sorted
+// labels per alias; the live comment set with body, sorted labels, task
+// alias, and reply-to alias per alias; and each label's name, description,
+// and expr. Implement by building alias-keyed maps from st (live entities
+// only, identities mapped to aliases as in the projector) and from
+// s.Replay(code), then diffing; report the first difference with enough
+// context to debug (entity kind, alias, field).
+func (s *Store) compareV2FoldToV1Replay(code string, st *eventsource.State) error {
+	// ... see field checklist above ...
 }
 
 func (s *Store) UpgradeAllToV2() ([]UpgradeReport, error) {
@@ -1094,9 +1168,27 @@ func (s *Store) UpgradeAllToV2() ([]UpgradeReport, error) {
 	return out, nil
 }
 
+// RollbackProjectToV1 switches the active format AND rebuilds the project's
+// cache rows from the v1 replay. The cache still holds v2-derived rows whose
+// LogSeq ordinals mean nothing to the v1 freshness checks (`cache LogSeq >
+// log LastSeq` → ErrIntegrity) and whose NextTaskN is unset; leaving them in
+// place would break v1 reads and writes immediately after rollback.
 func (s *Store) RollbackProjectToV1(code string) (*RollbackReport, error) {
 	rep := &RollbackReport{Project: code, Format: StoreFormatV1}
-	return rep, s.setProjectFormat(code, StoreFormatV1)
+	err := s.WithLock(code, func() error {
+		if err := s.setProjectFormat(code, StoreFormatV1); err != nil {
+			return err
+		}
+		return s.rebuildProjectCacheFromV1Locked(code)
+	})
+	return rep, err
+}
+
+// rebuildProjectCacheFromV1Locked mirrors the per-project body of Rebuild:
+// cacheDeleteProjectRows, then s.Replay(code) and re-insert the live set
+// (project row, tasks, comments, labels).
+func (s *Store) rebuildProjectCacheFromV1Locked(code string) error {
+	// ... Replay + cacheDeleteProjectRows + cacheUpsert* ...
 }
 ```
 
@@ -1279,7 +1371,7 @@ In `internal/store/rebuild.go`, inside the loop over codes:
 			if err != nil {
 				return rep, err
 			}
-			if err := s.cacheProjectFromV2State(code, state); err != nil {
+			if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
 				return rep, err
 			}
 			rep.Projects++
@@ -1525,14 +1617,17 @@ git commit -m "feat(ATM-0107): expose v2 store upgrade and rollback commands"
 - Create: `internal/store/eventsource_author_test.go`
 
 **Interfaces:**
-- Consumes: `eventsource.Clock`, `eventsource.NewEvent`, `readV2File`, `appendV2EventLineLocked`, `readStoreMeta`, `writeStoreMeta`.
+- Consumes: `eventsource.Clock`, `eventsource.NewEvent`, `eventsource.NewTaskCreated` / `NewCommentCreated` / `NewProjectCreated` (all creation helpers take a trailing `taken func(string) bool`; nil-safe), `eventsource.State.Resolve`, `readV2File`, `appendV2EventLineLocked`, `readStoreMeta`, `writeStoreMeta`.
 - Produces:
   - `type V2Draft struct`
+  - `type v2AuthorCtx struct` — snapshot, fold state, clock, and replica for one locked write
+  - `func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error)`
+  - `func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error`
+  - `func (c *v2AuthorCtx) resolveTaskRef(alias string) (string, error)` / `resolveCommentRef` — alias → identity for `subject.id`, `task_ref`, `reply_to_ref`
   - `func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, error)`
   - `func (s *Store) appendV2TaskCreatedLocked(code, title, description string, labels []string, actor string) (*eventsource.Event, string, error)`
   - `func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, labels []string, replyToAlias, actor string) (*eventsource.Event, string, error)`
   - `func (s *Store) currentReplicaIDLocked() (string, error)`
-  - `func (s *Store) observeV2Frontier(clock *eventsource.Clock, snap *V2FileSnapshot)`
 
 - [ ] **Step 1: Write failing authoring test**
 
@@ -1607,6 +1702,7 @@ package store
 
 import (
 	"crypto/rand"
+	"fmt"
 
 	"atm/internal/eventsource"
 )
@@ -1618,8 +1714,23 @@ type V2Draft struct {
 	Payload map[string]any
 }
 
-func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, error) {
+// v2AuthorCtx is everything a locked writer needs: the current snapshot and
+// fold (frontier, alias→identity resolution, taken-alias sets), a clock that
+// has observed the persisted local HLC and every event in the file, and the
+// writing replica id. It must only be built while holding the project lock.
+type v2AuthorCtx struct {
+	snap    *V2FileSnapshot
+	state   *eventsource.State
+	clock   *eventsource.Clock
+	replica string
+}
+
+func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
 	snap, err := s.readV2File(code, true)
+	if err != nil {
+		return nil, err
+	}
+	state, err := eventsource.FoldEvents(snap.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -1628,10 +1739,67 @@ func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, 
 		return nil, err
 	}
 	clock := eventsource.NewClock(nil)
+	m, err := s.readStoreMeta()
+	if err != nil {
+		return nil, err
+	}
+	if m.LastHLC != nil {
+		clock.Observe(*m.LastHLC) // spec authoring step 5: the persisted local HLC
+	}
 	for _, ev := range snap.Events {
 		clock.Observe(ev.HLC)
 	}
-	ev, err := eventsource.NewEvent(clock, replica, snap.Frontier, eventsource.Draft{
+	return &v2AuthorCtx{snap: snap, state: state, clock: clock, replica: replica}, nil
+}
+
+// commitV2AuthorLocked appends the event line — the commit point — and then
+// persists the local HLC. The metadata write is rebuildable state; the event
+// line is the truth.
+func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
+	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
+		return err
+	}
+	m, err := s.readStoreMeta()
+	if err != nil {
+		return err
+	}
+	h := ev.HLC
+	m.LastHLC = &h
+	return s.writeStoreMeta(m)
+}
+
+// resolveTaskRef and resolveCommentRef map a user-facing alias to the
+// identity the event model needs (subject.id, task_ref, reply_to_ref).
+// An alias collision surfaces as *eventsource.AmbiguousError — the caller
+// reports the candidates; never silently pick one (L1-4).
+func (c *v2AuthorCtx) resolveTaskRef(alias string) (string, error) {
+	m, err := c.state.Resolve(alias)
+	if err != nil {
+		return "", err
+	}
+	if m.Kind != "task" {
+		return "", fmt.Errorf("%w: %q is a %s, not a task", ErrUsage, alias, m.Kind)
+	}
+	return m.ID, nil
+}
+
+func (c *v2AuthorCtx) resolveCommentRef(alias string) (string, error) {
+	m, err := c.state.Resolve(alias)
+	if err != nil {
+		return "", err
+	}
+	if m.Kind != "comment" {
+		return "", fmt.Errorf("%w: %q is a %s, not a comment", ErrUsage, alias, m.Kind)
+	}
+	return m.ID, nil
+}
+
+func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, error) {
+	ctx, err := s.beginV2AuthorLocked(code)
+	if err != nil {
+		return nil, err
+	}
+	ev, err := eventsource.NewEvent(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.Draft{
 		At:      Now(),
 		Actor:   draft.Actor,
 		Action:  draft.Action,
@@ -1641,71 +1809,66 @@ func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
-		return nil, err
-	}
-	return ev, nil
+	return ev, s.commitV2AuthorLocked(code, ev)
 }
 
 func (s *Store) appendV2TaskCreatedLocked(code, title, description string, labels []string, actor string) (*eventsource.Event, string, error) {
-	snap, err := s.readV2File(code, true)
+	ctx, err := s.beginV2AuthorLocked(code)
 	if err != nil {
 		return nil, "", err
 	}
-	replica, err := s.currentReplicaIDLocked()
-	if err != nil {
-		return nil, "", err
+	taken := map[string]bool{}
+	for _, t := range ctx.state.Tasks {
+		taken[t.Alias] = true
 	}
-	clock := eventsource.NewClock(nil)
-	for _, ev := range snap.Events {
-		clock.Observe(ev.HLC)
-	}
-	ev, alias, err := eventsource.NewTaskCreated(clock, replica, snap.Frontier, eventsource.TaskCreateDraft{
+	ev, alias, err := eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 		ProjectCode: code,
 		At:          Now(),
 		Actor:       actor,
 		Title:       title,
 		Description: description,
 		Labels:      labels,
-	})
+	}, func(a string) bool { return taken[a] })
 	if err != nil {
 		return nil, "", err
 	}
-	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
-		return nil, "", err
-	}
-	return ev, alias, nil
+	return ev, alias, s.commitV2AuthorLocked(code, ev)
 }
 
 func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, labels []string, replyToAlias, actor string) (*eventsource.Event, string, error) {
-	snap, err := s.readV2File(code, true)
+	ctx, err := s.beginV2AuthorLocked(code)
 	if err != nil {
 		return nil, "", err
 	}
-	replica, err := s.currentReplicaIDLocked()
+	taskRef, err := ctx.resolveTaskRef(taskAlias)
 	if err != nil {
 		return nil, "", err
 	}
-	clock := eventsource.NewClock(nil)
-	for _, ev := range snap.Events {
-		clock.Observe(ev.HLC)
+	replyToRef := ""
+	if replyToAlias != "" {
+		if replyToRef, err = ctx.resolveCommentRef(replyToAlias); err != nil {
+			return nil, "", err
+		}
 	}
-	ev, alias, err := eventsource.NewCommentCreated(clock, replica, snap.Frontier, eventsource.CommentCreateDraft{
-		ProjectCode:  code,
-		TaskAlias:    taskAlias,
-		ReplyToAlias: replyToAlias,
-		At:           Now(),
-		Actor:        actor,
-		Body:         body,
-		Labels:       labels,
-	})
+	taken := map[string]bool{}
+	for _, c := range ctx.state.Comments {
+		if c.TaskRef == taskRef {
+			taken[c.Alias] = true
+		}
+	}
+	ev, alias, err := eventsource.NewCommentCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.CommentCreateDraft{
+		TaskAlias:  taskAlias,
+		TaskRef:    taskRef,
+		ReplyToRef: replyToRef,
+		At:         Now(),
+		Actor:      actor,
+		Body:       body,
+		Labels:     labels,
+	}, func(a string) bool { return taken[a] })
 	if err != nil {
 		return nil, "", err
 	}
-	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
-		return nil, "", err
-	}
-	return ev, alias, nil
+	return ev, alias, s.commitV2AuthorLocked(code, ev)
 }
 
 func (s *Store) currentReplicaIDLocked() (string, error) {
@@ -1843,9 +2006,28 @@ Each v2 variant should:
 
 1. Hold `WithLock(code, ...)`.
 2. Validate using the existing cache-backed helpers.
-3. Emit scalar/membership/removal v2 events with `appendV2Locked`; emit task/comment creation with the creation-specific helpers from Task 7.
-4. Re-read `events.v2.jsonl`, fold, and call `cacheProjectFromV2State`.
-5. Return the compatibility row from cache.
+3. Resolve the target's identity from the fold state (`beginV2AuthorLocked` + `resolveTaskRef`/`resolveCommentRef`) — the fold keys every slot write for a mutation off `subject.id`, which is the entity's identity hash, never its alias.
+4. Emit scalar/membership/removal v2 events with `appendV2Locked`; emit task/comment creation with the creation-specific helpers from Task 7; emit project creation with `eventsource.NewProjectCreated` for the uniform surface.
+5. Re-read `events.v2.jsonl`, fold, and call `cacheProjectFromV2State`.
+6. Return the compatibility row from cache.
+
+Subject and payload contract per action (from `writesOf` in `internal/eventsource/fold.go` — these exact keys or the event writes no slots):
+
+| Action | Subject | Payload keys |
+|---|---|---|
+| `task.title-changed` | `{Kind: "task", ID: <task identity>}` | `title` |
+| `task.description-changed` | `{Kind: "task", ID: <task identity>}` | `description` |
+| `task.label-added` / `task.label-removed` | `{Kind: "task", ID: <task identity>}` | `label` (string or list) |
+| `task.removed` / `task.restored` | `{Kind: "task", ID: <task identity>}` | — |
+| `comment.body-changed` | `{Kind: "comment", ID: <comment identity>}` | `body` |
+| `comment.label-added` / `comment.label-removed` | `{Kind: "comment", ID: <comment identity>}` | `label` (string or list) |
+| `comment.removed` | `{Kind: "comment", ID: <comment identity>}` | — |
+| `project.name-changed` | `{Kind: "project", ID: <project identity>, Code: code}` | `name` |
+| `project.removed` | `{Kind: "project", ID: <project identity>, Code: code}` | — |
+| `label.upserted` | `{Kind: "label", Name: name}` | `description` and/or `expr` (only the fields being set) |
+| `label.removed` | `{Kind: "label", Name: name}` | — |
+
+Creation events (`task.created`, `comment.created`, `project.created`) go through the Task 7 helpers only; L3 never assembles a creation payload or mints an alias itself (ATM-0125).
 
 Concrete `createTaskV2` shape:
 
@@ -1868,7 +2050,7 @@ func (s *Store) createTaskV2(projectCode, title, description string, labels []st
 		if err != nil {
 			return err
 		}
-		if err := s.cacheProjectFromV2State(projectCode, state); err != nil {
+		if err := s.cacheProjectFromV2State(projectCode, state, snap.EventCount); err != nil {
 			return err
 		}
 		db, err := s.cacheDB()
@@ -1991,7 +2173,7 @@ func (s *Store) rebuildProjectFromV2(code string) error {
 	if err != nil {
 		return err
 	}
-	return s.cacheProjectFromV2State(code, state)
+	return s.cacheProjectFromV2State(code, state, snap.EventCount)
 }
 ```
 
@@ -2011,6 +2193,17 @@ if f, _ := s.projectFormat(code); f == StoreFormatV2 {
 	return cacheGetTask(db, id)
 }
 ```
+
+Define the freshness probe alongside it — it must be cheaper than a full parse:
+
+```go
+// v2CacheFresh compares the cached freshness value (cacheGetV2Freshness)
+// against the current event count, taken as a newline count of
+// events.v2.jsonl without parsing events. A missing file counts as zero.
+func (s *Store) v2CacheFresh(code string) (bool, error)
+```
+
+The v2 branch must run BEFORE the existing v1 freshness checks (`cache LogSeq > log LastSeq` → `ErrIntegrity`): v2 cache rows carry creation ordinals in `LogSeq` that are unrelated to the v1 log sequence.
 
 - [ ] **Step 4: Add v2 log streaming**
 
@@ -2334,4 +2527,4 @@ git commit -m "test(ATM-0107): cover eventsource v2 storage end to end"
 
 ## Execution Handoff
 
-Plan execution must wait until ATM-0125 is closed. The current merged ATM-0106 output includes `internal/eventsource`, `MintTaskAlias`, `MintCommentAlias`, and generic `NewEvent`, but it does **not** include a safe end-to-end creation helper for v2-authored tasks/comments. After ATM-0125 closes, rerun Task 0, refresh helper names in Tasks 7-8 if needed, then execute tasks in order. Use frequent commits exactly as listed so failures can be bisected by storage layer.
+The ATM-0125 gate is satisfied: the task closed 2026-07-14 (commit `8f7ed12`) with the creation helpers `NewTaskCreated` / `NewCommentCreated` / `NewProjectCreated` in `internal/eventsource/author.go`, and this plan was revised the same day against the merged API at commit `88f9b1b` (see the **Revised** note at the top). Execute tasks in order, starting with Task 0 as a sanity gate. Use frequent commits exactly as listed so failures can be bisected by storage layer.
