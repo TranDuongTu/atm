@@ -154,6 +154,107 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	}
 	cmd.AddCommand(rebuildCmd)
 
+	upgradeCmd := &cobra.Command{
+		Use:   "upgrade",
+		Short: "Upgrade v1 project logs to side-by-side EventSource v2 storage",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			project, _ := cmd.Flags().GetString("project")
+			all, _ := cmd.Flags().GetBool("all")
+			if all == (project != "") {
+				return fmt.Errorf("%w: pass exactly one of --project or --all", store.ErrUsage)
+			}
+			if all {
+				reps, err := s.UpgradeAllToV2()
+				if err != nil {
+					return err
+				}
+				if st.isJSON() {
+					return writeJSON(st.stdout(), reps)
+				}
+				for _, r := range reps {
+					if r.AlreadyV2 {
+						// Retry after a partial failure: UpgradeAllToV2
+						// skipped this project because it is already
+						// v2-active (gating rule; see Task 4).
+						fmt.Fprintf(st.stdout(), "skipped\t%s\t%s\talready v2-active\n", r.Project, r.Format)
+						continue
+					}
+					fmt.Fprintf(st.stdout(), "upgraded\t%s\t%s\tevents=%d\n", r.Project, r.Format, r.Events)
+				}
+				// UpgradeAllToV2 flipped the store default: new projects
+				// are born v2 from here on. Surface that.
+				fmt.Fprintln(st.stdout(), "active format: v2")
+				return nil
+			}
+			rep, err := s.UpgradeProjectToV2(project)
+			if err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), rep)
+			}
+			fmt.Fprintf(st.stdout(), "upgraded\t%s\t%s\tevents=%d\n", rep.Project, rep.Format, rep.Events)
+			return nil
+		},
+	}
+	upgradeCmd.Flags().String("project", "", "project code to upgrade")
+	upgradeCmd.Flags().Bool("all", false, "upgrade all projects")
+	cmd.AddCommand(upgradeCmd)
+
+	rollbackCmd := &cobra.Command{
+		Use:   "rollback",
+		Short: "Switch a project back to the preserved v1 log",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			project, _ := cmd.Flags().GetString("project")
+			to, _ := cmd.Flags().GetString("to")
+			if project == "" || to != string(store.StoreFormatV1) {
+				return fmt.Errorf("%w: rollback requires --project <CODE> --to v1", store.ErrUsage)
+			}
+			rep, err := s.RollbackProjectToV1(project)
+			if err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), rep)
+			}
+			fmt.Fprintf(st.stdout(), "rolled back\t%s\t%s\n", rep.Project, rep.Format)
+			return nil
+		},
+	}
+	rollbackCmd.Flags().String("project", "", "project code to roll back")
+	rollbackCmd.Flags().String("to", "", "target format; only v1 is supported")
+	cmd.AddCommand(rollbackCmd)
+
+	setFormatCmd := &cobra.Command{
+		Use:   "set-format",
+		Short: "Set the store default format (governs project birth and the legacy default only)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			format, _ := cmd.Flags().GetString("format")
+			if err := s.SetActiveFormat(store.StoreFormat(format)); err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), map[string]any{"active_format": format})
+			}
+			fmt.Fprintf(st.stdout(), "active format: %s\n", format)
+			return nil
+		},
+	}
+	setFormatCmd.Flags().String("format", "", "v1 or v2; v2 is refused while any project lacks an explicit format entry")
+	cmd.AddCommand(setFormatCmd)
+
 	return cmd
 }
 
@@ -161,7 +262,7 @@ func (st *cliState) emitVerify(r *store.VerifyReport) error {
 	if st.isJSON() {
 		return writeJSON(st.stdout(), r)
 	}
-	fmt.Fprintf(st.stdout(), "project: %s\nlog_entries: %d\nlog_ok: %t\ntruncated: %d\ndiverged: %t\n", r.Project, r.LogEntries, r.LogOK, r.Truncated, r.Diverged)
+	fmt.Fprintf(st.stdout(), "project: %s\nformat: %s\nlog_entries: %d\nlog_ok: %t\ntruncated: %d\ndiverged: %t\n", r.Project, r.Format, r.LogEntries, r.LogOK, r.Truncated, r.Diverged)
 	for _, c := range r.Caches {
 		fmt.Fprintf(st.stdout(), "  %s\t%s:%s\tcache=%d last=%d\n", c.Status, c.Kind, c.ID, c.CacheLogSeq, c.LastEventSeq)
 	}

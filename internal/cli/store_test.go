@@ -148,6 +148,43 @@ func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
 	}
 }
 
+func TestStoreUpgradeProjectAndRollback(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	mustContain(t, out, "upgraded\tATM\tv2")
+	out = runArgsOut(t, st, "store", "verify", "ATM")
+	mustContain(t, out, "format: v2")
+	out = runArgsOut(t, st, "store", "rollback", "--project", "ATM", "--to", "v1")
+	mustContain(t, out, "rolled back\tATM\tv1")
+}
+
+func TestStoreUpgradeAll(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "project", "create", "--code", "DOC", "--name", "docs", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "upgrade", "--all")
+	mustContain(t, out, "upgraded\tATM\tv2")
+	mustContain(t, out, "upgraded\tDOC\tv2")
+	mustContain(t, out, "active format: v2")
+}
+
+func TestStoreSetFormat(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	// v2 refused while ATM lacks an explicit entry (legacy v1 project).
+	// runArgs returns (stdout, stderr, exit code) — assert on the exit code.
+	_, stderr, code := runArgs(st, "store", "set-format", "--format", "v2")
+	if code == ExitSuccess {
+		t.Fatalf("set-format v2 must refuse with entry-less projects; stderr=%s", stderr)
+	}
+	_ = runArgsOut(t, st, "store", "upgrade", "--all")
+	out := runArgsOut(t, st, "store", "set-format", "--format", "v1")
+	mustContain(t, out, "active format: v1")
+	out = runArgsOut(t, st, "store", "set-format", "--format", "v2")
+	mustContain(t, out, "active format: v2")
+}
+
 func TestStoreLogFromToFilter(t *testing.T) {
 	st := newTestCLI(t)
 	_, _ = st.store.CreateProject("ATM", "x", "admin@cli:unset")

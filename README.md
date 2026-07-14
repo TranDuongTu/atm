@@ -64,6 +64,54 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
 
+### Upgrade An Existing Store To EventSource v2
+
+ATM preserves each existing v1 project log during upgrade. The upgrade writes a new v2 event file next to it, verifies the result, rebuilds `cache.db`, and only then switches the project to v2.
+
+```sh
+atm store path
+atm store verify
+atm store upgrade --project ATM
+atm store verify
+```
+
+To upgrade every project:
+
+```sh
+atm store upgrade --all
+atm store verify
+```
+
+`upgrade --all` also flips the store's active format to v2 after every project upgrades, so projects created afterwards are born on v2 with no `log.jsonl` at all. To change only that default — for example to make new projects v1 again after a rollback — use:
+
+```sh
+atm store set-format --format v1
+```
+
+`set-format --format v2` is refused while any project lacks an explicit per-project format entry; run `atm store upgrade --all` first. Upgrade and rollback each delete the project's vector indexes (they are keyed to the old format's sequence); the next `atm index` pass re-embeds.
+
+The preserved v1 log stays at:
+
+```text
+$ATM_HOME/projects/<CODE>/log.jsonl
+```
+
+The v2 source of truth is:
+
+```text
+$ATM_HOME/projects/<CODE>/events.v2.jsonl
+```
+
+If upgrade fails, ATM leaves the project on v1. To switch back before continuing:
+
+```sh
+atm store rollback --project ATM --to v1
+```
+
+Rollback does not copy v2-only writes back into v1. If you write more data while back on v1, run upgrade again; ATM rebuilds the v2 event file from the current v1 log and moves the previous v2 file aside.
+
+Both commands guard their preconditions: `atm store upgrade` refuses a project that is already v2-active (upgrade reads from the v1 log; re-upgrade is only legal after a rollback), and a re-run of `atm store upgrade --all` skips projects that already cut over — retrying after a partial failure never rewrites a live v2 project. `atm store rollback` refuses a project that has no `log.jsonl` (a project born v2 has no v1 state to roll back to).
+
 ## Build And Verify
 
 ```sh
