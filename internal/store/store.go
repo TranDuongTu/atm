@@ -183,8 +183,14 @@ func (s *Store) Init(storePath string) error {
 	if err := os.MkdirAll(s.projectsDir(), 0o755); err != nil {
 		return err
 	}
-	_, err := s.cacheDB()
-	return err
+	if _, err := s.cacheDB(); err != nil {
+		return err
+	}
+	m, err := s.readStoreMeta()
+	if err != nil {
+		return err
+	}
+	return s.writeStoreMeta(m)
 }
 
 func (s *Store) StorePath() string { return s.Root }
