@@ -1,6 +1,10 @@
 package store
 
-import "os"
+import (
+	"os"
+
+	"atm/internal/eventsource"
+)
 
 type RebuildReport struct {
 	Projects int
@@ -37,6 +41,27 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 	}
 	mergedLabels := map[string]Label{}
 	for _, code := range codes {
+		format, err := s.projectFormat(code)
+		if err != nil {
+			return rep, err
+		}
+		if format == StoreFormatV2 {
+			snap, err := s.verifyV2File(code)
+			if err != nil {
+				return rep, err
+			}
+			state, err := eventsource.FoldEvents(snap.Events)
+			if err != nil {
+				return rep, err
+			}
+			if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
+				return rep, err
+			}
+			rep.Projects++
+			rep.Tasks += len(state.Tasks)
+			rep.Labels += len(state.Labels)
+			continue
+		}
 		st, err := s.Replay(code)
 		if err != nil && !IsIntegrity(err) {
 			return rep, err
@@ -68,6 +93,6 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 			return rep, err
 		}
 	}
-	rep.Labels = len(mergedLabels)
+	rep.Labels += len(mergedLabels)
 	return rep, nil
 }

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+
+	"atm/internal/eventsource"
 )
 
 type VerifyReport struct {
@@ -16,6 +18,9 @@ type VerifyReport struct {
 	Diverged      bool
 	VectorIndexes []VectorIndexInfo `json:"vector_indexes,omitempty"`
 	InquiryCount  int               `json:"inquiry_count"`
+	Format        StoreFormat       `json:"format"`
+	V2Events      int               `json:"v2_events,omitempty"`
+	V2FileOK      bool              `json:"v2_file_ok,omitempty"`
 }
 
 type CacheCheck struct {
@@ -50,7 +55,36 @@ func (s *Store) Verify() ([]VerifyReport, error) {
 }
 
 func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
-	report := &VerifyReport{Project: code, LogOK: true}
+	format, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	report := &VerifyReport{Project: code, LogOK: true, Format: format}
+	if format == StoreFormatV2 {
+		defer s.populateAuxReports(code, report)
+		snap, err := s.verifyV2File(code)
+		if err != nil {
+			report.LogOK = false
+			report.Diverged = true
+			return report, nil
+		}
+		report.V2FileOK = true
+		report.V2Events = snap.EventCount
+		report.LogEntries = snap.EventCount
+		state, err := eventsource.FoldEvents(snap.Events)
+		if err != nil {
+			report.LogOK = false
+			report.Diverged = true
+			return report, nil
+		}
+		report.Caches = append(report.Caches, s.checkV2Cache(code, state, snap.EventCount)...)
+		for _, c := range report.Caches {
+			if c.Status != "ok" {
+				report.Diverged = true
+			}
+		}
+		return report, nil
+	}
 	entries, err := s.ReadLog(code)
 	if err != nil {
 		if IsIntegrity(err) {
@@ -100,6 +134,14 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 			report.Diverged = true
 		}
 	}
+	s.populateAuxReports(code, report)
+	return report, nil
+}
+
+// populateAuxReports fills the format-independent report tail: vector index
+// info and inquiry counts. Shared by the v1 and v2 verify paths so the v2
+// branch cannot silently drop them.
+func (s *Store) populateAuxReports(code string, report *VerifyReport) {
 	if models, err := s.ListVectorModels(code); err == nil {
 		for _, slug := range models {
 			info := VectorIndexInfo{Model: slug}
@@ -113,7 +155,26 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 	if inq, _ := s.ReadInquiries(code); inq != nil {
 		report.InquiryCount = len(inq)
 	}
-	return report, nil
+}
+
+// checkV2Cache compares the v2 freshness meta row against the fold's event
+// count. Unlike the v1 per-entity checks, there is a single freshness key
+// for the whole project: cacheProjectFromV2State always projects the entire
+// live set from one fold, so there is no per-task/per-comment staleness to
+// distinguish.
+func (s *Store) checkV2Cache(code string, st *eventsource.State, eventCount int) []CacheCheck {
+	db, err := s.cacheDB()
+	if err != nil {
+		return []CacheCheck{{Kind: "project", ID: code, Status: "corrupt"}}
+	}
+	if got, ok, err := cacheGetV2Freshness(db, code); err != nil {
+		return []CacheCheck{{Kind: "project", ID: code, Status: "corrupt"}}
+	} else if !ok {
+		return []CacheCheck{{Kind: "project", ID: code, Status: "missing", LastEventSeq: eventCount}}
+	} else if got != eventCount {
+		return []CacheCheck{{Kind: "project", ID: code, Status: "stale", CacheLogSeq: got, LastEventSeq: eventCount}}
+	}
+	return []CacheCheck{{Kind: "project", ID: code, Status: "ok", CacheLogSeq: eventCount, LastEventSeq: eventCount}}
 }
 
 func (s *Store) checkProjectCache(db *sql.DB, code string, st *ReplayState) CacheCheck {
