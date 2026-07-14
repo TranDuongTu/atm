@@ -90,7 +90,10 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		if ci != cj {
 			return ci < cj
 		}
-		return ni < nj
+		if ni != nj {
+			return ni < nj
+		}
+		return out[i].ID < out[j].ID
 	})
 	return out, nil
 }

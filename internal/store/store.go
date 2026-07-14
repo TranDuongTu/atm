@@ -74,18 +74,33 @@ func ValidateLabelName(name string) error {
 // whose membership is every label sharing its prefix.
 func IsNamespaceName(name string) bool { return strings.HasSuffix(name, ":*") }
 
-var TaskIDRe = regexp.MustCompile(`^([A-Z][A-Z0-9-]{1,15})-(\d+)$`)
+// TaskIDRe accepts both alias generations: v1 numeric ids ("ATM-0001") and
+// v2 hash aliases ("ATM-7f3a2b" — MintTaskAlias mints "<CODE>-" + >=6
+// lowercase hex, locally extended when taken). The alternation orders \d+
+// first; an all-digit v2 hex extension therefore parses as numeric, which is
+// harmless because the captured text is identical either way.
+var TaskIDRe = regexp.MustCompile(`^([A-Z][A-Z0-9-]{1,15})-(\d+|[0-9a-f]{6,})$`)
 
 func ParseTaskID(id string) (code string, n int, ok bool) {
 	m := TaskIDRe.FindStringSubmatch(id)
 	if m == nil {
 		return "", 0, false
 	}
-	var v int
-	for _, c := range m[2] {
+	return m[1], numericOrZero(m[2]), true
+}
+
+// numericOrZero parses an all-digit alias segment; v2 hex segments yield 0.
+// n is v1 bookkeeping (RenderTaskID round-trips, NextTaskN recovery); v2
+// code paths key on the FULL alias string and must never depend on n.
+func numericOrZero(seg string) int {
+	v := 0
+	for _, c := range seg {
+		if c < '0' || c > '9' {
+			return 0
+		}
 		v = v*10 + int(c-'0')
 	}
-	return m[1], v, true
+	return v
 }
 
 func RenderTaskID(code string, n int) string {
@@ -102,25 +117,36 @@ func SortTaskIDs(ids []string) {
 		if ci != cj {
 			return ci < cj
 		}
-		return ni < nj
+		if ni != nj {
+			return ni < nj
+		}
+		return ids[i] < ids[j]
 	})
 }
 
-var CommentIDRe = regexp.MustCompile(`^([A-Z]{3,6})-(\d+)-c(\d+)$`)
+// CommentIDRe accepts v1 numeric comment ids ("ATM-0001-c0002") and v2 hash
+// aliases ("ATM-7f3a2b-c9e1d" — MintCommentAlias mints "<task-alias>-c" +
+// >=4 lowercase hex).
+var CommentIDRe = regexp.MustCompile(`^([A-Z]{3,6})-(\d+|[0-9a-f]{6,})-c(\d+|[0-9a-f]{4,})$`)
 
 func ParseCommentID(id string) (code string, taskN int, commentN int, ok bool) {
 	m := CommentIDRe.FindStringSubmatch(id)
 	if m == nil {
 		return "", 0, 0, false
 	}
-	var t, c int
-	for _, r := range m[2] {
-		t = t*10 + int(r-'0')
+	return m[1], numericOrZero(m[2]), numericOrZero(m[3]), true
+}
+
+// commentTaskAlias returns the task alias a comment id belongs to — the
+// prefix before the "-c<suffix>" segment. Well-defined for BOTH generations
+// because v1 RenderCommentID and v2 MintCommentAlias both build the comment
+// id as <task-alias>-c<suffix>.
+func commentTaskAlias(id string) (string, bool) {
+	m := CommentIDRe.FindStringSubmatch(id)
+	if m == nil {
+		return "", false
 	}
-	for _, r := range m[3] {
-		c = c*10 + int(r-'0')
-	}
-	return m[1], t, c, true
+	return m[1] + "-" + m[2], true
 }
 
 func RenderCommentID(taskID string, n int) string {

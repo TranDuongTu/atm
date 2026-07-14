@@ -373,7 +373,10 @@ func SortTaskIDsByFunc(tasks []*Task) {
 		if ci != cj {
 			return ci < cj
 		}
-		return ni < nj
+		if ni != nj {
+			return ni < nj
+		}
+		return tasks[i].ID < tasks[j].ID
 	})
 }
 

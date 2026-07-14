@@ -19,16 +19,11 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
 	}
 	if replyTo != "" {
-		rcode, _, _, ok := ParseCommentID(replyTo)
+		rtask, ok := commentTaskAlias(replyTo)
 		if !ok {
 			return nil, fmt.Errorf("%w: invalid reply-to %q", ErrUsage, replyTo)
 		}
-		if rcode != code {
-			return nil, fmt.Errorf("%w: reply-to %q must belong to the same project as task %q", ErrUsage, replyTo, taskID)
-		}
-		_, rtaskN, _, _ := ParseCommentID(replyTo)
-		_, ttaskN, _ := ParseTaskID(taskID)
-		if rtaskN != ttaskN {
+		if rtask != taskID {
 			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", ErrUsage, replyTo, taskID)
 		}
 	}
