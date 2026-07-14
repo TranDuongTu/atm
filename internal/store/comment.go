@@ -407,8 +407,20 @@ func (s *Store) rebuildCommentFromLog(id, code string) error {
 }
 
 func (s *Store) ListComments(taskID string) ([]*Comment, error) {
-	if _, _, ok := ParseTaskID(taskID); !ok {
+	code, _, ok := ParseTaskID(taskID)
+	if !ok {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
+	}
+	// Same freshness gap ListTasksErr closes: under v2 an external append (a
+	// second process, or a writer that died between the append commit point
+	// and its reprojection) can leave the cache legitimately behind the event
+	// file, and this read has no other freshness check on its path. A caller
+	// holding this task's project lock would deadlock here (WithLock is not
+	// reentrant) -- confirmed none of ListComments' callers do.
+	if f, _ := s.projectFormat(code); f == StoreFormatV2 {
+		if err := s.ensureV2CacheFresh(code); err != nil {
+			return nil, err
+		}
 	}
 	db, err := s.cacheDB()
 	if err != nil {

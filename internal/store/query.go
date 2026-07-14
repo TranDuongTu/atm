@@ -55,6 +55,15 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		// nothing else on this path would ever notice. Gate it.
 		if f, _ := s.projectFormat(code); f == StoreFormatV2 {
 			if err := s.ensureV2CacheFresh(code); err != nil {
+				// An integrity error is on-disk truth, not a cache-DB hiccup:
+				// surface it (matching store show's ErrIntegrity) rather than
+				// silently reporting "no tasks". The lenient continue below
+				// is reserved for the error class it was actually written
+				// for -- see the human ruling on Task 5 Findings 1/2 for the
+				// integrity/non-integrity split this mirrors.
+				if IsIntegrity(err) {
+					return nil, err
+				}
 				continue // match the existing per-code lenient error posture
 			}
 		}

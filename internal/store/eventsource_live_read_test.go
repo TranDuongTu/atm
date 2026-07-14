@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestV2ActiveReadRebuildsMissingCache(t *testing.T) {
 	s := testStore(t)
@@ -100,5 +103,80 @@ func TestListTasksSeesV2AppendWithoutCacheProjection(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("ListTasks = %d tasks without %q: project-scoped list read is not freshness-gated", len(tasks), alias)
+	}
+}
+
+// TestListTasksSurfacesV2IntegrityErrorNotEmptyList pins Fix-round-1
+// Important-1: a corrupt/partial tail in a v2 project's event file (the
+// normal shape of a crash mid-mutation, which writes several events per
+// call) must make ListTasksErr fail with ErrIntegrity, never silently
+// return an empty list with a nil error. Before the fix, the freshness
+// gate's `continue` treated an on-disk integrity failure the same as a
+// cache-DB hiccup, so `atm task list` reported "no tasks" with exit 0 while
+// `atm task show` on the same project correctly failed.
+func TestListTasksSurfacesV2IntegrityErrorNotEmptyList(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "t1", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crashed writer leaving a complete-but-unparseable line: same
+	// technique as TestReadV2FileRejectsMalformedCompleteLine. Appending
+	// (rather than overwriting) also bumps the newline count, so the
+	// freshness probe sees the cache as stale and actually re-verifies.
+	f, err := os.OpenFile(s.eventsV2Path("ATM"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("{not-json}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := s.ListTasksErr(QueryFilters{Project: "ATM"})
+	if !IsIntegrity(err) {
+		t.Fatalf("ListTasksErr err = %v, want ErrIntegrity", err)
+	}
+	if tasks != nil {
+		t.Fatalf("ListTasksErr tasks = %v, want nil alongside the integrity error", tasks)
+	}
+}
+
+// TestListCommentsSeesV2AppendWithoutCacheProjection is the comment analogue
+// of TestListTasksSeesV2AppendWithoutCacheProjection, pinning Fix-round-1
+// Important-2: ListComments had no freshness gate at all, so a v2 comment
+// append the cache hasn't projected (a crashed writer, or a second process)
+// was invisible to it.
+func TestListCommentsSeesV2AppendWithoutCacheProjection(t *testing.T) {
+	s := testStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	tk, _ := s.CreateTask("ATM", "t1", "", nil, testActor)
+	_, _ = s.UpgradeProjectToV2("ATM")
+	var alias string
+	if err := s.WithLock("ATM", func() error {
+		_, a, err := s.appendV2CommentCreatedLocked("ATM", tk.ID, "external", nil, "", testActor)
+		alias = a
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	comments, err := s.ListComments(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range comments {
+		if c.ID == alias {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ListComments = %d comments without %q: comment list read is not freshness-gated", len(comments), alias)
 	}
 }
