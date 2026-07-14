@@ -45,6 +45,7 @@ $ATM_HOME/
 ```json
 {
   "active_format": "v2",
+  "project_formats": { "ATM": "v2", "DOC": "v1" },
   "replica_id": "r_7k3mq9xw2v",
   "store_instance_id": "01J...",
   "last_hlc": { "p": 1752480000000, "l": 4 },
@@ -54,6 +55,16 @@ $ATM_HOME/
 ```
 
 Replica id and HLC state are local authoring state. They are never synced as content and never enter upgraded v1 event bytes.
+
+### Active-format semantics
+
+A project's effective format is `project_formats[code]` when an explicit entry exists, else `active_format`, else v1. Explicit entries always win, and the system maintains one invariant that makes the fallback safe: **every project whose media is v2 carries an explicit `project_formats` entry**, written at upgrade cutover or at v2 birth. `CreateProject` also writes an explicit entry for v1 births, so entry-less projects are exactly the legacy projects that predate format tracking — and those are v1 media by construction. A v1 value of `active_format` is therefore always read-safe for entry-less projects, while a v2 value never is (it would read a project with no event file as v2).
+
+`active_format` consequently governs only two things: which format `CreateProject` births a new project into, and the read default for legacy entry-less projects.
+
+- `atm store upgrade --all` sets `active_format` to `v2` only after every on-disk project has upgraded successfully — each then holds an explicit v2 entry, so the flip can never change how an existing project is read. It only makes future projects be born v2. A single-project `upgrade --project` never touches `active_format`.
+- `atm store set-format --format v1|v2` is the operator override for `active_format` alone. Setting `v2` is refused while any on-disk project lacks an explicit `project_formats` entry (the error directs to `upgrade --all`). Setting `v1` is always allowed and is the documented way to make new projects be born v1 again after a rollback.
+- Per-project rollback writes an explicit `project_formats[code] = "v1"` entry and never touches `active_format`.
 
 ## Rejected layouts
 
@@ -77,11 +88,17 @@ Upgrade is side-by-side and verified before activation:
 
 If any step fails before activation, the project stays on v1 and `log.jsonl` remains untouched.
 
+Cutover also deletes the project's `vectors/` directory: vector entries are keyed by the v1 log seq, which is meaningless under v2 and would poison dedup and staleness checks. The embedding indexer re-embeds from the v2 fold using the v2 freshness key defined under "Store and cache integration".
+
 ## Rollback and re-upgrade
 
 Rollback is an explicit active-format switch back to v1. It does not export v2-only events into v1. This is acceptable because v1 is a safety fallback, not the long-term mode.
 
 Rollback also rebuilds the project's `cache.db` rows from the v1 replay before returning. The cache otherwise still holds v2-derived rows whose freshness bookkeeping (`LogSeq`, `NextTaskN`) is meaningless to v1 readers and writers, which would trip integrity checks or produce stale reads immediately after the switch.
+
+Rollback additionally deletes the project's `vectors/` directory for the same reason cutover does: v2 entries carry creation ordinals in `log_seq`, which would poison v1 dedup and staleness. The next index pass re-embeds from the v1 replay.
+
+Rollback writes an explicit `project_formats[code] = "v1"` entry and does not touch `active_format`: after a per-project rollback, new projects are still born in whatever format `active_format` names. An operator who has rolled back and wants v1 births again runs `atm store set-format --format v1`.
 
 If v1 accepts new writes after rollback, re-upgrade is allowed. The re-upgrade reads the current v1 log from scratch, moves any existing `events.v2.jsonl` aside, and writes a fresh v2 file. Unchanged v1 entries produce the same v2 event ids because D6 is a pure function of the v1 bytes. New v1 suffix entries produce new v2 events at the end of the upgraded linear chain.
 
@@ -130,6 +147,14 @@ The exact marker file is implementation detail, but the invariant is not: two ma
 
 Same-machine multi-process sessions are not a replica-copy problem. They share the same replica id and are serialized by the per-project lock.
 
+## Project existence, creation, and removal
+
+The authoritative "does this project exist" test is media presence: a project exists iff `projects/<CODE>/log.jsonl` OR `projects/<CODE>/events.v2.jsonl` exists. A v2-born project has no v1 log, so an existence check keyed to `log.jsonl` alone would let `CreateProject` clobber it.
+
+When the effective birth format is v2, `CreateProject` authors `project.created` as the event file's root event through `NewProjectCreated`, seeds the default labels as `label.upserted` v2 events, writes the explicit `project_formats[code] = "v2"` entry, and projects the fold into `cache.db`. It never touches `log.jsonl`.
+
+`RemoveProject` on a v2-active project appends nothing to v1 — `log.jsonl` stays byte-identical, per the global no-v1-writes rule for v2-active projects. It keeps the existing has-tasks guard, deletes the project directory (including `events.v2.jsonl` and `vectors/`), REMOVES the project's `project_formats` entry from `store.json`, and deletes the project's cache rows including the v2 freshness row. Removing the entry matters: recreation is then governed by `active_format` rather than by a stale v2 entry pointing at a project with no event file. v1 removal semantics are unchanged (tombstone append, then directory removal) except that a `project_formats` entry, if present, is removed there too.
+
 ## Store and cache integration
 
 `internal/store` remains the public in-process API used by CLI and TUI. L3 rewires the implementation behind that API.
@@ -141,7 +166,23 @@ For v2-active projects:
 - CLI/TUI continue displaying task and comment aliases as the user-facing ids.
 - Identity hashes remain internal unless needed for ambiguity, history, sync, or debugging.
 
-`cache.db` remains derived. Rebuild for a v2 project scans `events.v2.jsonl`, builds the DAG, folds state, and writes cache rows. The v1 `last_log_seq` freshness key is not meaningful for v2; v2 freshness must use event-file-derived data such as event count, file size, mtime, or a frontier digest.
+`cache.db` remains derived. Rebuild for a v2 project scans `events.v2.jsonl`, builds the DAG, folds state, and writes cache rows. The v1 `last_log_seq` freshness key is not meaningful for v2; the v2 freshness key is the **event count** of `events.v2.jsonl` (a cheap newline count, no parsing). The cache stores the projected event count per project; the cache is fresh iff that value equals the file's current count. Event count is sufficient before L4 because the local store only ever appends; L4 sync may upgrade the key to a frontier digest.
+
+`Store.LastLogSeq` — the staleness probe the TUI indexer pane, the embedding watcher, `ReadLogCached`, and `atm index status` already poll — returns this event count for v2-active projects. Branching inside that one method is what lets every existing poller wake on v2 appends with zero caller changes.
+
+### Log-derived views
+
+Every view derived from the log stays behind the same `internal/store` methods (L3-9); v2-awareness is a branch inside the method, never a new caller-facing API:
+
+- **History**: `History` renders `HistoryView`s for a v2 project from the event file — events sorted by the `CompareEvents` total order, `Seq` set to the 1-based ordinal in that order, filtered by the caller's subject after the fold restores entity aliases into each compatibility entry (callers pass aliases; events carry identities). The DAG is strictly richer than a linear log; this linear compatibility rendering is a deliberate L3 flattening for display, and DAG-aware history is L4's problem.
+- **Activity**: `ReadLogCached` returns a v2 project's events as compatibility `[]LogEntry` — same ordinal `Seq`, with `At`/`Actor`/`Action` from the event and subject aliases restored from the fold. That is everything `internal/activity` and the TUI activity/summary panes consume, so they change zero lines. `ReadLog` remains v1-only (it backs `Replay`, the upgrade comparison, and rollback, which must read v1 bytes); `atm activity` switches to `ReadLogCached`.
+- **Text search**: for a v2 project, text search reads the freshness-gated cache rows instead of a v1 replay — the same gate point reads use, and the same rows list commands display, so no second projection code path exists. Vector dedup keeps the LAST entry when `log_seq` ties (append order wins): a v2 re-embedding reuses the entity's stable creation ordinal, so a first-wins tie-break would keep the stale vector.
+- **Embedding indexer freshness**: for a v2 project, `PendingIndex` enumerates the freshness-gated cache rows; re-embedding decisions are made by text hash (exact, content-addressed) rather than seq comparison. `VectorEntry.LogSeq` carries the entity's creation ordinal; `VectorMeta.LastLogSeq` stores the v2 event count captured at the start of the index pass, so `Behind` in `atm index status` means events-behind and mid-pass appends conservatively leave the index behind. Vector indexes are deleted at every format switch (upgrade cutover and rollback) because entries keyed in the other format's sequence space would poison dedup and staleness; the next pass re-embeds from scratch.
+- **List freshness**: project-scoped task lists are gated behind the same v2 cache freshness probe as point reads. v1 masked the missing gate via write-through; v2 must gate explicitly.
+
+### CLI output for v2 projects
+
+`next_task_n` has no v2 meaning — aliases are hash-derived, not sequential. Project JSON keeps the field with value `0`, documented as "not applicable"; `atm project list` renders `-` for it (unambiguous: v1 projects always have `next_task_n >= 1`). Task and comment `log_seq` in JSON output is the v2 creation ordinal — a deliberate reuse of the field name, not the v1 log seq.
 
 The cache should gain enough identity-aware columns/indexes to support ambiguous aliases and identity-prefix lookup without changing the CLI surface prematurely. It may keep alias strings in existing `id` columns during the first rewire to reduce blast radius, but the source of truth is identity plus stored alias in the event file.
 
@@ -153,6 +194,7 @@ The README and CLI help must include an explicit upgrade runbook. The intended s
 atm store upgrade --project <CODE>
 atm store upgrade --all
 atm store rollback --project <CODE> --to v1
+atm store set-format --format v1|v2
 atm store verify
 atm store rebuild
 ```
@@ -162,9 +204,12 @@ The README must state:
 - v1 `log.jsonl` is preserved untouched.
 - v2 `events.v2.jsonl` is written separately.
 - failed upgrade does not cut over.
+- `atm store upgrade --all` additionally flips `active_format` to v2 on full success, so new projects are born v2 from then on.
+- `atm store set-format` overrides only the birth/default format; it refuses `--format v2` while any project lacks an explicit format entry, and `--format v1` is the way to stop v2 births after a rollback.
 - `atm store verify` validates the active store.
-- rollback does not copy v2-only writes back into v1.
+- rollback does not copy v2-only writes back into v1 and does not change `active_format`.
 - re-running upgrade after v1 rollback rebuilds/replaces the v2 event file from the current v1 log.
+- upgrade and rollback each delete the project's vector indexes; the next `atm index` pass re-embeds.
 
 ## ATM-0123 compatibility boundary
 
@@ -182,7 +227,8 @@ ATM-0123 owns the GitHub Issues mapping, GitHub-derived actors, workflow trigger
 - the DAG is acyclic;
 - fold succeeds deterministically;
 - derived cache state can be rebuilt;
-- upgraded projects matched v1 replay at cutover time.
+- upgraded projects matched v1 replay at cutover time;
+- vector indexes and inquiry counts are still reported for v2 projects exactly as for v1.
 
 `atm store rebuild` must rebuild `cache.db` from v2 event files for v2-active projects and from v1 logs only for v1-active projects.
 
@@ -211,3 +257,9 @@ ATM-0123 owns the GitHub Issues mapping, GitHub-derived actors, workflow trigger
 | **L3-8** | Replica-copy detection remints replica id before first write from a copied store. |
 | **L3-9** | `internal/store` stays the CLI/TUI API while its backing implementation is rewired to v2 for active projects. |
 | **L3-10** | README upgrade/rollback instructions are an explicit implementation deliverable. |
+| **L3-11** | The v2 sequence surface is the event count of `events.v2.jsonl`: `LastLogSeq` returns it for v2-active projects, `VectorMeta.LastLogSeq` stores it at index time, and per-entity `LogSeq`/`log_seq` is the creation ordinal. |
+| **L3-12** | Log-derived views — history, activity, text search, index freshness, list freshness — branch inside `internal/store`; CLI/TUI callers and `internal/activity` are unchanged (`ReadLog` stays v1-only; `atm activity` moves to `ReadLogCached`). |
+| **L3-13** | A project exists iff `log.jsonl` or `events.v2.jsonl` exists; v2 `RemoveProject` appends no v1 entry, deletes the directory, removes the `project_formats` entry, and deletes cache rows. |
+| **L3-14** | Explicit `project_formats` entries always win and every v2-media project has one; `active_format` governs only birth format and the legacy entry-less default; `upgrade --all` flips it to v2 only after all projects hold explicit entries; `set-format --format v2` refuses while any project lacks one. |
+| **L3-15** | Vector indexes are wiped at every format switch (cutover and rollback); the indexer rebuilds them via text-hash comparison, and vector dedup is last-wins on `log_seq` ties. |
+| **L3-16** | v2 project output renders `next_task_n` as not applicable (`0` in JSON, `-` in text); `log_seq` in task/comment output is the v2 creation ordinal by decision, not accident. |
