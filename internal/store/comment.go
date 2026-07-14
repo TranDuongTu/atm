@@ -247,7 +247,9 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
-		return s.WithLock(code, func() error { return s.rebuildCommentFromLog(id, code) })
+		return s.WithLock(code, func() error {
+			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildCommentFromLog(id, code) })
+		})
 	})
 }
 
@@ -262,18 +264,58 @@ func (s *Store) getCommentLocked(id string) (*Comment, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
-	return s.getCommentWithRebuild(id, code, func() error { return s.rebuildCommentFromLog(id, code) })
+	return s.getCommentWithRebuild(id, code, func() error {
+		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildCommentFromLog(id, code) })
+	})
 }
 
 // getCommentWithRebuild contains the fast-path cache read + staleness check
-// shared by GetComment and getCommentLocked. It is parameterized only by
-// how the rebuild-from-log call itself gets invoked: wrapped in a fresh
-// s.WithLock (GetComment, for callers that do not already hold the lock) or
-// called directly (getCommentLocked, for callers that do).
+// shared by GetComment and getCommentLocked. It is parameterized only by how
+// the rebuild call itself gets invoked: wrapped in a fresh s.WithLock
+// (GetComment, for callers that do not already hold the lock) or called
+// directly (getCommentLocked, for callers that do); the closure is format-aware
+// in both cases (rebuildEntityCacheLocked).
+//
+// The v2 branch is in this shared body and runs BEFORE the v1 freshness checks,
+// for the reasons spelled out in getTaskWithRebuild: a v2 comment row's LogSeq
+// is its per-task creation ordinal, and a v2-born project has no log.jsonl.
 func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
+	}
+	format, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if format == StoreFormatV2 {
+		if fresh, err := s.v2CacheFresh(code); err != nil {
+			return nil, err
+		} else if !fresh {
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+		}
+		c, found, err := cacheGetComment(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			// Fresh count + missing row can still be a damaged cache: rebuild
+			// once and re-read before declaring not-found (same idiom as the v1
+			// miss path below, same ErrNotFound sentinel).
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+			c, found, err = cacheGetComment(db, id)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+			}
+		}
+		return c, nil
 	}
 	c, found, err := cacheGetComment(db, id)
 	if err != nil {

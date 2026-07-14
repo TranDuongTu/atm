@@ -138,6 +138,14 @@ func (s *Store) projectFormat(code string) (StoreFormat, error) {
 	return StoreFormatV1, nil
 }
 
+// ProjectFormatForCLI is the exported read of a project's effective format, for
+// CLI display and branching (`store log` picks its v1 or v2 renderer with it).
+// projectFormat itself stays unexported: internal/store remains the
+// compatibility API, and the format is an implementation detail everywhere else.
+func (s *Store) ProjectFormatForCLI(code string) (StoreFormat, error) {
+	return s.projectFormat(code)
+}
+
 // testHookAfterDispatchFormat, when non-nil, runs inside dispatchFormat AFTER
 // the pre-lock format read and BEFORE the caller takes the project lock. It is
 // the seam that lets a test flip a project's format deterministically inside

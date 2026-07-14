@@ -132,20 +132,16 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	if len(gotc.Labels) != 1 || gotc.Labels[0] != "ATM:comment:note" {
 		t.Fatalf("comment labels = %v, want only ATM:comment:note", gotc.Labels)
 	}
-	// The project row is asserted against the FOLD, not GetProject: for an
-	// UPGRADED project GetProject's v1 staleness check still fires
-	// (lastProjectEventSeq matches the frozen log's project.created on
-	// Subject.Code) and rebuilds the row from v1, reverting the name. That is
-	// the read path Task 9 branches by format; the v2 WRITE, which is Task 8's
-	// job, is correct — the event is in the file and the fold, and
-	// cacheProjectFromV2State wrote the right row before GetProject undid it.
-	//
-	// Task and comment reads happen to survive on an UPGRADED project only
-	// because its frozen v1 log supplies a LastLogSeq large enough to clear the
-	// staleness check. They are NOT generally safe: on a V2-BORN project (no
-	// log.jsonl, so LastLogSeq is 0) GetTask/GetComment hard-fail with
-	// ErrIntegrity, because cacheProjectFromV2State stores the v2 creation
-	// ordinal in LogSeq. TestV2ReadPathIsBrokenUntilTask9 pins that.
+	// The project name is asserted against the FOLD as well as through
+	// GetProject: this test's job is the WRITE path, so it must fail if the
+	// event never reached the file even in the (Task-9) world where the read
+	// path can no longer paper over it. GetProject agreeing with the fold is
+	// pinned by TestV2ReadPathReturnsV2Truth.
+	if p, err := s.GetProject("ATM"); err != nil {
+		t.Fatal(err)
+	} else if p.Name != "renamed" {
+		t.Fatalf("GetProject name = %q, want renamed", p.Name)
+	}
 	snap, err := s.verifyV2File("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -361,19 +357,22 @@ func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 	}
 }
 
-// TestV2ReadPathIsBrokenUntilTask9 is a MARKER TEST. Every assertion below
-// asserts KNOWN-BROKEN behaviour on purpose: Task 8 rewired the WRITE path only,
-// and the read path (getProjectWithRebuild / getTaskWithRebuild /
-// getCommentWithRebuild) is still v1-only. cacheProjectFromV2State stores a v2
-// CREATION ORDINAL in Task.LogSeq/Comment.LogSeq, and a v2-BORN project has no
-// log.jsonl at all — so LastLogSeq is 0 and the v1 freshness check `LogSeq >
-// LastSeq` hard-fails. On-disk truth is intact in every case here; only the
-// read path lies.
+// TestV2ReadPathReturnsV2Truth is the FLIPPED marker test (it was
+// TestV2ReadPathIsBrokenUntilTask9, which pinned each of these reads at its
+// known-broken v1-only answer while Task 8 shipped the write path alone). Task 9
+// branched getProjectWithRebuild / getTaskWithRebuild / getCommentWithRebuild on
+// the effective format, so each assertion below now demands the CORRECT answer,
+// against the same scenarios that used to expose the breakage:
 //
-// WHEN TASK 9 LANDS THIS TEST FAILS. That is its job. Do not delete it — flip
-// each assertion to the correct one (reads succeed and return the v2 state).
-func TestV2ReadPathIsBrokenUntilTask9(t *testing.T) {
-	t.Run("v2-born task and comment reads hard-fail with ErrIntegrity", func(t *testing.T) {
+//   - a v2-BORN project has no log.jsonl, so LastLogSeq is 0 while
+//     cacheProjectFromV2State stores a v2 CREATION ORDINAL in
+//     Task.LogSeq/Comment.LogSeq: the v1 freshness check `LogSeq > LastSeq` used
+//     to hard-fail with ErrIntegrity. The v2 branch precedes it.
+//   - on an UPGRADED project lastProjectEventSeq still matches the FROZEN v1
+//     log's project.created (keyed on Subject.Code), so the v1 staleness check
+//     used to rebuild the project row from v1 and revert a v2 rename.
+func TestV2ReadPathReturnsV2Truth(t *testing.T) {
+	t.Run("v2-born task and comment reads return the v2 state", func(t *testing.T) {
 		s := testStore(t)
 		if err := s.SetActiveFormat(StoreFormatV2); err != nil {
 			t.Fatal(err)
@@ -389,22 +388,26 @@ func TestV2ReadPathIsBrokenUntilTask9(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the WRITE must work: %v", err)
 		}
-		// BROKEN (Task 9): `atm task show` on a v2-born task exits 5 with
-		// "integrity: task ... cache LogSeq=1 > log LastSeq=0".
-		if _, err := s.GetTask(tk.ID); !IsIntegrity(err) {
-			t.Fatalf("GetTask on a v2-born task = %v; if Task 9 has landed the read path, FLIP this assertion to require success", err)
+		gotT, err := s.GetTask(tk.ID)
+		if err != nil {
+			t.Fatalf("GetTask on a v2-born task: %v", err)
 		}
-		if _, err := s.GetComment(cm.ID); !IsIntegrity(err) {
-			t.Fatalf("GetComment on a v2-born comment = %v; if Task 9 has landed the read path, FLIP this assertion to require success", err)
+		if gotT.Title != "v2 born task" || gotT.Description != "d" {
+			t.Fatalf("task = %#v", gotT)
 		}
-		// ListTasks has no staleness check, so it works today — which is why
-		// the Task 8 suite was green: nothing read a v2-born task by id.
+		gotC, err := s.GetComment(cm.ID)
+		if err != nil {
+			t.Fatalf("GetComment on a v2-born comment: %v", err)
+		}
+		if gotC.Body != "body" || gotC.TaskID != tk.ID {
+			t.Fatalf("comment = %#v", gotC)
+		}
 		if got := s.ListTasks(QueryFilters{Project: "ATM"}); len(got) != 1 {
 			t.Fatalf("ListTasks = %d tasks, want 1 (the on-disk truth is intact)", len(got))
 		}
 	})
 
-	t.Run("upgraded-project GetProject reverts a v2 rename", func(t *testing.T) {
+	t.Run("upgraded-project GetProject returns the v2 rename", func(t *testing.T) {
 		s := testStore(t)
 		if _, err := s.CreateProject("ATM", "original", "admin@cli:unset"); err != nil {
 			t.Fatal(err)
@@ -415,16 +418,12 @@ func TestV2ReadPathIsBrokenUntilTask9(t *testing.T) {
 		if err := s.SetProjectName("ATM", "renamed", "admin@cli:unset"); err != nil {
 			t.Fatal(err)
 		}
-		// BROKEN (Task 9): lastProjectEventSeq matches the FROZEN v1 log's
-		// project.created (keyed on Subject.Code), so getProjectWithRebuild
-		// judges the v2-projected row stale and rebuilds it from v1 — reverting
-		// the name that is correctly recorded in events.v2.jsonl and the fold.
 		p, err := s.GetProject("ATM")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.Name != "original" {
-			t.Fatalf("GetProject name = %q; if Task 9 has landed the read path, FLIP this assertion to want %q", p.Name, "renamed")
+		if p.Name != "renamed" {
+			t.Fatalf("GetProject name = %q, want %q: the read path reverted a durable v2 write", p.Name, "renamed")
 		}
 	})
 }

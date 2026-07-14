@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,4 +244,76 @@ func TestStoreLogFromToFilter(t *testing.T) {
 	if hasLineWithPrefix(out, "6\t") {
 		t.Fatalf("unexpected seq 6 in:\n%s", out)
 	}
+}
+
+func TestStoreLogShowsV2EventsForV2ActiveProject(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	out := runArgsOut(t, st, "store", "log", "ATM")
+	mustContain(t, out, "project.created")
+	mustContain(t, out, "sha256:")
+}
+
+// runArgsStdoutOut is runArgsOut for the commands that render their TEXT output
+// straight to os.Stdout instead of cliState.stdout() (project list, task comment
+// show, ...): it swaps in a pipe for the duration of the run and returns both
+// sinks concatenated. The golden harness never needed this because it drives
+// those commands in JSON mode.
+func runArgsStdoutOut(t *testing.T, h *testCLI, args ...string) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	var captured bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&captured, r)
+		close(done)
+	}()
+	out, stderr, code := h.run(args...)
+	os.Stdout = old
+	_ = w.Close()
+	<-done
+	_ = r.Close()
+	if code != ExitSuccess {
+		t.Fatalf("run %v: exit=%d stderr=%s", args, code, stderr)
+	}
+	return out + captured.String()
+}
+
+func TestProjectListRendersDashForV2NextTaskN(t *testing.T) {
+	// The rendering itself landed in Task 6 (renderNextTaskN); it only
+	// becomes observable now that v2 reads bypass the v1 rebuild path — which
+	// would otherwise rebuild the project row from the frozen v1 log and put
+	// its v1 NextTaskN back.
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	out := runArgsStdoutOut(t, st, "project", "list")
+	mustContain(t, out, "ATM\tx\t-\t")
+}
+
+func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
+	// Regression for the cli/comment.go project-code derivation: the relaxed
+	// ParseCommentID (Task 2b) must yield the code for a v2 comment alias, or
+	// `task comment show` dies before reaching the store — and the store's own
+	// v2 read path must then answer a hash alias by id.
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	tk, err := st.store.CreateTask("ATM", "hash task", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.store.CreateComment(tk.ID, "hash comment body", nil, "", "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsStdoutOut(t, st, "task", "comment", "show", "--id", c.ID)
+	mustContain(t, out, c.ID)
+	mustContain(t, out, "hash comment body")
 }

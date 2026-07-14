@@ -179,14 +179,12 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		if err := s.reprojectV2Locked(code); err != nil {
 			return err
 		}
-		// TODO(Task 9): switch to getProjectLocked once its shared body branches
-		// on the effective format; today it would run the v1 freshness checks.
-		p, ok, err := cacheGetProject(db, code)
+		// getProjectLocked now branches on the effective format in its shared
+		// body (Task 9), so this locked read goes through the v2 freshness path
+		// reprojectV2Locked just satisfied — never the v1 checks.
+		p, err := s.getProjectLocked(code)
 		if err != nil {
 			return err
-		}
-		if !ok {
-			return fmt.Errorf("%w: project %q", ErrNotFound, code)
 		}
 		created = p
 		return nil
@@ -207,7 +205,9 @@ func mustMarshal(v any) json.RawMessage {
 
 func (s *Store) GetProject(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
-		return s.WithLock(code, func() error { return s.rebuildProjectFromLog(code) })
+		return s.WithLock(code, func() error {
+			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+		})
 	})
 }
 
@@ -218,29 +218,64 @@ func (s *Store) GetProject(code string) (*Project, error) {
 // GetProject in that situation would re-enter the (non-reentrant) mutex and
 // deadlock.
 func (s *Store) getProjectLocked(code string) (*Project, error) {
-	return s.getProjectWithRebuild(code, func() error { return s.rebuildProjectFromLog(code) })
+	return s.getProjectWithRebuild(code, func() error {
+		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+	})
 }
 
 // getProjectWithRebuild contains the fast-path cache read + staleness check
 // shared by GetProject and getProjectLocked. It is parameterized only by how
-// the rebuild-from-log call itself gets invoked: wrapped in a fresh
-// s.WithLock (GetProject, for callers that do not already hold the lock) or
-// called directly (getProjectLocked, for callers that do).
+// the rebuild call itself gets invoked: wrapped in a fresh s.WithLock
+// (GetProject, for callers that do not already hold the lock) or called
+// directly (getProjectLocked, for callers that do). The rebuild closure is
+// format-aware in both cases (rebuildEntityCacheLocked).
 //
-// TODO(Task 9): this body is v1-only and must branch on the project's effective
-// format. On a v2-active project the staleness checks below compare a
-// v2-derived cache row against the v1 log and are meaningless: for an UPGRADED
-// project lastProjectEventSeq still matches the frozen log's project.created (on
-// Subject.Code), so every read rebuilds the project row from v1 and reverts any
-// v2 project.name-changed. The same v1-only staleness check in
-// getTaskWithRebuild (task.go) and getCommentWithRebuild (comment.go) hard-fails
-// with ErrIntegrity ("cache LogSeq=N > log LastSeq=0") on a v2-BORN project,
-// which has no log.jsonl at all. See TestV2ReadPathIsBrokenUntilTask9, which
-// pins the current broken behaviour and MUST be flipped when this is fixed.
+// The v2 branch lives HERE, in the shared body, and not merely at the public
+// entry point: createProjectV2/removeProjectV2 and every v1 mutator validate
+// through getProjectLocked, which reaches this body while holding the project
+// lock. With the branch only at the entry point such a read would fall into the
+// v1 freshness path below, where projFromV2's LogSeq of 0 makes the v1 staleness
+// check fire on every read and RESURRECT v1 rows over the v2 fold. The branch
+// must also precede the v1 checks: a v2 cache row's LogSeq is a fold ordinal (0
+// for the project row), unrelated to any v1 log seq.
 func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
+	}
+	format, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if format == StoreFormatV2 {
+		if fresh, err := s.v2CacheFresh(code); err != nil {
+			return nil, err
+		} else if !fresh {
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+		}
+		p, ok, err := cacheGetProject(db, code)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			// A fresh count with a missing row can still be a damaged cache
+			// (the freshness key is a count, not a checksum): rebuild once and
+			// re-read before declaring not-found — the same idiom as the v1
+			// miss path below.
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+			p, ok, err = cacheGetProject(db, code)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
+			}
+		}
+		return p, nil
 	}
 	p, ok, err := cacheGetProject(db, code)
 	if err != nil {

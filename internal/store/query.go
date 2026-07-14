@@ -47,6 +47,17 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 	}
 	var out []*Task
 	for _, code := range codes {
+		// The project-scoped list read has no freshness gate of its own: under
+		// v1 every mutator write-throughs the cache inside the project lock, so
+		// the rows could not lag the log. Under v2 an EXTERNAL append (a second
+		// process, or a writer that died between the append commit point and its
+		// reprojection) leaves the cache legitimately behind the event file, and
+		// nothing else on this path would ever notice. Gate it.
+		if f, _ := s.projectFormat(code); f == StoreFormatV2 {
+			if err := s.ensureV2CacheFresh(code); err != nil {
+				continue // match the existing per-code lenient error posture
+			}
+		}
 		tasks, err := cacheListTasksForProject(db, code)
 		if err != nil {
 			continue

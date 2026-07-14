@@ -287,7 +287,9 @@ func (s *Store) GetTask(id string) (*Task, error) {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
-		return s.WithLock(code, func() error { return s.rebuildTaskFromLog(id, code) })
+		return s.WithLock(code, func() error {
+			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildTaskFromLog(id, code) })
+		})
 	})
 }
 
@@ -301,18 +303,62 @@ func (s *Store) getTaskLocked(id string) (*Task, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
-	return s.getTaskWithRebuild(id, code, func() error { return s.rebuildTaskFromLog(id, code) })
+	return s.getTaskWithRebuild(id, code, func() error {
+		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildTaskFromLog(id, code) })
+	})
 }
 
 // getTaskWithRebuild contains the fast-path cache read + staleness check
 // shared by GetTask and getTaskLocked. It is parameterized only by how the
-// rebuild-from-log call itself gets invoked: wrapped in a fresh s.WithLock
-// (GetTask, for callers that do not already hold the lock) or called
-// directly (getTaskLocked, for callers that do).
+// rebuild call itself gets invoked: wrapped in a fresh s.WithLock (GetTask, for
+// callers that do not already hold the lock) or called directly (getTaskLocked,
+// for callers that do); the closure is format-aware in both cases
+// (rebuildEntityCacheLocked).
+//
+// The v2 branch is in this shared body, and runs BEFORE the v1 freshness checks
+// (see getProjectWithRebuild for why both are load-bearing): a v2 cache row's
+// LogSeq is the task's CREATION ORDINAL in the fold, and a v2-born project has
+// no log.jsonl at all — so the v1 check `LogSeq > LastLogSeq` would hard-fail
+// with ErrIntegrity on every v2-born task.
 func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
+	}
+	format, err := s.projectFormat(code)
+	if err != nil {
+		return nil, err
+	}
+	if format == StoreFormatV2 {
+		if fresh, err := s.v2CacheFresh(code); err != nil {
+			return nil, err
+		} else if !fresh {
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+		}
+		t, found, err := cacheGetTask(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			// A fresh count with a missing row can still be a damaged cache
+			// (the freshness key is a count, not a checksum): rebuild once and
+			// re-read before declaring not-found — the same idiom as the v1
+			// miss path below. ErrNotFound is the same sentinel v1 returns, so
+			// the CLI's exit codes are unchanged.
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+			t, found, err = cacheGetTask(db, id)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			}
+		}
+		return t, nil
 	}
 	t, found, err := cacheGetTask(db, id)
 	if err != nil {
