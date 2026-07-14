@@ -112,6 +112,28 @@ func (s *Store) archiveV2FileLocked(code, reason string) (string, error) {
 		return "", err
 	}
 	reason = strings.NewReplacer("/", "-", "\\", "-", " ", "-").Replace(reason)
-	dst := filepath.Join(s.projectDir(code), fmt.Sprintf("events.v2.%s.%d.jsonl", reason, time.Now().UTC().Unix()))
-	return dst, os.Rename(path, dst)
+	// os.Rename SILENTLY overwrites its destination, so the timestamped name
+	// alone is not enough: two archives with the same reason inside the same
+	// UTC second (a rollback + re-upgrade loop, a scripted retry) would
+	// clobber the earlier archive — the one piece of manual-recovery evidence
+	// for the events it held. Reserve an unused name with O_EXCL first and
+	// only rename onto a slot we own.
+	base := filepath.Join(s.projectDir(code), fmt.Sprintf("events.v2.%s.%d", reason, time.Now().UTC().Unix()))
+	for n := 0; ; n++ {
+		dst := base + ".jsonl"
+		if n > 0 {
+			dst = fmt.Sprintf("%s.%d.jsonl", base, n)
+		}
+		f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if os.IsExist(err) {
+			continue // an archive already claims this name; try the next one
+		}
+		if err != nil {
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+		return dst, os.Rename(path, dst)
+	}
 }
