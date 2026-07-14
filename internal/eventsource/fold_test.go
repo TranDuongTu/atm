@@ -159,7 +159,15 @@ func TestFoldComputednessWins(t *testing.T) {
 		Subject{Kind: "label", Name: "P:board"}, map[string]any{"expr": "status:open"})
 	assign := testEvent(t, cb, replicaB, []string{seed.ID}, ActionTaskLabelAdded,
 		Subject{Kind: "task", ID: created.ID}, map[string]any{"label": "P:board"})
-	st := fold(t, created, seed, mkBoard, assign)
+	// Replica A also concurrently removes the same label from the same
+	// task — a sibling of `assign` off the same parent, so neither reaches
+	// the other. This gives the membership slot TWO maximal writers, so
+	// len(ws) > 1 would trip the contested block were it not for the
+	// computed() guard: the test now actually exercises L2-6b (a computed
+	// label's membership slot is never reported contested), not just L2-6a.
+	unassign := testEvent(t, ca, replicaA, []string{seed.ID}, ActionTaskLabelRemoved,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"label": "P:board"})
+	st := fold(t, created, seed, mkBoard, assign, unassign)
 	if l := st.Labels["P:board"]; l == nil || l.Expr != "status:open" || !l.IsComputed() {
 		t.Fatalf("label = %+v", st.Labels["P:board"])
 	}
@@ -167,7 +175,7 @@ func TestFoldComputednessWins(t *testing.T) {
 		t.Errorf("computed-ness must win: assignment is inert, got %v", st.Tasks[created.ID].Labels)
 	}
 	for _, cs := range st.Contested {
-		if cs.Kind == SlotMembership && cs.Field == "P:board" {
+		if cs.Kind == SlotMembership && cs.Entity == created.ID && cs.Field == "P:board" {
 			t.Errorf("inert membership slot reported contested: %+v", cs)
 		}
 	}
