@@ -32,7 +32,9 @@ func newActivityCmd(st *cliState) *cobra.Command {
 			// serves the v2 event file as compatibility entries. activity.Build
 			// is unchanged. It already applies v1's lenient posture to a
 			// malformed v1 tail internally, so any error reaching here is worth
-			// surfacing (a corrupt v2 event file yields no entries at all).
+			// surfacing: a corrupt v2 event file yields only its recoverable
+			// prefix, and reporting that truncated view as if complete would be
+			// worse than failing.
 			entries, err := s.ReadLogCached(project)
 			if err != nil {
 				return err

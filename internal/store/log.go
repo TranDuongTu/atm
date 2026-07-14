@@ -254,9 +254,14 @@ func (s *Store) LastLogSeq(code string) (int, error) {
 // The error postures of the two formats differ because the underlying reads do:
 // v1's ReadLog returns every entry that parsed ALONGSIDE an ErrIntegrity for a
 // malformed tail, so the long-standing lenient posture (keep the partial view;
-// verify/doctor report the damage) is preserved by dropping it here. The v2 read
-// is strict and yields NOTHING on an integrity error, so that error is returned
-// bare: swallowing it would render a corrupt event file as an empty view.
+// verify/doctor report the damage) is preserved by dropping it here.
+//
+// The v2 read returns the recoverable prefix alongside the ErrIntegrity, and
+// that error is propagated rather than dropped: swallowing it would render a
+// corrupt event file as a silently truncated view. Callers that can tolerate
+// damage (the TUI project summary) keep consuming the prefix; callers that
+// cannot (the CLI) surface the error. Note the asymmetry with v1 above: v2
+// mirrors v1's partial ROWS, but not v1's swallowed error.
 func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
 	f, err := s.projectFormat(code)
 	if err != nil {
