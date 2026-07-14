@@ -126,10 +126,12 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 		if _, err := os.Stat(s.eventsV2Path(code)); err == nil {
 			archived, err := s.archiveV2FileLocked(code, "reupgrade")
 			if err != nil {
+				_ = os.Remove(tmp)
 				return err
 			}
 			rep.ArchivedPath = archived
 		} else if !os.IsNotExist(err) {
+			_ = os.Remove(tmp)
 			return err
 		}
 		if err := os.Rename(tmp, s.eventsV2Path(code)); err != nil {
