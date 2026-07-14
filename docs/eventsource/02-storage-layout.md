@@ -88,11 +88,15 @@ Upgrade is side-by-side and verified before activation:
 
 If any step fails before activation, the project stays on v1 and `log.jsonl` remains untouched.
 
+Upgrade REFUSES a project whose effective format is already v2. Upgrade reads from the frozen v1 log, so running it against a v2-active project would rebuild stale state and archive the LIVE `events.v2.jsonl` — silently discarding every post-cutover write, because archived files are manual-recovery evidence, never auto-merged — and a v2-born project has no v1 log to read at all. Re-upgrade is legal only from a v1-active, post-rollback state (L3-5). `atm store upgrade --all` therefore SKIPS effective-v2 projects rather than erroring, counting them as already-upgraded for the `active_format` flip decision; this is what makes retrying a partially-failed `--all` safe for the projects that already cut over.
+
 Cutover also deletes the project's `vectors/` directory: vector entries are keyed by the v1 log seq, which is meaningless under v2 and would poison dedup and staleness checks. The embedding indexer re-embeds from the v2 fold using the v2 freshness key defined under "Store and cache integration".
 
 ## Rollback and re-upgrade
 
 Rollback is an explicit active-format switch back to v1. It does not export v2-only events into v1. This is acceptable because v1 is a safety fallback, not the long-term mode.
+
+Rollback requires v1 media: it REFUSES with a clear error when `projects/<CODE>/log.jsonl` is absent. A v2-born project has no v1 fallback — replaying the missing log would delete the project's cache rows and reinsert nothing, leaving a zombie that is effective-v1 with zero media: unreadable, and unrecreatable because the media-based existence check still sees `events.v2.jsonl`.
 
 Rollback also rebuilds the project's `cache.db` rows from the v1 replay before returning. The cache otherwise still holds v2-derived rows whose freshness bookkeeping (`LogSeq`, `NextTaskN`) is meaningless to v1 readers and writers, which would trip integrity checks or produce stale reads immediately after the switch.
 
@@ -170,6 +174,10 @@ For v2-active projects:
 
 `Store.LastLogSeq` — the staleness probe the TUI indexer pane, the embedding watcher, `ReadLogCached`, and `atm index status` already poll — returns this event count for v2-active projects. Branching inside that one method is what lets every existing poller wake on v2 appends with zero caller changes.
 
+### User-facing ID grammar across generations
+
+v2 aliases are hash-derived: `MintTaskAlias` yields `<CODE>-` + at least 6 lowercase hex chars (locally extended while taken), and `MintCommentAlias` yields `<task-alias>-c` + at least 4 lowercase hex chars. v1 ids are numeric (`<CODE>-0001`, `<CODE>-0001-c0002`). The store's ID gates (`TaskIDRe`, `CommentIDRe`, `ParseTaskID`, `ParseCommentID`) accept BOTH generations through one relaxed grammar — suffix segments are `\d+` or lowercase hex of at least the minted minimum length — and the relaxation is global rather than per-media: the parse gate's only job is deriving the project code, which must happen BEFORE the project's format is knowable, so per-media strictness is circular; v1 numeric ids remain a strict subset, and a v2-shaped id aimed at a v1 project falls through to a clean not-found. The numeric segments of a v2 alias parse as 0, and no v2 code path may key on them — v2 paths key on the full alias string. Same-task reply validation compares the reply target's task-alias prefix (everything before the final `-c<suffix>`) against the task alias, never numeric segments; this is well-defined in both generations because v1 `RenderCommentID` and v2 `MintCommentAlias` both build comment ids as `<task-alias>-c<suffix>`. Deriving the project code from either generation inside `ParseCommentID` is what keeps CLI `--history` and the TUI comment panes working with zero caller changes.
+
 ### Log-derived views
 
 Every view derived from the log stays behind the same `internal/store` methods (L3-9); v2-awareness is a branch inside the method, never a new caller-facing API:
@@ -208,7 +216,9 @@ The README must state:
 - `atm store set-format` overrides only the birth/default format; it refuses `--format v2` while any project lacks an explicit format entry, and `--format v1` is the way to stop v2 births after a rollback.
 - `atm store verify` validates the active store.
 - rollback does not copy v2-only writes back into v1 and does not change `active_format`.
+- rollback refuses a project with no `log.jsonl` (a v2-born project has no v1 state to roll back to).
 - re-running upgrade after v1 rollback rebuilds/replaces the v2 event file from the current v1 log.
+- upgrade refuses a project that is already v2-active, and `upgrade --all` skips such projects, so retrying after a partial failure never rewrites a live v2 project.
 - upgrade and rollback each delete the project's vector indexes; the next `atm index` pass re-embeds.
 
 ## ATM-0123 compatibility boundary
@@ -250,8 +260,8 @@ ATM-0123 owns the GitHub Issues mapping, GitHub-derived actors, workflow trigger
 | **L3-1** | The v2 source of truth is `projects/<CODE>/events.v2.jsonl`, one canonical event JSON object per line. |
 | **L3-2** | v1 `projects/<CODE>/log.jsonl` is preserved untouched through upgrade and rollback. |
 | **L3-3** | Upgrade is side-by-side, verified, and atomically cut over only after cache rebuild succeeds. |
-| **L3-4** | Rollback switches active format to v1 but does not export v2-only writes. |
-| **L3-5** | Re-upgrade after v1 fallback rebuilds v2 from the current v1 log and archives/replaces the previous v2 file. |
+| **L3-4** | Rollback switches active format to v1 but does not export v2-only writes; it refuses when `log.jsonl` is absent, so a v2-born project can never be rolled back into a media-less zombie. |
+| **L3-5** | Re-upgrade after v1 fallback rebuilds v2 from the current v1 log and archives/replaces the previous v2 file; upgrade refuses effective-v2 projects, and `upgrade --all` skips them as already-upgraded for the flip decision. |
 | **L3-6** | The per-project lock is the local write serialization point; frontier/HLC refresh happens under that lock. |
 | **L3-7** | A complete fsynced event line is the v2 append commit point; metadata and cache are rebuildable. |
 | **L3-8** | Replica-copy detection remints replica id before first write from a copied store. |
@@ -263,3 +273,4 @@ ATM-0123 owns the GitHub Issues mapping, GitHub-derived actors, workflow trigger
 | **L3-14** | Explicit `project_formats` entries always win and every v2-media project has one; `active_format` governs only birth format and the legacy entry-less default; `upgrade --all` flips it to v2 only after all projects hold explicit entries; `set-format --format v2` refuses while any project lacks one. |
 | **L3-15** | Vector indexes are wiped at every format switch (cutover and rollback); the indexer rebuilds them via text-hash comparison, and vector dedup is last-wins on `log_seq` ties. |
 | **L3-16** | v2 project output renders `next_task_n` as not applicable (`0` in JSON, `-` in text); `log_seq` in task/comment output is the v2 creation ordinal by decision, not accident. |
+| **L3-17** | Task/comment ID parsing accepts both alias generations globally (v1 numeric ids and v2 hash aliases through one relaxed grammar); same-task reply validation uses the task-alias prefix, and v2 code paths key on the full alias string, never on numeric segments. |

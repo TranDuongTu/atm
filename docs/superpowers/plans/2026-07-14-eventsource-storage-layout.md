@@ -12,6 +12,8 @@
 
 **Revised again 2026-07-14** after the full v1-dependency audit (ledger comment ATM-0107-c0013): the plan now covers every log-derived view, not just entity state. New Task 9b serves history, activity, text search, and embedding-index freshness from v2 events behind the existing store methods (`History`, `ReadLogCached`, `LastLogSeq`, `textSearch`, `PendingIndex` all branch internally — CLI/TUI callers and `internal/activity` change zero lines, correcting the c0012 comment's `refreshAll` claim: the three real TUI sites are `tui/actors.go:53`, `tui/projects.go:888`, and `tui/indexer.go:578`, all reached through those methods). Task 8 gains `RemoveProject` v2 semantics and the v2-aware `CreateProject` existence check plus a real v2 birth path; Task 1 and Task 6 add the `ActiveFormat` flip (`upgrade --all`) and `set-format` escape hatch so a project can be born v2; Task 5's verify branch no longer drops `VectorIndexes`/`InquiryCount`; vector wipes move from `Rebuild` to the format-switch boundaries; Task 6 decides the `NextTaskN`/`log_seq` output rendering; Task 9 gains the list-freshness verification step.
 
+**Revised again 2026-07-14 (review fixes)** against the 696953c review: upgrade now REFUSES a project whose effective format is already v2 and `UpgradeAllToV2` skips such projects (a retry after a partial `--all` failure must never re-upgrade a live v2 project from its frozen v1 log and archive post-cutover writes into an `events.v2.reupgrade.*` file nobody auto-merges); rollback now REFUSES a project with no `log.jsonl` (a v2-born project has no v1 fallback — replaying the missing log would wipe the cache rows and leave an unreadable, unrecreatable zombie); and new Task 2b relaxes the task/comment ID grammar so v2 hash aliases (`MintTaskAlias`: `<CODE>-` + >=6 lowercase hex; `MintCommentAlias`: `<task-alias>-c` + >=4 lowercase hex) pass the `ParseTaskID`/`ParseCommentID` gates that every read and mutator runs before touching the cache — without it, every post-cutover-created entity is unreachable (`ErrUsage`) and the Definition of Done cannot be met. Task 9 additionally pins the v2 read branch inside the shared `get*WithRebuild` bodies, and `createProjectV2` writes the `ProjectFormats` entry BEFORE the first append.
+
 ## Global Constraints
 
 - Do not start implementation until ATM-0106 has landed, `internal/eventsource` exists, and ATM-0125 is closed.
@@ -26,8 +28,9 @@
 - No code path may append to `log.jsonl` for a v2-active project — mutators, `RemoveProject`, everything. `log.jsonl` stays byte-identical from cutover until rollback.
 - After `atm store upgrade --all` succeeds, the WHOLE system — CLI, TUI, text/vector search, embedding indexer, history and activity views — runs on v2, and new projects are born v2; v1 survives only as the rollback/re-upgrade source.
 - Every v2-media project carries an explicit `ProjectFormats` entry in `store.json` (written at cutover or v2 birth); `ActiveFormat` governs only birth format and the legacy entry-less default.
-- Rollback does not export v2-only writes into v1.
-- Re-upgrade after rollback archives/replaces the old v2 file and rebuilds from the current v1 log.
+- Rollback does not export v2-only writes into v1, and rollback REFUSES a project with no `log.jsonl` (a v2-born project has no v1 state to roll back to).
+- Re-upgrade after rollback archives/replaces the old v2 file and rebuilds from the current v1 log; upgrade REFUSES a project whose effective format is already v2 (re-upgrade is legal only from a v1-active, post-rollback state), and `upgrade --all` SKIPS effective-v2 projects, counting them as already-upgraded for the `ActiveFormat` flip.
+- Task and comment ID parsing accepts BOTH alias generations (v1 numeric ids and v2 hash aliases) through one relaxed grammar; no v2 code path may depend on the numeric segments of an ID — v2 paths key on the full alias string.
 - README upgrade/rollback instructions are part of this implementation.
 - Run `gofmt` on changed Go files and `make verify` before declaring done.
 
@@ -47,15 +50,15 @@ Create focused store files:
 
 Modify existing files:
 
-- `internal/store/store.go`: initialize metadata and expose active-format helpers.
-- `internal/store/cache.go`: add guarded schema migrations for identity/freshness support.
+- `internal/store/store.go`: initialize metadata and expose active-format helpers; relax `TaskIDRe`/`CommentIDRe` to accept v2 hash aliases and add the `commentTaskAlias` prefix helper (Task 2b).
+- `internal/store/cache.go`: add guarded schema migrations for identity/freshness support; raw-string tie-break in the task ID sort for hash aliases (Task 2b).
 - `internal/store/rebuild.go`: rebuild v1 projects from v1 replay and v2 projects from v2 fold.
 - `internal/store/verify.go`: verify active format, v2 event file integrity, and cache freshness.
 - `internal/store/log.go`: keep v1 APIs; make `ReadLog` explicitly v1-only in comments; branch `LastLogSeq`, `ReadLogCached`, and `History` by project format.
 - `internal/store/search.go`: v2 branch of `textSearch`; last-wins tie-break in `dedupVectorsByID`.
 - `internal/store/indexer.go`: v2 branches of `PendingIndex` and `ReindexOnce` (`Watch` needs no change — it polls `LastLogSeq`).
-- `internal/store/query.go`: freshness-gate project-scoped v2 list reads.
-- `internal/store/project.go`, `task.go`, `comment.go`, `label.go`: dispatch mutators/read freshness by active project format; v2-aware `CreateProject` existence check and `RemoveProject`.
+- `internal/store/query.go`: freshness-gate project-scoped v2 list reads; raw-string tie-break in the task ID sort for hash aliases (Task 2b).
+- `internal/store/project.go`, `task.go`, `comment.go`, `label.go`: dispatch mutators/read freshness by active project format; v2-aware `CreateProject` existence check and `RemoveProject`; `comment.go`'s reply same-task check rewritten on the task-alias prefix instead of numeric segments (Task 2b).
 - `internal/cli/store.go`: add `store upgrade`, `store rollback`, and `store set-format`; update `store log` for v2 display.
 - `internal/cli/activity.go`: switch from `ReadLog` to `ReadLogCached` (the v2-branching read).
 - `internal/cli/output.go`: render `NextTaskN` as `-` for v2-active projects in `project list` text output.
@@ -63,7 +66,7 @@ Modify existing files:
 - `internal/cli/testdata/`: golden files churn where project/task output shapes change.
 - `README.md`: add the approved v1-to-v2 upgrade runbook.
 
-Deliberately unchanged (verify with `git diff --stat` at the end): `internal/tui/` (all three log-consuming sites reach through `ReadLogCached`/`LastLogSeq`/`History`, which branch internally), `internal/activity/` (consumes compatibility `[]store.LogEntry`), and `internal/cli/index.go` (computes `Behind` from `LastLogSeq`, which branches internally).
+Deliberately unchanged (verify with `git diff --stat` at the end): `internal/tui/` (all three log-consuming sites reach through `ReadLogCached`/`LastLogSeq`/`History`, which branch internally, and `tui/comments.go:60`'s `ParseCommentID` call parses v2 comment aliases once Task 2b relaxes the grammar in place), `internal/activity/` (consumes compatibility `[]store.LogEntry`), and `internal/cli/index.go` (computes `Behind` from `LastLogSeq`, which branches internally). `internal/cli/comment.go:97` likewise needs zero changes for the same Task 2b reason.
 
 ---
 
@@ -269,7 +272,7 @@ type StoreMeta struct {
 	ReplicaID       string                 `json:"replica_id,omitempty"`
 	StoreInstanceID string                 `json:"store_instance_id,omitempty"`
 	LastHLC         *eventsource.HLC       `json:"last_hlc,omitempty"`
-	ProjectFormats map[string]StoreFormat `json:"project_formats,omitempty"`
+	ProjectFormats  map[string]StoreFormat `json:"project_formats,omitempty"`
 	CreatedAt       time.Time              `json:"created_at,omitempty"`
 	UpdatedAt       time.Time              `json:"updated_at,omitempty"`
 }
@@ -708,6 +711,217 @@ git commit -m "feat(ATM-0107): add v2 event file IO and verification"
 
 ---
 
+### Task 2b: Alias-Tolerant ID Parsing (Both Generations Through One Grammar)
+
+Post-cutover-created entities carry v2 hash aliases: `MintTaskAlias` yields `<CODE>-` + >=6 lowercase hex (e.g. `ATM-7f3a2b`, locally extended when taken), and `MintCommentAlias` yields `<task-alias>-c` + >=4 lowercase hex (e.g. `ATM-7f3a2b-c9e1d`) — read `internal/eventsource/alias.go`, these are the actual output shapes. But `TaskIDRe` (`^([A-Z][A-Z0-9-]{1,15})-(\d+)$`) and `CommentIDRe` (`^([A-Z]{3,6})-(\d+)-c(\d+)$`) demand numeric suffixes, and EVERY entity path gates on them BEFORE touching the cache: `GetTask`/`getTaskLocked` (task.go:133/:148), the task mutators (task.go:294/:360/:395), `CreateComment` including its numeric same-task reply check (comment.go:17-33), `GetComment`/`getCommentLocked` and the comment mutators (comment.go:114/:130/:282/:321/:366), plus `cli/comment.go:97` and `tui/comments.go:60`, which derive the project code via `ParseCommentID` for `History`. Without this task, every v2-minted alias dies with `ErrUsage` and the plan's own tests (`GetTask("ATM-abcdef")` in Task 3, `GetTask(tk.ID)` on a minted alias in Task 8) cannot pass — so this task MUST land before Task 3.
+
+**Decision (relax globally, not per-media):** the grammar relaxation applies to all projects, v1-active included, rather than gating strictness on the entity's media format. Justification: the parse gate's only real job is deriving the project code from the ID, and the project's format cannot be known until AFTER that derivation — per-media strictness is circular. v1 numeric ids remain a strict subset of the relaxed grammar (no valid v1 ID changes behavior), and a v2-shaped id aimed at a v1-media project simply misses the cache, finds nothing in the v1 log rebuild, and returns a clean `ErrNotFound` instead of `ErrUsage` — a strictly acceptable error-shape change. The relaxation happens INSIDE `ParseTaskID`/`ParseCommentID` (same signatures) precisely so `cli/comment.go:97` and `tui/comments.go:60` need zero line changes, keeping the File Structure's deliberately-unchanged list intact.
+
+**Files:**
+- Modify: `internal/store/store.go`
+- Modify: `internal/store/comment.go`
+- Modify: `internal/store/cache.go`
+- Modify: `internal/store/query.go`
+- Create: `internal/store/id_alias_test.go`
+
+**Interfaces:**
+- Consumes: nothing new — this is a self-contained grammar change.
+- Produces:
+  - relaxed `TaskIDRe` = `^([A-Z][A-Z0-9-]{1,15})-(\d+|[0-9a-f]{6,})$`
+  - relaxed `CommentIDRe` = `^([A-Z]{3,6})-(\d+|[0-9a-f]{6,})-c(\d+|[0-9a-f]{4,})$`
+  - `ParseTaskID`/`ParseCommentID` (unchanged signatures) accepting both generations; hex segments parse with numeric value 0
+  - `func numericOrZero(seg string) int`
+  - `func commentTaskAlias(id string) (string, bool)` — the reply same-task primitive
+  - rewritten `CreateComment` reply check on the task-alias prefix
+  - deterministic raw-string tie-breaks in `SortTaskIDs` and the inline task sorts (cache.go:371, query.go:88)
+
+- [ ] **Step 1: Write failing parse tests**
+
+Create `internal/store/id_alias_test.go`:
+
+```go
+package store
+
+import "testing"
+
+func TestParseTaskIDAcceptsBothAliasGenerations(t *testing.T) {
+	if code, n, ok := ParseTaskID("ATM-0001"); !ok || code != "ATM" || n != 1 {
+		t.Fatalf("v1 id: code=%q n=%d ok=%t", code, n, ok)
+	}
+	if code, n, ok := ParseTaskID("ATM-7f3a2b"); !ok || code != "ATM" || n != 0 {
+		t.Fatalf("v2 alias: code=%q n=%d ok=%t (MintTaskAlias output shape)", code, n, ok)
+	}
+	if code, _, ok := ParseTaskID("ATM-7f3a2b0d"); !ok || code != "ATM" {
+		t.Fatalf("locally-extended v2 alias must parse: code=%q ok=%t", code, ok)
+	}
+	if _, _, ok := ParseTaskID("ATM-7F3A2B"); ok {
+		t.Fatal("uppercase hex is not a minted alias shape and must stay invalid")
+	}
+	if _, _, ok := ParseTaskID("ATM-abc"); ok {
+		t.Fatal("hex shorter than the minted minimum (6) must stay invalid")
+	}
+}
+
+func TestParseCommentIDAcceptsBothAliasGenerations(t *testing.T) {
+	if code, taskN, commentN, ok := ParseCommentID("ATM-0001-c0002"); !ok || code != "ATM" || taskN != 1 || commentN != 2 {
+		t.Fatalf("v1 id: code=%q taskN=%d commentN=%d ok=%t", code, taskN, commentN, ok)
+	}
+	if code, taskN, commentN, ok := ParseCommentID("ATM-7f3a2b-c9e1d"); !ok || code != "ATM" || taskN != 0 || commentN != 0 {
+		t.Fatalf("v2 alias: code=%q taskN=%d commentN=%d ok=%t (MintCommentAlias output shape)", code, taskN, commentN, ok)
+	}
+	if _, _, _, ok := ParseCommentID("ATM-7f3a2b"); ok {
+		t.Fatal("a task alias is not a comment alias")
+	}
+}
+
+func TestCommentTaskAliasBothGenerations(t *testing.T) {
+	if a, ok := commentTaskAlias("ATM-0001-c0002"); !ok || a != "ATM-0001" {
+		t.Fatalf("v1: %q ok=%t", a, ok)
+	}
+	if a, ok := commentTaskAlias("ATM-7f3a2b-c9e1d"); !ok || a != "ATM-7f3a2b" {
+		t.Fatalf("v2: %q ok=%t", a, ok)
+	}
+}
+
+func TestCreateCommentReplyChecksTaskAliasPrefix(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateComment("ATM-0001", "b", nil, "ATM-0002-c0001", "admin@cli:unset"); !IsUsage(err) {
+		t.Fatalf("cross-task numeric reply = %v, want ErrUsage", err)
+	}
+	if _, err := s.CreateComment("ATM-7f3a2b", "b", nil, "ATM-ffffff-c0f0f", "admin@cli:unset"); !IsUsage(err) {
+		t.Fatalf("cross-task hash reply = %v, want ErrUsage", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+go test ./internal/store -run 'TestParseTaskIDAcceptsBothAliasGenerations|TestParseCommentIDAcceptsBothAliasGenerations|TestCommentTaskAliasBothGenerations|TestCreateCommentReplyChecksTaskAliasPrefix' -count=1
+```
+
+Expected: build fails on `commentTaskAlias`/`numericOrZero`; the v2-alias parse cases fail against the numeric-only regexes.
+
+- [ ] **Step 3: Relax the grammar in `internal/store/store.go`**
+
+Replace the two regexes and parse bodies:
+
+```go
+// TaskIDRe accepts both alias generations: v1 numeric ids ("ATM-0001") and
+// v2 hash aliases ("ATM-7f3a2b" — MintTaskAlias mints "<CODE>-" + >=6
+// lowercase hex, locally extended when taken). The alternation orders \d+
+// first; an all-digit v2 hex extension therefore parses as numeric, which is
+// harmless because the captured text is identical either way.
+var TaskIDRe = regexp.MustCompile(`^([A-Z][A-Z0-9-]{1,15})-(\d+|[0-9a-f]{6,})$`)
+
+func ParseTaskID(id string) (code string, n int, ok bool) {
+	m := TaskIDRe.FindStringSubmatch(id)
+	if m == nil {
+		return "", 0, false
+	}
+	return m[1], numericOrZero(m[2]), true
+}
+
+// numericOrZero parses an all-digit alias segment; v2 hex segments yield 0.
+// n is v1 bookkeeping (RenderTaskID round-trips, NextTaskN recovery); v2
+// code paths key on the FULL alias string and must never depend on n.
+func numericOrZero(seg string) int {
+	v := 0
+	for _, c := range seg {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		v = v*10 + int(c-'0')
+	}
+	return v
+}
+
+// CommentIDRe accepts v1 numeric comment ids ("ATM-0001-c0002") and v2 hash
+// aliases ("ATM-7f3a2b-c9e1d" — MintCommentAlias mints "<task-alias>-c" +
+// >=4 lowercase hex).
+var CommentIDRe = regexp.MustCompile(`^([A-Z]{3,6})-(\d+|[0-9a-f]{6,})-c(\d+|[0-9a-f]{4,})$`)
+
+func ParseCommentID(id string) (code string, taskN int, commentN int, ok bool) {
+	m := CommentIDRe.FindStringSubmatch(id)
+	if m == nil {
+		return "", 0, 0, false
+	}
+	return m[1], numericOrZero(m[2]), numericOrZero(m[3]), true
+}
+
+// commentTaskAlias returns the task alias a comment id belongs to — the
+// prefix before the "-c<suffix>" segment. Well-defined for BOTH generations
+// because v1 RenderCommentID and v2 MintCommentAlias both build the comment
+// id as <task-alias>-c<suffix>.
+func commentTaskAlias(id string) (string, bool) {
+	m := CommentIDRe.FindStringSubmatch(id)
+	if m == nil {
+		return "", false
+	}
+	return m[1] + "-" + m[2], true
+}
+```
+
+Extend `SortTaskIDs` with a deterministic raw-string tie-break — every hash alias parses n=0, so without it mixed-generation lists have no stable order:
+
+```go
+func SortTaskIDs(ids []string) {
+	sort.SliceStable(ids, func(i, j int) bool {
+		ci, ni, _ := ParseTaskID(ids[i])
+		cj, nj, _ := ParseTaskID(ids[j])
+		if ci != cj {
+			return ci < cj
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return ids[i] < ids[j]
+	})
+}
+```
+
+Apply the same `if ni != nj {...}; return .ID < .ID` tie-break to the two inline task comparators at `cache.go:371` and `query.go:88`. The v1 replay consumers of `n` (`log.go:357` and `project.go:199`, which recover `NextTaskN` from `maxTaskN`) need no change: v2 hex subjects never appear in a v1 log, and `numericOrZero` returning 0 for them can never raise `maxTaskN`.
+
+- [ ] **Step 4: Rewrite `CreateComment`'s reply same-task check on the task-alias prefix**
+
+In `internal/store/comment.go` (comment.go:21-34), replace the two-`ParseCommentID`-plus-numeric-compare block with the prefix check — string equality on the full task alias subsumes both the old project check and the old numeric task check, and is the ONLY formulation that works for hash aliases (whose numeric segments are all 0, so `rtaskN == ttaskN` would pass trivially for DIFFERENT tasks):
+
+```go
+	if replyTo != "" {
+		rtask, ok := commentTaskAlias(replyTo)
+		if !ok {
+			return nil, fmt.Errorf("%w: invalid reply-to %q", ErrUsage, replyTo)
+		}
+		if rtask != taskID {
+			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", ErrUsage, replyTo, taskID)
+		}
+	}
+```
+
+(Marginally stricter than v1 for non-canonical numeric ids like `ATM-1` vs `ATM-0001`; v1 always renders `%04d`, so no stored id is affected.)
+
+- [ ] **Step 5: Run tests**
+
+Run:
+
+```bash
+go test ./internal/store -run 'TestParseTaskIDAcceptsBothAliasGenerations|TestParseCommentIDAcceptsBothAliasGenerations|TestCommentTaskAliasBothGenerations|TestCreateCommentReplyChecksTaskAliasPrefix' -count=1
+go test ./internal/store ./internal/cli ./internal/tui -count=1
+```
+
+Expected: new tests pass and no existing test regresses (v1 ids are a strict subset of the relaxed grammar). The end-to-end round-trips of both generations through `GetTask`/`GetComment`/`CreateComment`/`History` land with Tasks 8, 9, and 9b once the v2 read/write paths exist.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/store/store.go internal/store/comment.go internal/store/cache.go internal/store/query.go internal/store/id_alias_test.go
+git commit -m "feat(ATM-0107): accept v2 hash aliases in task/comment id parsing"
+```
+
+---
+
 ### Task 3: v2 Projection Into Existing Cache Rows
 
 **Files:**
@@ -774,15 +988,24 @@ func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {
 	if p.Code != "ATM" || p.Name != "Agent Tasks Management" {
 		t.Fatalf("project = %#v", p)
 	}
-	tk, err := s.GetTask("ATM-abcdef")
+	db, err := s.cacheDB()
 	if err != nil {
 		t.Fatal(err)
+	}
+	tk, ok, err := cacheGetTask(db, "ATM-abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("task row missing after projection")
 	}
 	if tk.Title != "First" || tk.Description != "Body" {
 		t.Fatalf("task = %#v", tk)
 	}
 }
 ```
+
+The task row is read back with `cacheGetTask` rather than `GetTask` on purpose: Task 2b makes `GetTask("ATM-abcdef")` PARSE, but until Task 9 the shared freshness gate is still v1-only, and the projected row's `LogSeq` (creation ordinal 1) against a v1 `LastLogSeq` of 0 would trip the `cache LogSeq > log LastSeq` integrity check. End-to-end `GetTask` on hash aliases is asserted in Tasks 8 and 9.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1097,6 +1320,133 @@ func TestReupgradeArchivesPreviousV2File(t *testing.T) {
 	}
 }
 
+func TestUpgradeRefusesEffectiveV2Project(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); !IsConflict(err) {
+		t.Fatalf("second upgrade of a v2-active project = %v, want ErrConflict (re-upgrade is legal only after rollback)", err)
+	}
+}
+
+func TestUpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("AAA", "first", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("BBB", "second", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	good, err := os.ReadFile(s.logPath("BBB"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt BBB so the first --all pass upgrades AAA (sorted first), then
+	// fails on BBB and returns WITHOUT flipping ActiveFormat.
+	if err := os.WriteFile(s.logPath("BBB"), append(append([]byte{}, good...), []byte("{malformed\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeAllToV2(); err == nil {
+		t.Fatal("expected --all to fail on the corrupted BBB log")
+	}
+	if f, _ := s.projectFormat("AAA"); f != StoreFormatV2 {
+		t.Fatalf("AAA format = %q, want v2 after the partial pass", f)
+	}
+	// The user keeps working: a post-cutover write lands in AAA's LIVE v2
+	// file. The mutator rewire is Task 8, so simulate it with the Task 2
+	// primitives — author a causal descendant of the current frontier.
+	snapA, err := s.readV2File("AAA", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := eventsource.NewClock(func() int64 { return 2000 })
+	ev, err := eventsource.NewEvent(clock, "r_0123456789abcdefghjkmnpqrs", snapA.Frontier, eventsource.Draft{
+		Actor:   "admin@cli:unset",
+		Action:  "project.name-changed",
+		Subject: eventsource.Subject{Kind: "project", Code: "AAA"},
+		Payload: map[string]any{"name": "post-cutover"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WithLock("AAA", func() error { return s.appendV2EventLineLocked("AAA", ev.Raw) }); err != nil {
+		t.Fatal(err)
+	}
+	liveBefore, err := os.ReadFile(s.eventsV2Path("AAA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Repair BBB and retry --all: AAA must be SKIPPED, never re-upgraded
+	// from its frozen v1 log.
+	if err := os.WriteFile(s.logPath("BBB"), good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reps, err := s.UpgradeAllToV2()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawSkip := false
+	for _, r := range reps {
+		if r.Project == "AAA" && r.AlreadyV2 {
+			sawSkip = true
+		}
+	}
+	if !sawSkip {
+		t.Fatalf("reports = %#v: AAA must be reported as already-v2, not re-upgraded", reps)
+	}
+	liveAfter, err := os.ReadFile(s.eventsV2Path("AAA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(liveBefore) != string(liveAfter) {
+		t.Fatal("retry rewrote AAA's live v2 file — post-cutover writes were destroyed")
+	}
+	if !strings.Contains(string(liveAfter), "post-cutover") {
+		t.Fatal("post-cutover event missing from AAA's live v2 file after retry")
+	}
+	dirEntries, err := os.ReadDir(s.projectDir("AAA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range dirEntries {
+		if strings.HasPrefix(e.Name(), "events.v2.reupgrade.") {
+			t.Fatalf("retry archived AAA's live v2 file as %s — archives are never auto-merged, so the post-cutover write would silently vanish", e.Name())
+		}
+	}
+	if m, _ := s.readStoreMeta(); m.ActiveFormat != StoreFormatV2 {
+		t.Fatalf("ActiveFormat = %q after the full retry, want v2 (skipped projects count as already-upgraded for the flip)", m.ActiveFormat)
+	}
+}
+
+func TestRollbackRefusesProjectWithoutV1Log(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate absent v1 media (the real case is a v2-BORN project, whose
+	// birth path lands in Task 8 and whose test there re-asserts this).
+	if err := os.Remove(s.logPath("ATM")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
+		t.Fatalf("rollback without log.jsonl = %v, want ErrConflict (an empty replay would wipe the cache and leave an unreadable, unrecreatable zombie)", err)
+	}
+	// The refused rollback must leave the project fully v2-readable.
+	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
+		t.Fatalf("format after refused rollback = %q, want v2", f)
+	}
+	if _, err := s.verifyV2File("ATM"); err != nil {
+		t.Fatalf("v2 file damaged by refused rollback: %v", err)
+	}
+}
+
 func TestUpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
@@ -1123,7 +1473,7 @@ func TestUpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2(t *testing.T) {
 Run:
 
 ```bash
-go test ./internal/store -run 'Test(UpgradeProjectToV2PreservesV1LogAndActivatesV2|ReupgradeArchivesPreviousV2File|UpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2)' -count=1
+go test ./internal/store -run 'Test(UpgradeProjectToV2PreservesV1LogAndActivatesV2|ReupgradeArchivesPreviousV2File|UpgradeRefusesEffectiveV2Project|UpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites|RollbackRefusesProjectWithoutV1Log|UpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2)' -count=1
 ```
 
 Expected: build fails with undefined upgrade APIs.
@@ -1136,6 +1486,7 @@ Create `internal/store/eventsource_upgrade.go`:
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -1147,6 +1498,7 @@ type UpgradeReport struct {
 	Format       StoreFormat `json:"format"`
 	Events       int         `json:"events"`
 	ArchivedPath string      `json:"archived_path,omitempty"`
+	AlreadyV2    bool        `json:"already_v2,omitempty"`
 }
 
 type RollbackReport struct {
@@ -1155,6 +1507,19 @@ type RollbackReport struct {
 }
 
 func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
+	// GUARD (spec L3-5): upgrade reads FROM the frozen v1 log, so it is
+	// legal only while the project's EFFECTIVE format is v1 — a fresh
+	// upgrade or a post-rollback re-upgrade. Running it against an
+	// effective-v2 project would rebuild from stale v1 bytes and archive
+	// the LIVE events.v2.jsonl as events.v2.reupgrade.*, silently
+	// discarding every post-cutover write (archives are manual-recovery
+	// evidence, never auto-merged); against a v2-BORN project it would
+	// hard-fail on the missing log.jsonl.
+	if f, err := s.projectFormat(code); err != nil {
+		return nil, err
+	} else if f == StoreFormatV2 {
+		return nil, fmt.Errorf("%w: project %q is already v2-active; upgrade reads from the v1 log and is only legal for v1-active projects (roll back first to rebuild from v1)", ErrConflict, code)
+	}
 	rep := &UpgradeReport{Project: code, Format: StoreFormatV2}
 	err := s.WithLock(code, func() error {
 		raw, err := os.ReadFile(s.logPath(code))
@@ -1241,6 +1606,10 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 		// dedupVectorsByID and staleness checks; the indexer re-embeds from
 		// the v2 fold by text hash (Task 9b).
 		_ = os.RemoveAll(s.vectorsDir(code))
+		// 6. Drop any memoized v1 log snapshot: a long-lived process (the
+		// TUI) must not keep serving pre-cutover ReadLogCached entries
+		// across the format switch.
+		s.invalidateLogSnapshot(code)
 		rep.Events = snap.EventCount
 		return nil
 	})
@@ -1267,6 +1636,18 @@ func (s *Store) UpgradeAllToV2() ([]UpgradeReport, error) {
 	}
 	out := make([]UpgradeReport, 0, len(codes))
 	for _, code := range codes {
+		// SKIP effective-v2 projects instead of letting the per-project
+		// guard error: a RETRY of a partially-failed `upgrade --all` (A cut
+		// over, B failed, no flip) must neither re-upgrade A from its frozen
+		// v1 log nor hard-fail on a v2-born project's missing log.jsonl
+		// after damaging earlier projects. Skipped projects count as
+		// already-upgraded for the ActiveFormat flip decision below.
+		if f, err := s.projectFormat(code); err != nil {
+			return out, err
+		} else if f == StoreFormatV2 {
+			out = append(out, UpgradeReport{Project: code, Format: StoreFormatV2, AlreadyV2: true})
+			continue
+		}
 		rep, err := s.UpgradeProjectToV2(code)
 		if err != nil {
 			return out, err
@@ -1298,10 +1679,24 @@ func (s *Store) UpgradeAllToV2() ([]UpgradeReport, error) {
 func (s *Store) RollbackProjectToV1(code string) (*RollbackReport, error) {
 	rep := &RollbackReport{Project: code, Format: StoreFormatV1}
 	err := s.WithLock(code, func() error {
+		// GUARD: rollback replays the v1 log, and ReadLog returns (nil, nil)
+		// for a missing file. Rolling back a project with no log.jsonl (a
+		// v2-BORN project) would flip the format, wipe the vectors, replay
+		// an EMPTY log — cache rows deleted, nothing reinserted — and leave
+		// a zombie that is neither readable as v1 (no media) nor recreatable
+		// (the Task 8 existence check still sees events.v2.jsonl). Refuse.
+		if _, err := os.Stat(s.logPath(code)); os.IsNotExist(err) {
+			return fmt.Errorf("%w: project %q has no v1 log to roll back to (born v2); rollback is only legal for upgraded projects", ErrConflict, code)
+		} else if err != nil {
+			return err
+		}
 		if err := s.setProjectFormat(code, StoreFormatV1); err != nil {
 			return err
 		}
 		_ = os.RemoveAll(s.vectorsDir(code))
+		// Same snapshot rule as upgrade: never serve a stale ReadLogCached
+		// snapshot across a format switch.
+		s.invalidateLogSnapshot(code)
 		return s.rebuildProjectCacheFromV1Locked(code)
 	})
 	return rep, err
@@ -1315,14 +1710,14 @@ func (s *Store) rebuildProjectCacheFromV1Locked(code string) error {
 }
 ```
 
-Add missing imports in the test file (`strings`) if the compiler reports it.
+Add missing imports in the test file (`strings` and `atm/internal/eventsource` — the retry test authors a post-cutover event with the Task 2 primitives) if the compiler reports them.
 
 - [ ] **Step 4: Run tests**
 
 Run:
 
 ```bash
-go test ./internal/store -run 'Test(UpgradeProjectToV2PreservesV1LogAndActivatesV2|ReupgradeArchivesPreviousV2File|UpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2)' -count=1
+go test ./internal/store -run 'Test(UpgradeProjectToV2PreservesV1LogAndActivatesV2|ReupgradeArchivesPreviousV2File|UpgradeRefusesEffectiveV2Project|UpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites|RollbackRefusesProjectWithoutV1Log|UpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2)' -count=1
 ```
 
 Expected: tests pass.
@@ -1441,7 +1836,7 @@ Add fields to `internal/store/verify.go`:
 	V2FileOK  bool        `json:"v2_file_ok,omitempty"`
 ```
 
-In `VerifyProject`, branch early by format. The v2 branch must NOT return before the `VectorIndexes`/`InquiryCount` population at the tail of the v1 path (verify.go:103-115) — those reports are format-independent and `atm store verify` output for a v2 project must keep them. Extract that tail into a small helper and call it from both paths:
+In `VerifyProject`, branch early by format. Add `atm/internal/eventsource` to verify.go's imports — the v2 branch below calls `eventsource.FoldEvents` and verify.go does not import the package today. The v2 branch must NOT return before the `VectorIndexes`/`InquiryCount` population at the tail of the v1 path (verify.go:103-115) — those reports are format-independent and `atm store verify` output for a v2 project must keep them. Extract that tail into a small helper and call it from both paths:
 
 ```go
 // populateAuxReports fills the format-independent report tail: vector index
@@ -1617,8 +2012,9 @@ func TestStoreSetFormat(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	// v2 refused while ATM lacks an explicit entry (legacy v1 project).
-	_, stderr, err := runArgs(st, "store", "set-format", "--format", "v2")
-	if err == nil {
+	// runArgs returns (stdout, stderr, exit code) — assert on the exit code.
+	_, stderr, code := runArgs(st, "store", "set-format", "--format", "v2")
+	if code == ExitSuccess {
 		t.Fatalf("set-format v2 must refuse with entry-less projects; stderr=%s", stderr)
 	}
 	_ = runArgsOut(t, st, "store", "upgrade", "--all")
@@ -1668,6 +2064,13 @@ In `internal/cli/store.go`, add `upgradeCmd` and `rollbackCmd` before `return cm
 					return writeJSON(st.stdout(), reps)
 				}
 				for _, r := range reps {
+					if r.AlreadyV2 {
+						// Retry after a partial failure: UpgradeAllToV2
+						// skipped this project because it is already
+						// v2-active (gating rule; see Task 4).
+						fmt.Fprintf(st.stdout(), "skipped\t%s\t%s\talready v2-active\n", r.Project, r.Format)
+						continue
+					}
 					fmt.Fprintf(st.stdout(), "upgraded\t%s\t%s\tevents=%d\n", r.Project, r.Format, r.Events)
 				}
 				// UpgradeAllToV2 flipped the store default: new projects
@@ -1818,6 +2221,8 @@ atm store rollback --project ATM --to v1
 ```
 
 Rollback does not copy v2-only writes back into v1. If you write more data while back on v1, run upgrade again; ATM rebuilds the v2 event file from the current v1 log and moves the previous v2 file aside.
+
+Both commands guard their preconditions: `atm store upgrade` refuses a project that is already v2-active (upgrade reads from the v1 log; re-upgrade is only legal after a rollback), and a re-run of `atm store upgrade --all` skips projects that already cut over — retrying after a partial failure never rewrites a live v2 project. `atm store rollback` refuses a project that has no `log.jsonl` (a project born v2 has no v1 state to roll back to).
 ```
 
 - [ ] **Step 6: Update conventions text**
@@ -2247,6 +2652,11 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "again", "admin@cli:unset"); err == nil {
 		t.Fatal("CreateProject must detect an existing v2-born project")
 	}
+	// Rollback guard on the REAL v2-born case (Task 4 simulated it by
+	// deleting log.jsonl): a project with no v1 media must refuse rollback.
+	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
+		t.Fatalf("rollback of a v2-born project = %v, want ErrConflict", err)
+	}
 }
 
 func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {
@@ -2403,20 +2813,36 @@ Concrete `createProjectV2` shape (the v2 birth path — the only mutator that st
 func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 	var created *Project
 	err := s.WithLock(code, func() error {
+		// CRASH-WINDOW DECISION: write the ProjectFormats entry BEFORE the
+		// first append. A crash between the two leaves an entry pointing at
+		// an absent event file — benign: readV2File treats a missing file as
+		// an empty snapshot, the project reads as an empty v2 project, and
+		// the media-based existence check still allows recreation. The
+		// reverse order is the dangerous window: v2 media with NO entry
+		// would read as v1 (no log.jsonl) on a v1-default store AND block
+		// recreation, violating the Task 1 invariant that every v2-media
+		// project carries an explicit entry. On any error before the root
+		// append commits, best-effort remove the entry again.
+		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
+			return err
+		}
 		// Root event: the fresh file has an empty frontier, so
 		// project.created carries parents [] — beginV2AuthorLocked derives
 		// exactly that from the (absent) events.v2.jsonl.
 		ctx, err := s.beginV2AuthorLocked(code)
 		if err != nil {
+			_ = s.removeProjectFormat(code)
 			return err
 		}
 		ev, _, err := eventsource.NewProjectCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.ProjectCreateDraft{
 			Code: code, Name: name, At: Now(), Actor: actor,
 		})
 		if err != nil {
+			_ = s.removeProjectFormat(code)
 			return err
 		}
 		if err := s.commitV2AuthorLocked(code, ev); err != nil {
+			_ = s.removeProjectFormat(code)
 			return err
 		}
 		// Seed default labels as label.upserted v2 events — v1 parity with
@@ -2435,13 +2861,6 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 			}); err != nil {
 				return err
 			}
-		}
-		// Explicit entry at birth keeps the Task 1 invariant "every v2-media
-		// project has a ProjectFormats entry": without it a later
-		// `set-format --format v1` would flip this project's reads to v1
-		// with no log.jsonl behind them.
-		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
-			return err
 		}
 		snap, err := s.verifyV2File(code)
 		if err != nil {
@@ -2464,7 +2883,7 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 }
 ```
 
-(`getProjectLocked` is v2-safe here because Task 9's read branch runs before the v1 freshness checks; if Task 8 executes before Task 9, read the row back with `cacheGetProject` directly, as `createTaskV2` does with `cacheGetTask`.)
+(`getProjectLocked` only becomes v2-safe once Task 9 puts the v2 branch inside the shared `getProjectWithRebuild` body — that is exactly why Task 9 mandates the shared-body placement. Since Task 8 executes before Task 9, read the row back with `cacheGetProject` directly, as `createTaskV2` does with `cacheGetTask`, and leave a `// TODO(Task 9)` to switch to `getProjectLocked` once the branch exists.)
 
 Concrete `removeProjectV2` shape (audit gap E — the v1 body would both append a v1 `project.removed` line, violating the no-v1-writes constraint, and leave a stale `ProjectFormats: v2` entry that breaks recreation):
 
@@ -2541,9 +2960,12 @@ git commit -m "feat(ATM-0107): route v2-active mutations to events.v2.jsonl"
 - Consumes: `projectFormat`, v2 cache freshness, `readV2File`.
 - Produces:
   - `func (s *Store) rebuildProjectFromV2(code string) error`
+  - `func (s *Store) rebuildEntityCacheLocked(code string, v1 func() error) error` — format-aware rebuild dispatcher for the point-read closures
   - `func (s *Store) v2CacheFresh(code string) (bool, error)`
-  - `func (s *Store) ensureV2CacheFresh(code string) error` — the single freshness gate shared by point reads, list reads, and Task 9b's search/indexer branches
-  - v2-aware point reads and freshness-gated project-scoped list reads.
+  - `func (s *Store) ensureV2CacheFresh(code string) error` — the lock-taking freshness gate for list reads and Task 9b's search/indexer branches (never call it while holding the project lock)
+  - `func (s *Store) ProjectFormatForCLI(code string) (StoreFormat, error)` — exported effective-format read for CLI branching
+  - `func (s *Store) ReadV2LogForDisplay(code string) ([]V2LogView, error)` — the `store log` view of the raw v2 event file
+  - v2-aware point reads (branched INSIDE the shared `get*WithRebuild` bodies) and freshness-gated project-scoped list reads.
   - `store log <CODE>` displays v2 event ordinals for v2-active projects.
 
 - [ ] **Step 1: Write failing read/log tests**
@@ -2593,6 +3015,27 @@ func TestProjectListRendersDashForV2NextTaskN(t *testing.T) {
 	out := runArgsOut(t, st, "project", "list")
 	mustContain(t, out, "ATM\tx\t-\t")
 }
+
+func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
+	// Regression for the cli/comment.go:97 project-code derivation: the
+	// relaxed ParseCommentID (Task 2b) must yield the code for a v2 comment
+	// alias, or `comment show` (and its --history rendering) dies before
+	// reaching the store.
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	tk, err := st.store.CreateTask("ATM", "hash task", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.store.CreateComment(tk.ID, "hash comment body", nil, "", "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, st, "comment", "show", "--id", c.ID)
+	mustContain(t, out, c.ID)
+	mustContain(t, out, "hash comment body")
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2601,14 +3044,16 @@ Run:
 
 ```bash
 go test ./internal/store -run TestV2ActiveReadRebuildsMissingCache -count=1
-go test ./internal/cli -run 'TestStoreLogShowsV2EventsForV2ActiveProject|TestProjectListRendersDashForV2NextTaskN' -count=1
+go test ./internal/cli -run 'TestStoreLogShowsV2EventsForV2ActiveProject|TestProjectListRendersDashForV2NextTaskN|TestCommentShowAcceptsV2HashAliases' -count=1
 ```
 
 Expected: cache miss or log output failure.
 
-- [ ] **Step 3: Add v2 cache freshness path to point reads**
+- [ ] **Step 3: Add the v2 cache freshness path INSIDE the shared read bodies**
 
-In `GetProject`, `GetTask`, and `GetComment`, when `projectFormat(code) == StoreFormatV2`, use a helper:
+The v2 branch lives in the shared `getProjectWithRebuild` / `getTaskWithRebuild` / `getCommentWithRebuild` bodies, NOT only at the public `GetProject`/`GetTask`/`GetComment` entry points. This placement is load-bearing, not stylistic: `createProjectV2` and `removeProjectV2` (Task 8) validate through `getProjectLocked`, which reaches the same shared body — with the branch only at the public entry points, a locked validation read would fall into the v1 freshness path, where a v1-derived staleness check (`projLast > p.LogSeq` with the projector's `LogSeq` 0) triggers `rebuild()` and RESURRECTS v1 rows for a v2-active project. The v2 branch must also run BEFORE the existing v1 checks (`cache LogSeq > log LastSeq` → `ErrIntegrity`): v2 cache rows carry creation ordinals in `LogSeq` that are unrelated to the v1 log sequence.
+
+The rebuild helper:
 
 ```go
 func (s *Store) rebuildProjectFromV2(code string) error {
@@ -2624,22 +3069,65 @@ func (s *Store) rebuildProjectFromV2(code string) error {
 }
 ```
 
-The v2 point-read pattern should be:
+At the top of each shared body, after the `cacheDB()` call (shown for the task variant; project and comment are the same shape with `cacheGetProject`/`cacheGetComment`):
 
 ```go
-if f, _ := s.projectFormat(code); f == StoreFormatV2 {
-	db, err := s.cacheDB()
+	format, err := s.projectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureV2CacheFresh(code); err != nil {
-		return nil, err
+	if format == StoreFormatV2 {
+		if fresh, err := s.v2CacheFresh(code); err != nil {
+			return nil, err
+		} else if !fresh {
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+		}
+		t, found, err := cacheGetTask(db, id)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			// A fresh count with a missing row can still be a damaged cache
+			// (the freshness key is a count, not a checksum): rebuild once
+			// and re-read before declaring not-found — the same idiom as the
+			// v1 miss path.
+			if err := rebuild(); err != nil {
+				return nil, err
+			}
+			t, found, err = cacheGetTask(db, id)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			}
+		}
+		return t, nil
 	}
-	return cacheGetTask(db, id)
+	// ... existing v1 fast path + freshness checks, unchanged ...
+```
+
+The `rebuild` closures the entry points pass in become format-aware instead of hard-coding the v1 replay. Add a small dispatcher and route every existing closure through it:
+
+```go
+// rebuildEntityCacheLocked dispatches a point-read rebuild by format: the v2
+// fold for a v2-active project, the given v1 closure otherwise. Caller MUST
+// hold the project lock (directly or via the entry point's WithLock wrapper).
+func (s *Store) rebuildEntityCacheLocked(code string, v1 func() error) error {
+	if f, err := s.projectFormat(code); err != nil {
+		return err
+	} else if f == StoreFormatV2 {
+		return s.rebuildProjectFromV2(code)
+	}
+	return v1()
 }
 ```
 
-Define the freshness probe and the gate alongside it — the probe must be cheaper than a full parse, and the gate is the single helper every v2 read path (point reads here, list reads below, text search and the indexer in Task 9b) goes through:
+`GetTask` then passes `func() error { return s.WithLock(code, func() error { return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildTaskFromLog(id, code) }) }) }`, `getTaskLocked` the same body WITHOUT the `WithLock` wrapper, and likewise for the project and comment pairs. This preserves today's locked/unlocked split exactly, which is why the shared bodies call the closure and NOT `ensureV2CacheFresh`: the gate below takes the project lock itself and would deadlock from any `*Locked` context.
+
+Define the freshness probe and the lock-taking gate alongside it — the probe must be cheaper than a full parse, and the gate is the single helper for the read paths that never hold the lock (list reads below, text search and the indexer in Task 9b):
 
 ```go
 // v2CacheFresh compares the cached freshness value (cacheGetV2Freshness)
@@ -2649,7 +3137,9 @@ Define the freshness probe and the gate alongside it — the probe must be cheap
 func (s *Store) v2CacheFresh(code string) (bool, error)
 
 // ensureV2CacheFresh rebuilds the project's cache rows from the v2 fold iff
-// the freshness probe says the cache is behind the event file.
+// the freshness probe says the cache is behind the event file. It takes the
+// project lock; NEVER call it from a *Locked context (point reads use
+// v2CacheFresh plus their format-aware rebuild closure instead).
 func (s *Store) ensureV2CacheFresh(code string) error {
 	if fresh, err := s.v2CacheFresh(code); err != nil {
 		return err
@@ -2659,8 +3149,6 @@ func (s *Store) ensureV2CacheFresh(code string) error {
 	return s.WithLock(code, func() error { return s.rebuildProjectFromV2(code) })
 }
 ```
-
-The v2 branch must run BEFORE the existing v1 freshness checks (`cache LogSeq > log LastSeq` → `ErrIntegrity`): v2 cache rows carry creation ordinals in `LogSeq` that are unrelated to the v1 log sequence.
 
 - [ ] **Step 4: Verify and gate project-scoped list freshness (audit gap K)**
 
@@ -2727,7 +3215,7 @@ if f, _ := s.ProjectFormatForCLI(args[0]); f == store.StoreFormatV2 {
 }
 ```
 
-Add exported store helpers:
+Add the exported store helpers this branch consumes — both are NEW symbols this step defines (in `eventsource_views.go` next to Task 9b's view helpers, or in `eventsource_meta.go` for the format read):
 
 ```go
 type V2LogView struct {
@@ -2738,6 +3226,20 @@ type V2LogView struct {
 	Action  string    `json:"action"`
 	Subject string    `json:"subject"`
 }
+
+// ProjectFormatForCLI is the exported read of a project's effective format
+// for CLI display and branching; projectFormat itself stays unexported.
+func (s *Store) ProjectFormatForCLI(code string) (StoreFormat, error) {
+	return s.projectFormat(code)
+}
+
+// ReadV2LogForDisplay renders the raw v2 event file for `store log`: strict
+// read (readV2File with repairTail=false), events sorted by
+// eventsource.CompareEvents, Ordinal set to the 1-based position in that
+// order, and Subject rendered as "<kind> <alias>" (aliases restored from
+// the fold exactly as readV2LogEntries does; code/name for project/label
+// subjects).
+func (s *Store) ReadV2LogForDisplay(code string) ([]V2LogView, error)
 ```
 
 - [ ] **Step 6: Run tests**
@@ -2746,7 +3248,7 @@ Run:
 
 ```bash
 go test ./internal/store -run 'TestV2ActiveReadRebuildsMissingCache|TestListTasksSeesV2AppendWithoutCacheProjection' -count=1
-go test ./internal/cli -run 'TestStoreLogShowsV2EventsForV2ActiveProject|TestProjectListRendersDashForV2NextTaskN' -count=1
+go test ./internal/cli -run 'TestStoreLogShowsV2EventsForV2ActiveProject|TestProjectListRendersDashForV2NextTaskN|TestCommentShowAcceptsV2HashAliases' -count=1
 ```
 
 Expected: tests pass.
@@ -2920,6 +3422,44 @@ func TestPendingIndexEnumeratesV2Entities(t *testing.T) {
 		t.Fatalf("pending = %#v, want the v2-created task (it would otherwise never be embedded)", pending)
 	}
 }
+
+func TestV2AliasesRoundTripThroughCommentsAndHistory(t *testing.T) {
+	// End-to-end closure of Task 2b's grammar decision: both alias
+	// generations round-trip through CreateComment (incl. reply
+	// validation), GetComment, and History. Lives here because it needs
+	// Task 8's v2 mutators AND this task's History branch.
+	s := testStore(t)
+	if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "hash-alias task", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateComment(tk.ID, "first", nil, "", "admin@cli:unset")
+	if err != nil {
+		t.Fatalf("CreateComment on hash task alias %q: %v", tk.ID, err)
+	}
+	r, err := s.CreateComment(tk.ID, "reply", nil, c.ID, "admin@cli:unset")
+	if err != nil {
+		t.Fatalf("reply to hash comment alias %q: %v", c.ID, err)
+	}
+	if _, err := s.CreateComment(tk.ID, "cross-task", nil, "ATM-ffffff-cffff", "admin@cli:unset"); !IsUsage(err) {
+		t.Fatalf("reply-to under a different task alias = %v, want ErrUsage", err)
+	}
+	if got, err := s.GetComment(r.ID); err != nil || got.ReplyTo != c.ID {
+		t.Fatalf("GetComment(%q) = %#v, %v", r.ID, got, err)
+	}
+	if hv := s.History("ATM", Subject{Kind: "task", ID: tk.ID}); len(hv) == 0 {
+		t.Fatal("History must match a v2 hash task alias (subject aliases restored from the fold)")
+	}
+	if hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID}); len(hv) == 0 {
+		t.Fatal("History must match a v2 hash comment alias")
+	}
+}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2927,7 +3467,7 @@ func TestPendingIndexEnumeratesV2Entities(t *testing.T) {
 Run:
 
 ```bash
-go test ./internal/store -run 'TestLastLogSeqReturnsEventCountForV2|TestHistoryRendersV2EventsForTaskAlias|TestReadLogCachedServesActivityShapedV2Entries|TestTextSearchFindsV2Entities|TestDedupVectorsKeepsLastEntryOnTiedLogSeq|TestPendingIndexEnumeratesV2Entities' -count=1
+go test ./internal/store -run 'TestLastLogSeqReturnsEventCountForV2|TestHistoryRendersV2EventsForTaskAlias|TestReadLogCachedServesActivityShapedV2Entries|TestTextSearchFindsV2Entities|TestDedupVectorsKeepsLastEntryOnTiedLogSeq|TestPendingIndexEnumeratesV2Entities|TestV2AliasesRoundTripThroughCommentsAndHistory' -count=1
 ```
 
 Expected: undefined `v2EventCount`, zero/stale results from the v1-only paths, or first-entry dedup.
@@ -3037,6 +3577,8 @@ func (s *Store) v2CompatEntities(code string) ([]*Task, []*Comment, error) {
 	return tasks, comments, nil
 }
 ```
+
+Known cost, accepted: `v2EventCount` is O(file) per call, and `LastLogSeq` is polled per-frame by the TUI — a stat-size shortcut (cache the byte-size→count pair and rescan only when `os.Stat` reports a changed size) is an acceptable future optimization, not part of this plan.
 
 - [ ] **Step 4: Branch `LastLogSeq`, `ReadLogCached`, and `History` in log.go**
 
@@ -3194,7 +3736,7 @@ In `internal/cli/activity.go:30`, replace `s.ReadLog(project)` with `s.ReadLogCa
 Run:
 
 ```bash
-go test ./internal/store -run 'TestLastLogSeqReturnsEventCountForV2|TestHistoryRendersV2EventsForTaskAlias|TestReadLogCachedServesActivityShapedV2Entries|TestTextSearchFindsV2Entities|TestDedupVectorsKeepsLastEntryOnTiedLogSeq|TestPendingIndexEnumeratesV2Entities' -count=1
+go test ./internal/store -run 'TestLastLogSeqReturnsEventCountForV2|TestHistoryRendersV2EventsForTaskAlias|TestReadLogCachedServesActivityShapedV2Entries|TestTextSearchFindsV2Entities|TestDedupVectorsKeepsLastEntryOnTiedLogSeq|TestPendingIndexEnumeratesV2Entities|TestV2AliasesRoundTripThroughCommentsAndHistory' -count=1
 go test ./internal/store ./internal/cli ./internal/activity ./internal/tui -count=1
 git diff --stat internal/tui internal/activity internal/cli/index.go
 ```
@@ -3484,8 +4026,8 @@ git commit -m "test(ATM-0107): cover eventsource v2 storage end to end"
 - L3-1 single `events.v2.jsonl`: Tasks 2, 4, 7, 8.
 - L3-2 preserved v1 `log.jsonl` and no v1 appends for v2-active projects (`RemoveProject` included): Tasks 4, 6, 8, 11.
 - L3-3 verified side-by-side cutover: Tasks 4, 5, 6.
-- L3-4 rollback without v2-to-v1 export: Tasks 4, 6, 11.
-- L3-5 re-upgrade archive/replace: Task 4.
+- L3-4 rollback without v2-to-v1 export, and the v1-media guard (rollback refuses a project with no `log.jsonl`): Tasks 4, 6, 8, 11.
+- L3-5 re-upgrade archive/replace only from a v1-active state — upgrade refuses effective-v2 projects and `upgrade --all` skips them as already-upgraded: Tasks 4, 6.
 - L3-6 lock-scoped frontier/HLC: Task 7.
 - L3-7 append commit and crash recovery: Task 2.
 - L3-8 replica-copy detection: Task 10.
@@ -3497,7 +4039,8 @@ git commit -m "test(ATM-0107): cover eventsource v2 storage end to end"
 - L3-14 explicit-entry invariant, `upgrade --all` ActiveFormat flip, `set-format` refusal: Tasks 1, 4, 6, 8.
 - L3-15 vector wipe at format switches only (not on rebuild) and last-wins dedup: Tasks 4, 5, 9b.
 - L3-16 `NextTaskN`/`log_seq` output rendering for v2 projects: Tasks 3 and 6.
+- L3-17 alias-tolerant ID parsing (v1 numeric ids and v2 hash aliases through one relaxed grammar; reply same-task validation on the task-alias prefix; v2 paths never key on numeric segments): Tasks 2b, 8, 9, 9b.
 
 ## Execution Handoff
 
-The ATM-0125 gate is satisfied: the task closed 2026-07-14 (commit `8f7ed12`) with the creation helpers `NewTaskCreated` / `NewCommentCreated` / `NewProjectCreated` in `internal/eventsource/author.go`, and this plan was revised the same day against the merged API at commit `88f9b1b` and again after the v1-dependency audit ATM-0107-c0013 (see the two **Revised** notes at the top). Execute tasks in numeric order — Task 0 as a sanity gate, then 1-9, the inserted Task 9b (log-derived views; it depends on Task 9's `ensureV2CacheFresh` and is required before calling the system v2-complete), then 10 and 11. Use frequent commits exactly as listed so failures can be bisected by storage layer. Definition of done for the plan as a whole: after `atm store upgrade --all`, every CLI command and TUI pane — lists, point reads, history, activity, search, embedding index status — serves from `events.v2.jsonl`, new projects are born v2, and `log.jsonl` is only ever read again by rollback or re-upgrade.
+The ATM-0125 gate is satisfied: the task closed 2026-07-14 (commit `8f7ed12`) with the creation helpers `NewTaskCreated` / `NewCommentCreated` / `NewProjectCreated` in `internal/eventsource/author.go`, and this plan was revised the same day against the merged API at commit `88f9b1b`, again after the v1-dependency audit ATM-0107-c0013, and again after the 696953c review (see the three **Revised** notes at the top). Execute tasks in numeric order — Task 0 as a sanity gate, then 1-2, the inserted Task 2b (alias-tolerant ID parsing; Task 3's projection test and every later hash-alias read/write depends on it), then 3-9, the inserted Task 9b (log-derived views; it depends on Task 9's `ensureV2CacheFresh` and is required before calling the system v2-complete), then 10 and 11. Use frequent commits exactly as listed so failures can be bisected by storage layer. Definition of done for the plan as a whole: after `atm store upgrade --all`, every CLI command and TUI pane — lists, point reads, history, activity, search, embedding index status — serves from `events.v2.jsonl`; both alias generations (v1 numeric ids and v2 hash aliases) parse through every ID gate (`GetTask`, `GetComment`, `CreateComment` reply validation, CLI/TUI history derivation); new projects are born v2; upgrade refuses effective-v2 projects and rollback refuses v1-media-less ones; and `log.jsonl` is only ever read again by rollback or re-upgrade.
