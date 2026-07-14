@@ -204,7 +204,7 @@ func TestTakenCommentAliasesAreScopedToTheirTask(t *testing.T) {
 	s := testStore(t)
 	t1, alias1 := authorTask(t, s, "ATM", "one")
 	t2, alias2 := authorTask(t, s, "ATM", "two")
-	c1ev, c1 := authorComment(t, s, "ATM", alias1, "on task one", "")
+	_, c1 := authorComment(t, s, "ATM", alias1, "on task one", "")
 	_, c2 := authorComment(t, s, "ATM", alias2, "on task two", "")
 
 	st := foldProject(t, s, "ATM")
@@ -218,7 +218,6 @@ func TestTakenCommentAliasesAreScopedToTheirTask(t *testing.T) {
 	if taken2 := takenCommentAliases(st, t2.ID); !taken2(c2) || taken2(c1) {
 		t.Fatalf("task two's collision set is wrong (c1=%v c2=%v)", taken2(c1), taken2(c2))
 	}
-	_ = c1ev
 
 	// Collision extension, driven through the store's predicate.
 	colliding := "sha256:" + strings.TrimPrefix(c1, alias1+"-c") + "0123456789abcdef"
@@ -356,6 +355,61 @@ func TestBeginV2AuthorObservesPersistedLastHLC(t *testing.T) {
 	ev, _ := authorTask(t, s, "ATM", "next")
 	if ev.HLC.Compare(ahead) <= 0 {
 		t.Fatalf("new event HLC %+v does not follow the persisted last_hlc %+v", ev.HLC, ahead)
+	}
+}
+
+// TestCommitV2AuthorKeepsLastHLCMonotone pins store.json's LastHLC as a
+// STORE-WIDE watermark: a commit in one project must never move it backwards
+// past a higher stamp a concurrent commit in another project just wrote.
+// Per-project causality is unaffected either way — each project reobserves
+// every event in its own file on every beginV2AuthorLocked — but the field
+// is store-wide, so its name promises a store-wide max.
+//
+// This simulates the race directly: begin a v2 author context (observing
+// today's last_hlc), then have a "concurrent" writer in another project push
+// last_hlc ahead before this writer commits its (now stale, lower) event.
+func TestCommitV2AuthorKeepsLastHLCMonotone(t *testing.T) {
+	s := testStore(t)
+
+	var lowEv *eventsource.Event
+	if err := s.WithLock("ATM", func() error {
+		ctx, err := s.beginV2AuthorLocked("ATM")
+		if err != nil {
+			return err
+		}
+		lowEv, _, err = eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
+			ProjectCode: "ATM",
+			At:          Now(),
+			Actor:       "admin@cli:unset",
+			Title:       "low",
+		}, takenTaskAliases(ctx.state))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A concurrent commit in another project moves last_hlc ahead of lowEv.
+	ahead := eventsource.HLC{P: lowEv.HLC.P + 1_000_000, L: 0}
+	if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+		m.LastHLC = &ahead
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// This project now commits its stale, lower-stamped event.
+	if err := s.WithLock("ATM", func() error {
+		return s.commitV2AuthorLocked("ATM", lowEv)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := s.readStoreMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.LastHLC == nil || m.LastHLC.Compare(ahead) != 0 {
+		t.Fatalf("last_hlc = %+v, want it to stay at the higher concurrent stamp %+v (must not regress to %+v)", m.LastHLC, ahead, lowEv.HLC)
 	}
 }
 

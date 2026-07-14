@@ -66,7 +66,9 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 	// lock is safe; WithLock is not reentrant on the same name.
 	return s.mutateStoreMeta(func(m *StoreMeta) error {
 		h := ev.HLC
-		m.LastHLC = &h
+		if m.LastHLC == nil || h.Compare(*m.LastHLC) > 0 {
+			m.LastHLC = &h
+		}
 		return nil
 	})
 }
