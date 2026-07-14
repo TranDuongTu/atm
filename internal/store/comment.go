@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"atm/internal/eventsource"
 )
 
 func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
@@ -34,6 +36,11 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 		if err := s.labelProjectExists(l); err != nil {
 			return nil, err
 		}
+	}
+	if f, err := s.projectFormat(code); err != nil {
+		return nil, err
+	} else if f == StoreFormatV2 {
+		return s.createCommentV2(code, taskID, body, labels, replyTo, actor)
 	}
 	db, err := s.cacheDB()
 	if err != nil {
@@ -103,6 +110,114 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 		return nil, err
 	}
 	return created, nil
+}
+
+// commentProjectFormat parses a comment alias for its project code and
+// resolves the project's EFFECTIVE format. v2 comment aliases carry hex
+// segments, so this keys on the full alias string (Task 2b).
+func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
+	code, _, _, ok := ParseCommentID(id)
+	if !ok {
+		return "", "", fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	}
+	f, err := s.projectFormat(code)
+	if err != nil {
+		return "", "", err
+	}
+	return code, f, nil
+}
+
+// createCommentV2 writes comment.created (plus any label.upserted
+// auto-registration) to events.v2.jsonl. Both the alias and the task/reply-to
+// identity references come from the eventsource helper, which resolves them
+// from the fold — L3 never mints an alias or resolves an identity itself
+// (ATM-0125). There is no v1 task.meta-changed counterpart: NextCommentN is v1
+// bookkeeping and has no meaning under v2's hash aliases.
+func (s *Store) createCommentV2(code, taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
+	var created *Comment
+	err := s.WithLock(code, func() error {
+		if err := s.appendV2LabelUpsertsLocked(code, labels, actor); err != nil {
+			return err
+		}
+		_, alias, err := s.appendV2CommentCreatedLocked(code, taskID, body, labels, replyTo, actor)
+		if err != nil {
+			return err
+		}
+		if err := s.reprojectV2Locked(code); err != nil {
+			return err
+		}
+		db, err := s.cacheDB()
+		if err != nil {
+			return err
+		}
+		c, ok, err := cacheGetComment(db, alias)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("%w: comment %q", ErrNotFound, alias)
+		}
+		created = c
+		return nil
+	})
+	return created, err
+}
+
+// mutateCommentV2 appends one v2 comment event against the comment's IDENTITY
+// and reprojects.
+func (s *Store) mutateCommentV2(code, id, action, actor string, payload map[string]any) error {
+	return s.WithLock(code, func() error {
+		ctx, err := s.beginV2AuthorLocked(code)
+		if err != nil {
+			return err
+		}
+		ref, err := ctx.resolveCommentRef(id)
+		if err != nil {
+			return err
+		}
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  action,
+			Subject: eventsource.Subject{Kind: "comment", ID: ref},
+			Payload: payload,
+		}); err != nil {
+			return err
+		}
+		return s.reprojectV2Locked(code)
+	})
+}
+
+// commentLabelAddV2 auto-registers the label (v1 parity) and asserts membership.
+func (s *Store) commentLabelAddV2(code, id, label, actor string) error {
+	return s.WithLock(code, func() error {
+		ctx, err := s.beginV2AuthorLocked(code)
+		if err != nil {
+			return err
+		}
+		ref, err := ctx.resolveCommentRef(id)
+		if err != nil {
+			return err
+		}
+		if c, ok := ctx.state.Comments[ref]; ok {
+			for _, l := range c.Labels {
+				if l == label {
+					return nil
+				}
+			}
+		}
+		if err := s.appendV2LabelUpsertsLocked(code, []string{label}, actor); err != nil {
+			return err
+		}
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  ActionCommentLabelAdded,
+			Subject: eventsource.Subject{Kind: "comment", ID: ref},
+			Payload: map[string]any{"label": label},
+		}); err != nil {
+			return err
+		}
+		return s.reprojectV2Locked(code)
+	})
 }
 
 func (s *Store) GetComment(id string) (*Comment, error) {
@@ -255,7 +370,7 @@ func (s *Store) SetCommentBody(id, body, actor string) error {
 	}
 	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
 		c.Body = body
-	}, ActionCommentBodyChanged)
+	}, ActionCommentBodyChanged, map[string]any{"body": body})
 }
 
 func (s *Store) CommentLabelRemove(id, label, actor string) error {
@@ -267,16 +382,19 @@ func (s *Store) CommentLabelRemove(id, label, actor string) error {
 			}
 		}
 		c.Labels = out
-	}, ActionCommentLabelRemoved)
+	}, ActionCommentLabelRemoved, map[string]any{"label": label})
 }
 
 func (s *Store) RemoveComment(id, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, _, _, ok := ParseCommentID(id)
-	if !ok {
-		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	code, f, err := s.commentProjectFormat(id)
+	if err != nil {
+		return err
+	}
+	if f == StoreFormatV2 {
+		return s.mutateCommentV2(code, id, ActionCommentRemoved, actor, nil)
 	}
 	db, err := s.cacheDB()
 	if err != nil {
@@ -313,9 +431,12 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, _, _, ok := ParseCommentID(id)
-	if !ok {
-		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	code, f, err := s.commentProjectFormat(id)
+	if err != nil {
+		return err
+	}
+	if f == StoreFormatV2 {
+		return s.commentLabelAddV2(code, id, label, actor)
 	}
 	db, err := s.cacheDB()
 	if err != nil {
@@ -354,13 +475,19 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	})
 }
 
-func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string) error {
+// mutateComment is the log-first write-through helper for non-delete comment
+// mutations. v2Payload is the equivalent v2 event payload (the writesOf key
+// set for action); on a v2-active project the v1 body is never reached.
+func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string, v2Payload map[string]any) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, _, _, ok := ParseCommentID(id)
-	if !ok {
-		return fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+	code, f, err := s.commentProjectFormat(id)
+	if err != nil {
+		return err
+	}
+	if f == StoreFormatV2 {
+		return s.mutateCommentV2(code, id, action, actor, v2Payload)
 	}
 	db, err := s.cacheDB()
 	if err != nil {

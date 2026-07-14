@@ -7,6 +7,23 @@ import (
 	"atm/internal/eventsource"
 )
 
+// reprojectV2Locked re-reads events.v2.jsonl (strictly — a v2 mutator has
+// just appended to it, so any parse/DAG failure is a real integrity problem),
+// folds it, and replaces the project's cache rows from the fold. Every v2
+// mutator ends with this, so cache.db is consistent with the event file at
+// the end of each mutation. Caller MUST hold the project lock.
+func (s *Store) reprojectV2Locked(code string) error {
+	snap, err := s.verifyV2File(code)
+	if err != nil {
+		return err
+	}
+	state, err := eventsource.FoldEvents(snap.Events)
+	if err != nil {
+		return err
+	}
+	return s.cacheProjectFromV2State(code, state, snap.EventCount)
+}
+
 // cacheProjectFromV2State replaces the project's cache rows with the live
 // entities of a v2 fold. eventCount is the number of events in the file the
 // fold came from; it is the v2 freshness key.

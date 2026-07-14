@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +174,10 @@ func TestStoreUpgradeAll(t *testing.T) {
 func TestStoreSetFormat(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	// Since ATM-0107 Task 8 every birth writes an explicit ProjectFormats
+	// entry, so the entry-less set is exactly the PRE-L3 legacy projects.
+	// Reproduce that state by dropping ATM's entry from store.json.
+	makeProjectFormatEntryless(t, st.store.StorePath())
 	// v2 refused while ATM lacks an explicit entry (legacy v1 project).
 	// runArgs returns (stdout, stderr, exit code) — assert on the exit code.
 	_, stderr, code := runArgs(st, "store", "set-format", "--format", "v2")
@@ -183,6 +189,30 @@ func TestStoreSetFormat(t *testing.T) {
 	mustContain(t, out, "active format: v1")
 	out = runArgsOut(t, st, "store", "set-format", "--format", "v2")
 	mustContain(t, out, "active format: v2")
+}
+
+// makeProjectFormatEntryless strips every explicit per-project format entry
+// from store.json, reproducing a pre-L3 store whose projects are v1 media with
+// no ProjectFormats record.
+func makeProjectFormatEntryless(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "store.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "project_formats")
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStoreLogFromToFilter(t *testing.T) {

@@ -99,6 +99,58 @@ func (c *v2AuthorCtx) resolveCommentRef(alias string) (string, error) {
 	return m.ID, nil
 }
 
+// resolveProjectRef maps a project code to the project entity's identity.
+// A project's alias IS its code, but the event model still keys project slot
+// writes off subject.id (the identity of its project.created event), so every
+// project mutator must go through the fold rather than sending the code.
+func (c *v2AuthorCtx) resolveProjectRef(code string) (string, error) {
+	p, ok := v2LiveProject(c.state, code)
+	if !ok {
+		return "", fmt.Errorf("%w: project %q", ErrNotFound, code)
+	}
+	return p.ID, nil
+}
+
+// v2LiveProject finds the live project entity for code in a fold state.
+func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectState, bool) {
+	for _, p := range st.Projects {
+		if p.Code == code && !p.Tombstoned {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+// appendV2LabelUpsertsLocked is the v2 mirror of appendLabelUpsertsLocked: it
+// auto-registers any label name a task/comment mutation asserts but the fold
+// does not already hold live. The payload carries NO fields — label.upserted
+// writes the existence slot unconditionally (writesOf), so an empty payload
+// registers the label without clobbering a description/expr some other
+// replica may have set. Caller MUST hold the project lock.
+func (s *Store) appendV2LabelUpsertsLocked(code string, labels []string, actor string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+	ctx, err := s.beginV2AuthorLocked(code)
+	if err != nil {
+		return err
+	}
+	for _, name := range labels {
+		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
+			continue
+		}
+		if _, err := s.appendV2Locked(code, V2Draft{
+			Actor:   actor,
+			Action:  ActionLabelUpserted,
+			Subject: eventsource.Subject{Kind: "label", Name: name},
+			Payload: map[string]any{},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, error) {
 	ctx, err := s.beginV2AuthorLocked(code)
 	if err != nil {
