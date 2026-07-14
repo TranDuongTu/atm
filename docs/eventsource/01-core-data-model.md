@@ -134,14 +134,18 @@ The human-facing `ATM-0142` is a **display alias**. Three properties define it, 
 
 Two code paths that never meet. Neither asks *"is this old?"*.
 
-**Minting rule.** For a task, the alias is `<PROJECT_CODE>-<prefix>`, where `prefix` is the first 6 lowercase hex characters of the creation event's SHA-256, extended by the minting replica to the shortest length ≥ 6 that is unambiguous among the aliases it currently holds. For a comment, it is `<task-alias>-c<prefix>`, with a 4-character minimum (a comment's prefix need only disambiguate within its task).
+**Minting rule.** For a task, the alias is `<PROJECT_CODE>-<prefix>`, where `prefix` is the first 6 lowercase hex characters of the **pre-alias draft's** SHA-256, extended by the minting replica to the shortest length ≥ 6 that is unambiguous among the aliases it currently holds. For a comment, it is `<task-alias>-c<prefix>`, with a 4-character minimum (a comment's prefix need only disambiguate within its task).
+
+The **pre-alias draft** is the creation event with every field present **except** `payload.alias`. Its digest is computed once, at mint time, to supply the alias; the alias is then written into `payload.alias` and the **final** event is re-canonicalized and hashed to yield the entity's identity. There is no fixed point: writing the alias into the payload changes the payload, which changes the digest the alias was derived from. The alias is therefore a prefix of a **pre-image hash**, not of the final identity.
 
 ```
-ATM-7f3a2b          a task
+ATM-7f3a2b          a task     (prefix of the pre-alias draft's SHA-256)
 ATM-7f3a2b-c9b2e    a comment on it
 ```
 
 Local extension is sound *because the alias is stored*: it does not need to be globally re-derivable, only globally *readable*. Two replicas concurrently minting the same prefix for different tasks is possible (~1 in 16.7M) and is **not an error** — see below.
+
+> **The alias is NOT a prefix of the identity.** Earlier drafts of this spec asserted the stronger property that the alias equals a prefix of the entity's final SHA-256 identity. That invariant is **false by construction** once the alias is stored at `payload.alias`, and it is **dropped**: nothing in the system may rely on `alias == identity[:len(prefix)]`. The alias is a stored, immutable, non-unique display constant (L1-2); identity-prefix resolution at lookup (below) is a *separate* git-style mechanism that matches against the identity, never against the alias. The authoring helper (see `internal/eventsource`) mints from the pre-alias draft and re-canonicalizes the final event in one step, so a caller never has to discover the correct ordering.
 
 ## Aliases need not be unique
 
@@ -341,7 +345,7 @@ The reference implementation is `internal/eventsource` (see `docs/superpowers/sp
 | **L0-3** | A replica is a store copy on a machine, id `r_` + base32(128 bits); `_v1` reserved. Orthogonal to `actor`. |
 | **L0-4** | HLC `(p, l, r)` compared lexicographically gives a deterministic total order. It is a tiebreak only; `parents` alone establishes causality. `at` never orders anything. |
 | **L1-1** | A task *is* its `task.created` event. Identity comes free from D1 — no ULID, no allocator. |
-| **L1-2** | The alias is **stored, immutable, and need not be unique**. This is what lets legacy ids survive with no cutoff rule. |
+| **L1-2** | The alias is **stored, immutable, and need not be unique**. This is what lets legacy ids survive with no cutoff rule. **The alias is a prefix of the pre-alias draft's hash, NOT of the final identity** (ATM-0125) — the invariant "alias == prefix of identity" is dropped. |
 | **L1-3** | Ascending IDs are abandoned (the git-not-Subversion trade). Ordinality was a human affordance; display order comes from the HLC creation stamp. |
 | **L1-4** | Ambiguous aliases resolve git-style at lookup; never silently pick one. D3's alias-reconciliation machinery is deleted. |
 | **L2-1** | The **maximal-writer rule** governs every slot; *contested* = more than one maximal writer, a pure function of the event set. |
