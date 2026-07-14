@@ -16,10 +16,13 @@ import (
 // Event identity is the SHA-256 of these bytes (L0-1), so every hash in
 // the system flows through this one function.
 func Canonicalize(raw []byte) ([]byte, error) {
-	// Validate that the input is valid JSON
-	var obj interface{}
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, err
+	// Validate that the input is valid JSON (jcs.Transform is lenient and
+	// returns {} with nil error on malformed input, so this check is necessary)
+	if !json.Valid(raw) {
+		var dummy interface{}
+		if err := json.Unmarshal(raw, &dummy); err != nil {
+			return nil, err
+		}
 	}
 
 	return jcs.Transform(raw)
