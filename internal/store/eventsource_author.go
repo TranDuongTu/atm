@@ -1,7 +1,6 @@
 package store
 
 import (
-	"crypto/rand"
 	"fmt"
 
 	"atm/internal/eventsource"
@@ -243,30 +242,11 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 	return ev, alias, s.commitV2AuthorLocked(code, ev)
 }
 
+// currentReplicaIDLocked returns the replica id to stamp on the next
+// authored event. It defers entirely to ensureReplicaForWriteLocked
+// (eventsource_replica.go), which mints on first use AND re-mints on every
+// call if the store root looks like a copy of another instance -- see that
+// function's doc comment for the detection rule and its known limitation.
 func (s *Store) currentReplicaIDLocked() (string, error) {
-	m, err := s.readStoreMeta()
-	if err != nil {
-		return "", err
-	}
-	if m.ReplicaID != "" {
-		return m.ReplicaID, nil
-	}
-	// First use: mint under the store-scoped lock, re-reading inside it so a
-	// replica id minted by a racing writer wins instead of being clobbered.
-	var id string
-	err = s.mutateStoreMeta(func(m *StoreMeta) error {
-		if m.ReplicaID == "" {
-			minted, err := eventsource.MintReplicaID(rand.Reader)
-			if err != nil {
-				return err
-			}
-			m.ReplicaID = minted
-		}
-		id = m.ReplicaID
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return id, nil
+	return s.ensureReplicaForWriteLocked()
 }
