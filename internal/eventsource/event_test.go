@@ -122,6 +122,22 @@ func TestPayloadAccessors(t *testing.T) {
 	}
 }
 
+// A JSON null is the absence of a value, not the empty string. v1 writes
+// "labels": null for an entity created with no labels (encoding/json happily
+// unmarshals null into a string, yielding ""), so a naive accessor returns
+// [""] and the fold synthesizes a phantom membership slot for the ""
+// label. Caught by the equivalence capstone.
+func TestPayloadStringOrListNullIsEmpty(t *testing.T) {
+	raw := `{"v":2,"parents":[],"hlc":{"p":1,"l":0},"replica":"r_x","at":"2026-07-14T09:12:03Z","actor":"a","action":"task.created","subject":{"kind":"task"},"payload":{"labels":null,"title":"t"}}`
+	e, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.PayloadStringOrList("labels"); got != nil {
+		t.Errorf("PayloadStringOrList(null) = %#v, want nil", got)
+	}
+}
+
 func TestCompareEventsTotalOrder(t *testing.T) {
 	mk := func(p, l int64, replica string) *Event {
 		return &Event{ID: "sha256:aaaa", HLC: HLC{P: p, L: l}, Replica: replica}

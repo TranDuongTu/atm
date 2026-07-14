@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -100,6 +101,14 @@ func (e *Event) PayloadString(key string) (string, bool) {
 func (e *Event) PayloadStringOrList(key string) []string {
 	raw, ok := e.payloadFields()[key]
 	if !ok {
+		return nil
+	}
+	// A JSON null is the absence of a list, not a one-element list holding
+	// the empty string — and encoding/json unmarshals null into a string
+	// without error. v1 writes "labels": null for an entity created with no
+	// labels, so without this guard the fold would synthesize a phantom
+	// membership slot for the "" label on every such entity.
+	if string(bytes.TrimSpace(raw)) == "null" {
 		return nil
 	}
 	var s string
