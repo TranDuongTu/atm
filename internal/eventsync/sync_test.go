@@ -20,7 +20,7 @@ type fakeStore struct {
 
 func (s *fakeStore) SyncSnapshot(project string) ([]*eventsource.Event, bool, error) {
 	ev, ok := s.events[project]
-	return ev, ok, nil
+	return ev, !ok, nil // second value is "absent": true when the project is missing
 }
 
 func (s *fakeStore) SyncIngest(project string, incoming []*eventsource.Event) (int, int, error) {
@@ -226,6 +226,37 @@ func TestSyncPushFailureReportedNotFatal(t *testing.T) {
 	// Pull committed and is reported intact despite the push failure.
 	if rep.Pulled != 1 {
 		t.Errorf("Pulled = %d, want 1 (pull intact)", rep.Pulled)
+	}
+	if rep.Pushed != 0 {
+		t.Errorf("Pushed = %d, want 0 (push failed)", rep.Pushed)
+	}
+}
+
+func TestSyncBidirectionalPushFailurePullNothingIsSoft(t *testing.T) {
+	clock := fixedClock()
+	root := mustProject(t, clock, replicaA, "PRJ")
+	e1 := mustTask(t, clock, replicaA, []string{root.ID}, "local task")
+
+	// Local already holds everything the remote has, so pull moves nothing;
+	// only the local-only e1 is left to push, and that push fails. Because
+	// pull was enabled (bidirectional), this is a legal "pulled OK, push
+	// failed" state (L4-10): a non-nil Report with PushErr, nil error.
+	store := &fakeStore{events: map[string][]*eventsource.Event{"PRJ": {root, e1}}}
+	boom := errors.New("publish boom")
+	target := &fakeTarget{snap: &RemoteSnapshot{Events: rawOf(root)}, publishErr: boom}
+
+	rep, err := Sync(context.Background(), store, target, "PRJ", Options{Pull: true, Push: true})
+	if err != nil {
+		t.Fatalf("Sync: want nil error (bidirectional push failure is soft), got %v", err)
+	}
+	if rep == nil {
+		t.Fatalf("Report = nil, want non-nil with PushErr")
+	}
+	if !errors.Is(rep.PushErr, boom) {
+		t.Errorf("PushErr = %v, want %v", rep.PushErr, boom)
+	}
+	if rep.Pulled != 0 {
+		t.Errorf("Pulled = %d, want 0 (nothing to pull)", rep.Pulled)
 	}
 	if rep.Pushed != 0 {
 		t.Errorf("Pushed = %d, want 0 (push failed)", rep.Pushed)

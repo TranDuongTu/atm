@@ -90,7 +90,8 @@ func Plan(local []*eventsource.Event, remote *RemoteSnapshot) (*PlanResult, erro
 // satisfies it structurally.
 type LocalStore interface {
 	// SyncSnapshot returns the project's full local event set and whether
-	// the project exists locally at all.
+	// the project is absent locally (true = not present; the event slice
+	// is then empty).
 	SyncSnapshot(project string) ([]*eventsource.Event, bool, error)
 	// SyncIngest appends events into an existing local project, reporting
 	// how many were newly written and how many became newly contested.
@@ -205,12 +206,13 @@ func Sync(ctx context.Context, local LocalStore, target SyncTarget, project stri
 
 	if opt.Push && len(plan.ToPublish) > 0 {
 		if err := target.Publish(ctx, project, plan.ToPublish, snap); err != nil {
-			// Non-fatal when the pull leg already accomplished something:
-			// those events are committed and worth reporting alongside the
-			// push failure. Fatal only when push was the sole real action —
-			// a sync that changed nothing and errored is a genuine failure.
-			pullAccomplishedSomething := opt.Pull && (report.Pulled > 0 || report.NewlyContested > 0 || report.Bootstrapped)
-			if !pullAccomplishedSomething {
+			// A push failure is fatal only in push-only mode: with no pull
+			// leg, the failed publish is the whole sync, so it's a real
+			// error. When pull was enabled the sync is bidirectional and
+			// "pulled OK, push failed" is a legal reported state (L4-10) —
+			// even if pull happened to move nothing, that's a successful
+			// no-op pull, so we report PushErr and return a nil error.
+			if !opt.Pull {
 				return nil, fmt.Errorf("eventsync: publish: %w", err)
 			}
 			report.PushErr = err
