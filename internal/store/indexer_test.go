@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"testing"
@@ -69,7 +70,7 @@ func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 	fake := func(text, role string) ([]float64, error) {
 		return []float64{0.1, 0.2}, nil
 	}
-	res, err := s.ReindexOnce("ATM", fake, nil)
+	res, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
 	if err != nil {
 		t.Fatalf("ReindexOnce: %v", err)
 	}
@@ -79,6 +80,43 @@ func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 	got, _ := s.ReadVectors("ATM", "m")
 	if len(got) != 1 || got[0].ID != task.ID || got[0].Title != "label resolver" {
 		t.Errorf("vectors = %+v, want one denormalized task", got)
+	}
+}
+
+// TestReindexOnceHonorsContextCancellation proves a full re-index can be
+// interrupted mid-pass (ATM-17e9cc): the embed loop must observe ctx between
+// documents, return context.Canceled promptly, and persist no partial batch.
+// Without cancellation the TUI's stopIndexer blocks the Update loop on <-done
+// for the entire re-index, freezing the UI on project switch.
+func TestReindexOnceHonorsContextCancellation(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := s.CreateTask("ATM", fmt.Sprintf("task %d", i), "body", nil, testActor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	fake := func(text, role string) ([]float64, error) {
+		calls++
+		cancel() // cancel after the first embed; the pass must stop before the rest
+		return []float64{0.1, 0.2}, nil
+	}
+	_, err := s.ReindexOnce(ctx, "ATM", fake, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if calls >= 5 {
+		t.Errorf("embed called %d times; cancellation did not interrupt the re-index", calls)
+	}
+	if got, _ := s.ReadVectors("ATM", "m"); len(got) != 0 {
+		t.Errorf("wrote %d vector(s); a cancelled pass must not persist a partial batch", len(got))
 	}
 }
 
@@ -96,7 +134,7 @@ func TestReindexOnceEmbedErrorAborts(t *testing.T) {
 	fake := func(text, role string) ([]float64, error) {
 		return nil, errors.New("endpoint down")
 	}
-	if _, err := s.ReindexOnce("ATM", fake, nil); err == nil {
+	if _, err := s.ReindexOnce(context.Background(), "ATM", fake, nil); err == nil {
 		t.Fatal("want error on embed failure, got nil")
 	}
 }
@@ -110,7 +148,7 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
-	_, err := s.ReindexOnce("ATM", fake, nil)
+	_, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
 	if !IsUsage(err) {
 		t.Errorf("err = %v, want ErrUsage (no embedding config)", err)
 	}
@@ -146,7 +184,7 @@ func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
 		t.Fatalf("task id = %q, want a v2 hash alias (test is not exercising v2)", tk.ID)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
-	res, err := s.ReindexOnce("ATM", fake, nil)
+	res, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
 	if err != nil {
 		t.Fatalf("ReindexOnce on v2: %v", err)
 	}
@@ -207,7 +245,7 @@ func TestReindexOnceOnV2PropagatesFormatLookupError(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
-	if _, err := s.ReindexOnce("ATM", fake, nil); err == nil {
+	if _, err := s.ReindexOnce(context.Background(), "ATM", fake, nil); err == nil {
 		t.Fatal("ReindexOnce swallowed a format-lookup failure and indexed anyway")
 	}
 }
