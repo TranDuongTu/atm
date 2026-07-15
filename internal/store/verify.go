@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"sort"
 
 	"atm/internal/eventsource"
@@ -128,11 +127,4 @@ func (s *Store) checkV2Cache(code string, st *eventsource.State, eventCount int)
 		return []CacheCheck{{Kind: "project", ID: code, Status: "stale", CacheLogSeq: got, LastEventSeq: eventCount}}
 	}
 	return []CacheCheck{{Kind: "project", ID: code, Status: "ok", CacheLogSeq: eventCount, LastEventSeq: eventCount}}
-}
-
-func extractTruncatedBytes(err error) int {
-	var n int
-	var prefix string
-	_, _ = fmt.Sscanf(err.Error(), "%s %d bytes", &prefix, &n)
-	return n
 }

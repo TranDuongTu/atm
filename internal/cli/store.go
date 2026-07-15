@@ -8,18 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func renderSubject(su store.Subject) string {
-	switch su.Kind {
-	case "project":
-		return su.Code
-	case "task":
-		return su.ID
-	case "label":
-		return su.Name
-	}
-	return su.Kind
-}
-
 func newStoreCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "store",

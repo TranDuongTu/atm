@@ -115,6 +115,44 @@ func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	}
 }
 
+// TestLastLogSeqPropagatesFormatLookupError mirrors
+// TestTextSearchPropagatesFormatLookupError: LastLogSeq must consult
+// projectFormat before reading the v2 event count. v2EventCount/readV2File
+// read the event file path directly and never call readStoreMeta, so without
+// the projectFormat gate a corrupt store.json would go uncaught here.
+func TestLastLogSeqPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if seq, err := s.LastLogSeq("ATM"); err == nil {
+		t.Fatalf("LastLogSeq = %d, nil: a failed format lookup silently read the v2 event count", seq)
+	}
+}
+
+// TestHistoryPropagatesFormatLookupError mirrors the same failure mode for
+// readLogForViews via History (through HistoryE): a corrupt store.json must
+// surface as an error, not a silently empty or partial history.
+func TestHistoryPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if hv, err := s.HistoryE("ATM", Subject{Kind: "task", ID: tk.ID}); err == nil {
+		t.Fatalf("HistoryE = %#v, nil: a failed format lookup silently read the v2 log", hv)
+	}
+}
+
 func TestHistoryRendersV2EventsForTaskAlias(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
