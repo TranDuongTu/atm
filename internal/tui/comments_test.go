@@ -11,8 +11,8 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	m := newTestModel(t)
 	_, _ = m.store.CreateProject("ATM", "Agent Tasks Management", testActor)
 	tk, _ := m.store.CreateTask("ATM", "Fix thing", "work on it", nil, testActor)
-	_, _ = m.store.CreateComment(tk.ID, "first comment body", []string{"ATM:comment:open-question"}, "", testActor)
-	_, _ = m.store.CreateComment(tk.ID, "second reply", nil, "ATM-0001-c0001", "manager@cli:test")
+	c1, _ := m.store.CreateComment(tk.ID, "first comment body", []string{"ATM:comment:open-question"}, "", testActor)
+	_, _ = m.store.CreateComment(tk.ID, "second reply", nil, c1.ID, "manager@cli:test")
 
 	m.projectScope = "ATM"
 	m.SetSize(240, 70)
@@ -77,11 +77,11 @@ func TestEnterOnCommentOpensReadOnlyOverlay(t *testing.T) {
 	m := newTestModel(t)
 	_, _ = m.store.CreateProject("ATM", "x", testActor)
 	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
-	_, _ = m.store.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", testActor)
+	c, _ := m.store.CreateComment(tk.ID, "body", []string{"ATM:comment:open-question"}, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
-	if m.tasks.commentOverlay.id != "ATM-0001-c0001" {
+	if m.tasks.commentOverlay.id != c.ID {
 		t.Fatalf("comment overlay not opened: %+v", m.tasks.commentOverlay)
 	}
 }
@@ -102,12 +102,12 @@ func TestCommentOverlayShowsIDAndBody(t *testing.T) {
 	m := newTestModel(t)
 	_, _ = m.store.CreateProject("ATM", "x", testActor)
 	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
-	_, _ = m.store.CreateComment(tk.ID, "the body text", nil, "", testActor)
+	c, _ := m.store.CreateComment(tk.ID, "the body text", nil, "", testActor)
 	m.projectScope = "ATM"
 	m.tasks.openDetail(tk.ID)
 	m.tasks.handleDetailKey(keyMsg("enter"))
 	view := m.tasks.commentOverlay.view(m)
-	if !strings.Contains(view, "ATM-0001-c0001") || !strings.Contains(view, "the body text") {
+	if !strings.Contains(view, c.ID) || !strings.Contains(view, "the body text") {
 		t.Fatalf("overlay view missing id/body:\n%s", view)
 	}
 }

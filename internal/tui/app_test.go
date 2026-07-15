@@ -1273,7 +1273,7 @@ func TestProjectDetailHistoryToggle(t *testing.T) {
 func TestTasksFlatListEmptyFilter(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "task one", "ATM:status:open")
+	tk := seedTask(t, m, "ATM", "task one", "ATM:status:open")
 	update(t, m, "s") // select ATM
 	update(t, m, "2") // focus Tasks pane
 	v := m.View()
@@ -1290,7 +1290,7 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	mustContain(t, v, "FOCUS: (all)")
 	mustContain(t, v, "SORT: updated-desc")
 	mustContain(t, v, "task one")
-	mustContain(t, v, "ATM-0001")
+	mustContain(t, v, tk.ID)
 	mustContain(t, v, "ATM:status:open")
 	mustContain(t, v, "showing 1-1 of 1")
 }
@@ -1534,9 +1534,9 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	// Detail-mode facts + labels render by default; History is hidden
 	// behind the [H] overlay.
 	v := m.tasks.View()
-	mustContain(t, v, "Task ATM-0001")
+	mustContain(t, v, "Task "+tk.ID)
 	mustContain(t, v, "FACTS")
-	mustContain(t, v, "id      ATM-0001")
+	mustContain(t, v, "id      "+tk.ID)
 	mustContain(t, v, "project ATM")
 	mustContain(t, v, "title   Fix label reconciliation")
 	mustContain(t, v, "LABELS")
@@ -1579,7 +1579,7 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 		t.Fatal("Esc should have closed the history overlay")
 	}
 	v = m.tasks.View()
-	mustContain(t, v, "Task ATM-0001")
+	mustContain(t, v, "Task "+tk.ID)
 	mustContain(t, v, "FACTS")
 }
 
@@ -1678,7 +1678,7 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "inside pane task", "ATM:status:open")
+	tk := seedTask(t, m, "ATM", "inside pane task", "ATM:status:open")
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")
@@ -1692,7 +1692,7 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
 	mustContain(t, v, "[3] Boards")
-	mustContain(t, v, "Task ATM-0001")
+	mustContain(t, v, "Task "+tk.ID)
 }
 
 func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
