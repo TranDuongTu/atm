@@ -63,6 +63,50 @@ func TestCycleBoardMovesRing(t *testing.T) {
 	}
 }
 
+// --- Pinning tests ---
+
+func TestTogglePinPersists(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	p, err := m.store.GetPins("ATM")
+	if err != nil {
+		t.Fatalf("get pins: %v", err)
+	}
+	if p == nil || len(p.Boards) != 1 || p.Boards[0] != m.boards.selected {
+		t.Errorf("pins after toggle = %+v, want [%s]", p, m.boards.selected)
+	}
+	// Toggle again unpins.
+	m.boards.togglePin()
+	p, _ = m.store.GetPins("ATM")
+	if p != nil && len(p.Boards) != 0 {
+		t.Errorf("pins after second toggle = %v, want empty", p.Boards)
+	}
+}
+
+func TestJumpPinSelectsNth(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	// Pin a second board if one exists; else pin first twice is a no-op. For a
+	// deterministic test, pin first and verify jumpPin(1) selects it.
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.selected != first {
+		t.Errorf("after jumpPin(1), selected = %q, want %q", m.boards.selected, first)
+	}
+}
+
 // --- Boards pane tests ---
 
 // newTestStore opens a fresh temp-dir store for direct store-API tests that

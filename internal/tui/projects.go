@@ -260,6 +260,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.refresh()
 			p.m.boards.refresh()
 			p.m.boards.selectDefault()
+			p.m.boards.loadPins()
 			return cmd
 		}
 	case "a":

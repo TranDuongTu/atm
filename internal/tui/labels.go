@@ -227,6 +227,7 @@ func (b *boardsModel) refresh() {
 		return
 	}
 	b.clampCursor()
+	b.loadPins()
 	// The initial selection happens on project select (selectDefault is
 	// called there), not here — refresh runs on every tick and must not
 	// clobber a deliberately-empty selection. Only recover when the
@@ -254,6 +255,71 @@ func (b *boardsModel) selectDefault() {
 		return
 	}
 	b.selected = ""
+}
+
+// loadPins reads the project's pins from the store and prunes any whose board
+// no longer exists. Called on project select and on refresh (cheap read).
+func (b *boardsModel) loadPins() {
+	b.pins = nil
+	if b.m.projectScope == "" {
+		return
+	}
+	p, err := b.m.store.GetPins(b.m.projectScope)
+	if err != nil || p == nil {
+		return
+	}
+	live := map[string]bool{}
+	for _, r := range b.rows {
+		live[r.FullName] = true
+	}
+	for _, full := range p.Boards {
+		if live[full] {
+			b.pins = append(b.pins, full)
+		}
+	}
+}
+
+// togglePin adds the selected board to the pin list (at the end) if absent, or
+// removes it if present, then persists.
+func (b *boardsModel) togglePin() {
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	out := b.pins[:0:0]
+	pinned := false
+	for _, full := range b.pins {
+		if full == b.selected {
+			pinned = true
+			continue
+		}
+		out = append(out, full)
+	}
+	if !pinned {
+		out = append(out, b.selected)
+	}
+	b.pins = out
+	b.persistPins()
+}
+
+// jumpPin moves the ring selection to the nth pinned board (1-based). Returns
+// false if n is out of range.
+func (b *boardsModel) jumpPin(n int) bool {
+	if n < 1 || n > len(b.pins) {
+		return false
+	}
+	b.selected = b.pins[n-1]
+	b.applyFocus()
+	return true
+}
+
+func (b *boardsModel) persistPins() {
+	if b.m.projectScope == "" {
+		return
+	}
+	_ = b.m.store.WritePins(b.m.projectScope, &store.Pins{
+		Actor:  b.m.actor,
+		Boards: b.pins,
+	})
 }
 
 // cycleBoard moves the ring selection by dir (+1 next, -1 prev) with
