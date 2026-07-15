@@ -147,6 +147,8 @@ type boardsModel struct {
 	// project select) and cycleBoard; refresh() only touches it when the
 	// previously selected board vanished from the rebuilt ring.
 	selected string
+
+	pins []string // ordered pinned board FullNames; loaded from store.GetPins
 }
 
 type lLevel int
