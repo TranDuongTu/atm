@@ -212,6 +212,23 @@ func UpgradeV1(logData []byte) (*UpgradeResult, error) {
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("eventsource: upgrade: %w", err)
 	}
+
+	// Self-verify: the upgrade must be lossless or it must not happen (spec
+	// decision 13). Fold the events just synthesized and compare them against a
+	// pure replay of the input bytes; any semantic divergence aborts before
+	// anything on disk moves. This makes UpgradeV1 prove its own output without
+	// depending on internal/store.
+	st, err := FoldEvents(res.Events)
+	if err != nil {
+		return nil, fmt.Errorf("eventsource: upgrade: self-fold: %w", err)
+	}
+	rep, err := ReplayV1(logData)
+	if err != nil {
+		return nil, err
+	}
+	if err := CompareReplayToFold(rep, st); err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 

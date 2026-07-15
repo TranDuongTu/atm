@@ -2,6 +2,7 @@ package eventsource
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -272,5 +273,47 @@ func TestUpgradeV1Errors(t *testing.T) {
 		if _, err := UpgradeV1([]byte(log)); err == nil {
 			t.Errorf("%s: expected error", name)
 		}
+	}
+}
+
+// TestUpgradeV1SelfVerifies proves the eventsource-local replay and compare
+// agree with the fold of the upgrade's own output: fold(UpgradeV1(log)) must
+// compare clean against ReplayV1(log). A hand-corrupted fold must be rejected
+// by CompareReplayToFold with ErrIntegrity, so the self-check is not vacuous.
+func TestUpgradeV1SelfVerifies(t *testing.T) {
+	log := readFixture(t, "v1-log.jsonl")
+	res, err := UpgradeV1(log)
+	if err != nil {
+		t.Fatalf("UpgradeV1: %v", err)
+	}
+	st, err := FoldEvents(res.Events)
+	if err != nil {
+		t.Fatalf("FoldEvents: %v", err)
+	}
+	rep, err := ReplayV1(log)
+	if err != nil {
+		t.Fatalf("ReplayV1: %v", err)
+	}
+	if err := CompareReplayToFold(rep, st); err != nil {
+		t.Fatalf("self-verify: %v", err)
+	}
+
+	// Negative: corrupt a live task title in the fold and confirm the compare
+	// rejects it with ErrIntegrity — a passing compare must mean something.
+	if len(rep.Tasks) == 0 {
+		t.Fatal("fixture produced no live tasks; corruption case would be vacuous")
+	}
+	for _, tk := range st.Tasks {
+		if !tk.Tombstoned {
+			tk.Title += " (corrupted)"
+			break
+		}
+	}
+	err = CompareReplayToFold(rep, st)
+	if err == nil {
+		t.Fatal("corrupted fold passed the compare")
+	}
+	if !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("corrupted fold: got %v, want ErrIntegrity", err)
 	}
 }
