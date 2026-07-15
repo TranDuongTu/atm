@@ -84,9 +84,11 @@ $ATM_HOME/
 
 ### Sync And Remotes
 
-Remotes are named, per-project, and replica-local — a remote describes *this replica's* route to the world, exactly like `.git/config`. A remote is a passive medium: a directory (a NAS mount, a Syncthing or Dropbox folder, a USB stick) or a git URL; the transport is selected from the URL shape.
+Remotes are named, per-project, and replica-local — a remote describes *this replica's* route to the world, exactly like `.git/config`. A remote is a passive medium: a directory (a NAS mount, a Syncthing or Dropbox folder, a USB stick) or a git URL; the transport is selected from the URL shape, and atm does no auth of its own — a directory remote works once it exists and is writable, a git remote works if `git` itself can already reach it with whatever's ambient (an SSH agent, a credential helper, `.netrc`).
 
 ```sh
+mkdir -p ~/Sync/atm                                    # a directory remote must already exist
+atm store remote add origin ~/Sync/atm --project ATM
 atm store remote add origin git@github.com:you/atm-ledger.git --project ATM
 atm store remote list --project ATM
 
@@ -96,9 +98,15 @@ atm store sync <url> --project ATM        # ad-hoc remote — nothing persisted
 atm store sync --project ATM --dry-run    # fetch, validate, report the differences; commit nothing
 ```
 
-Because sync is set union — commutative, associative, idempotent — any topology converges, and every failure's recovery is "run sync again": an interrupted sync leaves both stores valid, and the next one completes the difference. Fetched events are validated before anything touches the local store (every hash recomputed, parents resolved, DAG acyclic, same project root on both sides), so a corrupt or mismatched remote aborts the whole sync with the local store untouched.
+Because sync is set union — commutative, associative, idempotent — any topology converges, and every failure's recovery is "run sync again": an interrupted sync leaves both stores valid, and the next one completes the difference. Fetched events are validated before anything touches the local store (every hash recomputed, parents resolved, DAG acyclic, same project root on both sides), so a corrupt or mismatched remote aborts the whole sync with the local store untouched. The same holds for a lone push failure — a bidirectional sync that pulls fine but fails to push still commits the pull and reports the push error separately, so a failed push is never a special case: run `atm store sync` again once the remote is reachable.
 
 There is no separate clone verb: `atm store sync <url> --project <CODE>` for a project you don't hold locally fetches it, creates it, and persists the URL as its `origin` — the second machine is one command.
+
+A git remote needs at least one commit before its first sync — a freshly `git init --bare`d repo with nothing pushed to it has no `HEAD` for atm to clone against; seed it with one empty commit (`git commit --allow-empty`) first. Project logs live under a subpath within the remote — `.atm/<CODE>/events.v2.jsonl` by default, or a path of your choosing via a trailing `//<subpath>` on the URL (`git@host:repo.git//tickets`; use a `git::` prefix to force git recognition for a URL that wouldn't otherwise be recognized as one, e.g. `git::https://example.com/repo//tickets`). atm keeps a `.gitattributes` entry (`merge=union`) in that subpath up to date automatically, so the ledger file itself never conflicts even under a plain `git merge`.
+
+Only a v2-active project can sync — `atm store sync` against a v1-active project (one still on the legacy `log.jsonl`, not yet imported) refuses with `project is v1-active and cannot sync; run "atm store upgrade" first`; run `atm store upgrade --project <CODE>` and sync again.
+
+**Recovering from a folder-sync conflict.** A directory remote's event log is just a file that a folder-sync tool (Syncthing, Dropbox) also watches, and if two machines publish to it in the same window, the tool — not atm — may fork the shared file into a second copy (e.g. `events.v2.jsonl.sync-conflict-...`) rather than lose either side. Because sync is a lossless set union and every line re-parses to its own event id regardless of order, recovery only means restoring one file on the remote: concatenate the conflict copy's lines onto the end of the real `events.v2.jsonl` (`cat events.v2.jsonl.conflict >> events.v2.jsonl` inside the remote's `<CODE>/` directory, then delete the copy) and sync from any replica — the next `atm store sync` pulls the full union, repeated lines collapse back to one event each, and nothing is lost.
 
 ### Importing A Legacy v1 Log
 
