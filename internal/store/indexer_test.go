@@ -14,10 +14,11 @@ func TestPendingIndexEmptyWhenFresh(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
+	created, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor)
+	if err != nil {
 		t.Fatal(err)
 	}
-	realTask, err := s.GetTask("ATM-0001")
+	realTask, err := s.GetTask(created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

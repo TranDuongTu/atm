@@ -159,8 +159,8 @@ func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 	}
 	// Replay excludes the tombstoned task.
 	st, _ := s.Replay("ATM")
-	for _, tk := range st.Tasks {
-		if tk.ID == "ATM-0001" {
+	for _, lt := range st.Tasks {
+		if lt.ID == tk.ID {
 			t.Fatal("tombstoned task appeared in replay live set")
 		}
 	}

@@ -42,7 +42,7 @@ func TestLabelAddUpsertPreservesDescription(t *testing.T) {
 func TestLabelRemoveSoftRetainsUsage(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_, _ = s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, testActor)
+	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:type:bug"}, testActor)
 	r, err := s.LabelRemove("ATM:type:bug", testActor)
 	if err != nil {
 		t.Fatal(err)
@@ -55,8 +55,8 @@ func TestLabelRemoveSoftRetainsUsage(t *testing.T) {
 		t.Fatal("expected ErrNotFound for removed label")
 	}
 	// Existing task still carries the label string (soft removal).
-	tk, _ := s.GetTask("ATM-0001")
-	if !containsLabel(tk.Labels, "ATM:type:bug") {
+	got, _ := s.GetTask(tk.ID)
+	if !containsLabel(got.Labels, "ATM:type:bug") {
 		t.Fatal("existing task must retain the label string after registry removal")
 	}
 }

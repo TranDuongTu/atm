@@ -13,7 +13,8 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "First task", "desc", []string{"ATM:status:open"}, "admin@cli:unset"); err != nil {
+	tk, err := s.CreateTask("ATM", "First task", "desc", []string{"ATM:status:open"}, "admin@cli:unset")
+	if err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(s.logPath("ATM"))
@@ -44,7 +45,7 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	if f != StoreFormatV2 {
 		t.Fatalf("format = %q, want v2", f)
 	}
-	if _, err := s.GetTask("ATM-0001"); err != nil {
+	if _, err := s.GetTask(tk.ID); err != nil {
 		t.Fatalf("cache not rebuilt from v2: %v", err)
 	}
 }
