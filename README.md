@@ -2,6 +2,15 @@
 
 ATM is a fast, scalable, distributed task ledger — git-like in how it stores truth, Jira-like in how it tells the story — built as the main interface through which coding agents keep a software organization's knowledge base.
 
+## What You Can Use It For Today
+
+- Work across multiple projects at once, including projects that span several repositories.
+- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
+- Resume or hand off work between agents with minimal re-briefing.
+- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
+- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
+- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
+
 ## 30-Second Start
 
 **1. Install** the `atm` binary:
@@ -35,20 +44,13 @@ atm manage --project ATM --mapping      # reconcile the context map against the 
 
 ## The Story
 
-Whether the future belongs to AI or to humans, software has to remain soft to stay useful — it is where an organization accumulates its lessons and scales them. For decades that knowledge base was built and steered by human engineers, and not only with languages and IDEs: git preserved every decision as history, and Jira-style trackers carried the narrative of where the system goes next. A senior engineer often works those two tools more than they write code.
+Whether the future belongs to AI or to humans, software has to remain soft to stay useful — and it stays soft only while the intent behind it stays legible. Software has always been where an organization accumulates its lessons and scales them, and for decades human engineers kept that knowledge base alive with more than languages and IDEs: git preserved every decision as history, while Jira boards and a sprawl of docs carried the narrative of where the system goes next. A senior engineer often works those tools more than they write code.
 
-Agentic coding has changed the interface between the developer and the software. You rarely write your own PRs or commits, you no longer read the tracker line by line, and you juggle more worktrees than you ever imagined — you manage intentions more than you manage code. Git honestly tells you the current truth and the whole history behind it, but not the roadmap ahead; Jira tells the roadmap, but through an interface built for human managers who never wanted to touch the code.
+Agentic coding has changed the interface between the developer and the software. You rarely write your own PRs or commits, you no longer read the tracker line by line, and you juggle more worktrees than you ever imagined — you manage intentions more than you manage code. Git honestly tells you the current truth and the whole history behind it, but not the road ahead. The road ahead lives in Jira, Notion, Quip, Google Docs — mutable surfaces where every edit overwrites the last, keeping the current plan but losing the growth, the decisions, and the awareness that produced it. Putting an MCP server in front of them gives agents access, not a fit.
 
-As the world steers toward agentic AI, your main working interface becomes a single terminal where you talk to your own agents, and everything should flow from there. ATM is the combined git-and-Jira interface for that world: agent-first, and built to preserve, enrich, and leverage all of your organization's knowledge.
+As the world turns agentic, your main working interface becomes a single terminal where you talk to your own agents — and agents forget. Sessions end, context windows die, models get swapped for cost; the knowledge has to survive all of it. So ATM gives your intentions the storage discipline git gave your code: an append-only, plain-file, mergeable ledger that agents journal into as they work, recall from when they return, and hand off through when they change — and the one window through which you stay oriented while they do the writing.
 
-### What you can use it for today
-
-- Work across multiple projects at once, including projects that span several repositories.
-- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
-- Resume or hand off work between agents with minimal re-briefing.
-- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
-- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
-- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
+ATM replaces none of those tools — it is the hub beneath them. The same append-only design that lets replicas of the ledger converge through a shared folder or a git remote lets adapters mirror it out to a Jira board, a Notion page, a doc your manager actually reads — and contribute knowledge back in to enrich them. Those surfaces stay what they are good at: views for humans. The ledger stays what they never were: the memory.
 
 ## Screenshots
 
