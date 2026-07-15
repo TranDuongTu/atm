@@ -108,6 +108,18 @@ func TestConventionsPointAtCurrentKnowledgeBoard(t *testing.T) {
 	}
 }
 
+func TestConventionsMentionsOpenTasksBoard(t *testing.T) {
+	if !strings.Contains(conventionsText, "open-tasks") {
+		t.Error("conventions text must reference the open-tasks board in the first-contact sequence")
+	}
+	j := conventionsStructured()
+	seq, _ := j["agent_first_contact_sequence"].([]string)
+	joined := strings.Join(seq, " ")
+	if !strings.Contains(joined, "open-tasks") {
+		t.Error("agent_first_contact_sequence JSON must reference open-tasks")
+	}
+}
+
 func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText

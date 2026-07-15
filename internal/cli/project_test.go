@@ -16,6 +16,23 @@ func TestGoldenProjectCreate(t *testing.T) {
 	compareGolden(t, "project-create", out)
 }
 
+func TestProjectCreateEnsuresOpenTasksBoard(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	_, _, code := h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
+	}
+	l, err := h.store.LabelShow("FOO:open-tasks")
+	if err != nil {
+		t.Fatalf("open-tasks board missing after project create: %v", err)
+	}
+	if l.Expr == "" {
+		t.Error("open-tasks board has no expression")
+	}
+}
+
 func TestGoldenProjectCreateInvalidCode(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()

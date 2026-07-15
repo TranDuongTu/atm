@@ -37,6 +37,11 @@
       "name": "ATM:context:repository"
     },
     {
+      "description": "every open task: the project's active work. Default board in the TUI.",
+      "expr": "status:open",
+      "name": "ATM:open-tasks"
+    },
+    {
       "description": "optional urgency ranking; absent means default priority",
       "name": "ATM:priority:*"
     },

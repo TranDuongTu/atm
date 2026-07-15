@@ -179,15 +179,15 @@ atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [N]
 atm project remove --code             Projects pane  [x]
 
-atm label add --name --desc           Tasks pane (boards)  [a]dd / [d]esc
-atm label remove --name               Tasks pane (boards)  [l]
-atm label seed --project              Tasks pane (boards)  [S]
-atm label list [--project] [--ns]     Tasks pane (boards)  (list)
+atm label add --name --desc           Tasks pane [a]dd / [d]esc
+atm label remove --name               Tasks pane [l]
+atm label seed --project              Tasks pane [S]
+atm label list [--project] [--ns]     Tasks pane (boards strip)
 atm label show --name                 — (CLI only)
 
 atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
-atm task list [--project] [--label]   Tasks pane  (selection-only list; Labels pane filters)
-atm task list --facets                CLI wildcard faceting; TUI Boards chart (Tasks mirror)
+atm task list [--project] [--label]   Tasks pane  (board strip filters the list)
+atm task list --facets                CLI wildcard faceting; TUI board strip (Tasks mirror)
 atm task show --id                    Tasks pane  [Enter] detail
 atm task set-title --id --title       Task detail  [e]
 atm task set-description --id --desc  Task detail  [d]
