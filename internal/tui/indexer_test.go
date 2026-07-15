@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -478,7 +479,7 @@ func TestIndexerReindexOnceRunsAndLogs(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("r should return a cmd (ReindexOnce)")
 	}
-	res, err := m.store.ReindexOnce("ATM", im.embedFnBuilder(im.cfg), func(msg string) {
+	res, err := m.store.ReindexOnce(context.Background(), "ATM", im.embedFnBuilder(im.cfg), func(msg string) {
 		im.logs = append(im.logs, msg)
 	})
 	if err != nil {
@@ -564,7 +565,7 @@ func TestIndexerDropModelConfirmAndDrop(t *testing.T) {
 	p := newIndexerPlugin()
 	im := p.model(m)
 	im.embedFnBuilder = fakeEmbedFnBuilder([]float64{0.1, 0.2})
-	if _, err := m.store.ReindexOnce("ATM", im.embedFnBuilder(im.cfg), nil); err != nil {
+	if _, err := m.store.ReindexOnce(context.Background(), "ATM", im.embedFnBuilder(im.cfg), nil); err != nil {
 		t.Fatalf("seed ReindexOnce: %v", err)
 	}
 	im.refreshStatus()

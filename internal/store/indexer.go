@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -93,7 +94,10 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	return pending, nil
 }
 
-func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (IndexResult, error) {
+func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, log ProgressFunc) (IndexResult, error) {
+	if err := ctx.Err(); err != nil {
+		return IndexResult{}, err
+	}
 	cfg, err := s.GetProjectConfig(code)
 	if err != nil {
 		return IndexResult{}, err
@@ -144,6 +148,13 @@ func (s *Store) ReindexOnce(code string, embed EmbedFunc, log ProgressFunc) (Ind
 	entries := make([]VectorEntry, 0, len(pending))
 	maxSeq := 0
 	for i, doc := range pending {
+		// Honor cancellation between documents so a project switch (or Ctrl-C)
+		// interrupts an in-progress full re-index instead of blocking the caller
+		// on <-done until every document is embedded (ATM-17e9cc). A cancelled
+		// pass returns before WriteVectorBatch, so no partial batch is persisted.
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
 		if log != nil {
 			log(fmt.Sprintf("embedding %d/%d %s (%s)", i+1, len(pending), doc.ID, doc.Kind))
 		}
@@ -191,7 +202,7 @@ func kindLabel(docs []IndexDoc) string {
 }
 
 func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log ProgressFunc) error {
-	res, err := s.ReindexOnce(code, embed, log)
+	res, err := s.ReindexOnce(ctx, code, embed, log)
 	if err != nil {
 		return err
 	}
@@ -210,8 +221,11 @@ func (s *Store) Watch(ctx context.Context, code string, embed EmbedFunc, log Pro
 			if cur <= lastSeq {
 				continue
 			}
-			res, err := s.ReindexOnce(code, embed, log)
+			res, err := s.ReindexOnce(ctx, code, embed, log)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return err
+				}
 				if log != nil {
 					log(fmt.Sprintf("index error: %v", err))
 				}

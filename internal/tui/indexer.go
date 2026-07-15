@@ -485,7 +485,7 @@ func (p *indexerPlugin) handleReindexOnce(m *Model) tea.Cmd {
 		sendIndexerMsg(im, indexerMsg{kind: msgProgress, line: msg})
 	}
 	return func() tea.Msg {
-		res, err := m.store.ReindexOnce(m.projectScope, embedFn, progress)
+		res, err := m.store.ReindexOnce(context.Background(), m.projectScope, embedFn, progress)
 		if err != nil {
 			return reindexResultMsg{err: err.Error()}
 		}
