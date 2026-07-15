@@ -37,6 +37,14 @@ type cliState struct {
 	runChildFn      childRunner
 	runTUI          tuiRunner
 	stdinIsTerminal func() bool
+
+	// storeOpts are determinism seams (WithClock/WithReplicaEntropy/WithNow)
+	// applied to every store this CLI opens. Production leaves it nil, so
+	// store.Open keeps its wall-clock + crypto/rand defaults. The golden test
+	// harness sets it so that the v2 events authored INSIDE command execution
+	// (openStore is called per command, not on the harness's own handle) mint
+	// reproducible hex aliases.
+	storeOpts []store.Option
 }
 
 func (s *cliState) stdin() io.Reader {
@@ -150,7 +158,7 @@ func (s *cliState) runChild(name string, argv []string, env []string, notFoundHi
 
 func (s *cliState) openStore() (*store.Store, error) {
 	root := store.ResolveStorePath(s.flags.store)
-	st, err := store.Open(root)
+	st, err := store.Open(root, s.storeOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +216,7 @@ func newInitCmd(st *cliState) *cobra.Command {
 		Short: "Initialize the store and install ATM agent plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root)
+			s, err := store.Open(root, st.storeOpts...)
 			if err != nil {
 				return err
 			}

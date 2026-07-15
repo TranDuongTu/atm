@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"atm/internal/eventsource"
 	"atm/internal/seed"
@@ -46,54 +45,21 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 		}
 	}
 	code := labelProject(name)
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		// Only the fields being SET go into the payload (the writesOf action
-		// table): an omitted key writes no slot, so the label's existing
-		// description/expr survives — exactly the v1 "empty means keep" rule,
-		// expressed in the event model instead of by re-reading the cache.
-		payload := map[string]any{}
-		if description != "" {
-			payload["description"] = description
-		}
-		if expr != "" {
-			payload["expr"] = expr
-		}
-		return s.labelUpsertV2(code, name, actor, payload)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		l := Label{Name: name, Description: description, Expr: expr}
-		if description == "" || expr == "" {
-			if existing, ok, err := cacheGetLabel(db, name); err != nil {
-				return err
-			} else if ok {
-				if description == "" {
-					l.Description = existing.Description
-				}
-				if expr == "" {
-					l.Expr = existing.Expr
-				}
-			}
-		}
-		now := Now()
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(l),
-		})
-		if err != nil {
-			return err
-		}
-		l.LogSeq = entry.Seq
-		return cacheUpsertLabel(db, l)
-	})
+	// Only the fields being SET go into the payload (the writesOf action
+	// table): an omitted key writes no slot, so the label's existing
+	// description/expr survives — exactly the v1 "empty means keep" rule,
+	// expressed in the event model instead of by re-reading the cache.
+	payload := map[string]any{}
+	if description != "" {
+		payload["description"] = description
+	}
+	if expr != "" {
+		payload["expr"] = expr
+	}
+	return s.labelUpsertV2(code, name, actor, payload)
 }
 
 // validateExpr parses expr, rejects a name collision, and walks the board
@@ -163,36 +129,10 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 		return err
 	}
 	code := labelProject(name)
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		return s.labelSeedV2(code, name, description, expr, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		if _, ok, err := cacheGetLabel(db, name); err != nil {
-			return err
-		} else if ok {
-			return nil
-		}
-		now := Now()
-		l := Label{Name: name, Description: description, Expr: expr}
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(l),
-		})
-		if err != nil {
-			return err
-		}
-		l.LogSeq = entry.Seq
-		return cacheUpsertLabel(db, l)
-	})
+	return s.labelSeedV2(code, name, description, expr, actor)
 }
 
 // SeedLabels applies the default seed labels (internal/seed.Labels) to the
@@ -207,33 +147,6 @@ func (s *Store) SeedLabels(code, actor string) error {
 	return nil
 }
 
-// seedLabelsLocked appends label.upserted events for each default label not
-// already live, write-throughing each cache row. Caller MUST hold the
-// project lock. Called by CreateProject from inside its own WithLock.
-func (s *Store) seedLabelsLocked(code, actor string, at time.Time) error {
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	for _, l := range seed.Labels {
-		full := code + ":" + l.Suffix
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      at,
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: Subject{Kind: "label", Name: full},
-			Payload: mustMarshal(Label{Name: full, Description: l.Description, Expr: l.Expr}),
-		})
-		if err != nil {
-			return err
-		}
-		if err := cacheUpsertLabel(db, Label{Name: full, Description: l.Description, Expr: l.Expr, LogSeq: entry.Seq}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 	if err := ValidateLabelName(name); err != nil {
 		return nil, err
@@ -241,47 +154,11 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
 	code := labelProject(name)
-	if f, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return nil, err
-	} else if f == StoreFormatV2 {
-		return s.labelRemoveV2(code, name, actor)
 	}
-	var result *LabelRemoveResult
-	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		l, ok, err := cacheGetLabel(db, name)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("%w: label %q", ErrNotFound, name)
-		}
-		now := Now()
-		_, err = s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionLabelRemoved,
-			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(l),
-		})
-		if err != nil {
-			return err
-		}
-		if err := cacheDeleteLabel(db, name); err != nil {
-			return err
-		}
-		count, err := cacheCountTasksWithLabelGlobally(db, name)
-		if err != nil {
-			return err
-		}
-		result = &LabelRemoveResult{RetainedUsage: count}
-		return nil
-	})
-	return result, err
+	return s.labelRemoveV2(code, name, actor)
 }
 
 // ---- v2 label mutators ----

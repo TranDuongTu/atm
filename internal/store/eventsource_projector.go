@@ -26,12 +26,24 @@ func (s *Store) reprojectV2Locked(code string) error {
 
 // cacheProjectFromV2State replaces the project's cache rows with the live
 // entities of a v2 fold. eventCount is the number of events in the file the
-// fold came from; it is the v2 freshness key.
+// fold came from; it is the v2 freshness key. Thin wrapper over
+// cacheProjectFromV2StateDB that resolves the shared db handle via
+// cacheDB() — callers already inside cacheDB()'s cacheOnce.Do (the schema
+// migration) must call cacheProjectFromV2StateDB directly with their local
+// db handle instead, since cacheDB() is not reentrant.
 func (s *Store) cacheProjectFromV2State(code string, st *eventsource.State, eventCount int) error {
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
+	return s.cacheProjectFromV2StateDB(db, code, st, eventCount)
+}
+
+// cacheProjectFromV2StateDB is cacheProjectFromV2State's DB-taking core. It
+// does NOT call s.cacheDB(), so it is safe to call from inside cacheDB()'s
+// cacheOnce.Do (e.g. the schema-migration eager reprojection) as well as from
+// ordinary callers via the cacheProjectFromV2State wrapper.
+func (s *Store) cacheProjectFromV2StateDB(db *sql.DB, code string, st *eventsource.State, eventCount int) error {
 	if err := cacheDeleteProjectRows(db, code); err != nil {
 		return err
 	}
@@ -116,9 +128,8 @@ func cacheDeleteProjectRows(db *sql.DB, code string) error {
 }
 
 func projectFromV2(p *eventsource.ProjectState) *Project {
-	// NextTaskN and LogSeq are v1 bookkeeping; they are meaningless for a
-	// v2-active project, and every v2 read path must branch by format
-	// before the v1 freshness checks that would read them (Task 9).
+	// A v2 project has no per-project ordinal (only tasks/comments/labels do),
+	// so Ordinal is left 0 here.
 	return &Project{
 		Code:      p.Code,
 		Name:      p.Name,
@@ -138,7 +149,7 @@ func taskFromV2(code string, t *eventsource.TaskState, ordinal int) *Task {
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      labels,
-		LogSeq:      ordinal,
+		Ordinal:     ordinal,
 		CreatedAt:   t.CreatedAt,
 		CreatedBy:   t.CreatedBy,
 		UpdatedAt:   t.UpdatedAt,
@@ -155,7 +166,7 @@ func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, 
 		ReplyTo:   replyToAlias,
 		Body:      c.Body,
 		Labels:    labels,
-		LogSeq:    ordinal,
+		Ordinal:   ordinal,
 		CreatedAt: c.CreatedAt,
 		CreatedBy: c.CreatedBy,
 		UpdatedAt: c.UpdatedAt,
@@ -164,5 +175,5 @@ func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, 
 }
 
 func labelFromV2(l *eventsource.LabelState, ordinal int) Label {
-	return Label{Name: l.Name, Description: l.Description, Expr: l.Expr, LogSeq: ordinal}
+	return Label{Name: l.Name, Description: l.Description, Expr: l.Expr, Ordinal: ordinal}
 }

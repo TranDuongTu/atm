@@ -8,18 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func renderSubject(su store.Subject) string {
-	switch su.Kind {
-	case "project":
-		return su.Code
-	case "task":
-		return su.ID
-	case "label":
-		return su.Name
-	}
-	return su.Kind
-}
-
 func newStoreCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "store",
@@ -30,7 +18,7 @@ func newStoreCmd(st *cliState) *cobra.Command {
 		Short: "Print the resolved store path",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root)
+			s, err := store.Open(root, st.storeOpts...)
 			if err != nil {
 				return err
 			}
@@ -54,57 +42,27 @@ func newStoreCmd(st *cliState) *cobra.Command {
 			}
 			from, _ := cmd.Flags().GetInt("from")
 			to, _ := cmd.Flags().GetInt("to")
-			// A v2-active project's truth is events.v2.jsonl; its log.jsonl is
-			// either frozen at the cutover point (upgraded) or absent entirely
-			// (born v2), so the v1 renderer would show a stale — or empty — log.
-			// --from/--to filter the DISPLAY ordinal, the v2 counterpart of the
-			// v1 seq.
-			if f, ferr := s.ProjectFormatForCLI(args[0]); ferr == nil && f == store.StoreFormatV2 {
-				events, err := s.ReadV2LogForDisplay(args[0])
-				if err != nil {
-					return err
-				}
-				filtered := make([]store.V2LogView, 0, len(events))
-				for _, e := range events {
-					if from != 0 && e.Ordinal < from {
-						continue
-					}
-					if to != 0 && e.Ordinal > to {
-						continue
-					}
-					filtered = append(filtered, e)
-				}
-				if st.isJSON() {
-					return writeJSON(st.stdout(), filtered)
-				}
-				for _, e := range filtered {
-					fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, store.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
-				}
-				return nil
-			}
-			entries, err := s.ReadLog(args[0])
-			if err != nil && !store.IsIntegrity(err) {
+			// A project's truth is events.v2.jsonl; --from/--to filter the
+			// DISPLAY ordinal.
+			events, err := s.ReadV2LogForDisplay(args[0])
+			if err != nil {
 				return err
 			}
-			filtered := make([]store.LogEntry, 0, len(entries))
-			for _, e := range entries {
-				if from != 0 && e.Seq < from {
+			filtered := make([]store.V2LogView, 0, len(events))
+			for _, e := range events {
+				if from != 0 && e.Ordinal < from {
 					continue
 				}
-				if to != 0 && e.Seq > to {
+				if to != 0 && e.Ordinal > to {
 					continue
 				}
 				filtered = append(filtered, e)
 			}
-			entries = filtered
 			if st.isJSON() {
-				if err != nil {
-					return err
-				}
-				return writeJSON(st.stdout(), entries)
+				return writeJSON(st.stdout(), filtered)
 			}
-			for _, e := range entries {
-				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\n", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action, renderSubject(e.Subject))
+			for _, e := range filtered {
+				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, store.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
 			}
 			return nil
 		},
@@ -233,33 +191,66 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	upgradeCmd.Flags().Bool("all", false, "upgrade all projects")
 	cmd.AddCommand(upgradeCmd)
 
-	rollbackCmd := &cobra.Command{
-		Use:   "rollback",
-		Short: "Switch a project back to the preserved v1 log",
+	pruneCmd := &cobra.Command{
+		Use:   "prune-v1",
+		Short: "Retire upgraded projects' frozen v1 log.jsonl (archive by default)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := st.openStore()
 			if err != nil {
 				return err
 			}
 			project, _ := cmd.Flags().GetString("project")
-			to, _ := cmd.Flags().GetString("to")
-			if project == "" || to != string(store.StoreFormatV1) {
-				return fmt.Errorf("%w: rollback requires --project <CODE> --to v1", store.ErrUsage)
+			all, _ := cmd.Flags().GetBool("all")
+			del, _ := cmd.Flags().GetBool("delete")
+			if all == (project != "") {
+				return fmt.Errorf("%w: pass exactly one of --project or --all", store.ErrUsage)
 			}
-			rep, err := s.RollbackProjectToV1(project)
-			if err != nil {
-				return err
+			codes := []string{project}
+			if all {
+				codes, err = s.ProjectCodes()
+				if err != nil {
+					return err
+				}
+			}
+			// A per-project error stops the loop but must not discard the
+			// reports already collected: PruneProjectV1's archive/delete move
+			// for those projects already happened on disk, so hiding them
+			// behind a mid-batch failure would make a successful `--all` prune
+			// look like it did nothing. Print what was collected so far, then
+			// return the error.
+			reps := make([]*store.PruneReport, 0, len(codes))
+			var loopErr error
+			for _, c := range codes {
+				rep, err := s.PruneProjectV1(c, del)
+				if err != nil {
+					loopErr = fmt.Errorf("project %q: %w", c, err)
+					break
+				}
+				reps = append(reps, rep)
 			}
 			if st.isJSON() {
-				return writeJSON(st.stdout(), rep)
+				if err := writeJSON(st.stdout(), reps); err != nil {
+					return err
+				}
+				return loopErr
 			}
-			fmt.Fprintf(st.stdout(), "rolled back\t%s\t%s\n", rep.Project, rep.Format)
-			return nil
+			for _, r := range reps {
+				switch {
+				case r.Deleted:
+					fmt.Fprintf(st.stdout(), "pruned\t%s\tdeleted\n", r.Project)
+				case r.Pruned:
+					fmt.Fprintf(st.stdout(), "pruned\t%s\tarchived %s\n", r.Project, r.Archived)
+				default:
+					fmt.Fprintf(st.stdout(), "skipped\t%s\t%s\n", r.Project, r.Reason)
+				}
+			}
+			return loopErr
 		},
 	}
-	rollbackCmd.Flags().String("project", "", "project code to roll back")
-	rollbackCmd.Flags().String("to", "", "target format; only v1 is supported")
-	cmd.AddCommand(rollbackCmd)
+	pruneCmd.Flags().String("project", "", "project code to prune")
+	pruneCmd.Flags().Bool("all", false, "prune all eligible projects")
+	pruneCmd.Flags().Bool("delete", false, "delete log.jsonl instead of archiving it")
+	cmd.AddCommand(pruneCmd)
 
 	setFormatCmd := &cobra.Command{
 		Use:   "set-format",

@@ -32,9 +32,6 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
 	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
@@ -59,9 +56,6 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 func TestReadLogCachedReturnsPartialV2ViewOnIntegrityError(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	corruptV2File(t, s, "ATM")
@@ -98,7 +92,6 @@ func TestTextSearchPropagatesFormatLookupError(t *testing.T) {
 func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	before, err := s.LastLogSeq("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -122,11 +115,48 @@ func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	}
 }
 
+// TestLastLogSeqPropagatesFormatLookupError mirrors
+// TestTextSearchPropagatesFormatLookupError: LastLogSeq must consult
+// projectFormat before reading the v2 event count. v2EventCount/readV2File
+// read the event file path directly and never call readStoreMeta, so without
+// the projectFormat gate a corrupt store.json would go uncaught here.
+func TestLastLogSeqPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if seq, err := s.LastLogSeq("ATM"); err == nil {
+		t.Fatalf("LastLogSeq = %d, nil: a failed format lookup silently read the v2 event count", seq)
+	}
+}
+
+// TestHistoryPropagatesFormatLookupError mirrors the same failure mode for
+// readLogForViews via History (through HistoryE): a corrupt store.json must
+// surface as an error, not a silently empty or partial history.
+func TestHistoryPropagatesFormatLookupError(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if hv, err := s.HistoryE("ATM", Subject{Kind: "task", ID: tk.ID}); err == nil {
+		t.Fatalf("HistoryE = %#v, nil: a failed format lookup silently read the v2 log", hv)
+	}
+}
+
 func TestHistoryRendersV2EventsForTaskAlias(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	if err := s.SetTitle(tk.ID, "t2", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +181,6 @@ func TestHistoryRendersV2EventsForTaskAlias(t *testing.T) {
 func TestReadLogCachedServesActivityShapedV2Entries(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	entries, err := s.ReadLogCached("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +210,6 @@ func TestReadLogCachedServesActivityShapedV2Entries(t *testing.T) {
 func TestTextSearchFindsV2Entities(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	tk, err := s.CreateTask("ATM", "quantum flux capacitor", "", nil, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +237,6 @@ func TestDedupVectorsKeepsLastEntryOnTiedLogSeq(t *testing.T) {
 func TestPendingIndexEnumeratesV2Entities(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	tk, _ := s.CreateTask("ATM", "embed me", "body", nil, "admin@cli:unset")
 	pending, err := s.PendingIndex("ATM", "test-model")
 	if err != nil {

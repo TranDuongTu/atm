@@ -127,12 +127,12 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		// is a content hash, and a v2 project routinely holds BOTH generations
 		// (numeric aliases carried over by the upgrade plus hash aliases born
 		// after cutover), so id-asc there is meaningless noise -- it interleaves
-		// them by hex luck. The projector stamps Task.LogSeq with the fold's
+		// them by hex luck. The projector stamps Task.Ordinal with the fold's
 		// creation ordinal (TasksByCreation, i.e. the HLC creation stamp), which
 		// the spec names as the true creation order; use it.
 		if formats[ci] == StoreFormatV2 {
-			if out[i].LogSeq != out[j].LogSeq {
-				return out[i].LogSeq < out[j].LogSeq
+			if out[i].Ordinal != out[j].Ordinal {
+				return out[i].Ordinal < out[j].Ordinal
 			}
 			return out[i].ID < out[j].ID
 		}

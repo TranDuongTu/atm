@@ -14,16 +14,17 @@ func TestPendingIndexEmptyWhenFresh(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
+	created, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor)
+	if err != nil {
 		t.Fatal(err)
 	}
-	realTask, err := s.GetTask("ATM-0001")
+	realTask, err := s.GetTask(created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	realHash := hashText(taskDocumentText(realTask))
-	entries := []VectorEntry{{ID: realTask.ID, Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}, TextHash: realHash, LogSeq: realTask.LogSeq, Title: "label resolver", Snippet: "hierarchical"}}
-	if err := s.WriteVectorBatch("ATM", "m", entries, realTask.LogSeq); err != nil {
+	entries := []VectorEntry{{ID: realTask.ID, Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}, TextHash: realHash, LogSeq: realTask.Ordinal, Title: "label resolver", Snippet: "hierarchical"}}
+	if err := s.WriteVectorBatch("ATM", "m", entries, realTask.Ordinal); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := s.PendingIndex("ATM", "m")
@@ -168,9 +169,6 @@ var v2TaskAliasRe = regexp.MustCompile(`^ATM-[0-9a-f]{6,}$`)
 func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {

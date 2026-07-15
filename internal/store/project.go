@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -35,79 +34,11 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	// Birth format: projectFormat on a not-yet-existing project has no
-	// ProjectFormats entry to find, so it resolves to the store's ActiveFormat
-	// — which `atm store upgrade --all` / `set-format --format v2` flip to v2.
-	if f, err := s.dispatchFormat(code); err != nil {
-		return nil, err
-	} else if f == StoreFormatV2 {
-		return s.createProjectV2(code, name, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
-	var created *Project
-	// The birth format is re-checked under the lock like every other mutator's:
-	// a concurrent `atm store set-format --format v2` (or an `upgrade --all`
-	// that flips ActiveFormat) between the read above and the lock would
-	// otherwise give this project v1 media while the store believes new projects
-	// are born v2.
-	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		if err := s.projectMediaExists(code); err != nil {
-			return err
-		}
-		if _, ok, err := cacheGetProject(db, code); err != nil {
-			return err
-		} else if ok {
-			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
-		}
-		now := Now()
-		p := &Project{
-			Code:      code,
-			Name:      name,
-			NextTaskN: 1,
-			CreatedAt: now,
-			CreatedBy: actor,
-			UpdatedAt: now,
-			UpdatedBy: actor,
-			LogSeq:    0,
-		}
-		// 1. Append project.created to log.
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectCreated,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		if err != nil {
-			return err
-		}
-		p.LogSeq = entry.Seq
-		// 2. Seed default labels (appends label.upserted per default label).
-		if err := s.seedLabelsLocked(code, actor, now); err != nil {
-			return err
-		}
-		// 3. Write project cache row.
-		if err := cacheUpsertProject(db, p); err != nil {
-			return err
-		}
-		// 4. Record the born format EXPLICITLY, exactly as the v2 birth path
-		// does. Every project created from L3 onward therefore carries an
-		// entry, which is what makes SetActiveFormat's refusal rule precise:
-		// the entry-less set is exactly the pre-L3 legacy projects (v1 media
-		// by construction).
-		if err := s.setProjectFormat(code, StoreFormatV1); err != nil {
-			return err
-		}
-		created = p
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
+	// Every new project is born v2. createProjectV2 ESTABLISHES the format (it
+	// writes ProjectFormats[code]=v2 itself), so CreateProject no longer
+	// dispatches on the store's ActiveFormat — the fresh-store DEFAULT stays v1,
+	// but no v1-active project can be created any more.
+	return s.createProjectV2(code, name, actor)
 }
 
 // createProjectV2 is the v2 birth path — the only mutator that starts from an
@@ -118,7 +49,15 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		return nil, err
 	}
 	var created *Project
-	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
+	// A plain WithLock, NOT withProjectFormatLock(code, v2): createProjectV2
+	// ESTABLISHES the format rather than operating on an already-v2 project.
+	// withProjectFormatLock re-checks projectFormat(code)==v2 under the lock and
+	// would ErrConflict on a fresh v1-DEFAULT store (a not-yet-existing project
+	// resolves to the default). Double-creation is already guarded below
+	// (projectMediaExists + the cache "already exists" check), and this body
+	// writes setProjectFormat(code, v2) itself, so no format re-check is correct
+	// here.
+	err = s.WithLock(code, func() error {
 		if err := s.projectMediaExists(code); err != nil {
 			return err
 		}
@@ -149,7 +88,7 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 			return err
 		}
 		ev, _, err := eventsource.NewProjectCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.ProjectCreateDraft{
-			Code: code, Name: name, At: Now(), Actor: actor,
+			Code: code, Name: name, At: s.Now(), Actor: actor,
 		})
 		if err != nil {
 			_ = s.removeProjectFormat(code)
@@ -195,49 +134,56 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 	return created, nil
 }
 
-func mustMarshal(v any) json.RawMessage {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return raw
-}
-
 func (s *Store) GetProject(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
 		return s.WithLock(code, func() error {
-			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+			return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 		})
 	})
 }
 
 // getProjectLocked is identical to GetProject except that, on a cache
-// miss/stale hit, it calls rebuildProjectFromLog directly instead of
-// wrapping it in s.WithLock. Callers MUST already hold the project's lock
-// (i.e. be running inside their own s.WithLock(code, ...) closure) — calling
-// GetProject in that situation would re-enter the (non-reentrant) mutex and
-// deadlock.
+// miss/stale hit, it triggers the rebuild directly instead of wrapping it in
+// s.WithLock. Callers MUST already hold the project's lock (i.e. be running
+// inside their own s.WithLock(code, ...) closure) — calling GetProject in
+// that situation would re-enter the (non-reentrant) mutex and deadlock.
 func (s *Store) getProjectLocked(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
-		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 	})
+}
+
+// noV1RebuildErr is the v1 arm rebuildEntityCacheLocked forwards to for a
+// non-v2 project. It should be unreachable: rebuildEntityCacheLocked is only
+// ever invoked (via rebuild()) from the format==StoreFormatV2 arm of a
+// *WithRebuild accessor below, at which point rebuildEntityCacheLocked's own
+// format re-check also finds v2 and dispatches to rebuildProjectFromV2, never
+// to this closure. It exists only so the *WithRebuild accessors still have a
+// well-typed closure to hand rebuildEntityCacheLocked now that the v1
+// rebuildXFromLog helpers are gone; if it ever fires, that means a project
+// reached this code with a non-v2 format, which is an integrity violation.
+func noV1RebuildErr(code string) error {
+	return fmt.Errorf("%w: project %q is not v2 (v1 rebuild path removed)", ErrIntegrity, code)
 }
 
 // getProjectWithRebuild contains the fast-path cache read + staleness check
 // shared by GetProject and getProjectLocked. It is parameterized only by how
 // the rebuild call itself gets invoked: wrapped in a fresh s.WithLock
 // (GetProject, for callers that do not already hold the lock) or called
-// directly (getProjectLocked, for callers that do). The rebuild closure is
-// format-aware in both cases (rebuildEntityCacheLocked).
+// directly (getProjectLocked, for callers that do).
 //
-// The v2 branch lives HERE, in the shared body, and not merely at the public
-// entry point: createProjectV2/removeProjectV2 and every v1 mutator validate
-// through getProjectLocked, which reaches this body while holding the project
-// lock. With the branch only at the entry point such a read would fall into the
-// v1 freshness path below, where projFromV2's LogSeq of 0 makes the v1 staleness
-// check fire on every read and RESURRECT v1 rows over the v2 fold. The branch
-// must also precede the v1 checks: a v2 cache row's LogSeq is a fold ordinal (0
-// for the project row), unrelated to any v1 log seq.
+// The non-v2 arm below is NOT a revival of v1 lazy-rebuild: there is no v1
+// media left to rebuild from, so it never calls rebuild(). It exists because
+// a project can resolve to a non-v2 format for two legitimate reasons that
+// have nothing to do with v1 storage: (1) RemoveProject clears the project's
+// ProjectFormats entry along with its media, so a fully removed project
+// falls back to the default/ActiveFormat resolution — GetProject on it must
+// still answer ErrNotFound; (2) a cache row can be written directly by a
+// lower-level v2 helper (cacheProjectFromV2State) ahead of format
+// registration — GetProject must still serve that row rather than bounce it
+// through the v2 freshness/rebuild dance, which has nothing to check the
+// staleness of without a real event file. Either way, the cache row (or its
+// absence) is authoritative; there's nothing to rebuild.
 func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -247,45 +193,8 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 	if err != nil {
 		return nil, err
 	}
-	if format == StoreFormatV2 {
-		if fresh, err := s.v2CacheFresh(code); err != nil {
-			return nil, err
-		} else if !fresh {
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-		}
+	if format != StoreFormatV2 {
 		p, ok, err := cacheGetProject(db, code)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			// A fresh count with a missing row can still be a damaged cache
-			// (the freshness key is a count, not a checksum): rebuild once and
-			// re-read before declaring not-found — the same idiom as the v1
-			// miss path below.
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-			p, ok, err = cacheGetProject(db, code)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
-			}
-		}
-		return p, nil
-	}
-	p, ok, err := cacheGetProject(db, code)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		if err := rebuild(); err != nil {
-			return nil, err
-		}
-		p, ok, err = cacheGetProject(db, code)
 		if err != nil {
 			return nil, err
 		}
@@ -294,18 +203,21 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 		}
 		return p, nil
 	}
-	last, lastErr := s.LastLogSeq(code)
-	if lastErr != nil {
-		return nil, lastErr
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return nil, err
+	} else if !fresh {
+		if err := rebuild(); err != nil {
+			return nil, err
+		}
 	}
-	if p.LogSeq > last {
-		return nil, fmt.Errorf("%w: project %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, code, p.LogSeq, last)
-	}
-	projLast, err := s.lastProjectEventSeq(code)
+	p, ok, err := cacheGetProject(db, code)
 	if err != nil {
 		return nil, err
 	}
-	if projLast > p.LogSeq {
+	if !ok {
+		// A fresh count with a missing row can still be a damaged cache
+		// (the freshness key is a count, not a checksum): rebuild once and
+		// re-read before declaring not-found.
 		if err := rebuild(); err != nil {
 			return nil, err
 		}
@@ -318,67 +230,6 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 		}
 	}
 	return p, nil
-}
-
-// lastProjectEventSeq returns the seq of the latest project.* log entry.
-func (s *Store) lastProjectEventSeq(code string) (int, error) {
-	entries, err := s.ReadLog(code)
-	if err != nil {
-		return 0, err
-	}
-	last := 0
-	for _, e := range entries {
-		if e.Subject.Kind == "project" && e.Subject.Code == code {
-			last = e.Seq
-		}
-	}
-	return last, nil
-}
-
-func (s *Store) rebuildProjectFromLog(code string) error {
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return err
-	}
-	var p *Project
-	lastSeq := 0
-	maxTaskN := 0
-	for _, e := range entries {
-		switch e.Subject.Kind {
-		case "project":
-			if e.Subject.Code != code {
-				continue
-			}
-			lastSeq = e.Seq
-			if e.Action == ActionProjectRemoved {
-				p = nil
-				continue
-			}
-			var proj Project
-			if err := json.Unmarshal(e.Payload, &proj); err == nil {
-				p = &proj
-			}
-		case "task":
-			// Track the highest task-ID N seen across ALL task.* entries
-			// (including task.removed tombstones) so NextTaskN can be
-			// reconstructed below without relying on a project.* log event
-			// that CreateTask never appends. A removed task's number must
-			// never be reused.
-			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
-				maxTaskN = n
-			}
-		}
-	}
-	if p == nil {
-		return fmt.Errorf("%w: project %q", ErrNotFound, code)
-	}
-	p.LogSeq = lastSeq
-	p.NextTaskN = max(p.NextTaskN, maxTaskN+1)
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return cacheUpsertProject(db, p)
 }
 
 func (s *Store) ListProjects() []*Project {
@@ -405,37 +256,10 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		return s.setProjectNameV2(code, name, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		p, err := s.getProjectLocked(code)
-		if err != nil {
-			return err
-		}
-		p.Name = name
-		now := Now()
-		p.UpdatedAt = now
-		p.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectNameChanged,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		if err != nil {
-			return err
-		}
-		p.LogSeq = entry.Seq
-		return cacheUpsertProject(db, p)
-	})
+	return s.setProjectNameV2(code, name, actor)
 }
 
 // setProjectNameV2 emits project.name-changed against the project's identity
@@ -466,43 +290,10 @@ func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
 		return err
 	}
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		return s.removeProjectV2(code)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		if err := s.hasTasksGuard(code); err != nil {
-			return err
-		}
-		p, err := s.getProjectLocked(code)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		// 1. Append project.removed tombstone (payload = last state).
-		_, _ = s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectRemoved,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		// 2. Delete the project directory (including log.jsonl).
-		_ = os.RemoveAll(s.projectDir(code))
-		// 3. Drop any explicit format entry: a v1 project born under L3 (or one
-		// rolled back to v1) carries one, and a stale entry must not outlive
-		// the project it describes.
-		if err := s.removeProjectFormat(code); err != nil {
-			return err
-		}
-		// 4. Delete the project cache row.
-		return cacheDeleteProject(db, code)
-	})
+	return s.removeProjectV2(code)
 }
 
 // removeProjectV2 removes a v2-active project. No v1 tombstone is appended:

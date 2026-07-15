@@ -79,7 +79,7 @@ $ATM_HOME/
   projects/<CODE>/
     events.v2.jsonl        # the source of truth: one event per line, append-only
     config.json            # per-project settings: embedding endpoint, sync remotes
-    vectors/ vocabulary.json log.jsonl   # derived index, computed vocabulary, preserved v1 log
+    vectors/ vocabulary.json log.jsonl   # derived index, computed vocabulary, legacy v1 log (importable)
 ```
 
 ### Sync And Remotes
@@ -100,14 +100,17 @@ Because sync is set union — commutative, associative, idempotent — any topol
 
 There is no separate clone verb: `atm store sync <url> --project <CODE>` for a project you don't hold locally fetches it, creates it, and persists the URL as its `origin` — the second machine is one command.
 
-### Upgrade To v2
+### Importing A Legacy v1 Log
+
+v2 is the only storage format — every new project is born on it. A stray pre-v2 `log.jsonl` (from before v2 existed) can be imported:
 
 ```sh
-atm store upgrade --all      # upgrade every project; new projects are born on v2 afterward
+atm store upgrade --project <CODE>   # or --all: build events.v2.jsonl from the legacy log
 atm store verify
+atm store prune-v1 --project <CODE>  # after verifying, retire the leftover log (--delete to remove)
 ```
 
-Upgrade builds each project's `events.v2.jsonl` from its existing `log.jsonl`, verifies the two agree, and cuts over; the v1 log is left untouched, so a failed upgrade changes nothing. Add `--project <CODE>` to upgrade one project without changing the store default. Existing ids are kept (`ATM-0001` stays `ATM-0001`); new tasks and comments get hash ids like `ATM-9f3c1a`.
+Upgrade builds each project's `events.v2.jsonl` from its `log.jsonl`, verifies the two agree, and cuts over; the log is left untouched during import, so a failed import changes nothing. Existing ids are kept (`ATM-0001` stays `ATM-0001`); new tasks and comments get hash ids like `ATM-9f3c1a`. Once verified, `atm store prune-v1` archives the leftover log (or `--delete`s it). There is no rollback.
 
 ## Build And Verify
 

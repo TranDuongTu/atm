@@ -8,11 +8,10 @@ import (
 )
 
 // rebuildProjectFromV2 re-derives the project's cache rows from the v2 event
-// file: strict read, fold, project. It is the v2 counterpart of
-// rebuildProjectFromLog / rebuildTaskFromLog / rebuildCommentFromLog — there is
-// no per-entity variant because cacheProjectFromV2State always projects the
-// whole live set from one fold, and the freshness key is a whole-file event
-// count. Caller MUST hold the project lock.
+// file: strict read, fold, project. There is no per-entity variant because
+// cacheProjectFromV2State always projects the whole live set from one fold,
+// and the freshness key is a whole-file event count. Caller MUST hold the
+// project lock.
 func (s *Store) rebuildProjectFromV2(code string) error {
 	snap, err := s.verifyV2File(code)
 	if err != nil {
@@ -65,7 +64,7 @@ func (s *Store) v2EventCount(code string) (int, error) {
 // apart from a genuine projection at count 0.
 //
 // The v1 last_log_seq freshness key is meaningless here: a v2 cache row's
-// LogSeq holds a creation ORDINAL from the fold, unrelated to any v1 log seq.
+// Ordinal holds a creation ordinal from the fold, unrelated to any v1 log seq.
 func (s *Store) v2CacheFresh(code string) (bool, error) {
 	db, err := s.cacheDB()
 	if err != nil {

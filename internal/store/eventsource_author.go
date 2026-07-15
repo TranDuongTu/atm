@@ -38,7 +38,7 @@ func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
 	if err != nil {
 		return nil, err
 	}
-	clock := eventsource.NewClock(nil)
+	clock := eventsource.NewClock(s.clockNow)
 	m, err := s.readStoreMeta()
 	if err != nil {
 		return nil, err
@@ -137,9 +137,11 @@ func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectStat
 	return nil, false
 }
 
-// appendV2LabelUpsertsLocked is the v2 mirror of appendLabelUpsertsLocked: it
-// auto-registers any label name a task/comment mutation asserts but the fold
-// does not already hold live. The payload carries NO fields — label.upserted
+// appendV2LabelUpsertsLocked auto-registers any label name a task/comment
+// mutation asserts but the fold does not already hold live. It was the v2
+// mirror of the v1 appendLabelUpsertsLocked, deleted in D-Task5b along with
+// the v1 write branches that were its only callers. The payload carries NO
+// fields — label.upserted
 // writes the existence slot unconditionally (writesOf), so an empty payload
 // registers the label without clobbering a description/expr some other
 // replica may have set. Caller MUST hold the project lock.
@@ -173,7 +175,7 @@ func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, 
 		return nil, err
 	}
 	ev, err := eventsource.NewEvent(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.Draft{
-		At:      Now(),
+		At:      s.Now(),
 		Actor:   draft.Actor,
 		Action:  draft.Action,
 		Subject: draft.Subject,
@@ -217,7 +219,7 @@ func (s *Store) appendV2TaskCreatedLocked(code, title, description string, label
 	}
 	ev, alias, err := eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 		ProjectCode: code,
-		At:          Now(),
+		At:          s.Now(),
 		Actor:       actor,
 		Title:       title,
 		Description: description,
@@ -248,7 +250,7 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 		TaskAlias:  taskAlias,
 		TaskRef:    taskRef,
 		ReplyToRef: replyToRef,
-		At:         Now(),
+		At:         s.Now(),
 		Actor:      actor,
 		Body:       body,
 		Labels:     labels,

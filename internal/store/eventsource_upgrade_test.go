@@ -1,25 +1,54 @@
 package store
 
 import (
+	"errors"
 	"os"
-	"strings"
+	"path/filepath"
 	"testing"
-
-	"atm/internal/eventsource"
 )
 
-func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateTask("ATM", "First task", "desc", []string{"ATM:status:open"}, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(s.logPath("ATM"))
+// v1RawLogFixture returns the raw bytes of internal/eventsource/testdata/v1-log.jsonl,
+// the same fixture internal/eventsource's own upgrade tests replay. Its
+// project.created subject code is "ATM". The born-v2 flip made the public
+// Create* API v2-only, so a v1-active project fixture can no longer be built
+// by calling CreateTask; it must be planted as raw v1 log bytes instead.
+func v1RawLogFixture(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "eventsource", "testdata", "v1-log.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return raw
+}
+
+// plantV1Project writes raw v1 log bytes directly into the store's project
+// directory as log.jsonl, WITHOUT going through CreateProject/CreateTask (the
+// public API can no longer produce v1-born media) and WITHOUT calling
+// SetActiveFormat or setProjectFormat: a fresh store defaults to v1
+// (StoreFormatV1) and a project directory holding only log.jsonl (no
+// ProjectFormats entry) reads as v1-active through that default, which is
+// exactly the on-disk shape UpgradeProjectToV2 is built to consume.
+func plantV1Project(t *testing.T, s *Store, code string, raw []byte) {
+	t.Helper()
+	if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.logPath(code), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
+	s := testStore(t)
+	raw := v1RawLogFixture(t)
+	plantV1Project(t, s, "ATM", raw)
+
+	if f, err := s.projectFormat("ATM"); err != nil {
+		t.Fatal(err)
+	} else if f != StoreFormatV1 {
+		t.Fatalf("precondition: format = %q, want v1 (planted with no explicit entry)", f)
+	}
+
 	rep, err := s.UpgradeProjectToV2("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -27,289 +56,91 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	if rep.Project != "ATM" || rep.Events == 0 || rep.Format != StoreFormatV2 {
 		t.Fatalf("bad report: %#v", rep)
 	}
+
+	// log.jsonl is never rewritten by the upgrade: byte-identical before/after.
 	after, err := os.ReadFile(s.logPath("ATM"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(before) != string(after) {
+	if string(raw) != string(after) {
 		t.Fatal("v1 log changed during upgrade")
 	}
+
 	if _, err := os.Stat(s.eventsV2Path("ATM")); err != nil {
 		t.Fatalf("events.v2.jsonl missing: %v", err)
 	}
-	f, err := s.projectFormat("ATM")
+
+	if f, err := s.ProjectFormatForCLI("ATM"); err != nil {
+		t.Fatal(err)
+	} else if f != StoreFormatV2 {
+		t.Fatalf("format after upgrade = %q, want v2", f)
+	}
+
+	// Upgraded tasks/comments read back correctly via the v2 read path.
+	tasks := s.ListTasks(QueryFilters{Project: "ATM"})
+	if len(tasks) != 1 {
+		t.Fatalf("ListTasks after upgrade = %d tasks, want 1 (ATM-0002 was removed in the v1 log)", len(tasks))
+	}
+	tk := tasks[0]
+	if tk.ID != "ATM-0001" {
+		t.Fatalf("task id = %q, want ATM-0001", tk.ID)
+	}
+	if tk.Title != "First task, retitled" {
+		t.Fatalf("task title = %q, want %q", tk.Title, "First task, retitled")
+	}
+	wantLabels := []string{"ATM:status:done"}
+	if len(tk.Labels) != len(wantLabels) || tk.Labels[0] != wantLabels[0] {
+		t.Fatalf("task labels = %v, want %v", tk.Labels, wantLabels)
+	}
+
+	comments, err := s.ListComments(tk.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f != StoreFormatV2 {
-		t.Fatalf("format = %q, want v2", f)
-	}
-	if _, err := s.GetTask("ATM-0001"); err != nil {
-		t.Fatalf("cache not rebuilt from v2: %v", err)
+	if len(comments) != 2 {
+		t.Fatalf("comments after upgrade = %d, want 2", len(comments))
 	}
 }
 
-func TestReupgradeArchivesPreviousV2File(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateTask("ATM", "after rollback", "", nil, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(s.projectDir("ATM"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	archived := false
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "events.v2.reupgrade.") {
-			archived = true
-		}
-	}
-	if !archived {
-		t.Fatal("previous v2 file was not archived on re-upgrade")
-	}
-}
-
+// TestUpgradeRefusesEffectiveV2Project covers the format guard (spec L3-5):
+// upgrade reads FROM the frozen v1 log, so running it a second time against
+// an already-v2-active project (with no rollback, upgrade is at most once)
+// must refuse rather than rebuild from stale v1 bytes.
 func TestUpgradeRefusesEffectiveV2Project(t *testing.T) {
 	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
+	plantV1Project(t, s, "ATM", v1RawLogFixture(t))
+
 	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); !IsConflict(err) {
-		t.Fatalf("second upgrade of a v2-active project = %v, want ErrConflict (re-upgrade is legal only after rollback)", err)
+	_, err := s.UpgradeProjectToV2("ATM")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("second upgrade of a v2-active project = %v, want ErrConflict", err)
 	}
 }
 
-func TestUpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites(t *testing.T) {
+// TestUpgradeRefusesAPreexistingV2File covers the belt-and-braces disk check
+// (step 4 of UpgradeProjectToV2): with no rollback, a project is upgraded at
+// most once through the normal (format-gated) path, so the only way to reach
+// an orphaned events.v2.jsonl ahead of a v1-active project is by direct disk
+// manipulation. That must refuse, not displace, and must leave the v1
+// project's format untouched.
+func TestUpgradeRefusesAPreexistingV2File(t *testing.T) {
 	s := testStore(t)
-	if _, err := s.CreateProject("AAA", "first", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateProject("BBB", "second", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	good, err := os.ReadFile(s.logPath("BBB"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Corrupt BBB so the first --all pass upgrades AAA (sorted first), then
-	// fails on BBB and returns WITHOUT flipping ActiveFormat.
-	if err := os.WriteFile(s.logPath("BBB"), append(append([]byte{}, good...), []byte("{malformed\n")...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeAllToV2(); err == nil {
-		t.Fatal("expected --all to fail on the corrupted BBB log")
-	}
-	if f, _ := s.projectFormat("AAA"); f != StoreFormatV2 {
-		t.Fatalf("AAA format = %q, want v2 after the partial pass", f)
-	}
-	// The user keeps working: a post-cutover write lands in AAA's LIVE v2
-	// file. The mutator rewire is Task 8, so simulate it with the Task 2
-	// primitives — author a causal descendant of the current frontier.
-	snapA, err := s.readV2File("AAA", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clock := eventsource.NewClock(func() int64 { return 2000 })
-	ev, err := eventsource.NewEvent(clock, "r_0123456789abcdefghjkmnpqrs", snapA.Frontier, eventsource.Draft{
-		Actor:   "admin@cli:unset",
-		Action:  "project.name-changed",
-		Subject: eventsource.Subject{Kind: "project", Code: "AAA"},
-		Payload: map[string]any{"name": "post-cutover"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.WithLock("AAA", func() error { return s.appendV2EventLineLocked("AAA", ev.Raw) }); err != nil {
-		t.Fatal(err)
-	}
-	liveBefore, err := os.ReadFile(s.eventsV2Path("AAA"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Repair BBB and retry --all: AAA must be SKIPPED, never re-upgraded
-	// from its frozen v1 log.
-	if err := os.WriteFile(s.logPath("BBB"), good, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	reps, err := s.UpgradeAllToV2()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sawSkip := false
-	for _, r := range reps {
-		if r.Project == "AAA" && r.AlreadyV2 {
-			sawSkip = true
-		}
-	}
-	if !sawSkip {
-		t.Fatalf("reports = %#v: AAA must be reported as already-v2, not re-upgraded", reps)
-	}
-	liveAfter, err := os.ReadFile(s.eventsV2Path("AAA"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(liveBefore) != string(liveAfter) {
-		t.Fatal("retry rewrote AAA's live v2 file — post-cutover writes were destroyed")
-	}
-	if !strings.Contains(string(liveAfter), "post-cutover") {
-		t.Fatal("post-cutover event missing from AAA's live v2 file after retry")
-	}
-	dirEntries, err := os.ReadDir(s.projectDir("AAA"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range dirEntries {
-		if strings.HasPrefix(e.Name(), "events.v2.reupgrade.") {
-			t.Fatalf("retry archived AAA's live v2 file as %s — archives are never auto-merged, so the post-cutover write would silently vanish", e.Name())
-		}
-	}
-	if m, _ := s.readStoreMeta(); m.ActiveFormat != StoreFormatV2 {
-		t.Fatalf("ActiveFormat = %q after the full retry, want v2 (skipped projects count as already-upgraded for the flip)", m.ActiveFormat)
-	}
-}
+	plantV1Project(t, s, "ATM", v1RawLogFixture(t))
 
-func TestRollbackRefusesProjectWithoutV1Log(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+	if err := os.WriteFile(s.eventsV2Path("ATM"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Simulate absent v1 media (the real case is a v2-BORN project, whose
-	// birth path lands in Task 8 and whose test there re-asserts this).
-	if err := os.Remove(s.logPath("ATM")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
-		t.Fatalf("rollback without log.jsonl = %v, want ErrConflict (an empty replay would wipe the cache and leave an unreadable, unrecreatable zombie)", err)
-	}
-	// The refused rollback must leave the project fully v2-readable.
-	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
-		t.Fatalf("format after refused rollback = %q, want v2", f)
-	}
-	if _, err := s.verifyV2File("ATM"); err != nil {
-		t.Fatalf("v2 file damaged by refused rollback: %v", err)
-	}
-}
 
-// Two archives with the same reason inside one UTC second must not collide:
-// os.Rename overwrites its destination silently, so a naive timestamped name
-// would destroy the earlier archive — the only surviving evidence of the
-// events it held.
-func TestArchiveV2FileNeverOverwritesAPreviousArchive(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
+	_, err := s.UpgradeProjectToV2("ATM")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("upgrade with a pre-existing events.v2.jsonl = %v, want ErrConflict", err)
 	}
-	contents := []string{"first archive\n", "second archive\n"}
-	var paths []string
-	for _, body := range contents {
-		if err := os.WriteFile(s.eventsV2Path("ATM"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		var dst string
-		if err := s.WithLock("ATM", func() error {
-			var err error
-			dst, err = s.archiveV2FileLocked("ATM", "reupgrade")
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		paths = append(paths, dst)
-	}
-	if paths[0] == paths[1] {
-		t.Fatalf("both archives landed on %s — the first was overwritten", paths[0])
-	}
-	for i, p := range paths {
-		got, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("archive %s missing: %v", p, err)
-		}
-		if string(got) != contents[i] {
-			t.Fatalf("archive %s = %q, want %q", p, got, contents[i])
-		}
-	}
-}
-
-// A label that a task already carries can be turned INTO a board (`atm label
-// add --expr` on the same name) and later removed. LabelRemove deletes only
-// the label record — the name stays on the task — so the v1 replay still
-// lists it while the v2 fold drops the membership slot as inert (the label
-// state is still there, Tombstoned, and still computed). The compare oracle
-// must resolve computed-ness against ALL fold label states, tombstoned
-// included, or such a store can never be upgraded again.
-func TestUpgradeToleratesMembershipOfARemovedBoardLabel(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateTask("ATM", "carries the label", "", []string{"ATM:hot"}, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	// The plain label the task carries becomes a board...
-	if err := s.LabelAdd("ATM:hot", "now a board", "status:open", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	// ...and is then removed. The task keeps the name (RetainedUsage).
-	res, err := s.LabelRemove("ATM:hot", "admin@cli:unset")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.RetainedUsage == 0 {
-		t.Fatal("precondition: the task must still carry the removed label name")
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatalf("upgrade refused a store whose task carries a removed board label: %v", err)
-	}
-	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
-		t.Fatalf("format = %q, want v2", f)
-	}
-}
-
-// Rollback rebuilds the cache from v1 BEFORE flipping the format. If the v2
-// freshness row survived that rebuild, a crash in the window (or any later v2
-// reader) would see format=v2, a matching last_v2_event_count, and v1-derived
-// rows: a coherent-looking cache missing every post-cutover v2 write.
-func TestRollbackClearsV2FreshnessRow(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
-		t.Fatal(err)
-	} else if !ok {
-		t.Fatal("precondition: upgrade must record a v2 freshness row")
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if n, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
-		t.Fatal(err)
-	} else if ok {
-		t.Fatalf("v2 freshness row survived rollback (count=%d): a v1-derived cache would look fresh to a v2 reader", n)
+	// The refused upgrade must leave the v1 project readable: the format
+	// entry was never flipped.
+	if f, _ := s.projectFormat("ATM"); f != StoreFormatV1 {
+		t.Fatalf("format after refused upgrade = %q, want v1", f)
 	}
 }
 

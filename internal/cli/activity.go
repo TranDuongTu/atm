@@ -26,10 +26,8 @@ func newActivityCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return err
 			}
-			// ReadLogCached, not ReadLog: ReadLog is v1-only by design (it must
-			// keep reading the frozen log.jsonl for rollback), while
 			// ReadLogCached dispatches on the project's effective format and
-			// serves the v2 event file as compatibility entries. activity.Build
+			// serves the v2 event file as compatibility entries; activity.Build
 			// is unchanged. It already applies v1's lenient posture to a
 			// malformed v1 tail internally, so any error reaching here is worth
 			// surfacing: a corrupt v2 event file yields only its recoverable

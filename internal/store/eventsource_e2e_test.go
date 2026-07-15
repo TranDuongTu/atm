@@ -6,19 +6,17 @@ import (
 	"testing"
 )
 
-// TestEventsourceV2EndToEndUpgradeWriteRebuildVerifyRollbackReupgrade drives the
-// whole v2 lifecycle through the public store API: v1 authoring, upgrade,
-// post-cutover v2 writes, verify, the log-derived views (sequence probe,
-// history, activity, text search), rebuild, rollback, and re-upgrade.
-func TestEventsourceV2EndToEndUpgradeWriteRebuildVerifyRollbackReupgrade(t *testing.T) {
+// TestEventsourceV2EndToEndUpgradeWriteRebuildVerify drives the whole v2
+// lifecycle through the public store API: v1 authoring, upgrade, post-cutover
+// v2 writes, verify, the log-derived views (sequence probe, history,
+// activity, text search), and rebuild. There is no rollback: once a project
+// is cut over, it stays v2 forever.
+func TestEventsourceV2EndToEndUpgradeWriteRebuildVerify(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTask("ATM", "before", "", []string{"ATM:status:open"}, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTask("ATM", "after v2", "", nil, "admin@cli:unset"); err != nil {
@@ -48,22 +46,6 @@ func TestEventsourceV2EndToEndUpgradeWriteRebuildVerifyRollbackReupgrade(t *test
 	}
 	if tasks := s.ListTasks(QueryFilters{Project: "ATM"}); len(tasks) != 2 {
 		t.Fatalf("tasks after rebuild = %d, want 2", len(tasks))
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Rollback is a media switch, not an export: the v2-only task is gone.
-	if tasks := s.ListTasks(QueryFilters{Project: "ATM"}); len(tasks) != 1 {
-		t.Fatalf("tasks after rollback = %d, want 1 v1-derived task", len(tasks))
-	}
-	if _, err := s.CreateTask("ATM", "after rollback", "", nil, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if tasks := s.ListTasks(QueryFilters{Project: "ATM"}); len(tasks) != 2 {
-		t.Fatalf("tasks after re-upgrade = %d, want 2 v1-derived tasks", len(tasks))
 	}
 }
 
@@ -98,10 +80,7 @@ func TestEventsourceV2ListOrderFollowsCreationNotAlias(t *testing.T) {
 		}
 		wantC = append(wantC, c.ID)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Six hash-aliased tasks after cutover. Six random hashes land in creation
+	// Six more hash-aliased tasks. Six random hashes land in creation
 	// order by luck once in 720 runs, so an id-asc sort cannot pass this.
 	for i := 1; i <= 6; i++ {
 		tk, err := s.CreateTask("ATM", fmt.Sprintf("v2 task %d", i), "", nil, "admin@cli:unset")

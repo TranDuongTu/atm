@@ -53,7 +53,6 @@ func TestVerifyProjectReportsV2Format(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	_, _ = s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	r, err := s.VerifyProject("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +69,6 @@ func TestRebuildUsesV2ForV2ActiveProject(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	if err := os.Remove(s.cachePath()); err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +90,9 @@ func TestVerifyProjectV2KeepsVectorAndInquiryReports(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	_, _ = s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
-	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.
+	// This project is born v2 directly (no v1 log, so no v1-keyed index for
+	// an upgrade's cutover step to wipe); the vector batch is written straight
+	// into its v2 index.
 	if err := s.WriteVectorBatch("ATM", "test-model", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "test-model", Dim: 2, Vector: []float64{1, 0}, TextHash: "sha256:x", LogSeq: 1}}, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -116,17 +115,11 @@ func TestRebuildToleratesCorruptV2ProjectAndRebuildsHealthyOnes(t *testing.T) {
 	if _, err := s.CreateProject("AAA", "corrupt-to-be", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.CreateProject("ZZZ", "healthy", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
 	tk, err := s.CreateTask("ZZZ", "healthy task", "", nil, "admin@cli:unset")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ZZZ"); err != nil {
 		t.Fatal(err)
 	}
 	// A complete-but-unparseable line is an integrity error (never a repair
@@ -167,9 +160,6 @@ func TestVerifyProjectV2SurfacesNonIntegrityErrorInstead(t *testing.T) {
 	if _, err := s.CreateTask("AAA", "t", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
 	path := s.eventsV2Path("AAA")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
@@ -200,12 +190,6 @@ func TestRebuildDedupsSharedLabelNameAcrossV2Projects(t *testing.T) {
 	if _, err := s.CreateProject("BBB", "y", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("BBB"); err != nil {
-		t.Fatal(err)
-	}
 	appendRawV2LabelEvent(t, s, "AAA", "SHARED:tag", 5000)
 	appendRawV2LabelEvent(t, s, "BBB", "SHARED:tag", 5001)
 	resetCacheForRebuild(t, s)
@@ -232,10 +216,9 @@ func TestRebuildDoesNotWipeVectorIndexForV2Project(t *testing.T) {
 	if _, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.
+	// This project is born v2 directly (no v1 log, so no v1-keyed index for
+	// an upgrade's cutover step to wipe); the vector batch is written straight
+	// into its v2 index.
 	if err := s.WriteVectorBatch("ATM", "test-model", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "test-model", Dim: 2, Vector: []float64{1, 0}, TextHash: "sha256:x", LogSeq: 1}}, 3); err != nil {
 		t.Fatal(err)
 	}

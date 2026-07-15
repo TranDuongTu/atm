@@ -11,10 +11,10 @@
         "seq": 23
       }
     ],
-    "id": "ATM-0001-c0001",
+    "id": "ATM-66789a-c9e62",
     "labels": [],
-    "log_seq": 23,
-    "task_id": "ATM-0001",
+    "ordinal": 1,
+    "task_id": "ATM-66789a",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

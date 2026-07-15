@@ -111,8 +111,11 @@ func setup(t *testing.T) (*goldenHarness, string) {
 func TestContextAddThenCheckReportsOK(t *testing.T) {
 	h, _ := setup(t)
 	const actor = "manager@claude:opus-4.8"
-	h.run("task", "create", "--project", "TST", "--title", "Pointer: pkg", "--actor", actor)
-	if _, errOut, code := h.run("context", "add", "--task", "TST-0001",
+	tk, err := h.store.CreateTask("TST", "Pointer: pkg", "", nil, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("context", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "git:pkg", "--actor", actor); code != ExitSuccess {
 		t.Fatalf("context add: exit %d: %s", code, errOut)
 	}
@@ -135,10 +138,16 @@ func TestContextCheckIsReadOnly(t *testing.T) {
 	// pointers all at once.
 	h, repo := setup(t)
 	const actor = "manager@claude:opus-4.8"
-	h.run("task", "create", "--project", "TST", "--title", "Pointer: pkg", "--actor", actor)
-	h.run("task", "create", "--project", "TST", "--title", "Pointer: handwritten", "--actor", actor)
-	h.run("task", "label", "add", "--task", "TST-0002", "--label", "TST:context:documentation", "--actor", actor)
-	h.run("context", "add", "--task", "TST-0001", "--kind", "documentation",
+	tk1, err := h.store.CreateTask("TST", "Pointer: pkg", "", nil, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk2, err := h.store.CreateTask("TST", "Pointer: handwritten", "", nil, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.run("task", "label", "add", "--task", tk2.ID, "--label", "TST:context:documentation", "--actor", actor)
+	h.run("context", "add", "--task", tk1.ID, "--kind", "documentation",
 		"--source", "git:pkg", "--source", "external:jira/TST-9", "--actor", actor)
 	commitInRepo(t, repo, "pkg/a.go", "package pkg\n\nfunc New() {}\n") // force DRIFT
 
@@ -163,8 +172,11 @@ func TestContextCheckIsReadOnly(t *testing.T) {
 
 func TestContextAddRequiresActor(t *testing.T) {
 	h, _ := setup(t)
-	h.run("task", "create", "--project", "TST", "--title", "x", "--actor", "manager@claude:opus-4.8")
-	if _, _, code := h.run("context", "add", "--task", "TST-0001",
+	tk, err := h.store.CreateTask("TST", "x", "", nil, "manager@claude:opus-4.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, code := h.run("context", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "git:pkg"); code == ExitSuccess {
 		t.Error("mutating command must require --actor or ATM_ACTOR")
 	}
@@ -173,8 +185,11 @@ func TestContextAddRequiresActor(t *testing.T) {
 func TestContextRejectsUnkindedSource(t *testing.T) {
 	h, _ := setup(t)
 	const actor = "manager@claude:opus-4.8"
-	h.run("task", "create", "--project", "TST", "--title", "x", "--actor", actor)
-	_, _, code := h.run("context", "add", "--task", "TST-0001",
+	tk, err := h.store.CreateTask("TST", "x", "", nil, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, code := h.run("context", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "pkg", "--actor", actor)
 	if code != ExitUsage {
 		t.Errorf("bare path without a kind prefix must be a usage error, got exit %d", code)
@@ -187,8 +202,11 @@ func TestContextWorksWithoutSeededLabels(t *testing.T) {
 	// them -- so this proves the capability ensured them itself.
 	h, _ := setup(t)
 	const actor = "manager@claude:opus-4.8"
-	h.run("task", "create", "--project", "TST", "--title", "Pointer: pkg", "--actor", actor)
-	h.run("context", "add", "--task", "TST-0001", "--kind", "documentation",
+	tk, err := h.store.CreateTask("TST", "Pointer: pkg", "", nil, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.run("context", "add", "--task", tk.ID, "--kind", "documentation",
 		"--source", "git:pkg", "--actor", actor)
 
 	out, _, _ := h.run("label", "list", "--project", "TST")

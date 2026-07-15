@@ -28,11 +28,8 @@ type jsonTask struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Labels      []string `json:"labels"`
-	// LogSeq is the v1 log sequence number for a v1-active project. For a
-	// v2-active project this field is repurposed (Task 3's projector) to
-	// carry the v2 creation ordinal instead — a deliberate reuse of the
-	// field, not the v1 log seq.
-	LogSeq    int           `json:"log_seq"`
+	// Ordinal is the entity's v2 creation ordinal from the projector fold.
+	Ordinal   int           `json:"ordinal"`
 	History   []jsonHistory `json:"history"`
 	CreatedAt string        `json:"created_at"`
 	CreatedBy string        `json:"created_by"`
@@ -41,16 +38,9 @@ type jsonTask struct {
 }
 
 type jsonProject struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
-	// NextTaskN is the v1 sequential task-numbering cursor. It has no
-	// meaning for a v2-active project: projectFromV2 (v2 projector) leaves
-	// it 0, since v2 task aliases are hash-derived, not sequential, and
-	// every v1 project has NextTaskN >= 1 so 0 is unambiguous. JSON keeps
-	// the field (value 0) for a v2-active project; text output renders it
-	// as "-" via renderNextTaskN.
-	NextTaskN int                    `json:"next_task_n"`
-	LogSeq    int                    `json:"log_seq"`
+	Code      string                 `json:"code"`
+	Name      string                 `json:"name"`
+	Ordinal   int                    `json:"ordinal"`
 	History   []jsonHistory          `json:"history"`
 	CreatedAt string                 `json:"created_at"`
 	CreatedBy string                 `json:"created_by"`
@@ -103,7 +93,7 @@ func taskToJSON(t *store.Task, history []store.HistoryView) jsonTask {
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      normalizeStrSlice(t.Labels),
-		LogSeq:      t.LogSeq,
+		Ordinal:     t.Ordinal,
 		History:     historyToJSON(history),
 		CreatedAt:   store.RFC3339UTC(t.CreatedAt),
 		CreatedBy:   t.CreatedBy,
@@ -124,8 +114,7 @@ func projectToJSON(p *store.Project, history []store.HistoryView) jsonProject {
 	return jsonProject{
 		Code:      p.Code,
 		Name:      p.Name,
-		NextTaskN: p.NextTaskN,
-		LogSeq:    p.LogSeq,
+		Ordinal:   p.Ordinal,
 		History:   historyToJSON(history),
 		CreatedAt: store.RFC3339UTC(p.CreatedAt),
 		CreatedBy: p.CreatedBy,
@@ -199,24 +188,14 @@ func renderTaskListText(ts []jsonTask) string {
 	return b.String()
 }
 
-// renderNextTaskN renders a project's NextTaskN for text output. 0 means a
-// v2-active project (aliases are hash-derived, not sequential; see
-// jsonProject.NextTaskN), which is not meaningful to show as a task count.
-func renderNextTaskN(n int) string {
-	if n == 0 {
-		return "-" // v2-active project: aliases are hash-derived, not sequential
-	}
-	return fmt.Sprintf("%d", n)
-}
-
 func renderProjectText(p jsonProject) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s", p.Code, p.Name, renderNextTaskN(p.NextTaskN), renderTime(p.UpdatedAt))
+	return fmt.Sprintf("%s\t%s\t%s", p.Code, p.Name, renderTime(p.UpdatedAt))
 }
 
 func renderProjectListText(ps []jsonProject) string {
 	var b strings.Builder
 	for _, p := range ps {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", p.Code, p.Name, renderNextTaskN(p.NextTaskN), renderTime(p.UpdatedAt))
+		fmt.Fprintf(&b, "%s\t%s\t%s\n", p.Code, p.Name, renderTime(p.UpdatedAt))
 	}
 	return b.String()
 }
@@ -243,11 +222,8 @@ type jsonComment struct {
 	ReplyTo string   `json:"reply_to,omitempty"`
 	Body    string   `json:"body"`
 	Labels  []string `json:"labels"`
-	// LogSeq is the v1 log sequence number for a v1-active project. For a
-	// v2-active project this field is repurposed (Task 3's projector) to
-	// carry the v2 creation ordinal instead — a deliberate reuse of the
-	// field, not the v1 log seq.
-	LogSeq    int           `json:"log_seq"`
+	// Ordinal is the comment's v2 creation ordinal from the projector fold.
+	Ordinal   int           `json:"ordinal"`
 	History   []jsonHistory `json:"history"`
 	CreatedAt string        `json:"created_at"`
 	CreatedBy string        `json:"created_by"`
@@ -262,7 +238,7 @@ func commentToJSON(c *store.Comment, hv []store.HistoryView) jsonComment {
 		ReplyTo:   c.ReplyTo,
 		Body:      c.Body,
 		Labels:    normalizeStrSlice(c.Labels),
-		LogSeq:    c.LogSeq,
+		Ordinal:   c.Ordinal,
 		History:   historyToJSON(hv),
 		CreatedAt: store.RFC3339UTC(c.CreatedAt),
 		CreatedBy: c.CreatedBy,

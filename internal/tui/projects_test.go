@@ -24,7 +24,7 @@ func TestRenderPersonaActivityChart(t *testing.T) {
 	m.projectScope = "ATM"
 	m.refreshAll()
 
-	entries, err := m.store.ReadLog("ATM")
+	entries, err := m.store.ReadLogCached("ATM")
 	if err != nil && !store.IsIntegrity(err) {
 		t.Fatalf("ReadLog: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestRenderPersonaActivityChartEmpty(t *testing.T) {
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
 	m.refreshAll()
-	entries, _ := m.store.ReadLog("ATM")
+	entries, _ := m.store.ReadLogCached("ATM")
 	lines := m.projects.renderPersonaActivityChart(entries, 1)
 	view := strings.Join(lines, "\n")
 	if !strings.Contains(view, "activity by persona") {
@@ -69,7 +69,7 @@ func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
 	m.SetSize(80, 24)
 	m.projectScope = "ATM"
 	m.refreshAll()
-	entries, err := m.store.ReadLog("ATM")
+	entries, err := m.store.ReadLogCached("ATM")
 	if err != nil && !store.IsIntegrity(err) {
 		t.Fatalf("ReadLog: %v", err)
 	}

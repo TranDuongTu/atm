@@ -8,12 +8,12 @@
           "created_by": "admin@cli:unset",
           "description": "",
           "history": [],
-          "id": "ATM-0001",
+          "id": "ATM-e98fef",
           "labels": [
             "ATM:status:open",
             "ATM:type:bug"
           ],
-          "log_seq": 21,
+          "ordinal": 1,
           "project_code": "ATM",
           "title": "Fix label reconciliation",
           "updated_at": "TIMESTAMP",
@@ -28,11 +28,11 @@
       "created_by": "admin@cli:unset",
       "description": "",
       "history": [],
-      "id": "ATM-0002",
+      "id": "ATM-cbc733",
       "labels": [
         "ATM:context:agent"
       ],
-      "log_seq": 22,
+      "ordinal": 2,
       "project_code": "ATM",
       "title": "Seed index tasks",
       "updated_at": "TIMESTAMP",

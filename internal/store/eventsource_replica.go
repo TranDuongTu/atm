@@ -1,7 +1,6 @@
 package store
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -105,14 +104,14 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 	var replicaID string
 	err := s.mutateStoreMeta(func(m *StoreMeta) error {
 		if m.StoreInstanceID == "" {
-			minted, err := eventsource.MintReplicaID(rand.Reader)
+			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
 			if err != nil {
 				return err
 			}
 			m.StoreInstanceID = minted
 		}
 		if m.ReplicaID == "" {
-			minted, err := eventsource.MintReplicaID(rand.Reader)
+			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
 			if err != nil {
 				return err
 			}
@@ -128,7 +127,7 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 			_ = json.Unmarshal(raw, &marker)
 		}
 		if marker.StoreInstanceID != "" && marker.StoreInstanceID == m.StoreInstanceID && marker.StorePath != s.Root {
-			minted, err := eventsource.MintReplicaID(rand.Reader)
+			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
 			if err != nil {
 				return err
 			}

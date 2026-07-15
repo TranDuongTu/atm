@@ -37,7 +37,6 @@ func copyTree(src, dst string) error {
 func TestCopiedStoreRemintsReplicaBeforeWrite(t *testing.T) {
 	original := testStore(t)
 	_, _ = original.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = original.UpgradeProjectToV2("ATM")
 	first, err := original.ensureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +65,6 @@ func TestCopiedStoreRemintsReplicaBeforeWrite(t *testing.T) {
 func TestUncopiedStoreKeepsReplicaAcrossWrites(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	first, err := s.ensureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +88,6 @@ func TestUncopiedStoreKeepsReplicaAcrossWrites(t *testing.T) {
 func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 	original := testStore(t)
 	_, _ = original.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = original.UpgradeProjectToV2("ATM")
 	if _, _, err := original.appendV2TaskCreatedLocked("ATM", "first task", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}

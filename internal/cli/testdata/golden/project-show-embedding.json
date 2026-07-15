@@ -17,9 +17,8 @@
         "seq": 1
       }
     ],
-    "log_seq": 1,
     "name": "Foo",
-    "next_task_n": 1,
+    "ordinal": 0,
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
