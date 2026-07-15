@@ -76,3 +76,123 @@ func TestSetEmbeddingConfigRequiresActor(t *testing.T) {
 		t.Errorf("err = %v, want ErrUsage (missing actor)", err)
 	}
 }
+
+func TestProjectRemoteRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "origin", "https://example.com/atm-remote", testActor); err != nil {
+		t.Fatalf("SetProjectRemote: %v", err)
+	}
+	remotes, err := s.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRemotes: %v", err)
+	}
+	if remotes["origin"] != "https://example.com/atm-remote" {
+		t.Errorf("remotes[origin] = %q, want https://example.com/atm-remote", remotes["origin"])
+	}
+
+	if err := s.RemoveProjectRemote("ATM", "origin", testActor); err != nil {
+		t.Fatalf("RemoveProjectRemote: %v", err)
+	}
+	remotes, err = s.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRemotes after remove: %v", err)
+	}
+	if _, ok := remotes["origin"]; ok {
+		t.Errorf("remotes still contains origin after remove: %+v", remotes)
+	}
+}
+
+func TestSetProjectRemoteMultipleNamesCoexist(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "origin", "https://example.com/a", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "backup", "https://example.com/b", testActor); err != nil {
+		t.Fatal(err)
+	}
+	remotes, err := s.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes) != 2 || remotes["origin"] != "https://example.com/a" || remotes["backup"] != "https://example.com/b" {
+		t.Errorf("remotes = %+v, want both origin and backup", remotes)
+	}
+}
+
+func TestRemoveProjectRemoteUnknownNameReturnsNotFound(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	err := s.RemoveProjectRemote("ATM", "nope", testActor)
+	if !IsNotFound(err) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetProjectRemoteEmptyNameOrURLIsUsage(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "", "https://example.com/a", testActor); !IsUsage(err) {
+		t.Errorf("empty name: err = %v, want ErrUsage", err)
+	}
+	if err := s.SetProjectRemote("ATM", "origin", "", testActor); !IsUsage(err) {
+		t.Errorf("empty url: err = %v, want ErrUsage", err)
+	}
+}
+
+func TestSetProjectRemoteRequiresActor(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	err := s.SetProjectRemote("ATM", "origin", "https://example.com/a", "")
+	if !IsUsage(err) {
+		t.Errorf("err = %v, want ErrUsage (missing actor)", err)
+	}
+}
+
+func TestGetProjectConfigLoadsWithOnlyRemotes(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "origin", "https://example.com/a", testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatalf("GetProjectConfig: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetProjectConfig returned nil for config holding only remotes")
+	}
+	if got.Embedding != nil {
+		t.Errorf("Embedding = %+v, want nil", got.Embedding)
+	}
+	if got.Remotes["origin"] != "https://example.com/a" {
+		t.Errorf("Remotes[origin] = %q", got.Remotes["origin"])
+	}
+}
+
+func TestProjectRemotesAbsentConfigReturnsNilMapNoError(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	remotes, err := s.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRemotes: %v", err)
+	}
+	if len(remotes) != 0 {
+		t.Errorf("remotes = %+v, want empty", remotes)
+	}
+}

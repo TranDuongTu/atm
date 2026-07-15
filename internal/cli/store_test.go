@@ -332,3 +332,312 @@ func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
 	mustContain(t, out, c.ID)
 	mustContain(t, out, "hash comment body")
 }
+
+func TestStoreRemoteAddListRemoveRoundTrip(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	mustContain(t, out, "origin")
+
+	out = runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	if out != "origin\thttps://example.com/atm.git\n" {
+		t.Fatalf("unexpected list output: %q", out)
+	}
+
+	out = runArgsOut(t, st, "store", "remote", "remove", "origin", "--project", "ATM", "--actor", "admin@cli:unset")
+	mustContain(t, out, "origin")
+
+	out = runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	if out != "" {
+		t.Fatalf("expected empty list after remove, got %q", out)
+	}
+}
+
+func TestStoreRemoteAddRequiresProject(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, code := runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--actor", "admin@cli:unset")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage without --project, got %d", code)
+	}
+}
+
+func TestStoreRemoteRemoveRequiresProject(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, code := runArgs(st, "store", "remote", "remove", "origin", "--actor", "admin@cli:unset")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage without --project, got %d", code)
+	}
+}
+
+func TestStoreRemoteRemoveUnknownNotFound(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, code := runArgs(st, "store", "remote", "remove", "nope", "--project", "ATM", "--actor", "admin@cli:unset")
+	if code != ExitNotFound {
+		t.Fatalf("expected ExitNotFound removing unknown remote, got %d", code)
+	}
+}
+
+func TestStoreRemoteListJSON(t *testing.T) {
+	st := newTestCLI(t)
+	st.output = outputJSON
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	mustContain(t, out, `"project": "ATM"`)
+	mustContain(t, out, `"name": "origin"`)
+	mustContain(t, out, `"url": "https://example.com/atm.git"`)
+}
+
+func TestStoreRemoteListAllProjects(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "project", "create", "--code", "BVX", "--name", "y", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "list")
+	if out != "ATM\torigin\thttps://example.com/atm.git\n" {
+		t.Fatalf("unexpected all-projects list output: %q", out)
+	}
+}
+
+// reopenTasks reopens h's store on disk (a fresh cache) and lists a project's
+// tasks. The CLI syncs through a store handle it opens per command, so the
+// harness's own long-lived handle can hold a stale projection; a fresh Open
+// reads what the sync just wrote.
+func reopenTasks(t *testing.T, h *testCLI, code string) []*store.Task {
+	t.Helper()
+	s, err := store.Open(h.store.StorePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.ListTasks(store.QueryFilters{Project: code})
+}
+
+func TestStoreSyncPullPushAgainstDirRemote(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "from A", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+	mustContain(t, out, "ATM: pulled 0, pushed ")
+	mustNotContain(t, out, "pushed 0")
+
+	b := newTestCLI(t)
+	out = runArgsOut(t, b, "store", "sync", remote, "--project", "ATM", "--pull")
+	mustContain(t, out, "ATM: pulled ")
+	mustContain(t, out, "bootstrapped")
+
+	tasks := reopenTasks(t, b, "ATM")
+	if len(tasks) != 1 || tasks[0].Title != "from A" {
+		t.Fatalf("peer store did not receive A's task: %+v", tasks)
+	}
+}
+
+func TestStoreSyncDefaultRemoteOrigin(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	_ = runArgsOut(t, a, "store", "remote", "add", "origin", remote, "--project", "ATM", "--actor", "admin@cli:unset")
+
+	// No positional arg -> the project's "origin" remote is used.
+	out := runArgsOut(t, a, "store", "sync", "--project", "ATM", "--push")
+	mustContain(t, out, "ATM: pulled 0, pushed ")
+	mustNotContain(t, out, "pushed 0")
+	if _, err := os.Stat(filepath.Join(remote, "ATM", "events.v2.jsonl")); err != nil {
+		t.Fatalf("origin remote did not receive events: %v", err)
+	}
+}
+
+func TestStoreSyncDefaultRemoteOriginMissing(t *testing.T) {
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	// No positional arg and no "origin" remote -> failure.
+	_, _, code := runArgs(a, "store", "sync", "--project", "ATM", "--push")
+	if code == ExitSuccess {
+		t.Fatal("expected non-zero exit when the project has no origin remote")
+	}
+}
+
+func TestStoreSyncAdHocURLNotPersisted(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	// Syncing an ad-hoc URL into an EXISTING project must not persist a remote.
+	_ = runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push", "--actor", "admin@cli:unset")
+	remotes, err := a.store.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes) != 0 {
+		t.Fatalf("ad-hoc URL sync must not persist a remote, got %v", remotes)
+	}
+}
+
+func TestStoreSyncDryRunReportsNoChange(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	// Bring the remote fully up to date, then a bidirectional dry-run should
+	// report zero movement and touch nothing.
+	_ = runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+	out := runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--dry-run")
+	mustContain(t, out, "ATM: pulled 0, pushed 0")
+	mustContain(t, out, "dry run")
+}
+
+func TestStoreSyncAllProjectsWithRemotes(t *testing.T) {
+	good := t.TempDir()
+	broken := filepath.Join(t.TempDir(), "does-not-exist")
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateProject("BVX", "y", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("BVX", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.SetProjectRemote("ATM", "origin", good, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.SetProjectRemote("BVX", "origin", broken, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No --project: sweep every project with a remote. BVX's remote is
+	// unresolvable, but ATM must still sync and BOTH must be reported.
+	out, _, code := runArgs(a, "store", "sync", "--push")
+	if code == ExitSuccess {
+		t.Fatalf("expected non-zero exit when one project's sync fails:\n%s", out)
+	}
+	mustContain(t, out, "ATM: pulled 0, pushed ")
+	mustNotContain(t, out, "pushed 0")
+	mustContain(t, out, "BVX")
+	mustContain(t, out, "failed")
+	if _, err := os.Stat(filepath.Join(good, "ATM", "events.v2.jsonl")); err != nil {
+		t.Fatalf("ATM must have synced despite BVX failing: %v", err)
+	}
+}
+
+func TestStoreSyncV1ProjectRefusedWithUpgradeHint(t *testing.T) {
+	remote := t.TempDir()
+	a := newTestCLI(t)
+	plantV1LogCLI(t, a.store, "ATM")
+
+	out, _, code := runArgs(a, "store", "sync", remote, "--project", "ATM", "--push")
+	if code == ExitSuccess {
+		t.Fatalf("expected non-zero exit for a v1-active project:\n%s", out)
+	}
+	mustContain(t, out, "atm store upgrade")
+}
+
+func TestStoreSyncBootstrapPersistsOrigin(t *testing.T) {
+	remote := t.TempDir()
+
+	// Publish ATM's events to the remote from an origin store.
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	_ = runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+
+	// A fresh store bootstraps ATM from the ad-hoc URL; the URL is persisted
+	// as "origin" because the sync created the project.
+	b := newTestCLI(t)
+	out := runArgsOut(t, b, "store", "sync", remote, "--project", "ATM", "--pull", "--actor", "admin@cli:unset")
+	mustContain(t, out, "bootstrapped")
+
+	tasks := reopenTasks(t, b, "ATM")
+	if len(tasks) != 1 {
+		t.Fatalf("bootstrap did not materialize the project: %+v", tasks)
+	}
+	remotes, err := b.store.ProjectRemotes("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remotes["origin"] != remote {
+		t.Fatalf("bootstrap must persist origin=%q, got %v", remote, remotes)
+	}
+}
+
+func TestStoreSyncReportsContested(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.store.CreateTask("ATM", "orig", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+
+	// B bootstraps from the remote, then both sides edit the same title slot
+	// concurrently; A publishes its edit, B pulls it and detects the clash.
+	b := newTestCLI(t)
+	_ = runArgsOut(t, b, "store", "sync", remote, "--project", "ATM", "--pull")
+
+	if err := a.store.SetTitle(tk.ID, "A title", "developer@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	_ = runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+	if err := b.store.SetTitle(tk.ID, "B title", "manager@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runArgsOut(t, b, "store", "sync", remote, "--project", "ATM", "--pull")
+	mustContain(t, out, "contested")
+}
+
+func TestStoreSyncJSONReport(t *testing.T) {
+	remote := t.TempDir()
+
+	a := newTestCLI(t)
+	a.output = outputJSON
+	if _, err := a.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, a, "store", "sync", remote, "--project", "ATM", "--push")
+	mustContain(t, out, `"project": "ATM"`)
+	mustContain(t, out, `"remote_absent": true`)
+	// A push against an absent remote moves the full event set; the exact
+	// count is an implementation detail, so assert only that it is non-zero.
+	mustNotContain(t, out, `"pushed": 0`)
+}
