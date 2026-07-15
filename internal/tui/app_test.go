@@ -1617,7 +1617,7 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			}
 
 			// Every workspace line must be exactly m.width columns wide so
-			// the three pane borders stay aligned vertically.
+			// the pane borders stay aligned vertically.
 			ws := m.renderWorkspace()
 			for i, line := range strings.Split(ws, "\n") {
 				if w := lipgloss.Width(line); w != m.width {
@@ -1626,7 +1626,10 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			}
 
 			// Switching panes (1 -> 2 -> 3 -> 2) must not change the workspace
-			// geometry either; it only changes which pane is focused.
+			// geometry either; it only changes which pane is focused. "3" is a
+			// no-op since Task 3 removed the Boards pane; it is kept in the
+			// sequence to confirm a stale/removed key press does not disturb
+			// the geometry.
 			update(t, m, "1")
 			update(t, m, "2")
 			update(t, m, "3")

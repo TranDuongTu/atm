@@ -60,8 +60,8 @@ const (
 	confirmDropIndex
 )
 
-// Model is the root Bubble Tea model for the v2 TUI: a persistent three-pane
-// workspace (Projects, Tasks, Labels), a help overlay, and a status line.
+// Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
+// workspace (Projects, Tasks), a help overlay, and a status line.
 type Model struct {
 	store    *store.Store
 	storeSet bool
@@ -136,7 +136,7 @@ type NewModelOpts struct {
 }
 
 // NewModel opens (and auto-inits if absent) the store and builds the root
-// Model with all three panes initialized.
+// Model with all its sub-models initialized.
 func NewModel(opts NewModelOpts) (*Model, error) {
 	root := store.ResolveStorePath(opts.StorePath)
 	s, err := store.Open(root)
