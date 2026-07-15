@@ -32,7 +32,7 @@ var keymapRows = []keyEntry{
 	{"{ / }", "-", "move thumbnail chart cursor", "-", "-"},
 	{"PgDn/PgUp", "-", "page task list", "-", "scroll (detail)"},
 	{"s", "select project", "cycle sort", "-", "-"},
-	{"S", "-", "-", "-", "-"},
+	{"S", "-", "seed default labels", "-", "-"},
 	{"a", "add project", "add task", "-", "-"},
 	{"n", "-", "new board", "-", "-"},
 	{"e", "-", "edit board", "-", "edit title (task)"},

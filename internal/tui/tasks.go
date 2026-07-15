@@ -525,6 +525,13 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		t.openCreateForm()
+	case "n", "e", "S", "d", "l":
+		// Board-authoring keys, scoped to the SELECTED board at its current
+		// drill level. Delegated to a selection-aware handler on boardsModel
+		// (not handleTableKey, whose e targets b.cursor — wrong in the merged
+		// pane, where cycleBoard resets b.cursor to 0 and the selection lives
+		// at b.ringIndex()).
+		return t.m.boards.handleAuthoringKey(k)
 	case "enter":
 		if t.grouped() {
 			// Enter is context-sensitive: toggle a header, or open detail

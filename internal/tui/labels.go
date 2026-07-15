@@ -709,6 +709,74 @@ func (b *boardsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// handleAuthoringKey dispatches the board-authoring keys (n/e/S/d/l) from the
+// merged Tasks pane, scoped to the SELECTED board and current drill level.
+// It is the selection-aware counterpart to handleTableKey/handleChartKey/
+// handleDetailKey (which stay driven directly by the Task-3 re-homed tests):
+//
+//   - n / S are project-scoped and work at any level.
+//   - e (table level only) edits the SELECTED board — b.rows[b.ringIndex()],
+//     NOT b.cursor. cycleBoard resets b.cursor to 0, so in the merged pane the
+//     cursor no longer tracks the selection; reading it would edit index 0.
+//   - d / l describe/remove a label. At chart level they target the {/}-moved
+//     chart cursor (b.chartLabelRow, keyed on b.cursor); at a leaf board's
+//     detail they target b.detail.row. Both are already correct in the merged
+//     pane, so they reuse the same scoping the old handlers use.
+//
+// Nav keys (j/k/g/[/]/enter/esc) and a=add-task are never routed here — only
+// n/e/S/d/l reach this handler.
+func (b *boardsModel) handleAuthoringKey(k tea.KeyMsg) tea.Cmd {
+	if b.m.projectScope == "" {
+		return nil
+	}
+	switch k.String() {
+	case "n":
+		b.m.openBoardEditorForm(b.m.projectScope, "")
+	case "S":
+		return b.seedDefaults()
+	case "e":
+		// Edit the SELECTED board (meaningful only at table level). A board (a
+		// label with an Expr) opens the full editor; a namespace row opens its
+		// descriptor's description-only editor.
+		if b.level != lLevelTable {
+			return nil
+		}
+		idx := b.ringIndex()
+		if idx < 0 {
+			return nil
+		}
+		r := b.rows[idx]
+		if r.Expr != "" {
+			b.m.openBoardEditorForm(b.m.projectScope, r.Name)
+		} else if r.Expandable {
+			b.m.openNamespaceDescribeForm(b.m.projectScope, r.Name, r.Description)
+		}
+	case "d":
+		switch b.level {
+		case lLevelChart:
+			if r, ok := b.chartLabelRow(); ok {
+				b.m.openLabelDescribeFormFor(r.suffix, r.description)
+			}
+		case lLevelDetail:
+			if b.detail.leaf == "" {
+				b.m.openLabelDescribeFormFor(b.detail.row.suffix, b.detail.row.description)
+			}
+		}
+	case "l":
+		switch b.level {
+		case lLevelChart:
+			if r, ok := b.chartLabelRow(); ok {
+				b.m.openLabelRemoveFormFor(b.m.projectScope, r.suffix)
+			}
+		case lLevelDetail:
+			if b.detail.leaf == "" {
+				b.m.openLabelRemoveFormFor(b.m.projectScope, b.detail.row.suffix)
+			}
+		}
+	}
+	return nil
+}
+
 func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "j", "down":
