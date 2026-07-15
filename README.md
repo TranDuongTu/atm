@@ -29,7 +29,8 @@ atm dev --project ATM --agent claude
 
 atm manage --project ATM                # curate the backlog (default action)
 atm manage --project ATM --recall       # answer project questions from the ledger (read-only)
-atm manage --project ATM --onboarding   # learn a repo and organize it for later agents
+
+atm manage --project ATM --mapping      # reconcile the context map against the repo
 ```
 
 ## Why I Built ATM
@@ -64,55 +65,18 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ATM stores plain files under `ATM_HOME`, or `~/.config/atm` by default. A project is not the same thing as a repository; one project can cover multiple repos.
 
-### Upgrade An Existing Store To EventSource v2
+### Upgrade To EventSource v2
 
-ATM preserves each existing v1 project log during upgrade. The upgrade writes a new v2 event file next to it, verifies the result, rebuilds `cache.db`, and only then switches the project to v2.
-
-```sh
-atm store path
-atm store verify
-atm store upgrade --project ATM
-atm store verify
-```
-
-To upgrade every project:
+v2 makes each project's append-only `projects/<CODE>/events.v2.jsonl` the source of truth. Upgrade writes it next to the existing `log.jsonl`, verifies it against a replay of that log, and rebuilds `cache.db` before cutting the project over. The v1 log is preserved untouched, so a failed or aborted upgrade leaves the project exactly as it was.
 
 ```sh
-atm store upgrade --all
-atm store verify
+atm store upgrade --all      # upgrade every project; new projects are then born on v2 too
+atm store verify             # confirm every project reads back cleanly
 ```
 
-`upgrade --all` also flips the store's active format to v2 after every project upgrades, so projects created afterwards are born on v2 with no `log.jsonl` at all. To change only that default — for example to make new projects v1 again after a rollback — use:
+Use `atm store upgrade --project <CODE>` to upgrade a single project without changing the store default. Upgrade clears the project's vector index, so the next `atm index` pass re-embeds.
 
-```sh
-atm store set-format --format v1
-```
-
-`set-format --format v2` is refused while any project lacks an explicit per-project format entry; run `atm store upgrade --all` first. Upgrade and rollback each delete the project's vector indexes (they are keyed to the old format's sequence); the next `atm index` pass re-embeds.
-
-The preserved v1 log stays at:
-
-```text
-$ATM_HOME/projects/<CODE>/log.jsonl
-```
-
-The v2 source of truth is:
-
-```text
-$ATM_HOME/projects/<CODE>/events.v2.jsonl
-```
-
-If upgrade fails, ATM leaves the project on v1. To switch back before continuing:
-
-```sh
-atm store rollback --project ATM --to v1
-```
-
-Rollback does not copy v2-only writes back into v1. If you write more data while back on v1, run upgrade again; ATM rebuilds the v2 event file from the current v1 log and moves the previous v2 file aside.
-
-After cutover the project keeps every id it already had — an upgraded `ATM-0001` stays `ATM-0001` — but new tasks and comments get hash-derived ids (`ATM-9f3c1a`, `ATM-9f3c1a-c8b2`) instead of the old numeric counters. Both generations are accepted everywhere an id is accepted, so existing scripts keep working. The counters themselves are gone on v2: `atm project show` renders `next_task_n` as `-`, and lists and comment threads are ordered by event creation order rather than by id.
-
-Both commands guard their preconditions: `atm store upgrade` refuses a project that is already v2-active (upgrade reads from the v1 log; re-upgrade is only legal after a rollback), and a re-run of `atm store upgrade --all` skips projects that already cut over — retrying after a partial failure never rewrites a live v2 project. `atm store rollback` refuses a project that has no `log.jsonl` (a project born v2 has no v1 state to roll back to).
+After cutover a project keeps every id it already had — `ATM-0001` stays `ATM-0001` — while new tasks and comments get hash ids like `ATM-9f3c1a`, accepted everywhere the old ids are. `next_task_n` no longer applies (shown as `-`), and lists follow event-creation order.
 
 ## Build And Verify
 
