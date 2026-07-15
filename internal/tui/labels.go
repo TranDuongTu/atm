@@ -239,8 +239,13 @@ func (b *boardsModel) refresh() {
 }
 
 // selectDefault selects the Open Tasks board if present, else the first ring
-// board. Called on project select after EnsureVocabulary.
+// board. Called on project select after EnsureVocabulary, and from refresh()
+// when the previously selected board vanished mid-session — that fallback can
+// fire while a chart/detail is drilled into the now-vanished board, so this
+// always resets the drill state for the same leak-prevention invariant as
+// cycleBoard/jumpPin.
 func (b *boardsModel) selectDefault() {
+	b.resetDrill()
 	want := workflow.BoardOpenTasks(b.m.projectScope)
 	for _, r := range b.rows {
 		if r.FullName == want {
@@ -308,8 +313,21 @@ func (b *boardsModel) jumpPin(n int) bool {
 		return false
 	}
 	b.selected = b.pins[n-1]
+	// A jump must not leak a stale chart/detail/cursor from whatever board was
+	// previously drilled into (see cycleBoard's resetDrill call for the same
+	// invariant).
+	b.resetDrill()
 	b.applyFocus()
 	return true
+}
+
+// resetDrill returns the SELECTED thumbnail to L0 so a board switch never
+// leaks a stale chart/detail/cursor into the newly selected board.
+func (b *boardsModel) resetDrill() {
+	b.level = lLevelTable
+	b.ns = ""
+	b.cursor = 0
+	b.detail = labelDetailState{}
 }
 
 func (b *boardsModel) persistPins() {
@@ -337,12 +355,7 @@ func (b *boardsModel) cycleBoard(dir int) {
 		idx += len(b.rows)
 	}
 	b.selected = b.rows[idx].FullName
-	// Switching boards must not leak a stale chart/detail/cursor into the new
-	// selection — the new SELECTED board always starts its thumbnail at L0.
-	b.level = lLevelTable
-	b.ns = ""
-	b.cursor = 0
-	b.detail = labelDetailState{}
+	b.resetDrill()
 	b.applyFocus()
 }
 

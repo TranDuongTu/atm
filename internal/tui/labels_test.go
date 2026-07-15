@@ -107,6 +107,66 @@ func TestJumpPinSelectsNth(t *testing.T) {
 	}
 }
 
+// TestJumpPinResetsDrillState guards against a jump leaking a stale
+// chart/detail/cursor from the previously-drilled board into the newly
+// jumped-to board: drill into a namespace board's chart, then jumpPin to a
+// DIFFERENT pinned board, and confirm the thumbnail is back at L0 rather
+// than still showing the old namespace's chart under the new title.
+func TestJumpPinResetsDrillState(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+
+	var statusFull, priorityFull string
+	for _, r := range m.boards.rows {
+		switch r.Name {
+		case "status":
+			statusFull = r.FullName
+		case "priority":
+			priorityFull = r.FullName
+		}
+	}
+	if statusFull == "" || priorityFull == "" {
+		t.Fatalf("expected status and priority namespace boards, got rows: %v", m.boards.rowNames())
+	}
+
+	// Pin the priority board (the jump target) while it is SELECTED, so the
+	// jump lands on a board different from the one we are about to drill into.
+	m.boards.selected = priorityFull
+	m.boards.applyFocus()
+	m.boards.togglePin()
+
+	// Select and drill into the status namespace's chart.
+	m.boards.selected = statusFull
+	m.boards.applyFocus()
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v, want lLevelChart after drillIn on status", m.boards.level)
+	}
+
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.selected != priorityFull {
+		t.Fatalf("selected = %q, want %q", m.boards.selected, priorityFull)
+	}
+	if m.boards.level != lLevelTable {
+		t.Errorf("level = %v after jumpPin, want lLevelTable (stale chart leaked)", m.boards.level)
+	}
+	if m.boards.ns != "" {
+		t.Errorf("ns = %q after jumpPin, want empty (stale namespace leaked)", m.boards.ns)
+	}
+	if m.boards.detail != (labelDetailState{}) {
+		t.Errorf("detail = %+v after jumpPin, want zero value", m.boards.detail)
+	}
+	if m.boards.cursor != 0 {
+		t.Errorf("cursor = %d after jumpPin, want 0", m.boards.cursor)
+	}
+}
+
 // --- Boards pane tests ---
 
 // newTestStore opens a fresh temp-dir store for direct store-API tests that
