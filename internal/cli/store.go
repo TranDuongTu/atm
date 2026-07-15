@@ -54,57 +54,27 @@ func newStoreCmd(st *cliState) *cobra.Command {
 			}
 			from, _ := cmd.Flags().GetInt("from")
 			to, _ := cmd.Flags().GetInt("to")
-			// A v2-active project's truth is events.v2.jsonl; its log.jsonl is
-			// either frozen at the cutover point (upgraded) or absent entirely
-			// (born v2), so the v1 renderer would show a stale — or empty — log.
-			// --from/--to filter the DISPLAY ordinal, the v2 counterpart of the
-			// v1 seq.
-			if f, ferr := s.ProjectFormatForCLI(args[0]); ferr == nil && f == store.StoreFormatV2 {
-				events, err := s.ReadV2LogForDisplay(args[0])
-				if err != nil {
-					return err
-				}
-				filtered := make([]store.V2LogView, 0, len(events))
-				for _, e := range events {
-					if from != 0 && e.Ordinal < from {
-						continue
-					}
-					if to != 0 && e.Ordinal > to {
-						continue
-					}
-					filtered = append(filtered, e)
-				}
-				if st.isJSON() {
-					return writeJSON(st.stdout(), filtered)
-				}
-				for _, e := range filtered {
-					fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, store.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
-				}
-				return nil
-			}
-			entries, err := s.ReadLog(args[0])
-			if err != nil && !store.IsIntegrity(err) {
+			// A project's truth is events.v2.jsonl; --from/--to filter the
+			// DISPLAY ordinal.
+			events, err := s.ReadV2LogForDisplay(args[0])
+			if err != nil {
 				return err
 			}
-			filtered := make([]store.LogEntry, 0, len(entries))
-			for _, e := range entries {
-				if from != 0 && e.Seq < from {
+			filtered := make([]store.V2LogView, 0, len(events))
+			for _, e := range events {
+				if from != 0 && e.Ordinal < from {
 					continue
 				}
-				if to != 0 && e.Seq > to {
+				if to != 0 && e.Ordinal > to {
 					continue
 				}
 				filtered = append(filtered, e)
 			}
-			entries = filtered
 			if st.isJSON() {
-				if err != nil {
-					return err
-				}
-				return writeJSON(st.stdout(), entries)
+				return writeJSON(st.stdout(), filtered)
 			}
-			for _, e := range entries {
-				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\n", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action, renderSubject(e.Subject))
+			for _, e := range filtered {
+				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, store.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
 			}
 			return nil
 		},

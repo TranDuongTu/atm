@@ -22,10 +22,6 @@ func TestAppendLogMonotoneSeq(t *testing.T) {
 	if e2.Seq != 2 {
 		t.Fatalf("second seq = %d want 2", e2.Seq)
 	}
-	last, _ := s.LastLogSeq("ATM")
-	if last != 2 {
-		t.Fatalf("LastLogSeq = %d want 2", last)
-	}
 }
 
 func TestAppendLogRejectsUnknownAction(t *testing.T) {
@@ -59,11 +55,6 @@ func TestReadLogTruncatesMalformedTail(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Fatalf("got %d valid entries, want 1 (the truncated line dropped)", len(entries))
-	}
-	// After truncation, LastLogSeq reflects committed state only.
-	last, _ := s.LastLogSeq("ATM")
-	if last != 1 {
-		t.Fatalf("LastLogSeq after truncation = %d want 1", last)
 	}
 }
 
@@ -191,17 +182,3 @@ func TestReplayReconstructsNextTaskNFromTaskLogEntriesNotProjectPayload(t *testi
 	}
 }
 
-func TestHistoryProjection(t *testing.T) {
-	s := newTestStore(t)
-	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t"}))
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskTitleChanged, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", Title: "t2"}))
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0002"}, Task{ID: "ATM-0002", Title: "other"}))
-	hv := s.History("ATM", Subject{Kind: "task", ID: "ATM-0001"})
-	if len(hv) != 2 {
-		t.Fatalf("history for ATM-0001 len = %d want 2", len(hv))
-	}
-	if hv[0].Action != ActionTaskCreated || hv[1].Action != ActionTaskTitleChanged {
-		t.Fatalf("history actions = %q, %q", hv[0].Action, hv[1].Action)
-	}
-}

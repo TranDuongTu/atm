@@ -37,30 +37,21 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	if meta != nil {
 		lastIndexed = meta.LastLogSeq
 	}
-	// Format dispatch: a v2-active project's live entities come from the fold
-	// (through the freshness-gated cache rows), never from the frozen v1 log --
-	// otherwise nothing created after cutover is ever embedded and semantic
-	// search silently rots. The staleness decision for v2 rests on the text
+	// Every project's live entities come from the fold (through the
+	// freshness-gated cache rows). The staleness decision rests on the text
 	// hash, which is exact and content-addressed; the LogSeq <= lastIndexed fast
 	// path stays harmless (creation ordinals are always <= the stored event
 	// count) and the hash check does the real work.
-	var tasks []*Task
-	var comments []*Comment
-	if f, err := s.projectFormat(code); err != nil {
+	f, err := s.projectFormat(code)
+	if err != nil {
 		return nil, err
-	} else if f == StoreFormatV2 {
-		if tasks, comments, err = s.v2CompatEntities(code); err != nil {
-			return nil, err
-		}
-	} else {
-		st, err := s.Replay(code)
-		if err != nil {
-			return nil, err
-		}
-		if st == nil {
-			return nil, nil
-		}
-		tasks, comments = st.Tasks, st.Comments
+	}
+	if f != StoreFormatV2 {
+		return nil, nil
+	}
+	tasks, comments, err := s.v2CompatEntities(code)
+	if err != nil {
+		return nil, err
 	}
 	existing := map[string]string{}
 	if existingEntries, _ := s.ReadVectors(code, slug); existingEntries != nil {
@@ -110,27 +101,15 @@ func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, l
 	if err != nil {
 		return IndexResult{}, err
 	}
-	// passSeq is the sequence the finished batch is fresh AT: for v1 the max
-	// indexed doc seq (existing behavior, unchanged); for v2 the event count at
+	// passSeq is the sequence the finished batch is fresh AT: the event count at
 	// pass START -- conservative, so events appended mid-pass keep the index
 	// reported "behind" and trigger another pass instead of being silently
 	// marked indexed. VectorMeta.LastLogSeq and IndexResult.LogSeq then live in
 	// the same sequence space LastLogSeq reports, so the "events behind"
 	// arithmetic in cli/index.go and tui/indexer.go works with zero changes there.
-	// Propagated, not swallowed: a swallowed lookup error would silently fall to
-	// the v1 watermark on a v2-active project and freeze the index's freshness
-	// arithmetic. (PendingIndex already errors on the same lookup one call
-	// earlier, but relying on that is coupling, not a guarantee.)
-	f, err := s.projectFormat(code)
+	passSeq, err := s.LastLogSeq(code)
 	if err != nil {
 		return IndexResult{}, err
-	}
-	isV2 := f == StoreFormatV2
-	passSeq := 0
-	if isV2 {
-		if passSeq, err = s.LastLogSeq(code); err != nil {
-			return IndexResult{}, err
-		}
 	}
 	res := IndexResult{Model: slug}
 	if len(pending) == 0 {
@@ -146,7 +125,6 @@ func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, l
 		log(fmt.Sprintf("indexing %d %s+comment(s) for project %q (model=%s)...", len(pending), kindLabel(pending), code, slug))
 	}
 	entries := make([]VectorEntry, 0, len(pending))
-	maxSeq := 0
 	for i, doc := range pending {
 		// Honor cancellation between documents so a project switch (or Ctrl-C)
 		// interrupts an in-progress full re-index instead of blocking the caller
@@ -166,22 +144,16 @@ func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, l
 			ID: doc.ID, Kind: doc.Kind, Model: slug, Dim: len(vec), Vector: vec,
 			TextHash: doc.TextHash, LogSeq: doc.LogSeq, Title: doc.Title, Snippet: doc.Snippet, Labels: doc.Labels,
 		})
-		if doc.LogSeq > maxSeq {
-			maxSeq = doc.LogSeq
-		}
 	}
-	if isV2 {
-		// A v2 doc's LogSeq is its creation ORDINAL, not a position in the event
-		// file: the max over the batch would understate (or wildly misreport)
-		// how much of the event file this index has seen. The pass-start event
-		// count is the watermark that makes "behind" arithmetic meaningful.
-		maxSeq = passSeq
-	}
-	if err := s.WriteVectorBatch(code, slug, entries, maxSeq); err != nil {
+	// A doc's LogSeq is its creation ORDINAL, not a position in the event file:
+	// the max over the batch would understate (or wildly misreport) how much of
+	// the event file this index has seen. The pass-start event count is the
+	// watermark that makes "behind" arithmetic meaningful.
+	if err := s.WriteVectorBatch(code, slug, entries, passSeq); err != nil {
 		return res, err
 	}
 	res.Indexed = len(entries)
-	res.LogSeq = maxSeq
+	res.LogSeq = passSeq
 	if log != nil {
 		log(fmt.Sprintf("wrote %d vector(s) to %s/%s at log_seq %d", res.Indexed, code, slug, res.LogSeq))
 	}

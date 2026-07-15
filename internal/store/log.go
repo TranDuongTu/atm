@@ -232,54 +232,24 @@ func (s *Store) detectPartialTail(code string) *partialTailError {
 // freshness check). It therefore has to answer in whatever sequence space the
 // project's format actually advances in.
 //
-// For a v2-active project the v1 log is frozen at the cutover seq, so the v1
-// answer never changes again and every poller sleeps forever. The v2 sequence
-// surface is the EVENT COUNT (spec L3-11): monotonic under local appends (the
-// only writer before L4 sync) and the same value the cache freshness row
-// records.
+// The v2 sequence surface is the EVENT COUNT (spec L3-11): monotonic under
+// local appends (the only writer before L4 sync) and the same value the
+// cache freshness row records.
 func (s *Store) LastLogSeq(code string) (int, error) {
-	if f, err := s.projectFormat(code); err != nil {
-		return 0, err
-	} else if f == StoreFormatV2 {
-		return s.v2EventCount(code)
-	}
-	// No WithLock here: callers (getProjectWithRebuild, getTaskWithRebuild)
-	// already hold the project lock, and WithLock is non-reentrant. The
-	// cache.db read is process-serialized by MaxOpenConns(1) + WAL; the
-	// file-scan fallback only runs on a cache miss (fresh cache.db), where
-	// contention with concurrent appenders is not a concern (the cache row
-	// gets populated and subsequent calls are O(1)).
-	return s.lastLogSeqLocked(code)
+	return s.v2EventCount(code)
 }
 
 // readLogForViews returns the project's history as compatibility []LogEntry
-// from whichever format the project is ACTIVE on — the read behind every
-// log-derived view (History, ReadLogCached and, through it, activity.Build).
+// — the read behind every log-derived view (History, ReadLogCached and,
+// through it, activity.Build).
 //
-// The error postures of the two formats differ because the underlying reads do:
-// v1's ReadLog returns every entry that parsed ALONGSIDE an ErrIntegrity for a
-// malformed tail, so the long-standing lenient posture (keep the partial view;
-// verify/doctor report the damage) is preserved by dropping it here.
-//
-// The v2 read returns the recoverable prefix alongside the ErrIntegrity, and
+// The v2 read returns the recoverable prefix alongside an ErrIntegrity, and
 // that error is propagated rather than dropped: swallowing it would render a
 // corrupt event file as a silently truncated view. Callers that can tolerate
 // damage (the TUI project summary) keep consuming the prefix; callers that
-// cannot (the CLI) surface the error. Note the asymmetry with v1 above: v2
-// mirrors v1's partial ROWS, but not v1's swallowed error.
+// cannot (the CLI) surface the error.
 func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
-	f, err := s.projectFormat(code)
-	if err != nil {
-		return nil, err
-	}
-	if f == StoreFormatV2 {
-		return s.readV2LogEntries(code)
-	}
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return nil, err
-	}
-	return entries, nil
+	return s.readV2LogEntries(code)
 }
 
 // lastLogSeqLocked returns the project's last log seq. Caller MUST hold the

@@ -86,71 +86,45 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
-// textSearch is the keyword fallback behind Search. On a v2-active project it
-// folds the event file (through the freshness-gated cache rows) instead of
-// replaying the frozen v1 log, which after cutover holds no entity created
-// since the upgrade.
+// textSearch is the keyword fallback behind Search. Every project is v2
+// (born-v2 conversion is complete), so this folds the event file (through the
+// freshness-gated cache rows) rather than reading any log directly.
 func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	qtokens := tokenize(query)
 	if len(qtokens) == 0 {
 		return nil, nil
 	}
 	var hits []Hit
-	// The format lookup is propagated, never swallowed: a failed lookup that fell
-	// through to the v1 branch would silently search the FROZEN log.jsonl of a
-	// v2-active project and report "no results" for entities that plainly exist.
+	// The format lookup is propagated, never swallowed: a swallowed error here
+	// would silently report "no results" for a project whose entities plainly
+	// exist.
 	f, err := s.projectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if f == StoreFormatV2 {
-		tasks, comments, err := s.v2CompatEntities(code)
-		if err != nil {
-			// An integrity failure must never render as "no results" -- the v1
-			// branch below can only ever be stale, never silently empty. Every
-			// other error class keeps v1's lenient posture: no hits, no error.
-			if IsIntegrity(err) {
-				return nil, err
-			}
-			return nil, nil
+	if f != StoreFormatV2 {
+		return nil, nil
+	}
+	tasks, comments, err := s.v2CompatEntities(code)
+	if err != nil {
+		// An integrity failure must never render as "no results". Every other
+		// error class returns no hits, no error.
+		if IsIntegrity(err) {
+			return nil, err
 		}
-		if kind == "" || kind == "all" || kind == "task" {
-			for _, t := range tasks {
-				if score := tokenOverlap(qtokens, tokenize(taskDocumentText(t))); score > 0 {
-					hits = append(hits, Hit{ID: t.ID, Kind: "task", Score: float64(score), Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"})
-				}
-			}
-		}
-		if kind == "" || kind == "all" || kind == "comment" {
-			for _, c := range comments {
-				if score := tokenOverlap(qtokens, tokenize(commentDocumentText(c))); score > 0 {
-					hits = append(hits, Hit{ID: c.ID, Kind: "comment", Score: float64(score), Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"})
-				}
-			}
-		}
-		sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
-		if len(hits) > k {
-			hits = hits[:k]
-		}
-		return hits, nil
+		return nil, nil
 	}
 	if kind == "" || kind == "all" || kind == "task" {
-		if st, err := s.Replay(code); err == nil && st != nil {
-			for _, t := range st.Tasks {
-				doc := taskDocumentText(t)
-				if score := tokenOverlap(qtokens, tokenize(doc)); score > 0 {
-					hits = append(hits, Hit{ID: t.ID, Kind: "task", Score: float64(score), Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"})
-				}
+		for _, t := range tasks {
+			if score := tokenOverlap(qtokens, tokenize(taskDocumentText(t))); score > 0 {
+				hits = append(hits, Hit{ID: t.ID, Kind: "task", Score: float64(score), Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"})
 			}
 		}
 	}
 	if kind == "" || kind == "all" || kind == "comment" {
-		if st, err := s.Replay(code); err == nil && st != nil {
-			for _, c := range st.Comments {
-				doc := commentDocumentText(c)
-				if score := tokenOverlap(qtokens, tokenize(doc)); score > 0 {
-					hits = append(hits, Hit{ID: c.ID, Kind: "comment", Score: float64(score), Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"})
-				}
+		for _, c := range comments {
+			if score := tokenOverlap(qtokens, tokenize(commentDocumentText(c))); score > 0 {
+				hits = append(hits, Hit{ID: c.ID, Kind: "comment", Score: float64(score), Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"})
 			}
 		}
 	}

@@ -42,18 +42,6 @@ func TestReplayTaskMetaChanged(t *testing.T) {
 	}
 }
 
-func TestHistoryForCommentSubject(t *testing.T) {
-	s := newTestStore(t)
-	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionProjectCreated, Subject{Kind: "project", Code: "ATM"}, Project{Code: "ATM", NextTaskN: 1}))
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionTaskCreated, Subject{Kind: "task", ID: "ATM-0001"}, Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t"}))
-	_, _ = s.appendLog("ATM", newLogEntry(0, ActionCommentCreated, Subject{Kind: "comment", ID: "ATM-0001-c0001"}, Comment{ID: "ATM-0001-c0001", Body: "x"}))
-	hv := s.History("ATM", Subject{Kind: "comment", ID: "ATM-0001-c0001"})
-	if len(hv) != 1 || hv[0].Action != ActionCommentCreated {
-		t.Fatalf("history = %+v", hv)
-	}
-}
-
 func TestAppendLogRejectsUnknownCommentAction(t *testing.T) {
 	s := newTestStore(t)
 	_ = os.MkdirAll(s.projectDir("ATM"), 0o755)
