@@ -72,19 +72,35 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ATM keeps everything as plain files under `ATM_HOME` (default `~/.config/atm`), so a whole store is portable by directory copy. A project is not the same thing as a repository; one project can cover multiple repos.
 
-Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Event ids are content hashes, and every event carries a hybrid-logical-clock stamp and a replica id, so independent copies of the same project merge deterministically: a sync is an exact set union of the two event sets. Union is commutative, associative, and idempotent, which is the whole correctness story — any topology converges (a shared folder, a git remote, a USB stick can each carry a replica), an interrupted sync is repaired by running it again, and a forked copy is recovered by unioning it back in. Everything you query is a *derived* projection of that log: `cache.db` and the vector index are rebuilt from the events on demand, and deleting them never loses data.
+Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Event ids are content hashes, and every event carries a hybrid-logical-clock stamp and a replica id, so independent replicas of a project merge deterministically: a sync is an exact set union of the two event sets. Everything you query is a *derived* projection of that log — `cache.db` and the vector index rebuild from the events on demand, and deleting them never loses data.
 
 ```text
 $ATM_HOME/
-  store.json               # store-wide metadata: active format, per-project formats, this replica's id + HLC clock
-  cache.db                 # derived SQLite projection of every project — rebuildable, never the source of truth
+  store.json               # replica id + HLC clock, active format, per-project formats
+  cache.db                 # derived SQLite projection — rebuildable, never the source of truth
   projects/<CODE>/
-    events.v2.jsonl        # the project's event log — the v2 source of truth, one event per line, append-only
-    log.jsonl              # legacy v1 log — source of truth before upgrade, preserved read-only afterward
-    config.json            # per-project settings, e.g. the embedding endpoint (when configured)
-    vocabulary.json        # computed ubiquitous language (when generated)
-    vectors/               # semantic-search index — derived
+    events.v2.jsonl        # the source of truth: one event per line, append-only
+    config.json            # per-project settings: embedding endpoint, sync remotes
+    vectors/ vocabulary.json log.jsonl   # derived index, computed vocabulary, preserved v1 log
 ```
+
+### Sync And Remotes
+
+Remotes are named, per-project, and replica-local — a remote describes *this replica's* route to the world, exactly like `.git/config`. A remote is a passive medium: a directory (a NAS mount, a Syncthing or Dropbox folder, a USB stick) or a git URL; the transport is selected from the URL shape.
+
+```sh
+atm store remote add origin git@github.com:you/atm-ledger.git --project ATM
+atm store remote list --project ATM
+
+atm store sync                            # every project with a remote, bidirectional
+atm store sync --project ATM --pull       # restrict direction with --pull / --push
+atm store sync <url> --project ATM        # ad-hoc remote — nothing persisted
+atm store sync --project ATM --dry-run    # fetch, validate, report the differences; commit nothing
+```
+
+Because sync is set union — commutative, associative, idempotent — any topology converges, and every failure's recovery is "run sync again": an interrupted sync leaves both stores valid, and the next one completes the difference. Fetched events are validated before anything touches the local store (every hash recomputed, parents resolved, DAG acyclic, same project root on both sides), so a corrupt or mismatched remote aborts the whole sync with the local store untouched.
+
+There is no separate clone verb: `atm store sync <url> --project <CODE>` for a project you don't hold locally fetches it, creates it, and persists the URL as its `origin` — the second machine is one command.
 
 ### Upgrade To v2
 
