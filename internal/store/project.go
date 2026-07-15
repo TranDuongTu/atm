@@ -149,7 +149,7 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 			return err
 		}
 		ev, _, err := eventsource.NewProjectCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.ProjectCreateDraft{
-			Code: code, Name: name, At: Now(), Actor: actor,
+			Code: code, Name: name, At: s.Now(), Actor: actor,
 		})
 		if err != nil {
 			_ = s.removeProjectFormat(code)

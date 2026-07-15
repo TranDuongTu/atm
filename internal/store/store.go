@@ -1,9 +1,11 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +35,15 @@ type Store struct {
 	// process), the snapshot is dropped and re-scanned on the next call.
 	logSnapMu    sync.Mutex
 	logSnapshots map[string]logSnapshot
+
+	// Determinism seams for v2 authoring (Task B1). All three default to nil
+	// in Open, and Open fills in the production defaults (wall clock,
+	// crypto/rand.Reader) when unset -- so store.Open(root) with no options
+	// is byte-for-byte the pre-seam behavior. Tests pin these via WithClock/
+	// WithReplicaEntropy/WithNow to make v2 hash aliases reproducible.
+	clockNow       func() int64     // nil => eventsource.NewClock uses wall clock
+	replicaEntropy io.Reader        // nil => rand.Reader (defaulted in Open)
+	nowFn          func() time.Time // nil => time.Now().UTC (defaulted in Open)
 }
 
 // logSnapshot holds the parsed log entries for one project plus the
@@ -43,6 +54,36 @@ type logSnapshot struct {
 	entries  []LogEntry
 	builtSeq int
 }
+
+// Option configures determinism seams on a Store at Open time. Production
+// callers pass none, which keeps Open's behavior byte-for-byte identical to
+// before this type existed (wall clock + crypto/rand.Reader).
+type Option func(*Store)
+
+// WithClock fixes the millisecond source feeding the v2 HLC clock used by
+// v2 authoring (eventsource_author.go's beginV2AuthorLocked). Production
+// omits it, leaving eventsource.NewClock to read the wall clock. Tests pass
+// a counter so successive HLC ticks -- and therefore minted hex aliases --
+// are reproducible.
+func WithClock(f func() int64) Option { return func(s *Store) { s.clockNow = f } }
+
+// WithReplicaEntropy fixes the entropy source the store's replica/instance
+// ids are minted from (eventsource_replica.go's ensureReplicaForWriteLocked).
+// Production omits it, leaving crypto/rand.Reader in place.
+func WithReplicaEntropy(r io.Reader) Option { return func(s *Store) { s.replicaEntropy = r } }
+
+// WithNow fixes the wall-clock source backing Store.Now(), which stamps the
+// `at` field on v2-authored events. Production omits it, leaving Now() at
+// time.Now().UTC().
+func WithNow(f func() time.Time) Option { return func(s *Store) { s.nowFn = f } }
+
+// Now returns the current time as seen by this Store instance, honoring
+// WithNow if set. Production stores (opened with no options) get
+// time.Now().UTC(), identical to the package-level Now() below. v2 authoring
+// stamps event `at` fields through this method so tests can pin it via
+// WithNow; everything else in the store continues to use the package-level
+// Now().
+func (s *Store) Now() time.Time { return s.nowFn() }
 
 func RFC3339UTC(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
@@ -180,7 +221,7 @@ func ResolveStorePath(flagPath string) string {
 	return filepath.Join(home, ".config", "atm")
 }
 
-func Open(root string) (*Store, error) {
+func Open(root string, opts ...Option) (*Store, error) {
 	if root == "" {
 		root = ResolveStorePath("")
 	}
@@ -188,7 +229,17 @@ func Open(root string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{Root: abs}, nil
+	s := &Store{Root: abs}
+	for _, o := range opts {
+		o(s)
+	}
+	if s.replicaEntropy == nil {
+		s.replicaEntropy = rand.Reader
+	}
+	if s.nowFn == nil {
+		s.nowFn = func() time.Time { return time.Now().UTC() }
+	}
+	return s, nil
 }
 
 func (s *Store) Init(storePath string) error {

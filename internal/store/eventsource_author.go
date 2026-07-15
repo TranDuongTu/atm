@@ -38,7 +38,7 @@ func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
 	if err != nil {
 		return nil, err
 	}
-	clock := eventsource.NewClock(nil)
+	clock := eventsource.NewClock(s.clockNow)
 	m, err := s.readStoreMeta()
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, 
 		return nil, err
 	}
 	ev, err := eventsource.NewEvent(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.Draft{
-		At:      Now(),
+		At:      s.Now(),
 		Actor:   draft.Actor,
 		Action:  draft.Action,
 		Subject: draft.Subject,
@@ -217,7 +217,7 @@ func (s *Store) appendV2TaskCreatedLocked(code, title, description string, label
 	}
 	ev, alias, err := eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 		ProjectCode: code,
-		At:          Now(),
+		At:          s.Now(),
 		Actor:       actor,
 		Title:       title,
 		Description: description,
@@ -248,7 +248,7 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 		TaskAlias:  taskAlias,
 		TaskRef:    taskRef,
 		ReplyToRef: replyToRef,
-		At:         Now(),
+		At:         s.Now(),
 		Actor:      actor,
 		Body:       body,
 		Labels:     labels,
