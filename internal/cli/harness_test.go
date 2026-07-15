@@ -8,9 +8,23 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
 	"atm/internal/store"
 )
+
+// deterministicSeamOpts returns the fixed determinism seams (clock, replica
+// entropy, and now) used by the golden harness so that when goldens are
+// regenerated for v2 they are reproducible. Call it fresh per store.Open
+// since the entropy reader is consumed once.
+func deterministicSeamOpts() []store.Option {
+	var n int64 = 1_752_480_000_000
+	return []store.Option{
+		store.WithClock(func() int64 { n++; return n }),
+		store.WithReplicaEntropy(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 16))),
+		store.WithNow(func() time.Time { return time.Date(2026, 7, 14, 9, 12, 3, 0, time.UTC) }),
+	}
+}
 
 var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 
@@ -47,7 +61,7 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	s, err := store.Open(dir)
+	s, err := store.Open(dir, deterministicSeamOpts()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +85,7 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	s, err := store.Open(storePath)
+	s, err := store.Open(storePath, deterministicSeamOpts()...)
 	if err != nil {
 		t.Fatal(err)
 	}
