@@ -123,6 +123,10 @@ func newTasksModel(m *Model) tasksModel {
 	return tasksModel{m: m, sortMode: sortUpdatedDesc}
 }
 
+// stripHeight is the fixed height of the board thumbnail strip rendered
+// above the task list (list view only; clamps down on short terminals).
+const stripHeight = 8
+
 func (t *tasksModel) SetSize(w, h int) {
 	if w < 1 {
 		w = 1
@@ -132,7 +136,12 @@ func (t *tasksModel) SetSize(w, h int) {
 	}
 	t.width = w
 	t.contentHeight = h
-	t.pageSize = h - 6 // header line + blank + column header + rule + footer + margin
+	// header line + blank + column header + rule + footer + margin, plus the
+	// board strip reserved above the list. The pinned row's extra line is NOT
+	// accounted for here — it's handled only in the render path
+	// (renderListWithStrip), since SetSize never re-runs on a pin toggle and
+	// would otherwise leave pageSize stale.
+	t.pageSize = h - stripHeight - 6
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}
@@ -476,12 +485,37 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		t.cursor = 0
 		t.offset = 0
-	case "]":
+	case "[", "]":
+		dir := -1
+		if k.String() == "]" {
+			dir = 1
+		}
+		t.m.boards.cycleBoard(dir)
+	case "pgdown":
 		t.cursor += t.listPageSize()
 		t.clampCursor()
-	case "[":
+	case "pgup":
 		t.cursor -= t.listPageSize()
 		t.clampCursor()
+	case ">", "<":
+		// Drill the SELECTED thumbnail in / out via boardsModel's level navigation.
+		if k.String() == ">" {
+			t.m.boards.drillIn()
+		} else {
+			t.m.boards.drillOut()
+		}
+	case "{", "}":
+		// Move the SELECTED thumbnail's chart cursor (the member that >, d, l target).
+		dir := -1
+		if k.String() == "}" {
+			dir = 1
+		}
+		t.m.boards.chartCursorMove(dir)
+	case "p":
+		t.m.boards.togglePin()
+	case "!", "@", "#", "$", "%", "^", "&", "*", "(":
+		n := shiftDigitToInt(k.String())
+		t.m.boards.jumpPin(n)
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % 3
@@ -830,11 +864,49 @@ func (t *tasksModel) clampDetail() {
 func (t *tasksModel) View() string {
 	switch t.view {
 	case tViewList:
-		return t.renderList()
+		return t.renderListWithStrip()
 	case tViewDetail:
 		return t.renderDetailView()
 	}
 	return ""
+}
+
+// renderListWithStrip renders the board thumbnail strip above the task list
+// and the pinned-boards row below it (list view only; the detail view keeps
+// the full pane since the strip is contextual to browsing). It reuses the
+// existing renderList() by temporarily shrinking t.contentHeight/t.pageSize
+// to the list's sub-height rather than refactoring renderList itself —
+// renderList already ends with padToHeight(..., t.contentHeight), so the
+// shrink makes it pad to the sub-height, and the outer padToHeight below
+// clamps any rounding.
+func (t *tasksModel) renderListWithStrip() string {
+	strip := t.m.boards.renderStrip(t.width, stripHeight)
+	pinned := t.m.boards.renderPinnedRow(t.width)
+	listH := t.contentHeight - stripHeight
+	if pinned != "" {
+		listH--
+	}
+	if listH < 4 {
+		listH = 4
+	}
+	savedH, savedPageSize := t.contentHeight, t.pageSize
+	t.contentHeight = listH
+	t.pageSize = listH - 6
+	if t.pageSize < 1 {
+		t.pageSize = 1
+	}
+	listOut := t.renderList()
+	t.contentHeight, t.pageSize = savedH, savedPageSize
+
+	var b strings.Builder
+	b.WriteString(strip)
+	b.WriteString("\n")
+	b.WriteString(listOut)
+	if pinned != "" {
+		b.WriteString("\n")
+		b.WriteString(pinned)
+	}
+	return padToHeight(b.String(), t.contentHeight)
 }
 
 func (t *tasksModel) headerLine() string {
@@ -1120,13 +1192,39 @@ func (t *tasksModel) groupPageSize() int {
 }
 
 // listPageSize returns the page size for whichever list mode is active,
-// used by the "[" / "]" page-jump keys (and matching the size the renderer
-// windows by, so a jump always lands on a page boundary).
+// used by the pgdown / pgup page-jump keys (and matching the size the
+// renderer windows by, so a jump always lands on a page boundary).
 func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
 		return t.groupPageSize()
 	}
 	return t.pageSize
+}
+
+// shiftDigitToInt maps a shifted-digit key (US keyboard row: ! @ # $ % ^ & * ()
+// to the 1-9 pin slot it jumps to. Returns 0 for anything else.
+func shiftDigitToInt(k string) int {
+	switch k {
+	case "!":
+		return 1
+	case "@":
+		return 2
+	case "#":
+		return 3
+	case "$":
+		return 4
+	case "%":
+		return 5
+	case "^":
+		return 6
+	case "&":
+		return 7
+	case "*":
+		return 8
+	case "(":
+		return 9
+	}
+	return 0
 }
 
 func (t *tasksModel) statusHint() string {

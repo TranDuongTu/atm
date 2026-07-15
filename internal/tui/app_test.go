@@ -199,7 +199,7 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	wantPageSize := innerPaneHeight(m.contentHeight) - 6
+	wantPageSize := innerPaneHeight(m.contentHeight) - stripHeight - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
 	}
@@ -1348,9 +1348,10 @@ func TestTasksFlatListScrollsWithCursor(t *testing.T) {
 	}
 }
 
-// TestTasksFlatListBracketKeysPageThroughList verifies "]"/"[" jump the
-// cursor a full page forward/backward in the flat list.
-func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
+// TestTasksFlatListPageKeysPageThroughList verifies pgdown/pgup jump the
+// cursor a full page forward/backward in the flat list. (Relocated from
+// "]"/"[", which now cycle the board ring — Task 7.)
+func TestTasksFlatListPageKeysPageThroughList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	for i := 0; i < 25; i++ {
@@ -1358,18 +1359,18 @@ func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
 	}
 	update(t, m, "s")
 	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
-	// are visible for this bracket-key paging test.
+	// are visible for this paging test.
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	start := m.tasks.cursor
-	update(t, m, "]")
+	update(t, m, "pgdown")
 	if m.tasks.cursor <= start {
-		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+		t.Fatalf("pgdown should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
 	}
 	after := m.tasks.cursor
-	update(t, m, "[")
+	update(t, m, "pgup")
 	if m.tasks.cursor >= after {
-		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+		t.Fatalf("pgup should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
 	}
 }
 
@@ -1412,9 +1413,10 @@ func TestTasksGroupedListScrollsWithCursor(t *testing.T) {
 	}
 }
 
-// TestTasksGroupedListBracketKeysPageThroughList verifies "]"/"[" jump the
-// cursor a full page forward/backward in the grouped/tree list.
-func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
+// TestTasksGroupedListPageKeysPageThroughList verifies pgdown/pgup jump the
+// cursor a full page forward/backward in the grouped/tree list. (Relocated
+// from "]"/"[", which now cycle the board ring — Task 7.)
+func TestTasksGroupedListPageKeysPageThroughList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	for i := 0; i < 12; i++ {
@@ -1424,14 +1426,14 @@ func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
 	update(t, m, "2")
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 	start := m.tasks.cursor
-	update(t, m, "]")
+	update(t, m, "pgdown")
 	if m.tasks.cursor <= start {
-		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+		t.Fatalf("pgdown should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
 	}
 	after := m.tasks.cursor
-	update(t, m, "[")
+	update(t, m, "pgup")
 	if m.tasks.cursor >= after {
-		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+		t.Fatalf("pgup should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
 	}
 }
 

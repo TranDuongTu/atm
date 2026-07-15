@@ -350,6 +350,13 @@ func (b *boardsModel) ringIndex() int {
 	return -1
 }
 
+// drillIn, drillOut, and chartCursorMove are stubs for Task 8, which wires up
+// the SELECTED thumbnail's level navigation (>/<) and chart cursor ({/}) from
+// the Tasks pane's handleListKey.
+func (b *boardsModel) drillIn()            {} // Task 8 fills in
+func (b *boardsModel) drillOut()           {} // Task 8 fills in
+func (b *boardsModel) chartCursorMove(int) {} // Task 8 fills in
+
 // applyFocus pushes the selected board's focus to the Tasks pane, reusing the
 // existing setFocus channel. A namespace board (Expandable) uses focusPresent;
 // a leaf board uses focusOff + the board's FullName as the filter token.

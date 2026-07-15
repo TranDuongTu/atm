@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 )
 
 // toRowTest builds a taskRow without depending on a live *Model (which
@@ -281,6 +283,53 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustContain(t, v, "has-open")
 	mustContain(t, v, "naked")
 	mustContain(t, v, "bare")
+}
+
+// TestTasksPaneRendersStripAndPinnedRow verifies the Tasks pane list view
+// renders the board thumbnail strip above the task list (Task 7: merging the
+// Boards pane into Tasks).
+func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	v := m.tasks.View()
+	// "open-tasks" already appears once via the header FOCUS caption (the
+	// board's filter token, ATM:open-tasks); the strip renders the board name
+	// again as its thumbnail title, so a passing render must contain it at
+	// least twice.
+	if got := strings.Count(v, "open-tasks"); got < 2 {
+		t.Errorf("tasks view missing strip board name (got %d occurrences, want >= 2):\n%s", got, v)
+	}
+}
+
+// TestBracketKeysSwitchBoard verifies "["/"]" cycle the board ring from the
+// Tasks pane (relocated from task-list paging, which now lives on
+// pgup/pgdown).
+func TestBracketKeysSwitchBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	// Two distinct namespaces so the ring has more than one entry to cycle
+	// (matches the established pattern in TestCycleBoardMovesRing).
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	m.tasks.handleKey(keyMsg("]"))
+	if m.boards.selected == first {
+		t.Error("] did not advance the board ring")
+	}
+	m.tasks.handleKey(keyMsg("["))
+	if m.boards.selected != first {
+		t.Errorf("[ did not return to first board: got %q want %q", m.boards.selected, first)
+	}
 }
 
 func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
