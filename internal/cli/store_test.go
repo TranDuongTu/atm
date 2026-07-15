@@ -274,6 +274,37 @@ func TestStorePruneV1AllFlag(t *testing.T) {
 	mustContain(t, out, "skipped\tBVX\tborn v2 (no v1 log)")
 }
 
+// TestStorePruneV1AllReportsSuccessesBeforeFailing pins the fix to the
+// mid-batch partial-progress bug: `--all` used to `return err` on the first
+// per-project failure, discarding the reports for projects it had already
+// (durably) pruned earlier in the same loop. "AAA" sorts before "ZZZ"
+// (ProjectCodes is sorted), so AAA is pruned successfully before the loop
+// reaches ZZZ, whose corrupted v2 event file makes PruneProjectV1 refuse.
+// AAA's success must still be reported even though the command as a whole
+// fails.
+func TestStorePruneV1AllReportsSuccessesBeforeFailing(t *testing.T) {
+	st := newTestCLI(t)
+	plantV1LogCLI(t, st.store, "AAA")
+	if _, err := st.store.UpgradeProjectToV2("AAA"); err != nil {
+		t.Fatal(err)
+	}
+	plantV1LogCLI(t, st.store, "ZZZ")
+	if _, err := st.store.UpgradeProjectToV2("ZZZ"); err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt ZZZ's v2 event file so VerifyProject reports Diverged, which
+	// PruneProjectV1 refuses to prune past (see prune.go's verify-clean guard).
+	zzzEvents := filepath.Join(st.store.StorePath(), "projects", "ZZZ", "events.v2.jsonl")
+	if err := os.WriteFile(zzzEvents, []byte("{not-json}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runArgs(st, "store", "prune-v1", "--all")
+	if code == ExitSuccess {
+		t.Fatalf("expected a non-zero exit for ZZZ's verify failure, got success:\n%s", out)
+	}
+	mustContain(t, out, "pruned\tAAA\tarchived")
+}
+
 func TestStorePruneV1RequiresExactlyOneSelector(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, code := runArgs(st, "store", "prune-v1")

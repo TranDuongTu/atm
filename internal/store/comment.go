@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"atm/internal/eventsource"
 )
@@ -319,21 +318,11 @@ func (s *Store) SetCommentBody(id, body, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
-		c.Body = body
-	}, ActionCommentBodyChanged, map[string]any{"body": body})
+	return s.mutateComment(id, actor, ActionCommentBodyChanged, map[string]any{"body": body})
 }
 
 func (s *Store) CommentLabelRemove(id, label, actor string) error {
-	return s.mutateComment(id, actor, func(c *Comment, now time.Time) {
-		out := c.Labels[:0]
-		for _, l := range c.Labels {
-			if l != label {
-				out = append(out, l)
-			}
-		}
-		c.Labels = out
-	}, ActionCommentLabelRemoved, map[string]any{"label": label})
+	return s.mutateComment(id, actor, ActionCommentLabelRemoved, map[string]any{"label": label})
 }
 
 func (s *Store) RemoveComment(id, actor string) error {
@@ -367,10 +356,8 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 // mutateComment is the shared entry point for non-delete comment mutations;
 // every project is v2-active (D-Task5b removed the v1 write arm), so it
 // resolves the project code and delegates to mutateCommentV2 with the given
-// action and payload. fn is unused now that there is no v1 struct to mutate
-// in place; it survives only because SetCommentBody/CommentLabelRemove still
-// pass it and trimming their call sites is out of scope for this prune.
-func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string, v2Payload map[string]any) error {
+// action and payload.
+func (s *Store) mutateComment(id, actor, action string, v2Payload map[string]any) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}

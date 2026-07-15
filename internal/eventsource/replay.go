@@ -18,9 +18,9 @@ import (
 var ErrIntegrity = errors.New("eventsource: integrity")
 
 // ReplayResult is a pure replay of a v1 log into live entity snapshots, keyed
-// by v1 alias. It carries only the fields CompareReplayToFold needs; the
-// retired counters, timestamps, and log-seq bookkeeping that store.ReplayState
-// tracks are out of scope for the v1↔v2 semantic comparison.
+// by v1 alias. It carries only the fields CompareReplayToFold needs; v1's
+// counters, timestamps, and log-seq bookkeeping (retired along with the rest
+// of the v1 store) are out of scope for the v1↔v2 semantic comparison.
 type ReplayResult struct {
 	Project  *ReplayProject
 	Tasks    []*ReplayTask
@@ -197,8 +197,10 @@ func ReplayV1(logData []byte) (*ReplayResult, error) {
 }
 
 // CompareReplayToFold is the computed-label-aware semantic comparison between a
-// pure v1 replay and the v2 fold of the upgraded events. It is a faithful port
-// of store.compareV2FoldToV1Replay: every carried field must agree, and
+// pure v1 replay and the v2 fold of the upgraded events. Originally ported
+// from store.compareV2FoldToV1Replay (since removed along with the rest of
+// the v1 store), this is now the sole implementation: every carried field
+// must agree, and
 // membership of COMPUTED labels (boards + namespace labels) is excluded on
 // BOTH sides — that is the one intentional, documented v1↔v2 divergence (L2-6:
 // such membership is derived, never asserted, so the fold drops an asserted

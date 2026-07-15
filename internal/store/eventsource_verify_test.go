@@ -90,7 +90,9 @@ func TestVerifyProjectV2KeepsVectorAndInquiryReports(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	_, _ = s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.
+	// This project is born v2 directly (no v1 log, so no v1-keyed index for
+	// an upgrade's cutover step to wipe); the vector batch is written straight
+	// into its v2 index.
 	if err := s.WriteVectorBatch("ATM", "test-model", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "test-model", Dim: 2, Vector: []float64{1, 0}, TextHash: "sha256:x", LogSeq: 1}}, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +216,9 @@ func TestRebuildDoesNotWipeVectorIndexForV2Project(t *testing.T) {
 	if _, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.
+	// This project is born v2 directly (no v1 log, so no v1-keyed index for
+	// an upgrade's cutover step to wipe); the vector batch is written straight
+	// into its v2 index.
 	if err := s.WriteVectorBatch("ATM", "test-model", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "test-model", Dim: 2, Vector: []float64{1, 0}, TextHash: "sha256:x", LogSeq: 1}}, 3); err != nil {
 		t.Fatal(err)
 	}

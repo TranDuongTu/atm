@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"time"
 
 	"atm/internal/eventsource"
 )
@@ -254,15 +253,11 @@ func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
 		return fmt.Errorf("%w: title is required", ErrUsage)
 	}
-	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
-		t.Title = title
-	}, ActionTaskTitleChanged, map[string]any{"title": title})
+	return s.mutateTask(id, actor, ActionTaskTitleChanged, map[string]any{"title": title})
 }
 
 func (s *Store) SetDescription(id, description, actor string) error {
-	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
-		t.Description = description
-	}, ActionTaskDescChanged, map[string]any{"description": description})
+	return s.mutateTask(id, actor, ActionTaskDescChanged, map[string]any{"description": description})
 }
 
 // Design note: the spec says both "auto-registers any supplied labels" (upsert)
@@ -293,15 +288,7 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
-	return s.mutateTask(id, actor, func(t *Task, now time.Time) {
-		out := t.Labels[:0]
-		for _, l := range t.Labels {
-			if l != label {
-				out = append(out, l)
-			}
-		}
-		t.Labels = out
-	}, ActionTaskLabelRemoved, map[string]any{"label": label})
+	return s.mutateTask(id, actor, ActionTaskLabelRemoved, map[string]any{"label": label})
 }
 
 func (s *Store) RemoveTask(id, actor string) error {
@@ -318,10 +305,8 @@ func (s *Store) RemoveTask(id, actor string) error {
 // mutateTask is the shared entry point for non-delete task mutations; every
 // project is v2-active (D-Task5b removed the v1 write arm), so it resolves
 // the project code and delegates to mutateTaskV2 with the given action and
-// payload. fn is unused now that there is no v1 struct to mutate in place;
-// it survives only because SetTitle/SetDescription/TaskLabelRemove still
-// pass it and trimming their call sites is out of scope for this prune.
-func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), action string, v2Payload map[string]any) error {
+// payload.
+func (s *Store) mutateTask(id, actor, action string, v2Payload map[string]any) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}

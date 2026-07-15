@@ -212,16 +212,27 @@ func newStoreCmd(st *cliState) *cobra.Command {
 					return err
 				}
 			}
+			// A per-project error stops the loop but must not discard the
+			// reports already collected: PruneProjectV1's archive/delete move
+			// for those projects already happened on disk, so hiding them
+			// behind a mid-batch failure would make a successful `--all` prune
+			// look like it did nothing. Print what was collected so far, then
+			// return the error.
 			reps := make([]*store.PruneReport, 0, len(codes))
+			var loopErr error
 			for _, c := range codes {
 				rep, err := s.PruneProjectV1(c, del)
 				if err != nil {
-					return err
+					loopErr = fmt.Errorf("project %q: %w", c, err)
+					break
 				}
 				reps = append(reps, rep)
 			}
 			if st.isJSON() {
-				return writeJSON(st.stdout(), reps)
+				if err := writeJSON(st.stdout(), reps); err != nil {
+					return err
+				}
+				return loopErr
 			}
 			for _, r := range reps {
 				switch {
@@ -233,7 +244,7 @@ func newStoreCmd(st *cliState) *cobra.Command {
 					fmt.Fprintf(st.stdout(), "skipped\t%s\t%s\n", r.Project, r.Reason)
 				}
 			}
-			return nil
+			return loopErr
 		},
 	}
 	pruneCmd.Flags().String("project", "", "project code to prune")

@@ -12,11 +12,10 @@ import (
 // AlreadyV2 marks a project `upgrade --all` SKIPPED because its effective
 // format was already v2 (nothing on disk was touched for it).
 type UpgradeReport struct {
-	Project      string      `json:"project"`
-	Format       StoreFormat `json:"format"`
-	Events       int         `json:"events"`
-	ArchivedPath string      `json:"archived_path,omitempty"`
-	AlreadyV2    bool        `json:"already_v2,omitempty"`
+	Project   string      `json:"project"`
+	Format    StoreFormat `json:"format"`
+	Events    int         `json:"events"`
+	AlreadyV2 bool        `json:"already_v2,omitempty"`
 }
 
 // UpgradeProjectToV2 converts a v1-active project's frozen log.jsonl into
