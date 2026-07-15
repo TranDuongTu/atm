@@ -174,45 +174,6 @@ func TestUpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites(t *testing.T)
 	}
 }
 
-// Two archives with the same reason inside one UTC second must not collide:
-// os.Rename overwrites its destination silently, so a naive timestamped name
-// would destroy the earlier archive — the only surviving evidence of the
-// events it held.
-func TestArchiveV2FileNeverOverwritesAPreviousArchive(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	contents := []string{"first archive\n", "second archive\n"}
-	var paths []string
-	for _, body := range contents {
-		if err := os.WriteFile(s.eventsV2Path("ATM"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		var dst string
-		if err := s.WithLock("ATM", func() error {
-			var err error
-			dst, err = s.archiveV2FileLocked("ATM", "reupgrade")
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		paths = append(paths, dst)
-	}
-	if paths[0] == paths[1] {
-		t.Fatalf("both archives landed on %s — the first was overwritten", paths[0])
-	}
-	for i, p := range paths {
-		got, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("archive %s missing: %v", p, err)
-		}
-		if string(got) != contents[i] {
-			t.Fatalf("archive %s = %q, want %q", p, got, contents[i])
-		}
-	}
-}
-
 // A label that a task already carries can be turned INTO a board (`atm label
 // add --expr` on the same name) and later removed. LabelRemove deletes only
 // the label record — the name stays on the task — so the v1 replay still

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"atm/internal/eventsource"
 )
@@ -102,45 +100,4 @@ func (s *Store) appendV2EventLineLocked(code string, raw []byte) error {
 		return err
 	}
 	return f.Sync()
-}
-
-func (s *Store) archiveV2FileLocked(code, reason string) (string, error) {
-	path := s.eventsV2Path(code)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return "", nil
-	} else if err != nil {
-		return "", err
-	}
-	reason = strings.NewReplacer("/", "-", "\\", "-", " ", "-").Replace(reason)
-	// os.Rename SILENTLY overwrites its destination, so the timestamped name
-	// alone is not enough: two archives with the same reason inside the same
-	// UTC second (a rollback + re-upgrade loop, a scripted retry) would
-	// clobber the earlier archive — the one piece of manual-recovery evidence
-	// for the events it held. Reserve an unused name with O_EXCL first and
-	// only rename onto a slot we own.
-	base := filepath.Join(s.projectDir(code), fmt.Sprintf("events.v2.%s.%d", reason, time.Now().UTC().Unix()))
-	for n := 0; ; n++ {
-		dst := base + ".jsonl"
-		if n > 0 {
-			dst = fmt.Sprintf("%s.%d.jsonl", base, n)
-		}
-		f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if os.IsExist(err) {
-			continue // an archive already claims this name; try the next one
-		}
-		if err != nil {
-			return "", err
-		}
-		if err := f.Close(); err != nil {
-			return "", err
-		}
-		if err := os.Rename(path, dst); err != nil {
-			// Drop the reservation: a 0-byte events.v2.<reason>.<ts>.jsonl left
-			// behind is indistinguishable from a real archive to verify/doctor,
-			// and would claim to hold events it never received.
-			_ = os.Remove(dst)
-			return "", err
-		}
-		return dst, nil
-	}
 }
