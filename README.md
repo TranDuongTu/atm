@@ -1,5 +1,7 @@
 # ATM — Agent Tasks Manager
 
+ATM is a fast, scalable, distributed task ledger — git-like in how it stores truth, Jira-like in how it tells the story — built as the main interface through which coding agents keep a software organization's knowledge base.
+
 ATM is built for work shared between humans and coding agents across multiple projects and repositories. Humans jot down ideas as lightweight tasks; agents expand them, organize them with labels, link context, and keep the work discoverable over time.
 
 ATM stays out of the normal development workflow: it hints agents to journal progress, decisions, and context without controlling how they code. The ledger is stored as plain files: detachable, syncable, shareable, database-free, and independent of any one coding agent.
@@ -12,12 +14,15 @@ ATM stays out of the normal development workflow: it hints agents to journal pro
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
-**2. Onboard.** Run the guided setup once, then onboard each project -- one manager onboarding run per project:
+**2. Initialize, then map your repos.** Run the guided setup once — it initializes the store, installs the agent plugins, and records your default agent and args. Then create a project and let the manager map each working repo into it:
 
 ```sh
-atm init                               # guided setup: store, plugins, default agent, args
-atm manage --project ATM --onboarding  # Run inside the working repo
+atm init                                # once: store, agent plugins, default agent + args
+atm project create --code ATM --name "Agent Tasks Management"
+atm manage --project ATM --mapping      # inside each working repo: manager-assisted mapping
 ```
+
+Mapping reconciles the project's context map against the repo: the manager discovers the territory, records context pointers, and verifies drifted ones on later runs. Semantic indexing is optional — see [Advanced Features](#advanced-features).
 
 **3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
 
@@ -29,23 +34,25 @@ atm dev --project ATM --agent claude
 
 atm manage --project ATM                # curate the backlog (default action)
 atm manage --project ATM --recall       # answer project questions from the ledger (read-only)
-
 atm manage --project ATM --mapping      # reconcile the context map against the repo
 ```
 
-## Why I Built ATM
+## The Story
 
-I work across multiple projects at once, and some projects span multiple repositories.
+Whether the future belongs to AI or to humans, software has to remain soft to stay useful — it is where an organization accumulates its lessons and scales them. For decades that knowledge base was built and steered by human engineers, and not only with languages and IDEs: git preserved every decision as history, and Jira-style trackers carried the narrative of where the system goes next. A senior engineer often works those two tools more than they write code.
 
-I use multiple coding agents and switch between them regularly to manage cost, context, and token usage.
+Agentic coding has changed the interface between the developer and the software. You rarely write your own PRs or commits, you no longer read the tracker line by line, and you juggle more worktrees than you ever imagined — you manage intentions more than you manage code. Git honestly tells you the current truth and the whole history behind it, but not the roadmap ahead; Jira tells the roadmap, but through an interface built for human managers who never wanted to touch the code.
 
-I need to resume or hand off work across agents with minimal guidance.
+As the world steers toward agentic AI, your main working interface becomes a single terminal where you talk to your own agents, and everything should flow from there. ATM is the combined git-and-Jira interface for that world: agent-first, and built to preserve, enrich, and leverage all of your organization's knowledge.
 
-I switch machines frequently, so I need a centralized, immutable, append-only ledger that can be shared.
+### What you can use it for today
 
-I do not want a traditional Jira-style ticket system built around human browsing workflows. I want to ask my agents and have them work from the ledger.
-
-I like to be creative and keep ideas flowing into the backlog anytime, anywhere, and later have the manager groom and plan them for me.
+- Work across multiple projects at once, including projects that span several repositories.
+- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
+- Resume or hand off work between agents with minimal re-briefing.
+- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
+- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
+- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
 
 ## Screenshots
 
@@ -65,7 +72,7 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ATM keeps everything as plain files under `ATM_HOME` (default `~/.config/atm`), so a whole store is portable by directory copy. A project is not the same thing as a repository; one project can cover multiple repos.
 
-Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Events are content-addressed (an event's id is a hash of its content, not a central counter) and carry a hybrid-logical-clock stamp and a replica id, so the histories of independent copies can be merged deterministically — the groundwork for multi-machine sync. Everything you query is a *derived* projection of that log: `cache.db` and the vector index are rebuilt from the events on demand, and deleting them never loses data.
+Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Event ids are content hashes, and every event carries a hybrid-logical-clock stamp and a replica id, so independent copies of the same project merge deterministically: a sync is an exact set union of the two event sets. Union is commutative, associative, and idempotent, which is the whole correctness story — any topology converges (a shared folder, a git remote, a USB stick can each carry a replica), an interrupted sync is repaired by running it again, and a forked copy is recovered by unioning it back in. Everything you query is a *derived* projection of that log: `cache.db` and the vector index are rebuilt from the events on demand, and deleting them never loses data.
 
 ```text
 $ATM_HOME/
@@ -96,51 +103,30 @@ make test
 make verify
 ```
 
-## Advanced Features And API
+## Advanced Features
 
-These features are optional after the 30-second start. They are useful when you want tighter control over agents, semantic search, or scripting.
+These features are optional after the 30-second start. They are useful when you want tighter control over vocabulary, semantic search, or agent roles.
 
-### Personas And Agent Defaults
+### Labels And Boards
 
-Personas shape the role prompt and actor identity used in `atm dev` and `atm manage`. ATM seeds three built-in personas:
+Labels are the substrate: free-form, namespaced names (`status:open`, `type:bug`, `sprint:next`) with no fixed workflow fields — each project grows its own vocabulary, and `atm label list --project <CODE>` shows the live one.
 
-- `developer` — default for `atm dev`
-- `manager` — default for `atm manage`
-- `admin` — human-driven CLI/TUI actions
-
-Create a custom persona when you want a recurring working style:
+A **board** is a label whose membership is computed by an expression over other labels, not asserted task-by-task. Author one with `atm label add --expr`:
 
 ```sh
-atm persona create \
-  --name reviewer \
-  --description "reviews implementation quality before handoff" \
-  --prompt-file ./prompts/reviewer.md
-
-atm persona list
-atm persona show --name reviewer
+atm label add --project ATM \
+  --name ATM:next-sprint \
+  --description "open work slated for the next sprint" \
+  --expr "status:open AND sprint:next"
 ```
 
-Use a persona for one session with `--persona`:
+A board name is a valid `--label` value, so listing its members reads like any other query:
 
 ```sh
-atm dev --project ATM --persona reviewer
-atm manage --project ATM --curate --persona manager
+atm task list --project ATM --label ATM:next-sprint
 ```
 
-`atm init` records your default agent separately from personas. Use `atm agents` when you want to inspect readiness, change the default host, or save default host-agent args:
-
-```sh
-atm agents list
-atm agents select claude
-atm agents args claude -- --dangerously-skip-permission
-```
-
-For one-off launches, override the host with `--agent` and pass host-agent args after `--`:
-
-```sh
-atm dev --project ATM --agent codex -- --yolo
-atm manage --project ATM --agent claude --curate -- --dangerously-skip-permission
-```
+The Boards pane in the TUI is the human's review surface for boards and namespaces.
 
 ### Semantic Search And Indexing
 
@@ -163,43 +149,36 @@ atm index reindex --project ATM      # one-shot index pass
 atm index status --project ATM       # staleness per indexed model
 atm index models --project ATM       # models with stored vectors
 atm search --project ATM "query"     # semantic search with text fallback
+
+atm index --project ATM              # continuous foreground indexing until Ctrl-C
 ```
 
-For continuous foreground indexing, run:
+**3. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
+
+### Personas And Agent Defaults
+
+Personas shape the role prompt and actor identity used in `atm dev` and `atm manage`. ATM seeds three built-in personas: `developer` (default for `atm dev`), `manager` (default for `atm manage`), and `admin` (human-driven CLI/TUI actions).
+
+Create a custom persona when you want a recurring working style, and use it for one session with `--persona`:
 
 ```sh
-atm index --project ATM              # watches the project log until Ctrl-C
+atm persona create \
+  --name reviewer \
+  --description "reviews implementation quality before handoff" \
+  --prompt-file ./prompts/reviewer.md
+
+atm dev --project ATM --persona reviewer
 ```
 
-**3. Manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay.
-
-Inside the overlay:
-
-- `e` edits embedding config.
-- `p` fills the Nomic preset while editing.
-- `s` saves config while editing.
-- `S` starts or stops the live indexer.
-- `r` runs a one-shot reindex.
-- `d` drops the selected model index.
-
-### Boards (Computed Labels)
-
-A board is a label whose membership is computed by an expression over other labels, not asserted task-by-task. Author one with `atm label add --expr`:
+`atm init` records your default agent separately from personas. Use `atm agents` to inspect readiness, change the default host, or save default host-agent args; for one-off launches, override with `--agent` and pass host-agent args after `--`:
 
 ```sh
-atm label add --project ATM \
-  --name ATM:next-sprint \
-  --description "open work slated for the next sprint" \
-  --expr "status:open AND sprint:next"
+atm agents list
+atm agents select claude
+atm agents args claude -- --dangerously-skip-permission
+
+atm dev --project ATM --agent codex -- --yolo
 ```
-
-A board name is a valid `--label` value, so listing its members reads like any other query:
-
-```sh
-atm task list --project ATM --label ATM:next-sprint
-```
-
-The Boards pane in the TUI is the human's review surface for boards and namespaces.
 
 ### Lower-Level API
 
