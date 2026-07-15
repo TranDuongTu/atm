@@ -74,8 +74,8 @@ func TestGoldenTaskListWildcardLabel(t *testing.T) {
 
 func TestGoldenTaskShow(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
-	out, _, code := h.run("task", "show", "--id", "ATM-0001")
+	tk1, _ := h.seedScenario1()
+	out, _, code := h.run("task", "show", "--id", tk1)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr)
 	}
@@ -84,8 +84,8 @@ func TestGoldenTaskShow(t *testing.T) {
 
 func TestGoldenTaskSetTitle(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
-	out, _, code := h.run("task", "set-title", "--id", "ATM-0001", "--title", "Reconciled title", "--actor", "admin@cli:unset")
+	tk1, _ := h.seedScenario1()
+	out, _, code := h.run("task", "set-title", "--id", tk1, "--title", "Reconciled title", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr)
 	}
@@ -94,14 +94,14 @@ func TestGoldenTaskSetTitle(t *testing.T) {
 
 func TestGoldenTaskLabelAddRemove(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
-	outAdd, _, code := h.run("task", "label", "add", "--id", "ATM-0002", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	_, tk2 := h.seedScenario1()
+	outAdd, _, code := h.run("task", "label", "add", "--id", tk2, "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("add exit = %d stderr=%s", code, h.stderr)
 	}
 	compareGolden(t, "task-label-add", outAdd)
 
-	outRem, _, code := h.run("task", "label", "remove", "--id", "ATM-0002", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	outRem, _, code := h.run("task", "label", "remove", "--id", tk2, "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("remove exit = %d stderr=%s", code, h.stderr)
 	}
@@ -110,14 +110,14 @@ func TestGoldenTaskLabelAddRemove(t *testing.T) {
 
 func TestGoldenTaskRemove(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
-	out, _, code := h.run("task", "remove", "--id", "ATM-0001", "--actor", "admin@cli:unset")
+	tk1, _ := h.seedScenario1()
+	out, _, code := h.run("task", "remove", "--id", tk1, "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr)
 	}
 	compareGolden(t, "task-remove", out)
 
-	_, _, code = h.run("task", "show", "--id", "ATM-0001")
+	_, _, code = h.run("task", "show", "--id", tk1)
 	if code != ExitNotFound {
 		t.Fatalf("expected not-found after remove, got %d", code)
 	}
@@ -127,10 +127,10 @@ func TestGoldenTaskRemove(t *testing.T) {
 // every task-level subcommand and produces no deprecation warning on stderr.
 func TestTaskIDFlagCanonicalTask(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
+	tk1, tk2 := h.seedScenario1()
 
 	// show
-	_, stderr, code := h.run("task", "show", "--task", "ATM-0001")
+	_, stderr, code := h.run("task", "show", "--task", tk1)
 	if code != 0 {
 		t.Fatalf("show --task exit = %d stderr=%s", code, stderr)
 	}
@@ -139,7 +139,7 @@ func TestTaskIDFlagCanonicalTask(t *testing.T) {
 	}
 
 	// set-title
-	_, stderr, code = h.run("task", "set-title", "--task", "ATM-0001", "--title", "Via task flag", "--actor", "admin@cli:unset")
+	_, stderr, code = h.run("task", "set-title", "--task", tk1, "--title", "Via task flag", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("set-title --task exit = %d stderr=%s", code, stderr)
 	}
@@ -148,7 +148,7 @@ func TestTaskIDFlagCanonicalTask(t *testing.T) {
 	}
 
 	// set-description
-	_, stderr, code = h.run("task", "set-description", "--task", "ATM-0001", "--description", "desc via task flag", "--actor", "admin@cli:unset")
+	_, stderr, code = h.run("task", "set-description", "--task", tk1, "--description", "desc via task flag", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("set-description --task exit = %d stderr=%s", code, stderr)
 	}
@@ -157,7 +157,7 @@ func TestTaskIDFlagCanonicalTask(t *testing.T) {
 	}
 
 	// label add
-	_, stderr, code = h.run("task", "label", "add", "--task", "ATM-0002", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	_, stderr, code = h.run("task", "label", "add", "--task", tk2, "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("label add --task exit = %d stderr=%s", code, stderr)
 	}
@@ -166,7 +166,7 @@ func TestTaskIDFlagCanonicalTask(t *testing.T) {
 	}
 
 	// label remove
-	_, stderr, code = h.run("task", "label", "remove", "--task", "ATM-0002", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	_, stderr, code = h.run("task", "label", "remove", "--task", tk2, "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("label remove --task exit = %d stderr=%s", code, stderr)
 	}
@@ -179,9 +179,9 @@ func TestTaskIDFlagCanonicalTask(t *testing.T) {
 // subcommands as a backwards-compatible alias and emits a deprecation notice.
 func TestTaskIDFlagDeprecatedAlias(t *testing.T) {
 	h := newGoldenHarness(t)
-	h.seedScenario1()
+	tk1, _ := h.seedScenario1()
 
-	_, stderr, code := h.run("task", "show", "--id", "ATM-0001")
+	_, stderr, code := h.run("task", "show", "--id", tk1)
 	if code != 0 {
 		t.Fatalf("show --id exit = %d stderr=%s", code, stderr)
 	}

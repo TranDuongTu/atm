@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -121,7 +122,12 @@ func (h *goldenHarness) run(args ...string) (string, string, int) {
 	return h.stdout.String(), h.stderr.String(), code
 }
 
-func (h *goldenHarness) seedScenario1() {
+// seedScenario1 seeds the standard golden-test fixture: project ATM, three
+// labels, and two tasks. It returns the two created tasks' ids (in creation
+// order) so callers reference them dynamically instead of hardcoding the v1
+// sequential form ("ATM-0001"/"ATM-0002") — the ids stay whatever the store
+// actually minted, v1 today and v2 hex after the born-v2 cutover.
+func (h *goldenHarness) seedScenario1() (task1ID, task2ID string) {
 	h.t.Helper()
 	sp := h.store.StorePath()
 	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
@@ -129,11 +135,31 @@ func (h *goldenHarness) seedScenario1() {
 	h.run("label", "add", "--store", sp, "--name", "ATM:type:epic", "--actor", "admin@cli:unset")
 	h.run("label", "add", "--store", sp, "--name", "ATM:type:bug", "--description", "Bug fix", "--actor", "admin@cli:unset")
 	h.run("label", "add", "--store", sp, "--name", "ATM:status:open", "--actor", "admin@cli:unset")
-	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
+	out1, _, _ := h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Fix label reconciliation",
 		"--label", "ATM:type:bug", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
-	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
+	out2, _, _ := h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "Seed index tasks",
 		"--label", "ATM:context:agent", "--actor", "admin@cli:unset")
 	h.reset()
+	return taskIDFromCreateJSON(h.t, out1), taskIDFromCreateJSON(h.t, out2)
+}
+
+// taskIDFromCreateJSON extracts the "task.id" field from a `task create` JSON
+// envelope, so tests can capture a just-created task's id instead of
+// hardcoding it.
+func taskIDFromCreateJSON(t *testing.T, out string) string {
+	t.Helper()
+	var env struct {
+		Task struct {
+			ID string `json:"id"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("parse task id from create output %q: %v", out, err)
+	}
+	if env.Task.ID == "" {
+		t.Fatalf("no task id in create output: %q", out)
+	}
+	return env.Task.ID
 }
 
 func compareGolden(t *testing.T, name string, got string) {
