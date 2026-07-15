@@ -12,10 +12,10 @@ type RebuildReport struct {
 	Labels   int
 }
 
-// Rebuild regenerates cache.db from every project's log. Enumerates project
-// codes from disk (not from cache.db, which this function is about to wipe),
-// clears every table, then replays each project's log and re-inserts the
-// live set.
+// Rebuild regenerates cache.db from every project's events.v2.jsonl. Clears
+// every cache table, then delegates to reprojectAllV2, which enumerates the
+// project codes from disk (not from cache.db, which was just wiped), folds
+// each v2 project's events, and re-inserts the live set.
 func (s *Store) Rebuild() (*RebuildReport, error) {
 	rep := &RebuildReport{}
 	db, err := s.cacheDB()
