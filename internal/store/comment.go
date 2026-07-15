@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -179,24 +178,24 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
-			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildCommentFromLog(id, code) })
+			return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 		})
 	})
 }
 
 // getCommentLocked is identical to GetComment except that, on a cache
-// miss/stale hit, it calls rebuildCommentFromLog directly instead of
-// wrapping it in s.WithLock. Callers MUST already hold the comment's
-// project lock (i.e. be running inside their own s.WithLock(code, ...)
-// closure) — calling GetComment in that situation would re-enter the
-// (non-reentrant) mutex and deadlock.
+// miss/stale hit, it triggers the rebuild directly instead of wrapping it in
+// s.WithLock. Callers MUST already hold the comment's project lock (i.e. be
+// running inside their own s.WithLock(code, ...) closure) — calling
+// GetComment in that situation would re-enter the (non-reentrant) mutex and
+// deadlock.
 func (s *Store) getCommentLocked(id string) (*Comment, error) {
 	code, _, _, ok := ParseCommentID(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
-		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildCommentFromLog(id, code) })
+		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 	})
 }
 
@@ -204,12 +203,14 @@ func (s *Store) getCommentLocked(id string) (*Comment, error) {
 // shared by GetComment and getCommentLocked. It is parameterized only by how
 // the rebuild call itself gets invoked: wrapped in a fresh s.WithLock
 // (GetComment, for callers that do not already hold the lock) or called
-// directly (getCommentLocked, for callers that do); the closure is format-aware
-// in both cases (rebuildEntityCacheLocked).
+// directly (getCommentLocked, for callers that do).
 //
-// The v2 branch is in this shared body and runs BEFORE the v1 freshness checks,
-// for the reasons spelled out in getTaskWithRebuild: a v2 comment row's LogSeq
-// is its per-task creation ordinal, and a v2-born project has no log.jsonl.
+// The non-v2 arm below is not a revival of v1 lazy-rebuild — see
+// getProjectWithRebuild's doc comment for why a comment's project can still
+// legitimately resolve to a non-v2 format (a fully removed project, or a
+// cache row written directly ahead of format registration) and why the
+// correct response is to serve the cache row as-is (or ErrNotFound if
+// absent) without ever attempting a rebuild.
 func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -219,44 +220,8 @@ func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*C
 	if err != nil {
 		return nil, err
 	}
-	if format == StoreFormatV2 {
-		if fresh, err := s.v2CacheFresh(code); err != nil {
-			return nil, err
-		} else if !fresh {
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-		}
+	if format != StoreFormatV2 {
 		c, found, err := cacheGetComment(db, id)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			// Fresh count + missing row can still be a damaged cache: rebuild
-			// once and re-read before declaring not-found (same idiom as the v1
-			// miss path below, same ErrNotFound sentinel).
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-			c, found, err = cacheGetComment(db, id)
-			if err != nil {
-				return nil, err
-			}
-			if !found {
-				return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
-			}
-		}
-		return c, nil
-	}
-	c, found, err := cacheGetComment(db, id)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		if err := rebuild(); err != nil {
-			return nil, err
-		}
-		c, found, err = cacheGetComment(db, id)
 		if err != nil {
 			return nil, err
 		}
@@ -265,18 +230,20 @@ func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*C
 		}
 		return c, nil
 	}
-	last, lastErr := s.LastLogSeq(code)
-	if lastErr != nil {
-		return nil, lastErr
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return nil, err
+	} else if !fresh {
+		if err := rebuild(); err != nil {
+			return nil, err
+		}
 	}
-	if c.LogSeq > last {
-		return nil, fmt.Errorf("%w: comment %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, id, c.LogSeq, last)
-	}
-	commentLast, err := s.lastCommentEventSeq(code, id)
+	c, found, err := cacheGetComment(db, id)
 	if err != nil {
 		return nil, err
 	}
-	if c.LogSeq < commentLast {
+	if !found {
+		// Fresh count + missing row can still be a damaged cache: rebuild
+		// once and re-read before declaring not-found.
 		if err := rebuild(); err != nil {
 			return nil, err
 		}
@@ -289,52 +256,6 @@ func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*C
 		}
 	}
 	return c, nil
-}
-
-func (s *Store) lastCommentEventSeq(code, id string) (int, error) {
-	entries, err := s.ReadLog(code)
-	if err != nil {
-		return 0, err
-	}
-	last := 0
-	for _, e := range entries {
-		if e.Subject.Kind == "comment" && e.Subject.ID == id {
-			last = e.Seq
-		}
-	}
-	return last, nil
-}
-
-func (s *Store) rebuildCommentFromLog(id, code string) error {
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return err
-	}
-	var c *Comment
-	lastSeq := 0
-	for _, e := range entries {
-		if e.Subject.Kind != "comment" || e.Subject.ID != id {
-			continue
-		}
-		lastSeq = e.Seq
-		if e.Action == ActionCommentRemoved {
-			c = nil
-			continue
-		}
-		var cc Comment
-		if err := json.Unmarshal(e.Payload, &cc); err == nil {
-			c = &cc
-		}
-	}
-	if c == nil {
-		return fmt.Errorf("%w: comment %q", ErrNotFound, id)
-	}
-	c.LogSeq = lastSeq
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return cacheUpsertComment(db, c)
 }
 
 func (s *Store) ListComments(taskID string) ([]*Comment, error) {

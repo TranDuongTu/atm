@@ -146,38 +146,53 @@ func mustMarshal(v any) json.RawMessage {
 func (s *Store) GetProject(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
 		return s.WithLock(code, func() error {
-			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+			return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 		})
 	})
 }
 
 // getProjectLocked is identical to GetProject except that, on a cache
-// miss/stale hit, it calls rebuildProjectFromLog directly instead of
-// wrapping it in s.WithLock. Callers MUST already hold the project's lock
-// (i.e. be running inside their own s.WithLock(code, ...) closure) — calling
-// GetProject in that situation would re-enter the (non-reentrant) mutex and
-// deadlock.
+// miss/stale hit, it triggers the rebuild directly instead of wrapping it in
+// s.WithLock. Callers MUST already hold the project's lock (i.e. be running
+// inside their own s.WithLock(code, ...) closure) — calling GetProject in
+// that situation would re-enter the (non-reentrant) mutex and deadlock.
 func (s *Store) getProjectLocked(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
-		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildProjectFromLog(code) })
+		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 	})
+}
+
+// noV1RebuildErr is the v1 arm rebuildEntityCacheLocked forwards to for a
+// non-v2 project. It should be unreachable: rebuildEntityCacheLocked is only
+// ever invoked (via rebuild()) from the format==StoreFormatV2 arm of a
+// *WithRebuild accessor below, at which point rebuildEntityCacheLocked's own
+// format re-check also finds v2 and dispatches to rebuildProjectFromV2, never
+// to this closure. It exists only so the *WithRebuild accessors still have a
+// well-typed closure to hand rebuildEntityCacheLocked now that the v1
+// rebuildXFromLog helpers are gone; if it ever fires, that means a project
+// reached this code with a non-v2 format, which is an integrity violation.
+func noV1RebuildErr(code string) error {
+	return fmt.Errorf("%w: project %q is not v2 (v1 rebuild path removed)", ErrIntegrity, code)
 }
 
 // getProjectWithRebuild contains the fast-path cache read + staleness check
 // shared by GetProject and getProjectLocked. It is parameterized only by how
 // the rebuild call itself gets invoked: wrapped in a fresh s.WithLock
 // (GetProject, for callers that do not already hold the lock) or called
-// directly (getProjectLocked, for callers that do). The rebuild closure is
-// format-aware in both cases (rebuildEntityCacheLocked).
+// directly (getProjectLocked, for callers that do).
 //
-// The v2 branch lives HERE, in the shared body, and not merely at the public
-// entry point: createProjectV2/removeProjectV2 and every v1 mutator validate
-// through getProjectLocked, which reaches this body while holding the project
-// lock. With the branch only at the entry point such a read would fall into the
-// v1 freshness path below, where projFromV2's LogSeq of 0 makes the v1 staleness
-// check fire on every read and RESURRECT v1 rows over the v2 fold. The branch
-// must also precede the v1 checks: a v2 cache row's LogSeq is a fold ordinal (0
-// for the project row), unrelated to any v1 log seq.
+// The non-v2 arm below is NOT a revival of v1 lazy-rebuild: there is no v1
+// media left to rebuild from, so it never calls rebuild(). It exists because
+// a project can resolve to a non-v2 format for two legitimate reasons that
+// have nothing to do with v1 storage: (1) RemoveProject clears the project's
+// ProjectFormats entry along with its media, so a fully removed project
+// falls back to the default/ActiveFormat resolution — GetProject on it must
+// still answer ErrNotFound; (2) a cache row can be written directly by a
+// lower-level v2 helper (cacheProjectFromV2State) ahead of format
+// registration — GetProject must still serve that row rather than bounce it
+// through the v2 freshness/rebuild dance, which has nothing to check the
+// staleness of without a real event file. Either way, the cache row (or its
+// absence) is authoritative; there's nothing to rebuild.
 func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -187,45 +202,8 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 	if err != nil {
 		return nil, err
 	}
-	if format == StoreFormatV2 {
-		if fresh, err := s.v2CacheFresh(code); err != nil {
-			return nil, err
-		} else if !fresh {
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-		}
+	if format != StoreFormatV2 {
 		p, ok, err := cacheGetProject(db, code)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			// A fresh count with a missing row can still be a damaged cache
-			// (the freshness key is a count, not a checksum): rebuild once and
-			// re-read before declaring not-found — the same idiom as the v1
-			// miss path below.
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-			p, ok, err = cacheGetProject(db, code)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
-			}
-		}
-		return p, nil
-	}
-	p, ok, err := cacheGetProject(db, code)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		if err := rebuild(); err != nil {
-			return nil, err
-		}
-		p, ok, err = cacheGetProject(db, code)
 		if err != nil {
 			return nil, err
 		}
@@ -234,18 +212,21 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 		}
 		return p, nil
 	}
-	last, lastErr := s.LastLogSeq(code)
-	if lastErr != nil {
-		return nil, lastErr
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return nil, err
+	} else if !fresh {
+		if err := rebuild(); err != nil {
+			return nil, err
+		}
 	}
-	if p.LogSeq > last {
-		return nil, fmt.Errorf("%w: project %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, code, p.LogSeq, last)
-	}
-	projLast, err := s.lastProjectEventSeq(code)
+	p, ok, err := cacheGetProject(db, code)
 	if err != nil {
 		return nil, err
 	}
-	if projLast > p.LogSeq {
+	if !ok {
+		// A fresh count with a missing row can still be a damaged cache
+		// (the freshness key is a count, not a checksum): rebuild once and
+		// re-read before declaring not-found.
 		if err := rebuild(); err != nil {
 			return nil, err
 		}
@@ -258,67 +239,6 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 		}
 	}
 	return p, nil
-}
-
-// lastProjectEventSeq returns the seq of the latest project.* log entry.
-func (s *Store) lastProjectEventSeq(code string) (int, error) {
-	entries, err := s.ReadLog(code)
-	if err != nil {
-		return 0, err
-	}
-	last := 0
-	for _, e := range entries {
-		if e.Subject.Kind == "project" && e.Subject.Code == code {
-			last = e.Seq
-		}
-	}
-	return last, nil
-}
-
-func (s *Store) rebuildProjectFromLog(code string) error {
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return err
-	}
-	var p *Project
-	lastSeq := 0
-	maxTaskN := 0
-	for _, e := range entries {
-		switch e.Subject.Kind {
-		case "project":
-			if e.Subject.Code != code {
-				continue
-			}
-			lastSeq = e.Seq
-			if e.Action == ActionProjectRemoved {
-				p = nil
-				continue
-			}
-			var proj Project
-			if err := json.Unmarshal(e.Payload, &proj); err == nil {
-				p = &proj
-			}
-		case "task":
-			// Track the highest task-ID N seen across ALL task.* entries
-			// (including task.removed tombstones) so NextTaskN can be
-			// reconstructed below without relying on a project.* log event
-			// that CreateTask never appends. A removed task's number must
-			// never be reused.
-			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
-				maxTaskN = n
-			}
-		}
-	}
-	if p == nil {
-		return fmt.Errorf("%w: project %q", ErrNotFound, code)
-	}
-	p.LogSeq = lastSeq
-	p.NextTaskN = max(p.NextTaskN, maxTaskN+1)
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return cacheUpsertProject(db, p)
 }
 
 func (s *Store) ListProjects() []*Project {

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -210,13 +209,13 @@ func (s *Store) GetTask(id string) (*Task, error) {
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
-			return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildTaskFromLog(id, code) })
+			return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 		})
 	})
 }
 
 // getTaskLocked is identical to GetTask except that, on a cache miss/stale
-// hit, it calls rebuildTaskFromLog directly instead of wrapping it in
+// hit, it triggers the rebuild directly instead of wrapping it in
 // s.WithLock. Callers MUST already hold the task's project lock (i.e. be
 // running inside their own s.WithLock(code, ...) closure) — calling GetTask
 // in that situation would re-enter the (non-reentrant) mutex and deadlock.
@@ -226,7 +225,7 @@ func (s *Store) getTaskLocked(id string) (*Task, error) {
 		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
-		return s.rebuildEntityCacheLocked(code, func() error { return s.rebuildTaskFromLog(id, code) })
+		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
 	})
 }
 
@@ -234,14 +233,14 @@ func (s *Store) getTaskLocked(id string) (*Task, error) {
 // shared by GetTask and getTaskLocked. It is parameterized only by how the
 // rebuild call itself gets invoked: wrapped in a fresh s.WithLock (GetTask, for
 // callers that do not already hold the lock) or called directly (getTaskLocked,
-// for callers that do); the closure is format-aware in both cases
-// (rebuildEntityCacheLocked).
+// for callers that do).
 //
-// The v2 branch is in this shared body, and runs BEFORE the v1 freshness checks
-// (see getProjectWithRebuild for why both are load-bearing): a v2 cache row's
-// LogSeq is the task's CREATION ORDINAL in the fold, and a v2-born project has
-// no log.jsonl at all — so the v1 check `LogSeq > LastLogSeq` would hard-fail
-// with ErrIntegrity on every v2-born task.
+// The non-v2 arm below is not a revival of v1 lazy-rebuild — see
+// getProjectWithRebuild's doc comment for why a task's project can still
+// legitimately resolve to a non-v2 format (a fully removed project, or a
+// cache row written directly ahead of format registration) and why the
+// correct response is to serve the cache row as-is (or ErrNotFound if
+// absent) without ever attempting a rebuild.
 func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -251,46 +250,8 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 	if err != nil {
 		return nil, err
 	}
-	if format == StoreFormatV2 {
-		if fresh, err := s.v2CacheFresh(code); err != nil {
-			return nil, err
-		} else if !fresh {
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-		}
+	if format != StoreFormatV2 {
 		t, found, err := cacheGetTask(db, id)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			// A fresh count with a missing row can still be a damaged cache
-			// (the freshness key is a count, not a checksum): rebuild once and
-			// re-read before declaring not-found — the same idiom as the v1
-			// miss path below. ErrNotFound is the same sentinel v1 returns, so
-			// the CLI's exit codes are unchanged.
-			if err := rebuild(); err != nil {
-				return nil, err
-			}
-			t, found, err = cacheGetTask(db, id)
-			if err != nil {
-				return nil, err
-			}
-			if !found {
-				return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
-			}
-		}
-		return t, nil
-	}
-	t, found, err := cacheGetTask(db, id)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		if err := rebuild(); err != nil {
-			return nil, err
-		}
-		t, found, err = cacheGetTask(db, id)
 		if err != nil {
 			return nil, err
 		}
@@ -299,18 +260,21 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 		}
 		return t, nil
 	}
-	last, lastErr := s.LastLogSeq(code)
-	if lastErr != nil {
-		return nil, lastErr
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return nil, err
+	} else if !fresh {
+		if err := rebuild(); err != nil {
+			return nil, err
+		}
 	}
-	if t.LogSeq > last {
-		return nil, fmt.Errorf("%w: task %q cache LogSeq=%d > log LastSeq=%d", ErrIntegrity, id, t.LogSeq, last)
-	}
-	taskLast, err := s.lastTaskEventSeq(code, id)
+	t, found, err := cacheGetTask(db, id)
 	if err != nil {
 		return nil, err
 	}
-	if t.LogSeq < taskLast {
+	if !found {
+		// A fresh count with a missing row can still be a damaged cache
+		// (the freshness key is a count, not a checksum): rebuild once and
+		// re-read before declaring not-found.
 		if err := rebuild(); err != nil {
 			return nil, err
 		}
@@ -323,57 +287,6 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 		}
 	}
 	return t, nil
-}
-
-// lastTaskEventSeq returns the seq of the latest log entry for the given task subject.
-// An integrity error from ReadLog is propagated (a corrupt log must not be treated
-// as "cache is fresh").
-func (s *Store) lastTaskEventSeq(code, id string) (int, error) {
-	entries, err := s.ReadLog(code)
-	if err != nil {
-		return 0, err
-	}
-	last := 0
-	for _, e := range entries {
-		if e.Subject.Kind == "task" && e.Subject.ID == id {
-			last = e.Seq
-		}
-	}
-	return last, nil
-}
-
-// rebuildTaskFromLog replays the task's events and rewrites the cache row.
-// Caller MUST hold the project lock.
-func (s *Store) rebuildTaskFromLog(id, code string) error {
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return err
-	}
-	var t *Task
-	lastSeq := 0
-	for _, e := range entries {
-		if e.Subject.Kind != "task" || e.Subject.ID != id {
-			continue
-		}
-		lastSeq = e.Seq
-		if e.Action == ActionTaskRemoved {
-			t = nil
-			continue
-		}
-		var tk Task
-		if err := json.Unmarshal(e.Payload, &tk); err == nil {
-			t = &tk
-		}
-	}
-	if t == nil {
-		return fmt.Errorf("%w: task %q", ErrNotFound, id)
-	}
-	t.LogSeq = lastSeq
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return cacheUpsertTask(db, t)
 }
 
 func (s *Store) SetTitle(id, title, actor string) error {
