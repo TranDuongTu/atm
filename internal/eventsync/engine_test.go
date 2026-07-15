@@ -51,14 +51,6 @@ func rawOf(events ...*eventsource.Event) []RawEvent {
 	return out
 }
 
-func eventIDs(events []*eventsource.Event) []string {
-	out := make([]string, len(events))
-	for i, e := range events {
-		out[i] = e.ID
-	}
-	return out
-}
-
 func rawEventIDs(events []RawEvent) []string {
 	out := make([]string, len(events))
 	for i, e := range events {
