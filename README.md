@@ -70,8 +70,6 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ## Store
 
-ATM keeps everything as plain files under `ATM_HOME` (default `~/.config/atm`), so a whole store is portable by directory copy. A project is not the same thing as a repository; one project can cover multiple repos.
-
 Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Event ids are content hashes, and every event carries a hybrid-logical-clock stamp and a replica id, so independent replicas of a project merge deterministically: a sync is an exact set union of the two event sets. Everything you query is a *derived* projection of that log — `cache.db` and the vector index rebuild from the events on demand, and deleting them never loses data.
 
 ```text
