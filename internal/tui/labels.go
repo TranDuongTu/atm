@@ -337,6 +337,12 @@ func (b *boardsModel) cycleBoard(dir int) {
 		idx += len(b.rows)
 	}
 	b.selected = b.rows[idx].FullName
+	// Switching boards must not leak a stale chart/detail/cursor into the new
+	// selection — the new SELECTED board always starts its thumbnail at L0.
+	b.level = lLevelTable
+	b.ns = ""
+	b.cursor = 0
+	b.detail = labelDetailState{}
 	b.applyFocus()
 }
 
@@ -350,12 +356,92 @@ func (b *boardsModel) ringIndex() int {
 	return -1
 }
 
-// drillIn, drillOut, and chartCursorMove are stubs for Task 8, which wires up
-// the SELECTED thumbnail's level navigation (>/<) and chart cursor ({/}) from
-// the Tasks pane's handleListKey.
-func (b *boardsModel) drillIn()            {} // Task 8 fills in
-func (b *boardsModel) drillOut()           {} // Task 8 fills in
-func (b *boardsModel) chartCursorMove(int) {} // Task 8 fills in
+// drillIn advances the SELECTED thumbnail one level deeper. For a namespace
+// board: L0 -> chart. For a leaf board: L0 -> its detail. For a chart row
+// under the cursor: chart -> that label's detail (or unset leaf). At detail,
+// it is already the deepest level and is a no-op.
+func (b *boardsModel) drillIn() {
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	r := b.rows[idx]
+	switch b.level {
+	case lLevelTable:
+		if r.Expandable {
+			b.enterChart(r.Name)
+		} else {
+			// Leaf board: show its detail.
+			b.level = lLevelDetail
+			b.detail = labelDetailState{row: labelRow{
+				suffix:      strings.TrimPrefix(r.FullName, b.m.projectScope+":"),
+				full:        r.FullName,
+				description: r.Description,
+				usage:       r.Count,
+			}}
+		}
+	case lLevelChart:
+		rows := b.chartRows()
+		if b.cursor >= 0 && b.cursor < len(rows) {
+			if rows[b.cursor].unset {
+				b.enterUnsetLeaf()
+				return
+			}
+			if rr, ok := b.chartLabelRow(); ok {
+				b.enterDetail(rr)
+			}
+		}
+	case lLevelDetail:
+		// already at the deepest level; no-op
+	}
+}
+
+// drillOut climbs the SELECTED thumbnail one level out: detail -> chart ->
+// L0. At L0 it is a no-op. It must NOT route through enterTable(), whose
+// setFocus(focusOff, "") would clear the task filter while a board is still
+// SELECTED — climbing out re-applies the selected board's own focus instead.
+func (b *boardsModel) drillOut() {
+	switch b.level {
+	case lLevelDetail:
+		if b.ns != "" {
+			// Came from a namespace chart (member detail or unset leaf):
+			// climb back to the chart. reenterChart restores the facet focus.
+			b.reenterChart()
+			return
+		}
+		// Leaf board's detail -> L0; the SELECTED board keeps driving the list.
+		b.level = lLevelTable
+		b.detail = labelDetailState{}
+		b.applyFocus()
+	case lLevelChart:
+		b.level = lLevelTable
+		b.ns = ""
+		b.cursor = 0
+		b.applyFocus()
+	}
+}
+
+// chartCursorMove moves the SELECTED thumbnail's chart cursor (the member row
+// that >, d, l target). Only meaningful at the chart level; no-op elsewhere.
+func (b *boardsModel) chartCursorMove(dir int) {
+	if b.level != lLevelChart {
+		return
+	}
+	rows := b.chartRows()
+	if len(rows) == 0 {
+		return
+	}
+	b.cursor += dir
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(rows) {
+		b.cursor = len(rows) - 1
+	}
+}
 
 // applyFocus pushes the selected board's focus to the Tasks pane, reusing the
 // existing setFocus channel. A namespace board (Expandable) uses focusPresent;

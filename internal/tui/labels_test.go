@@ -915,6 +915,87 @@ func cursorToChartUnset(t *testing.T, m *Model) {
 	t.Fatalf("chart (unset) row not found")
 }
 
+// --- Thumbnail drill-down tests (Task 8) ---
+
+func TestDrillIntoNamespaceChart(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	// Select the status:* namespace board.
+	for i, r := range m.boards.rows {
+		if r.Expandable && r.Name == "status" {
+			m.boards.selected = r.FullName
+			_ = i
+			break
+		}
+	}
+	m.boards.applyFocus()
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart {
+		t.Errorf("level = %v, want lLevelChart after drillIn on namespace", m.boards.level)
+	}
+	m.boards.drillOut()
+	if m.boards.level != lLevelTable {
+		t.Errorf("level = %v, want lLevelTable after drillOut", m.boards.level)
+	}
+}
+
+func TestChartCursorMoveTargetsMember(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Expandable && r.Name == "status" {
+			m.boards.selected = r.FullName
+			break
+		}
+	}
+	m.boards.applyFocus()
+	m.boards.drillIn() // -> chart
+	if m.boards.chartCursorMove(0); m.boards.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 at chart entry", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor != 1 {
+		t.Errorf("cursor = %d after move, want 1", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("cursor = %d after move back, want 0", m.boards.cursor)
+	}
+}
+
+func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault() // SELECTED = ATM:open-tasks (leaf board)
+	m.boards.drillIn()       // leaf board -> its detail
+	if m.boards.level != lLevelDetail {
+		t.Fatalf("level = %v, want lLevelDetail", m.boards.level)
+	}
+	m.boards.drillOut() // back to L0 — board focus must be re-applied, not cleared
+	if m.boards.level != lLevelTable {
+		t.Fatalf("level = %v, want lLevelTable", m.boards.level)
+	}
+	// The task list must still be filtered by the SELECTED board (assert via
+	// the tasks pane's focus caption / filter — check the exact accessor in
+	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
+	if got := m.tasks.focusCaption(); !strings.Contains(got, "open-tasks") {
+		t.Errorf("focus caption = %q, want it to reference open-tasks after drillOut", got)
+	}
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })

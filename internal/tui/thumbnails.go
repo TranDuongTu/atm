@@ -89,9 +89,10 @@ func (b *boardsModel) renderSideCell(w, h int, r boardRow, marker string) string
 	return titledBoxHeight(b.m.styles.PaneInactive, w, r.Name, body, h)
 }
 
-// renderSelectedCell renders the SELECTED thumbnail, reusing the existing level
-// renderer for the board's current level. A namespace board shows its chart; a
-// leaf board shows its detail.
+// renderSelectedCell renders the SELECTED thumbnail at its current drill
+// level (b.level), reusing the existing level renderers. L0 falls back to a
+// namespace's chart or a leaf board's detail as the default view — the same
+// as drillIn's first step, but without mutating drill state.
 func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	// Temporarily size boardsModel to the selected cell so the reused renderers
 	// window correctly, then restore.
@@ -106,28 +107,32 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	}()
 
 	var inner string
-	switch {
-	case r.Expandable:
-		// Ensure the chart is built for this namespace regardless of b.level:
-		// render at the namespace's chart level directly.
-		savedLevel, savedNS, savedCursor := b.level, b.ns, b.cursor
-		b.level = lLevelChart
-		b.ns = r.Name
-		b.cursor = 0
-		defer func() { b.level, b.ns, b.cursor = savedLevel, savedNS, savedCursor }()
+	switch b.level {
+	case lLevelChart:
 		inner = b.renderChart()
-	default:
-		// Leaf board (board or stored label): show its detail.
-		savedLevel, savedDetail := b.level, b.detail
-		b.level = lLevelDetail
-		b.detail = labelDetailState{row: labelRow{
-			suffix:      strings.TrimPrefix(r.FullName, b.m.projectScope+":"),
-			full:        r.FullName,
-			description: r.Description,
-			usage:       r.Count,
-		}}
-		defer func() { b.level, b.detail = savedLevel, savedDetail }()
+	case lLevelDetail:
 		inner = b.renderDetail()
+	default: // lLevelTable
+		if r.Expandable {
+			// Default view for a namespace at L0 is its chart.
+			savedLevel, savedNS, savedCursor := b.level, b.ns, b.cursor
+			b.level = lLevelChart
+			b.ns = r.Name
+			b.cursor = 0
+			defer func() { b.level, b.ns, b.cursor = savedLevel, savedNS, savedCursor }()
+			inner = b.renderChart()
+		} else {
+			savedLevel, savedDetail := b.level, b.detail
+			b.level = lLevelDetail
+			b.detail = labelDetailState{row: labelRow{
+				suffix:      strings.TrimPrefix(r.FullName, b.m.projectScope+":"),
+				full:        r.FullName,
+				description: r.Description,
+				usage:       r.Count,
+			}}
+			defer func() { b.level, b.detail = savedLevel, savedDetail }()
+			inner = b.renderDetail()
+		}
 	}
 	return titledBoxHeight(b.m.styles.PaneActive, w, r.Name, inner, h)
 }
