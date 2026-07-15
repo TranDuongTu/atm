@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+
 	"atm/internal/eventsource"
 )
 
@@ -20,10 +22,6 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	codes, err := s.projectCodesOnDisk()
-	if err != nil {
-		return rep, err
-	}
 	tx, err := db.Begin()
 	if err != nil {
 		return rep, err
@@ -35,6 +33,24 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		return rep, err
+	}
+	return s.reprojectAllV2(db)
+}
+
+// reprojectAllV2 re-projects every on-disk v2 project's cache rows from its
+// events.v2.jsonl into db, plus the store-global merged label set. It is the
+// shared core of Rebuild (called after Rebuild's own table wipe) and of the
+// cache schema migration's eager reprojection (cache.go, run inside
+// cacheDB()'s cacheOnce.Do against tables that were just recreated empty).
+//
+// It takes db directly and MUST NOT call s.cacheDB(): the migration caller is
+// already inside cacheOnce.Do, and cacheDB() is not reentrant — calling it
+// again from here would deadlock.
+func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
+	rep := &RebuildReport{}
+	codes, err := s.projectCodesOnDisk()
+	if err != nil {
 		return rep, err
 	}
 	mergedLabels := map[string]Label{}
@@ -64,7 +80,7 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 			}
 			continue
 		}
-		if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
+		if err := s.cacheProjectFromV2StateDB(db, code, state, snap.EventCount); err != nil {
 			return rep, err
 		}
 		rep.Projects++
@@ -74,7 +90,7 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 		// column — see eventsource_projector.go's cacheDeleteProjectRows
 		// comment) so a name shared with another project is counted once,
 		// not once per project. Tombstoned entries are excluded to match
-		// cacheProjectFromV2State, which never upserts them.
+		// cacheProjectFromV2StateDB, which never upserts them.
 		for name, l := range state.Labels {
 			if l.Tombstoned {
 				continue

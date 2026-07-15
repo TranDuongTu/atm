@@ -150,11 +150,17 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 			return
 		}
 		// cache.db carries its schema shape in PRAGMA user_version. cache.db is
-		// derived and rebuildable, so on any schema bump we simply DROP the
-		// derived tables and recreate them at the current cacheSchema: the next
-		// read re-projects each project from its events.v2.jsonl via
-		// ensureV2CacheFresh. A fresh DB reports user_version 0, so it takes the
-		// same path and lands at the current version. Bump cacheSchemaVersion
+		// derived and rebuildable, so on any schema bump we DROP the derived
+		// tables, recreate them at the current cacheSchema, and then EAGERLY
+		// re-project every on-disk v2 project into the fresh tables via
+		// reprojectAllV2 — we do NOT defer to ensureV2CacheFresh's per-project
+		// lazy self-heal, because a list-all read (ListProjects, the TUI's
+		// opening screen) reads the emptied table directly and never touches
+		// ensureV2CacheFresh for any single project; without eager
+		// reprojection here, a store with fully intact v2 logs would appear
+		// empty until each project was individually read or `store rebuild`
+		// was run. A fresh DB reports user_version 0, so it takes the same
+		// path and lands at the current version. Bump cacheSchemaVersion
 		// whenever cacheSchema changes shape.
 		const cacheSchemaVersion = 2
 		var uv int
@@ -174,6 +180,15 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 				return
 			}
 			if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, cacheSchemaVersion)); err != nil {
+				s.cacheErr = err
+				return
+			}
+			// Tables were just recreated empty, so reprojectAllV2 needs no
+			// wipe first (unlike Rebuild, which wipes a possibly-populated
+			// cache before calling it). MUST use the local db handle here,
+			// never s.cacheDB(): we are still inside cacheOnce.Do, and
+			// cacheDB() is not reentrant.
+			if _, err := s.reprojectAllV2(db); err != nil {
 				s.cacheErr = err
 				return
 			}

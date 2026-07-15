@@ -68,11 +68,22 @@ func seedLegacyCacheDB(t *testing.T, path, code string) {
 // dropped and rebuilt at the current shape on open, a read re-projects the
 // project from events.v2.jsonl and exposes the creation Ordinal, and the
 // orphaned last_log_seq meta row does not survive.
+//
+// It also proves the ATM-0127 list-all regression stays fixed: ListProjects,
+// called immediately after opening a fresh Store on a to-be-migrated cache
+// (no ListTasks/GetTask "touch" of any project first), must return every
+// on-disk v2 project. ensureV2CacheFresh only self-heals a project that a
+// caller reads BY CODE; a plain ListProjects reading the (freshly emptied)
+// projects table never does that, so before the eager-reprojection fix this
+// returned an empty slice despite fully intact v2 logs on disk.
 func TestCacheMigratesLegacySchema(t *testing.T) {
 	dir := t.TempDir()
 
-	// First store: create a v2 project + task, writing events.v2.jsonl (the
-	// source of truth the second store will re-project from) and a fresh cache.
+	// First store: create TWO v2 projects (each with a task), writing
+	// events.v2.jsonl per project (the source of truth the second store will
+	// re-project from) and a fresh cache. Two projects matter here: a single
+	// project could accidentally pass via some other single-project code
+	// path; only a list-all read across multiple projects catches the bug.
 	s1, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +95,12 @@ func TestCacheMigratesLegacySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s1.CreateTask("ATM", "t1", "d1", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s1.CreateProject("BTM", "y", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s1.CreateTask("BTM", "t1", "d1", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	// Release the first store's handle so we can replace the file underneath it.
@@ -104,6 +121,18 @@ func TestCacheMigratesLegacySchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// The critical assertion: ListProjects, with NO prior per-project read,
+	// must see both projects immediately after the migration.
+	projects := s2.ListProjects()
+	gotCodes := map[string]bool{}
+	for _, p := range projects {
+		gotCodes[p.Code] = true
+	}
+	if !gotCodes["ATM"] || !gotCodes["BTM"] {
+		t.Fatalf("ListProjects immediately after migration = %+v, want both ATM and BTM present", projects)
+	}
+
 	tasks, err := s2.ListTasksErr(QueryFilters{Project: "ATM"})
 	if err != nil {
 		t.Fatalf("ListTasksErr after migration: %v", err)
