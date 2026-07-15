@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -1258,6 +1259,9 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "task one", "ATM:status:open")
 	update(t, m, "s") // select ATM
+	// Task 4: project-select now defaults the Tasks pane to the Open Tasks
+	// board; clear it here so this test can verify the unfiltered flat list.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2") // focus Tasks pane
 	v := m.View()
 	body := m.tasks.View()
@@ -1305,6 +1309,9 @@ func TestTasksPagingFooter(t *testing.T) {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this paging test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	v := m.View()
 	mustContain(t, v, "showing ")
@@ -1321,6 +1328,9 @@ func TestTasksFlatListScrollsWithCursor(t *testing.T) {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this scrolling test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 
 	rows := m.tasks.rows
@@ -1347,6 +1357,9 @@ func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this bracket-key paging test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	start := m.tasks.cursor
 	update(t, m, "]")
@@ -1511,6 +1524,9 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	}
 	m.refreshAll()
 	update(t, m, "s")
+	// Task 4: the task carries status:in-progress, not status:open, so it is
+	// excluded from the default Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
@@ -1590,6 +1606,9 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			}
 			m.refreshAll()
 			update(t, m, "s")
+			// Task 4: the task has no labels, so it is excluded from the
+			// default Open Tasks board; clear focus to see it.
+			m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			update(t, m, "2")
 			update(t, m, "enter")
 			if m.tasks.view != tViewDetail {
@@ -1685,6 +1704,9 @@ func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "pane task")
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "enter")
 	if m.projects.view != pViewDetail {
 		t.Fatalf("setup: project detail not open")
@@ -1860,6 +1882,9 @@ func TestTaskDetailDescriptionEdit(t *testing.T) {
 	m.refreshAll()
 	// Select project, switch to Tasks, open detail at cursor row 0.
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
 	if m.tasks.view != tViewDetail {
@@ -1913,6 +1938,9 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "Doomed task")
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
 	if m.tasks.view != tViewDetail {
@@ -2155,8 +2183,13 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.tasks.detail.id != "" {
 		t.Errorf("tasks.detail.id = %q want empty (stale detail survived switch)", m.tasks.detail.id)
 	}
-	if m.tasks.filter != "" {
-		t.Errorf("tasks.filter = %q want empty (stale filter survived switch)", m.tasks.filter)
+	// Task 4: project-select now defaults the Tasks pane to the new
+	// project's Open Tasks board (not an empty filter), so the invariant
+	// under test is that the OLD project's (ATM) filter does not survive —
+	// not that the filter is literally empty.
+	wantFilter := workflow.BoardOpenTasks("SCY")
+	if m.tasks.filter != wantFilter {
+		t.Errorf("tasks.filter = %q want %q (new project's default board, not the stale ATM filter)", m.tasks.filter, wantFilter)
 	}
 	if m.tasks.focus.mode != focusOff {
 		t.Errorf("tasks.focus.mode = %v want focusOff", m.tasks.focus.mode)

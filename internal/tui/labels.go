@@ -8,6 +8,7 @@ import (
 
 	"atm/internal/seed"
 	"atm/internal/store"
+	"atm/internal/workflow"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -140,6 +141,12 @@ type boardsModel struct {
 	offset        int
 	pageSize      int
 	detail        labelDetailState
+
+	// selected is the FullName of the ring-selected board, driving the Tasks
+	// pane focus. Empty when no project is scoped. Set by selectDefault (on
+	// project select) and cycleBoard; refresh() only touches it when the
+	// previously selected board vanished from the rebuilt ring.
+	selected string
 }
 
 type lLevel int
@@ -218,6 +225,81 @@ func (b *boardsModel) refresh() {
 		return
 	}
 	b.clampCursor()
+	// The initial selection happens on project select (selectDefault is
+	// called there), not here — refresh runs on every tick and must not
+	// clobber a deliberately-empty selection. Only recover when the
+	// previously selected board vanished from the rebuilt ring (deleted
+	// mid-session), so a stale selection never keeps driving the task list.
+	if b.selected != "" && b.ringIndex() < 0 {
+		b.selectDefault()
+	}
+}
+
+// selectDefault selects the Open Tasks board if present, else the first ring
+// board. Called on project select after EnsureVocabulary.
+func (b *boardsModel) selectDefault() {
+	want := workflow.BoardOpenTasks(b.m.projectScope)
+	for _, r := range b.rows {
+		if r.FullName == want {
+			b.selected = want
+			b.applyFocus()
+			return
+		}
+	}
+	if len(b.rows) > 0 {
+		b.selected = b.rows[0].FullName
+		b.applyFocus()
+		return
+	}
+	b.selected = ""
+}
+
+// cycleBoard moves the ring selection by dir (+1 next, -1 prev) with
+// wraparound and applies the new board's focus to the Tasks list.
+func (b *boardsModel) cycleBoard(dir int) {
+	if len(b.rows) == 0 {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		idx = 0
+	}
+	idx = (idx + dir) % len(b.rows)
+	if idx < 0 {
+		idx += len(b.rows)
+	}
+	b.selected = b.rows[idx].FullName
+	b.applyFocus()
+}
+
+// ringIndex returns the current ring index of b.selected, or -1 if absent.
+func (b *boardsModel) ringIndex() int {
+	for i, r := range b.rows {
+		if r.FullName == b.selected {
+			return i
+		}
+	}
+	return -1
+}
+
+// applyFocus pushes the selected board's focus to the Tasks pane, reusing the
+// existing setFocus channel. A namespace board (Expandable) uses focusPresent;
+// a leaf board uses focusOff + the board's FullName as the filter token.
+func (b *boardsModel) applyFocus() {
+	if b.selected == "" || b.m.projectScope == "" {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	r := b.rows[idx]
+	if r.Expandable {
+		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, facetToken(b.m.projectScope, r.Name))
+	} else {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, r.FullName)
+	}
 }
 
 // buildBoardRows constructs the flat L0 list: every board (a label with an

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -176,6 +177,17 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.supervisor = newPluginSupervisor()
 	m.SetSize(m.width, m.height)
 	m.refreshAll()
+	// Defensive: NewModel never sets projectScope before launch (a fresh
+	// launch always starts with no project selected), so this is a no-op in
+	// practice — the real entry point is the project-select handler in
+	// projects.go. Kept in case a future caller constructs a Model with a
+	// pre-populated projectScope.
+	if m.projectScope != "" {
+		if err := workflow.EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
+			m.showToast("ensure open-tasks: " + err.Error())
+		}
+		m.boards.selectDefault()
+	}
 	return m, nil
 }
 

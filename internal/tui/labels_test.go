@@ -5,9 +5,63 @@ import (
 	"testing"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
+
+// --- Board ring / default selection tests ---
+
+func TestSelectDefaultPicksOpenTasksBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected != workflow.BoardOpenTasks("ATM") {
+		t.Errorf("selected = %q, want ATM:open-tasks", m.boards.selected)
+	}
+}
+
+func TestSelectDefaultFallsBackToFirstWhenOpenTasksAbsent(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	// Do NOT ensure open-tasks; it is absent.
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected == "" && len(m.boards.rows) > 0 {
+		t.Errorf("selected empty but ring has %d boards", len(m.boards.rows))
+	}
+	if len(m.boards.rows) > 0 && m.boards.selected != m.boards.rows[0].FullName {
+		t.Errorf("selected = %q, want first ring board %q", m.boards.selected, m.boards.rows[0].FullName)
+	}
+}
+
+func TestCycleBoardMovesRing(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	// Two distinct namespaces so the ring has more than one entry to cycle.
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	m.boards.cycleBoard(1) // next
+	if m.boards.selected == first {
+		t.Error("cycleBoard(1) did not move selection")
+	}
+	m.boards.cycleBoard(-1) // back
+	if m.boards.selected != first {
+		t.Errorf("after cycle back, selected = %q, want %q", m.boards.selected, first)
+	}
+}
 
 // --- Boards pane tests ---
 
