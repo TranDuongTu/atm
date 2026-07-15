@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -192,6 +193,93 @@ func runArgsStdoutOut(t *testing.T, h *testCLI, args ...string) string {
 		t.Fatalf("run %v: exit=%d stderr=%s", args, code, stderr)
 	}
 	return out + captured.String()
+}
+
+// plantV1LogCLI writes the shared v1 fixture (project code "ATM") directly
+// into a fresh store's project directory, bypassing the (now v2-only) public
+// Create* API, mirroring internal/store's plantV1Project idiom for this
+// package's black-box CLI harness.
+func plantV1LogCLI(t *testing.T, s *store.Store, code string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "eventsource", "testdata", "v1-log.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(s.StorePath(), "projects", code)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "log.jsonl"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStorePruneV1SkipsBornV2(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "prune-v1", "--project", "ATM")
+	mustContain(t, out, "skipped\tATM\tborn v2 (no v1 log)")
+	if _, err := os.Stat(filepath.Join(st.store.StorePath(), "projects", "ATM")); err != nil {
+		t.Fatalf("project dir missing: %v", err)
+	}
+}
+
+func TestStorePruneV1SkipsV1Active(t *testing.T) {
+	st := newTestCLI(t)
+	plantV1LogCLI(t, st.store, "ATM")
+	out := runArgsOut(t, st, "store", "prune-v1", "--project", "ATM")
+	mustContain(t, out, "skipped\tATM\tnot v2-active")
+	if _, err := os.Stat(filepath.Join(st.store.StorePath(), "projects", "ATM", "log.jsonl")); err != nil {
+		t.Fatalf("v1-active log.jsonl should survive: %v", err)
+	}
+}
+
+func TestStorePruneV1ArchivesUpgradedProjectByDefault(t *testing.T) {
+	st := newTestCLI(t)
+	plantV1LogCLI(t, st.store, "ATM")
+	if _, err := st.store.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, st, "store", "prune-v1", "--project", "ATM")
+	mustContain(t, out, "pruned\tATM\tarchived")
+	logPath := filepath.Join(st.store.StorePath(), "projects", "ATM", "log.jsonl")
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("log.jsonl should be archived away, stat err=%v", err)
+	}
+}
+
+func TestStorePruneV1DeleteRemoves(t *testing.T) {
+	st := newTestCLI(t)
+	plantV1LogCLI(t, st.store, "ATM")
+	if _, err := st.store.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, st, "store", "prune-v1", "--project", "ATM", "--delete")
+	mustContain(t, out, "pruned\tATM\tdeleted")
+	logPath := filepath.Join(st.store.StorePath(), "projects", "ATM", "log.jsonl")
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("log.jsonl should be deleted, stat err=%v", err)
+	}
+}
+
+func TestStorePruneV1AllFlag(t *testing.T) {
+	st := newTestCLI(t)
+	plantV1LogCLI(t, st.store, "ATM")
+	if _, err := st.store.UpgradeProjectToV2("ATM"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = runArgs(st, "project", "create", "--code", "BVX", "--name", "y", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "prune-v1", "--all")
+	mustContain(t, out, "pruned\tATM\tarchived")
+	mustContain(t, out, "skipped\tBVX\tborn v2 (no v1 log)")
+}
+
+func TestStorePruneV1RequiresExactlyOneSelector(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, code := runArgs(st, "store", "prune-v1")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage with neither --project nor --all, got exit=%d", code)
+	}
 }
 
 func TestCommentShowAcceptsV2HashAliases(t *testing.T) {

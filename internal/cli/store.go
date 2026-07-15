@@ -191,6 +191,56 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	upgradeCmd.Flags().Bool("all", false, "upgrade all projects")
 	cmd.AddCommand(upgradeCmd)
 
+	pruneCmd := &cobra.Command{
+		Use:   "prune-v1",
+		Short: "Retire upgraded projects' frozen v1 log.jsonl (archive by default)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			project, _ := cmd.Flags().GetString("project")
+			all, _ := cmd.Flags().GetBool("all")
+			del, _ := cmd.Flags().GetBool("delete")
+			if all == (project != "") {
+				return fmt.Errorf("%w: pass exactly one of --project or --all", store.ErrUsage)
+			}
+			codes := []string{project}
+			if all {
+				codes, err = s.ProjectCodes()
+				if err != nil {
+					return err
+				}
+			}
+			reps := make([]*store.PruneReport, 0, len(codes))
+			for _, c := range codes {
+				rep, err := s.PruneProjectV1(c, del)
+				if err != nil {
+					return err
+				}
+				reps = append(reps, rep)
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), reps)
+			}
+			for _, r := range reps {
+				switch {
+				case r.Deleted:
+					fmt.Fprintf(st.stdout(), "pruned\t%s\tdeleted\n", r.Project)
+				case r.Pruned:
+					fmt.Fprintf(st.stdout(), "pruned\t%s\tarchived %s\n", r.Project, r.Archived)
+				default:
+					fmt.Fprintf(st.stdout(), "skipped\t%s\t%s\n", r.Project, r.Reason)
+				}
+			}
+			return nil
+		},
+	}
+	pruneCmd.Flags().String("project", "", "project code to prune")
+	pruneCmd.Flags().Bool("all", false, "prune all eligible projects")
+	pruneCmd.Flags().Bool("delete", false, "delete log.jsonl instead of archiving it")
+	cmd.AddCommand(pruneCmd)
+
 	setFormatCmd := &cobra.Command{
 		Use:   "set-format",
 		Short: "Set the store default format (governs project birth and the legacy default only)",
