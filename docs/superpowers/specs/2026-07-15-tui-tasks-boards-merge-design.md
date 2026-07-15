@@ -1,6 +1,6 @@
 # TUI Tasks/Boards Merge — Design Spec
 
-**Status:** Approved from user feedback on the merged Tasks browsing pane.
+**Status:** Approved from user feedback on the merged Tasks browsing pane. Amended 2026-07-15 after code-verification review (ATM-2412f2-c4c8f): CLI ensure call sites (no project-select path exists), thumbnail chart cursor keys `{`/`}`, drill-out focus preservation, task-list paging moved to `PgDn`/`PgUp`, small-ring strip rendering, stale-selection fallback.
 **Date:** 2026-07-15
 **Supersedes the layout of:** ATM-0082 (three-pane workspace) — the `[3] Boards` pane is removed; its logic merges into `[2] Tasks`.
 
@@ -93,13 +93,15 @@ func EnsureVocabulary(s *store.Store, code, actor string) error {
 ```
 
 - `LabelSeed` is the existing idempotent ensure primitive that `contextmap.EnsureVocabulary` uses. It never overwrites a human's curated description.
-- The TUI calls `workflow.EnsureVocabulary` on project select, before rebuilding the board ring, so the default exists. The same ensure is invoked from the CLI project-select path so a non-TUI user gets the board too.
+- The TUI calls `workflow.EnsureVocabulary` on project select, before rebuilding the board ring, so the default exists. The CLI has no project-select path (verified: `atm project` offers only create/list/show/set-name/remove/set-embedding, and there is no current-project concept), so the CLI-side ensure runs where projects are born and re-seeded instead: `atm project create` (right after `CreateProject`) and `atm label seed --project` (alongside the default seed labels). A pre-existing project gains the board on its first TUI select or `label seed`.
 - **No privileged label.** A human can edit or delete `ATM:open-tasks` like any board (capability = paved road, not a fence). If deleted, the next project-select re-ensures it. The TUI selects by the well-known name `BoardOpenTasks(code)`; if absent after ensure, it falls back to `ring[0]`.
 - The TUI render path never references `status:open`. It only knows the board's well-known name; the expression lives in the capability.
 
 ### Selection state
 
 `boardsModel` gains a `selected` field (the selected board's `FullName`, e.g. `ATM:open-tasks` or `ATM:status:*`) replacing the implicit cursor-at-L0 used by the old list. `[` / `]` move the ring index; the SELECTED thumbnail and the Tasks list both follow the selected board.
+
+If a rebuilt ring no longer contains the selected board (a human deleted it mid-session), `refresh()` falls back via `selectDefault()` rather than leaving a stale selection driving the task list.
 
 ## Thumbnail Strip Rendering
 
@@ -118,6 +120,7 @@ The top strip is one horizontal row, three cells: **prev (25%) / SELECTED (50%) 
 ```
 
 - **prev/next cells** are quiet: board display name + task count, rendered with the inactive border style. They orient the user for `[]` but hold no interactive content.
+- **Small rings never duplicate a board across cells.** With one board in the ring, both side cells render as blank inactive boxes; with two, the other board appears once, on the next side, and the prev side is blank.
 - **SELECTED cell** reuses the existing `boardsModel` level render for the selected board, sized to the 50% width:
   - Namespace board (e.g. `ATM:status:*`) at L0 -> the namespace chart (`renderChart`): bar breakdown of member labels. `>` drills into a member label's detail inside this cell; `<` returns to the chart.
   - Stored/board label (e.g. `ATM:open-tasks`, `ATM:next-sprint`) at L0 -> the label detail (`renderDetail`): name, usage, description. For Open Tasks this is the "label logic description."
@@ -139,8 +142,10 @@ Pane `[2]` has one focus. Keys, in dispatch order after global/overlay handling:
 | `g` | Top of task list. |
 | `[` / `]` | Move the board ring **prev / next**; SELECTED thumbnail + task list follow. |
 | `Enter` | Open the **task detail** for the task under the cursor (existing behavior, always). |
-| `>` | Drill the SELECTED thumbnail one level deeper (chart -> detail). |
+| `>` | Drill the SELECTED thumbnail one level deeper (chart -> detail, targeting the chart cursor's member). |
 | `<` | Climb the SELECTED thumbnail one level out (detail -> chart -> L0). |
+| `{` / `}` | Move the SELECTED thumbnail's internal chart cursor (chart level only; no-op elsewhere). Sets which member `>`, `d`, `l` target. |
+| `PgDn` / `PgUp` | Page the task list (replaces `[` / `]`, which now switch boards). |
 | `Esc` | From task detail -> task list; cancel task filter editing. (Thumbnail level-climbing uses `<`, not Esc, to keep Esc scoped to the task list.) |
 | `p` | Pin/unpin the SELECTED board. |
 | `Shift-1`..`Shift-9` (`!` `@` `#` `$` `%` `^` `&` `*` `(`) | Jump to the 1st..9th pinned board. |
@@ -151,7 +156,9 @@ Pane `[2]` has one focus. Keys, in dispatch order after global/overlay handling:
 
 ### Drill-down scope
 
-`>` / `<` operate on the SELECTED thumbnail's internal level state. Arrows never touch the thumbnail — they always browse tasks. This keeps a single, modeless focus inside `[2]` (no sub-modes), matching "arrows browse tasks, `[]` switch boards."
+`>` / `<` operate on the SELECTED thumbnail's internal level state; `{` / `}` move its chart cursor (since arrows are reserved for the task list, these are the only way to pick a chart member). Arrows never touch the thumbnail — they always browse tasks. This keeps a single, modeless focus inside `[2]` (no sub-modes), matching "arrows browse tasks, `[]` switch boards."
+
+Drilling also drives the task list, exactly as the old pane's levels did: `>` into a chart member pushes that member's focus (existing `enterDetail` behavior), and `<` climbing back out re-applies the SELECTED board's own focus. The list is never left unfiltered while a board is selected — climbing out of a leaf board's detail must re-apply the board's focus, not reuse the old L0 `enterTable` path, whose `setFocus(focusOff, "")` would clear the filter.
 
 ### Tasks list focus coupling
 
@@ -159,7 +166,11 @@ The existing Boards -> Tasks focus coupling survives: when the ring selection ch
 
 ### Removed keys
 
-`3` no longer focuses a pane. The old `[3]`-specific `j/k/g/[]` list navigation inside the boards table is gone (the ring replaces it).
+`3` no longer focuses a pane. The old `[3]`-specific `j/k/g/[]` list navigation inside the boards table is gone (the ring replaces it). In `[2]`, `[` / `]` no longer page the task list — paging moves to `PgDn` / `PgUp`. The `[1] Projects` pane keeps its `[` / `]` paging unchanged.
+
+### Layout note
+
+`Shift-1`..`Shift-9` bind the shifted-digit symbols (`!` `@` `#` ...), which assumes a US keyboard layout. Accepted for now; revisit if a non-US-layout user reports it.
 
 ## Pinning and Persistence
 
@@ -210,8 +221,8 @@ type Pins struct {
 Following the capability pattern (`docs/architecture/label-substrate-and-capabilities.md`):
 
 - `internal/workflow/vocabulary.go` — `EnsureVocabulary(s, code, actor)` ensures `ATM:open-tasks` (expr `status:open`) idempotently via `LabelSeed`. Pure vocabulary-ensure, no verbs, no private data format. This is a minimal capability: it owns one board's vocabulary and exposes nothing else (no recorder/reporter split needed — there is no machine-readable format, no verbs beyond ensure).
-- Wired into the CLI so a non-TUI user also gets the board: the ensure runs on the project-select path, mirroring how `contextmap.EnsureVocabulary` is called from `atm context` recorders. The TUI and CLI share one ensure call site.
-- `atm conventions` gains one line pointing agents at `ATM:open-tasks` as the default "open work" board (parallel to the existing `context-current` line). Golden conventions testdata updates accordingly.
+- Wired into the CLI so a non-TUI user also gets the board: `atm project create` ensures it right after `CreateProject`, and `atm label seed --project` ensures it alongside the default seed labels. This mirrors the spirit of `contextmap.EnsureVocabulary` running from the `atm context` recorders — the capability ensures on writes in its own domain. (There is no CLI project-select path to hook; none exists.)
+- `atm conventions` gains one line pointing agents at `ATM:open-tasks` as the default "open work" board (parallel to the existing `context-current` line). The line must not assume the board exists everywhere: filtering by an absent label silently matches nothing (the resolver falls through to an explicit-tag check), so the line names the expression fallback — in a project created before this capability, `--label <CODE>:status:open` is equivalent. Golden conventions testdata updates accordingly.
 
 ## Rendering Responsibilities
 
@@ -224,8 +235,9 @@ The root view no longer renders a `[3]` pane or a right-column vertical join. It
 The global keymap reference (`internal/tui/keymap.go`) changes:
 
 - `1/2`: focus Projects, Tasks. `3` is removed.
-- `[` / `]`: prev/next board (was prev/next page in Tasks; in the merged pane it switches the board ring).
-- `>` / `<`: drill the SELECTED thumbnail in / out.
+- `[` / `]`: prev/next board in Tasks (was prev/next page there; in the merged pane it switches the board ring). The Projects column keeps `[` / `]` = prev/next page — that pane's paging is unchanged.
+- `PgDn` / `PgUp`: page the task list (paging leaves `[` / `]`).
+- `>` / `<`: drill the SELECTED thumbnail in / out. `{` / `}`: move its chart cursor.
 - `Enter`: open task detail (unchanged).
 - `p`: pin board. `Shift-1`..`Shift-9`: jump to pinned board.
 - `n` / `e` / `d` / `l` / `S`: board authoring on the SELECTED board (moved from the old `[3]` pane).
@@ -238,12 +250,18 @@ Rendering must not panic on narrow or short terminals. If the strip height clamp
 
 - `internal/workflow`: `EnsureVocabulary` is idempotent; creates `open-tasks` with the right expr/desc in a fresh project; does not overwrite a human-curated description; works without `atm label seed`.
 - `internal/store`: `GetPins` / `WritePins` round-trip; missing file -> empty; prune of stale board pins on load.
+- `internal/cli`: `atm project create` leaves the new project with an `open-tasks` board; `atm label seed` ensures it on an existing project; conventions text + JSON reference `open-tasks` with the `status:open` fallback.
 - `internal/tui`:
   - Workspace renders `[1] Projects` + `[2] Tasks` only; no `[3]` title.
   - `2` focuses `[2]`; `3` is a no-op.
   - On project select, the Open Tasks board is ensured and selected by default; ring falls back to `ring[0]` if absent.
   - `[]` moves the ring; SELECTED thumbnail + task list follow; `>` / `<` drill the thumbnail levels; `Enter` opens task detail.
+  - `{` / `}` move the chart cursor; `>` / `d` / `l` at chart level target the cursor's member.
+  - `<` from a leaf board's detail returns to L0 with the board's focus re-applied (task list stays filtered by the SELECTED board).
+  - `PgDn` / `PgUp` page the task list; `[` / `]` still page the Projects pane.
   - Strip width split is 25/50/25; SELECTED renders the namespace chart for `status:*`, the label detail for a leaf board.
+  - One-board and two-board rings render without duplicating a board across strip cells.
+  - Deleting the selected board mid-session falls back to the default selection on the next refresh.
   - `p` pins/unpins; `Shift-N` jumps; pinned row renders at the bottom; pins persist across a reload.
   - Narrow/short terminals render without panic.
 

@@ -20,7 +20,9 @@
 - Reuse existing renderers: `boardsModel.renderChart` / `renderDetail` for the SELECTED thumbnail. No new compact preview renderer.
 - Per-project files under `<store>/projects/<CODE>/`, written via `WithLock` + `WriteFileAtomic`. Missing file = empty state (return `nil, nil`), never an error.
 - `make verify` is the completion gate.
-- Actor for all store mutations in this session: `developer@ollama:glm-5.2-cloud` (replace `:unset` model segment with your real model when stamping).
+- Actor for all store mutations: `developer@<agent>:<model>` — use this session's actual actor (see the session context file); never copy a prior session's stamp.
+- TUI tests drive keys via the existing helpers `keyMsg(s string) tea.KeyMsg` (`app_test.go:52`) and `update(t, m, key)` (`app_test.go:108`). There is no `key()` helper. `mustNotContain` already exists (`app_test.go:127`) — do not re-add it.
+- CLI tests use `newGoldenHarness(t)` + `h.run(args...)` (`harness_test.go`); golden fixtures regenerate with `go test ./internal/cli/ -run <Test> -update` (`harness_test.go:48`).
 
 ---
 
@@ -40,7 +42,9 @@
 - `internal/tui/keymap.go` — drop `3`, add `[]` = prev/next board, `>`/`<` = thumbnail drill, `p` = pin, `Shift-N` = jump to pin.
 - `internal/tui/help.go` — parity table updates (`[3] Boards` → merged into Tasks; new keys).
 - `internal/tui/projects.go` — on project select, call `workflow.EnsureVocabulary` then `boards.selectDefault()`.
-- `internal/cli/conventions.go` — first-contact sequence points at `ATM:open-tasks` (replace the `--label <CODE>:status:open` line).
+- `internal/cli/project.go` — `atm project create` ensures the open-tasks board after `CreateProject`.
+- `internal/cli/label.go` — `atm label seed` ensures the open-tasks board after `SeedLabels`.
+- `internal/cli/conventions.go` — first-contact sequence points at `ATM:open-tasks` (replace the `--label <CODE>:status:open` line, keeping a `status:open` fallback note).
 - `internal/cli/conventions_test.go` — assert `open-tasks` appears in text + JSON.
 - `internal/cli/testdata/golden/conventions-*.json` — regenerated golden.
 - `internal/tui/app_test.go`, `internal/tui/labels_test.go`, `internal/tui/tasks_test.go` — update tests that reference `[3]`, `paneLabels`, `splitRightColumnHeights`; add merged-pane tests.
@@ -397,23 +401,14 @@ func TestWorkspaceRendersTwoPanesNotThree(t *testing.T) {
 func TestKey3IsNoOp(t *testing.T) {
 	m := newTestModel(t)
 	m.focused = paneProjects
-	m.handleKey(key("3"))
+	m.handleKey(keyMsg("3"))
 	if m.focused != paneProjects {
 		t.Errorf("focused = %v, want paneProjects (3 must not switch panes)", m.focused)
 	}
 }
 ```
 
-If `mustNotContain` does not exist, add it next to `mustContain` in `app_test.go`:
-
-```go
-func mustNotContain(t *testing.T, s, sub string) {
-	t.Helper()
-	if strings.Contains(s, sub) {
-		t.Errorf("unexpected %q in:\n%s", sub, s)
-	}
-}
-```
+(`mustNotContain` already exists at `app_test.go:127`; `keyMsg` at `app_test.go:52`.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -628,7 +623,16 @@ func (b *boardsModel) applyFocus() {
 
 Add the import `"atm/internal/workflow"` to `labels.go`.
 
-At the end of `boardsModel.refresh`, after `b.clampCursor()`, if `b.selected == ""` and `b.m.projectScope != ""`, the caller is responsible for calling `selectDefault`. Do NOT auto-call inside refresh (refresh runs on every tick; selectDefault must run on project select).
+At the end of `boardsModel.refresh`, after `b.clampCursor()`:
+
+- If `b.selected == ""`, the caller is responsible for calling `selectDefault`. Do NOT auto-call inside refresh for the empty case (refresh runs on every tick; the initial selection must run on project select).
+- If `b.selected != "" && b.ringIndex() < 0`, the previously selected board vanished from the rebuilt ring (deleted mid-session) — call `b.selectDefault()` so a stale selection never keeps driving the task list. This is safe on ticks because it only fires when the selection is already invalid:
+
+```go
+	if b.selected != "" && b.ringIndex() < 0 {
+		b.selectDefault()
+	}
+```
 
 In `internal/tui/projects.go`, in the `"s"` project-select handler, after `p.m.boards.reset()`:
 
@@ -797,12 +801,21 @@ func (b *boardsModel) renderStrip(paneW, stripH int) string {
 	if idx < 0 {
 		idx = 0
 	}
-	prevRow := b.rows[(idx-1+len(b.rows))%len(b.rows)]
 	selRow := b.rows[idx]
-	nextRow := b.rows[(idx+1)%len(b.rows)]
 
-	prevCell := b.renderSideCell(prevW, stripH, prevRow, "◂")
-	nextCell := b.renderSideCell(nextW, stripH, nextRow, "▸")
+	// Small rings never duplicate a board across cells: one board -> both
+	// sides blank; two boards -> the other board once, on the next side.
+	blank := func(w int) string {
+		return titledBoxHeight(b.m.styles.PaneInactive, w, "", "", stripH)
+	}
+	prevCell, nextCell := blank(prevW), blank(nextW)
+	switch {
+	case len(b.rows) >= 3:
+		prevCell = b.renderSideCell(prevW, stripH, b.rows[(idx-1+len(b.rows))%len(b.rows)], "◂")
+		nextCell = b.renderSideCell(nextW, stripH, b.rows[(idx+1)%len(b.rows)], "▸")
+	case len(b.rows) == 2:
+		nextCell = b.renderSideCell(nextW, stripH, b.rows[(idx+1)%len(b.rows)], "▸")
+	}
 	selCell := b.renderSelectedCell(selW, stripH, selRow)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, prevCell, selCell, nextCell)
@@ -1069,11 +1082,11 @@ func TestBracketKeysSwitchBoard(t *testing.T) {
 	m.boards.refresh()
 	m.boards.selectDefault()
 	first := m.boards.selected
-	m.tasks.handleKey(key("]"))
+	m.tasks.handleKey(keyMsg("]"))
 	if m.boards.selected == first {
 		t.Error("] did not advance the board ring")
 	}
-	m.tasks.handleKey(key("["))
+	m.tasks.handleKey(keyMsg("["))
 	if m.boards.selected != first {
 		t.Errorf("[ did not return to first board: got %q want %q", m.boards.selected, first)
 	}
@@ -1095,7 +1108,7 @@ Add a strip-height constant and reserve it in `SetSize`:
 const stripHeight = 8 // board thumbnail strip; clamps down on short terminals
 ```
 
-In `tasksModel.SetSize`, after setting `t.contentHeight = h`, compute the list's effective height:
+In `tasksModel.SetSize`, after setting `t.contentHeight = h`, subtract the strip unconditionally. Do NOT read `t.m.boards.pins` here — the pinned row's extra line is handled in the render path only, so a pin toggle can never leave a stale `pageSize` (SetSize is not re-run on pin changes):
 
 ```go
 func (t *tasksModel) SetSize(w, h int) {
@@ -1103,12 +1116,7 @@ func (t *tasksModel) SetSize(w, h int) {
 	if h < 1 { h = 1 }
 	t.width = w
 	t.contentHeight = h
-	listH := h - stripHeight
-	if t.m.boards.pins != nil && len(t.m.boards.pins) > 0 {
-		listH-- // pinned row
-	}
-	if listH < 4 { listH = 4; } // never let the list vanish
-	t.pageSize = listH - 6
+	t.pageSize = h - stripHeight - 6
 	if t.pageSize < 1 { t.pageSize = 1 }
 }
 ```
@@ -1125,33 +1133,9 @@ func (t *tasksModel) View() string {
 	}
 	return ""
 }
-
-func (t *tasksModel) renderListWithStrip() string {
-	strip := t.m.boards.renderStrip(t.width, stripHeight)
-	listH := t.contentHeight - stripHeight
-	pinned := t.m.boards.renderPinnedRow(t.width)
-	if pinned != "" {
-		listH--
-	}
-	// Render the list into a buffer limited to listH.
-	savedH := t.contentHeight
-	t.contentHeight = listH
-	t.renderListInto() // see below: refactor renderList to write into a builder we own
-	listOut := t.listBuf
-	t.contentHeight = savedH
-	var b strings.Builder
-	b.WriteString(strip)
-	b.WriteString("\n")
-	b.WriteString(listOut)
-	if pinned != "" {
-		b.WriteString("\n")
-		b.WriteString(pinned)
-	}
-	return padToHeight(b.String(), t.contentHeight)
-}
 ```
 
-To avoid a large refactor, implement `renderListWithStrip` by calling the existing `renderList()` with a temporarily reduced `contentHeight` (the simplest path):
+Implement `renderListWithStrip` by calling the existing `renderList()` with a temporarily reduced `contentHeight` — no refactor of `renderList` itself:
 
 ```go
 func (t *tasksModel) renderListWithStrip() string {
@@ -1184,21 +1168,31 @@ func (t *tasksModel) renderListWithStrip() string {
 
 (`renderList` already pads to `t.contentHeight`, so the joined output height is strip + listH + optional pinned ≈ contentHeight. The trailing `padToHeight` clamps any rounding.)
 
-Add key handling in `tasksModel.handleListKey`:
+Add key handling in `tasksModel.handleListKey`. The existing `case "]":` / `case "[":` paging bodies (`tasks.go:479-484`) are REPLACED by the board-ring dispatch; paging relocates to `pgdown` / `pgup`:
 
 ```go
 	case "[", "]":
 		dir := -1
 		if k.String() == "]" { dir = 1 }
 		t.m.boards.cycleBoard(dir)
+	case "pgdown":
+		t.cursor += t.listPageSize()
+		t.clampCursor()
+	case "pgup":
+		t.cursor -= t.listPageSize()
+		t.clampCursor()
 	case ">", "<":
-		// Drill the SELECTED thumbnail in / out. These route into boardsModel's
-		// existing level navigation without changing task focus.
+		// Drill the SELECTED thumbnail in / out via boardsModel's level navigation.
 		if k.String() == ">" {
 			t.m.boards.drillIn()
 		} else {
 			t.m.boards.drillOut()
 		}
+	case "{", "}":
+		// Move the SELECTED thumbnail's chart cursor (the member that >, d, l target).
+		dir := -1
+		if k.String() == "}" { dir = 1 }
+		t.m.boards.chartCursorMove(dir)
 	case "p":
 		t.m.boards.togglePin()
 	case "!", "@", "#", "$", "%", "^", "&", "*", "(":
@@ -1225,15 +1219,16 @@ func shiftDigitToInt(k string) int {
 }
 ```
 
-`drillIn`/`drillOut` are added to `boardsModel` in Task 8.
+`drillIn`/`drillOut`/`chartCursorMove` are added to `boardsModel` in Task 8.
 
 - [ ] **Step 4: Run test to verify it passes (with Task 8 stubs)**
 
-Since `drillIn`/`drillOut` are defined in Task 8, add minimal stubs now in `labels.go` so this compiles:
+Since `drillIn`/`drillOut`/`chartCursorMove` are defined in Task 8, add minimal stubs now in `labels.go` so this compiles:
 
 ```go
-func (b *boardsModel) drillIn()  {} // Task 8 fills in
-func (b *boardsModel) drillOut() {} // Task 8 fills in
+func (b *boardsModel) drillIn()               {} // Task 8 fills in
+func (b *boardsModel) drillOut()              {} // Task 8 fills in
+func (b *boardsModel) chartCursorMove(int)    {} // Task 8 fills in
 ```
 
 Run: `go test ./internal/tui/ -run 'TestTasksPaneRendersStripAndPinnedRow|TestBracketKeysSwitchBoard' -count=1`
@@ -1283,11 +1278,61 @@ func TestDrillIntoNamespaceChart(t *testing.T) {
 		t.Errorf("level = %v, want lLevelTable after drillOut", m.boards.level)
 	}
 }
+
+func TestChartCursorMoveTargetsMember(t *testing.T) {
+	m := newTestModel(t)
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Expandable && r.Name == "status" {
+			m.boards.selected = r.FullName
+			break
+		}
+	}
+	m.boards.applyFocus()
+	m.boards.drillIn() // -> chart
+	if m.boards.chartCursorMove(0); m.boards.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 at chart entry", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor != 1 {
+		t.Errorf("cursor = %d after move, want 1", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("cursor = %d after move back, want 0", m.boards.cursor)
+	}
+}
+
+func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
+	m := newTestModel(t)
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault() // SELECTED = ATM:open-tasks (leaf board)
+	m.boards.drillIn()       // leaf board -> its detail
+	if m.boards.level != lLevelDetail {
+		t.Fatalf("level = %v, want lLevelDetail", m.boards.level)
+	}
+	m.boards.drillOut() // back to L0 — board focus must be re-applied, not cleared
+	if m.boards.level != lLevelTable {
+		t.Fatalf("level = %v, want lLevelTable", m.boards.level)
+	}
+	// The task list must still be filtered by the SELECTED board (assert via
+	// the tasks pane's focus caption / filter — check the exact accessor in
+	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
+	if got := m.tasks.focusCaption(); !strings.Contains(got, "open-tasks") {
+		t.Errorf("focus caption = %q, want it to reference open-tasks after drillOut", got)
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/tui/ -run 'TestDrillIntoNamespaceChart' -count=1`
+Run: `go test ./internal/tui/ -run 'TestDrillIntoNamespaceChart|TestChartCursorMove|TestDrillOutOfLeafBoard' -count=1`
 Expected: FAIL (stubs are no-ops).
 
 - [ ] **Step 3: Implement**
@@ -1336,21 +1381,51 @@ func (b *boardsModel) drillIn() {
 }
 
 // drillOut climbs the SELECTED thumbnail one level out: detail -> chart ->
-// L0 (table). At L0 it is a no-op.
+// L0. At L0 it is a no-op. It must NOT route through enterTable(), whose
+// setFocus(focusOff, "") would clear the task filter while a board is still
+// SELECTED — climbing out re-applies the selected board's own focus instead.
 func (b *boardsModel) drillOut() {
 	switch b.level {
 	case lLevelDetail:
-		if b.detail.leaf != "" {
+		if b.ns != "" {
+			// Came from a namespace chart (member detail or unset leaf):
+			// climb back to the chart. reenterChart restores the facet focus.
 			b.reenterChart()
-		} else {
-			// From a leaf board's detail, return to L0 (table).
-			b.enterTable()
+			return
 		}
+		// Leaf board's detail -> L0; the SELECTED board keeps driving the list.
+		b.level = lLevelTable
+		b.detail = labelDetailState{}
+		b.applyFocus()
 	case lLevelChart:
-		b.enterTable()
+		b.level = lLevelTable
+		b.ns = ""
+		b.cursor = 0
+		b.applyFocus()
+	}
+}
+
+// chartCursorMove moves the SELECTED thumbnail's chart cursor (the member row
+// that >, d, l target). Only meaningful at the chart level; no-op elsewhere.
+func (b *boardsModel) chartCursorMove(dir int) {
+	if b.level != lLevelChart {
+		return
+	}
+	rows := b.chartRows()
+	if len(rows) == 0 {
+		return
+	}
+	b.cursor += dir
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(rows) {
+		b.cursor = len(rows) - 1
 	}
 }
 ```
+
+Note the discriminator in `drillOut`: `b.ns != ""` means the detail was reached through a namespace chart (`enterChart` set `ns`; `cycleBoard` clears it), while a leaf board's detail (set directly by `drillIn` at L0) leaves `ns` empty. Do not discriminate on `b.detail.leaf` — that field is only non-empty for the synthetic unset leaf, not for real chart members.
 
 Update `renderSelectedCell` in `internal/tui/thumbnails.go` to honor `b.level` for the selected board instead of forcing chart/detail:
 
@@ -1400,14 +1475,15 @@ Note: when `b.level` is already `lLevelChart`/`lLevelDetail` from a prior drill,
 ```go
 	b.level = lLevelTable
 	b.ns = ""
+	b.cursor = 0
 	b.detail = labelDetailState{}
 ```
 
-so switching boards does not leak a stale chart/detail into the new selection.
+so switching boards does not leak a stale chart/detail (or chart cursor) into the new selection.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/tui/ -run 'TestDrillIntoNamespaceChart' -count=1`
+Run: `go test ./internal/tui/ -run 'TestDrillIntoNamespaceChart|TestChartCursorMove|TestDrillOutOfLeafBoard' -count=1`
 Expected: PASS.
 
 - [ ] **Step 5: Run full suite**
@@ -1424,23 +1500,25 @@ git commit -m "feat(tui): >/< drill the SELECTED board thumbnail levels"
 
 ---
 
-## Task 9: Conventions + help/keymap text updates
+## Task 9: CLI ensure wiring + conventions + help/keymap text updates
 
 **Files:**
-- Modify: `internal/cli/conventions.go` (first-contact sequence: replace `--label <CODE>:status:open` line with `--label <CODE>:open-tasks`; structured JSON likewise)
+- Modify: `internal/cli/project.go` (`newProjectCreateCmd` ensures the open-tasks board after `CreateProject`)
+- Modify: `internal/cli/label.go` (`newLabelSeedCmd` ensures the open-tasks board after `SeedLabels`)
+- Modify: `internal/cli/project_test.go`, `internal/cli/label_test.go` (ensure assertions)
+- Modify: `internal/cli/conventions.go` (first-contact sequence: replace `--label <CODE>:status:open` line with `--label <CODE>:open-tasks` + fallback note; structured JSON likewise)
 - Modify: `internal/cli/conventions_test.go` (assert `open-tasks` present)
-- Modify: `internal/cli/testdata/golden/conventions-*.json` (regenerate)
-- Modify: `internal/tui/keymap.go` (keymap table: `1/2`, `[]` = prev/next board, `>`/`<` = drill, `p` = pin, `Shift-N` = jump)
+- Modify: `internal/cli/testdata/golden/` (regenerate affected goldens: conventions + project-create if its output changes)
+- Modify: `internal/tui/keymap.go` (keymap table: `1/2`, `[]` = prev/next board in Tasks / page in Projects, `{}`/`><` = thumbnail cursor/drill, `PgDn/PgUp` = page task list, `p` = pin, `Shift-N` = jump)
 - Modify: `internal/tui/help.go` (parity table Boards → Tasks)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-In `internal/cli/conventions_test.go`, add:
+In `internal/cli/conventions_test.go`, add (note: `conventionsText` is a package-level **const** at `conventions.go:11`, not a function):
 
 ```go
 func TestConventionsMentionsOpenTasksBoard(t *testing.T) {
-	text := conventionsText()
-	if !strings.Contains(text, "open-tasks") {
+	if !strings.Contains(conventionsText, "open-tasks") {
 		t.Error("conventions text must reference the open-tasks board in the first-contact sequence")
 	}
 	j := conventionsStructured()
@@ -1452,14 +1530,53 @@ func TestConventionsMentionsOpenTasksBoard(t *testing.T) {
 }
 ```
 
-(Adjust if `conventionsText()` is not the accessor name — check the file.)
+In `internal/cli/project_test.go`, add (harness pattern per `TestGoldenProjectCreate`):
 
-- [ ] **Step 2: Run test to verify it fails**
+```go
+func TestProjectCreateEnsuresOpenTasksBoard(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	_, _, code := h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
+	}
+	l, err := h.store.LabelShow("FOO:open-tasks")
+	if err != nil {
+		t.Fatalf("open-tasks board missing after project create: %v", err)
+	}
+	if l.Expr == "" {
+		t.Error("open-tasks board has no expression")
+	}
+}
+```
 
-Run: `go test ./internal/cli/ -run 'TestConventionsMentionsOpenTasksBoard' -count=1`
+In `internal/cli/label_test.go`, add the analogous test running `label seed --project FOO` on a project whose open-tasks board was deleted (or on a store-created project that never had it), then asserting `LabelShow("FOO:open-tasks")` succeeds.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/cli/ -run 'TestConventionsMentionsOpenTasksBoard|TestProjectCreateEnsuresOpenTasksBoard|OpenTasks' -count=1`
 Expected: FAIL.
 
-- [ ] **Step 3: Update conventions**
+- [ ] **Step 3: Wire the CLI ensures + update conventions**
+
+In `internal/cli/project.go` `newProjectCreateCmd`, after the `s.CreateProject(...)` call succeeds and before `st.emit`:
+
+```go
+			if err := workflow.EnsureVocabulary(s, p.Code, actor); err != nil {
+				return err
+			}
+```
+
+In `internal/cli/label.go` `newLabelSeedCmd`, after `s.SeedLabels(project, actor)` succeeds:
+
+```go
+			if err := workflow.EnsureVocabulary(s, project, actor); err != nil {
+				return err
+			}
+```
+
+Add `"atm/internal/workflow"` to both files' imports.
 
 In `internal/cli/conventions.go`, change line 76 from:
 
@@ -1470,24 +1587,22 @@ In `internal/cli/conventions.go`, change line 76 from:
 to:
 
 ```
-4. ` + "`atm task list --project <CODE> --label <CODE>:open-tasks`" + ` — get open work. The open-tasks board (expression status:open) is ensured automatically; it is the TUI's default board.
+4. ` + "`atm task list --project <CODE> --label <CODE>:open-tasks`" + ` — get open work. The open-tasks board (expression status:open) is ensured on project create / label seed / TUI use; in an older project where it is absent, ` + "`--label <CODE>:status:open`" + ` is equivalent.
 ```
 
-In `conventionsStructured()` `agent_first_contact_sequence`, change the matching entry (line 150) to:
+In `conventionsStructured()` `agent_first_contact_sequence` (the `[]string` at line 146), change the matching entry (line ~150) to the same wording in plain text:
 
 ```go
-"atm task list --project <CODE> --label <CODE>:open-tasks — get open work. The open-tasks board (expression status:open) is ensured automatically; it is the TUI's default board.",
+"atm task list --project <CODE> --label <CODE>:open-tasks — get open work. The open-tasks board (expression status:open) is ensured on project create / label seed / TUI use; in an older project where it is absent, --label <CODE>:status:open is equivalent.",
 ```
 
-Regenerate the golden files. Find the regeneration command (check for a `//go:generate` or a test that writes them):
-
-Run: `grep -rn "golden" internal/cli/conventions_test.go internal/cli/*_test.go | head` to find the update mechanism. If tests assert against `testdata/golden/conventions-*.json` with a refresh flag, run that. Otherwise, run the conventions command and redirect:
+Regenerate the goldens (the `-update` flag exists at `harness_test.go:48`):
 
 ```bash
-go test ./internal/cli/ -run 'TestConventions' -update
+go test ./internal/cli/ -run 'TestGolden' -count=1 -update
 ```
 
-If no `-update` flag exists, manually edit `internal/cli/testdata/golden/conventions-text.json` and `conventions-json.json` to replace the `status:open` first-contact line with the `open-tasks` line, matching the new text exactly.
+Then re-run WITHOUT `-update` and diff the golden changes — only the conventions fixtures (and project-create, if the ensure changed its output, which it should not) may differ.
 
 - [ ] **Step 4: Update keymap + help**
 
@@ -1500,8 +1615,10 @@ var keymapRows = []keyEntry{
 	{"g", "top of list", "top of list", "-", "top"},
 	{"Enter", "open detail", "open detail", "-", "confirm overlay"},
 	{"Esc", "back", "back", "-", "back / cancel overlay"},
-	{"[ / ]", "-", "prev/next board", "-", "-"},
+	{"[ / ]", "prev/next page", "prev/next board", "-", "-"},
 	{"> / <", "-", "drill board thumbnail in/out", "-", "-"},
+	{"{ / }", "-", "move thumbnail chart cursor", "-", "-"},
+	{"PgDn/PgUp", "-", "page task list", "-", "scroll (detail)"},
 	{"s", "select project", "cycle sort", "-", "-"},
 	{"S", "-", "-", "-", "-"},
 	{"a", "add project", "add task", "-", "-"},
@@ -1523,8 +1640,7 @@ var keymapRows = []keyEntry{
 	{"g", "plugin prefix", "plugin prefix", "plugin prefix", "plugin prefix"},
 	{"g 1", "open indexer overlay", "open indexer overlay", "open indexer overlay", "open indexer overlay"},
 	{"q / ctrl+c", "quit", "quit", "quit", "quit"},
-	{"PgDn/Space", "-", "-", "-", "scroll down"},
-	{"PgUp", "-", "-", "-", "-"},
+	{"Space", "-", "-", "-", "scroll down"},
 }
 ```
 
@@ -1539,7 +1655,7 @@ In `internal/tui/help.go`, change parity-table rows that say "Boards pane" to "T
 
 - [ ] **Step 5: Run tests + verify**
 
-Run: `go test ./internal/cli/ -run 'TestConventions' -count=1 && go test ./internal/tui/ -run 'Help|Keymap' -count=1`
+Run: `go test ./internal/cli/ -count=1 && go test ./internal/tui/ -run 'Help|Keymap' -count=1`
 Expected: PASS.
 
 Run: `make verify`
@@ -1548,8 +1664,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add internal/cli/conventions.go internal/cli/conventions_test.go internal/cli/testdata/golden/conventions-text.json internal/cli/testdata/golden/conventions-json.json internal/tui/keymap.go internal/tui/help.go
-git commit -m "docs: conventions point at open-tasks board; keymap/help reflect merged Tasks pane"
+git add internal/cli/project.go internal/cli/project_test.go internal/cli/label.go internal/cli/label_test.go internal/cli/conventions.go internal/cli/conventions_test.go internal/cli/testdata/golden/ internal/tui/keymap.go internal/tui/help.go
+git commit -m "feat(cli): ensure open-tasks board on project create/label seed; conventions + keymap/help updates"
 ```
 
 ---
@@ -1583,7 +1699,7 @@ Expected: PASS (build + lint + typecheck + tests).
 
 Run:
 ```bash
-atm task comment add --task ATM-2412f2 --body "Implementation complete per plan docs/superpowers/plans/2026-07-15-tui-tasks-boards-merge.md. All 10 tasks done; make verify green. Spec: docs/superpowers/specs/2026-07-15-tui-tasks-boards-merge-design.md." --actor "developer@ollama:glm-5.2-cloud"
+atm task comment add --task ATM-2412f2 --body "Implementation complete per plan docs/superpowers/plans/2026-07-15-tui-tasks-boards-merge.md. All 10 tasks done; make verify green. Spec: docs/superpowers/specs/2026-07-15-tui-tasks-boards-merge-design.md." --actor "<this session's actor, developer@<agent>:<model>>"
 ```
 
 - [ ] **Step 6: Final commit (if any cleanup)**
@@ -1599,14 +1715,18 @@ git commit -m "chore(tui): final wiring + test cleanup for merged Tasks pane"
 
 **Spec coverage:**
 - Workspace layout (two panes, 40/60, [2] full height, strip/list/pinned stack) — Task 3 + Task 7.
-- Board ring + Open Tasks default — Task 4.
+- Board ring + Open Tasks default + stale-selection fallback — Task 4.
 - Open Tasks capability ownership (`internal/workflow`, EnsureVocabulary, no privileged label, re-ensure on select) — Task 1 + Task 4.
-- Thumbnail strip (25/50/25, reuse level render) — Task 5 + Task 8.
-- Navigation (arrows=tasks, []=boards, Enter=task detail, ><=drill, p=pin, Shift-N=jump, one focus modeless) — Task 7 + Task 8 + Task 6.
+- CLI ensure call sites (`project create`, `label seed` — no project-select path exists in the CLI) — Task 9.
+- Thumbnail strip (25/50/25, reuse level render, small-ring dedupe) — Task 5 + Task 8.
+- Navigation (arrows=tasks, []=boards, PgDn/PgUp=page tasks, Enter=task detail, ><=drill, {}=chart cursor, p=pin, Shift-N=jump, one focus modeless) — Task 7 + Task 8 + Task 6.
+- Drill-out preserves the SELECTED board's task focus (never `enterTable`'s focus-clear) — Task 8.
 - Pinning + persistence (`pins.json`, GetPins/WritePins) — Task 2 + Task 6.
-- Conventions + keymap/help — Task 9.
-- Testing matrix (workflow, store pins, tui merged pane, narrow terminals) — embedded in each task; Task 10 runs the full gate.
+- Conventions (with `status:open` fallback wording) + keymap/help — Task 9.
+- Testing matrix (workflow, store pins, cli ensures, tui merged pane, narrow terminals) — embedded in each task; Task 10 runs the full gate.
 
 **Placeholder scan:** No TBD/TODO/"add appropriate". Each code step contains real code.
 
-**Type consistency:** `selected string`, `cycleBoard(int)`, `ringIndex() int`, `selectDefault()`, `togglePin()`, `jumpPin(int) bool`, `drillIn()`/`drillOut()`, `renderStrip(int,int) string`, `renderPinnedRow(int) string`, `splitStripWidths(int) (int,int,int)` — used consistently across tasks. `store.Pins{Actor, Boards, UpdatedAt}` matches `GetPins`/`WritePins`. `workflow.BoardOpenTasks(string) string` + `workflow.EnsureVocabulary(*store.Store, string, string) error` match usages.
+**Type consistency:** `selected string`, `cycleBoard(int)`, `ringIndex() int`, `selectDefault()`, `togglePin()`, `jumpPin(int) bool`, `drillIn()`/`drillOut()`/`chartCursorMove(int)`, `renderStrip(int,int) string`, `renderPinnedRow(int) string`, `splitStripWidths(int) (int,int,int)` — used consistently across tasks. `store.Pins{Actor, Boards, UpdatedAt}` matches `GetPins`/`WritePins`. `workflow.BoardOpenTasks(string) string` + `workflow.EnsureVocabulary(*store.Store, string, string) error` match usages.
+
+**Amendments (2026-07-15 code-verification review, ATM-2412f2-c4c8f):** CLI ensure moved from the nonexistent "project-select path" to `project create` + `label seed`; `{`/`}` chart-cursor keys added (arrows are task-scoped, so the chart cursor was otherwise unreachable); `drillOut` re-applies the selected board's focus instead of `enterTable`'s focus-clear (discriminating chart-origin by `b.ns`, not `b.detail.leaf`); task-list paging moved to `PgDn`/`PgUp` and the Projects pane's `[`/`]` paging kept in the keymap; `tasksModel.SetSize` decoupled from `boards.pins`; test snippets corrected to the real helpers (`keyMsg`/`update`, `conventionsText` const, existing `mustNotContain`); small-ring strip dedupe; stale-selection fallback in `refresh()`.
