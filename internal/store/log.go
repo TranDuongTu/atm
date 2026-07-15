@@ -165,11 +165,10 @@ func marshalLogLine(e LogEntry) ([]byte, error) {
 }
 
 // ReadLog reads projects/<CODE>/log.jsonl. It is v1-only BY DESIGN and must
-// NEVER grow a format branch: Replay, lastProjectEventSeq,
-// compareV2FoldToV1Replay and RollbackProjectToV1 all depend on it reading the
-// v1 bytes even for a v2-active project (the frozen log is the rollback
-// artifact). Views that must follow the project's effective format go through
-// readLogForViews instead.
+// NEVER grow a format branch: Replay and lastProjectEventSeq both depend on it
+// reading the v1 bytes even for a v2-active project (the frozen log is the
+// upgrade's read-back artifact). Views that must follow the project's
+// effective format go through readLogForViews instead.
 func (s *Store) ReadLog(code string) ([]LogEntry, error) {
 	f, err := os.Open(s.logPath(code))
 	if err != nil {

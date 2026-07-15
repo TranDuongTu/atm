@@ -233,34 +233,6 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	upgradeCmd.Flags().Bool("all", false, "upgrade all projects")
 	cmd.AddCommand(upgradeCmd)
 
-	rollbackCmd := &cobra.Command{
-		Use:   "rollback",
-		Short: "Switch a project back to the preserved v1 log",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			project, _ := cmd.Flags().GetString("project")
-			to, _ := cmd.Flags().GetString("to")
-			if project == "" || to != string(store.StoreFormatV1) {
-				return fmt.Errorf("%w: rollback requires --project <CODE> --to v1", store.ErrUsage)
-			}
-			rep, err := s.RollbackProjectToV1(project)
-			if err != nil {
-				return err
-			}
-			if st.isJSON() {
-				return writeJSON(st.stdout(), rep)
-			}
-			fmt.Fprintf(st.stdout(), "rolled back\t%s\t%s\n", rep.Project, rep.Format)
-			return nil
-		},
-	}
-	rollbackCmd.Flags().String("project", "", "project code to roll back")
-	rollbackCmd.Flags().String("to", "", "target format; only v1 is supported")
-	cmd.AddCommand(rollbackCmd)
-
 	setFormatCmd := &cobra.Command{
 		Use:   "set-format",
 		Short: "Set the store default format (governs project birth and the legacy default only)",

@@ -212,11 +212,6 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "again", "admin@cli:unset"); err == nil {
 		t.Fatal("CreateProject must detect an existing v2-born project")
 	}
-	// Rollback guard on the REAL v2-born case (Task 4 simulated it by
-	// deleting log.jsonl): a project with no v1 media must refuse rollback.
-	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
-		t.Fatalf("rollback of a v2-born project = %v, want ErrConflict", err)
-	}
 }
 
 // mustRead returns the file's bytes, or nil when it does not exist.
@@ -232,14 +227,14 @@ func mustRead(t *testing.T, path string) []byte {
 // TestMutatorRechecksFormatUnderLock covers the TOCTOU between a mutator's
 // PRE-LOCK format read (which picks the v1 or v2 body) and its acquisition of
 // the project lock. `atm` is multi-process — WithLock is a cross-process flock —
-// so another process can cut the project over (upgrade) or back (rollback) in
-// exactly that window. testHookAfterDispatchFormat makes the window
-// deterministic instead of racing goroutines at it.
+// so another process can cut the project over (upgrade) in exactly that
+// window. testHookAfterDispatchFormat makes the window deterministic instead
+// of racing goroutines at it.
 //
 // Without the under-lock re-check the upgrade direction is silent corruption:
 // the v1 body appends to log.jsonl on a project that is now v2-active (the
 // plan's hardest constraint is that log.jsonl stays byte-identical) and the
-// task never reaches events.v2.jsonl. The rollback direction is the mirror.
+// task never reaches events.v2.jsonl.
 func TestMutatorRechecksFormatUnderLock(t *testing.T) {
 	t.Run("upgrade lands in the window: no v1 append", func(t *testing.T) {
 		s := testStore(t)
@@ -272,40 +267,6 @@ func TestMutatorRechecksFormatUnderLock(t *testing.T) {
 		}
 		if !IsConflict(err) {
 			t.Errorf("CreateTask across an upgrade = %v, want ErrConflict", err)
-		}
-	})
-
-	t.Run("rollback lands in the window: no v2 append", func(t *testing.T) {
-		s := testStore(t)
-		if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-			t.Fatal(err)
-		}
-		before := mustRead(t, s.eventsV2Path("ATM"))
-
-		fired := false
-		testHookAfterDispatchFormat = func(code string) {
-			if fired || code != "ATM" {
-				return
-			}
-			fired = true
-			if _, err := s.RollbackProjectToV1(code); err != nil {
-				t.Errorf("rollback in hook: %v", err)
-			}
-		}
-		t.Cleanup(func() { testHookAfterDispatchFormat = nil })
-
-		_, err := s.CreateTask("ATM", "racy", "d", nil, "admin@cli:unset")
-		if !fired {
-			t.Fatal("hook never fired: CreateTask no longer reads the format before taking the lock")
-		}
-		if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
-			t.Error("v2 body ran on a now-v1 project: events.v2.jsonl changed")
-		}
-		if !IsConflict(err) {
-			t.Errorf("CreateTask across a rollback = %v, want ErrConflict", err)
 		}
 	})
 }

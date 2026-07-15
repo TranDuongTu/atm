@@ -120,9 +120,8 @@ func cacheSetV2Freshness(db *sql.DB, code string, eventCount int) error {
 
 // cacheClearV2Freshness removes the project's v2 freshness row, so a later
 // reader sees "never projected from a v2 file" rather than a stale count that
-// happens to match. Called by every path that re-derives the project's cache
-// rows from something OTHER than a v2 fold (today: the v1 rebuild rollback
-// runs); cacheDeleteProjectRows sweeps entity tables only and never meta.
+// happens to match. Called by RemoveProject alongside cacheDeleteProjectRows,
+// which sweeps entity tables only and never meta.
 func cacheClearV2Freshness(db *sql.DB, code string) error {
 	_, err := db.Exec(`DELETE FROM meta WHERE key = ?`, v2FreshnessMetaKey(code))
 	return err

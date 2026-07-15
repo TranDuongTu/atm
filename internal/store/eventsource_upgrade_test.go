@@ -49,35 +49,26 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	}
 }
 
-func TestReupgradeArchivesPreviousV2File(t *testing.T) {
+// TestUpgradeRefusesAPreexistingV2File covers the belt-and-braces disk check
+// (step 4 of UpgradeProjectToV2): with no rollback, a project is upgraded at
+// most once through the normal (format-gated) path, so the only way to reach
+// an orphaned events.v2.jsonl ahead of a v1-active project is by direct disk
+// manipulation. That must refuse, not displace.
+func TestUpgradeRefusesAPreexistingV2File(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
+	if err := os.WriteFile(s.eventsV2Path("ATM"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
-		t.Fatal(err)
+	if _, err := s.UpgradeProjectToV2("ATM"); !IsConflict(err) {
+		t.Fatalf("upgrade with a pre-existing events.v2.jsonl = %v, want ErrConflict", err)
 	}
-	if _, err := s.CreateTask("ATM", "after rollback", "", nil, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(s.projectDir("ATM"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	archived := false
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "events.v2.reupgrade.") {
-			archived = true
-		}
-	}
-	if !archived {
-		t.Fatal("previous v2 file was not archived on re-upgrade")
+	// The refused upgrade must leave the v1 project readable: the format
+	// entry was never flipped.
+	if f, _ := s.projectFormat("ATM"); f != StoreFormatV1 {
+		t.Fatalf("format after refused upgrade = %q, want v1", f)
 	}
 }
 
@@ -183,31 +174,6 @@ func TestUpgradeAllRetrySkipsV2ActiveAndPreservesPostCutoverWrites(t *testing.T)
 	}
 }
 
-func TestRollbackRefusesProjectWithoutV1Log(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Simulate absent v1 media (the real case is a v2-BORN project, whose
-	// birth path lands in Task 8 and whose test there re-asserts this).
-	if err := os.Remove(s.logPath("ATM")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); !IsConflict(err) {
-		t.Fatalf("rollback without log.jsonl = %v, want ErrConflict (an empty replay would wipe the cache and leave an unreadable, unrecreatable zombie)", err)
-	}
-	// The refused rollback must leave the project fully v2-readable.
-	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
-		t.Fatalf("format after refused rollback = %q, want v2", f)
-	}
-	if _, err := s.verifyV2File("ATM"); err != nil {
-		t.Fatalf("v2 file damaged by refused rollback: %v", err)
-	}
-}
-
 // Two archives with the same reason inside one UTC second must not collide:
 // os.Rename overwrites its destination silently, so a naive timestamped name
 // would destroy the earlier archive — the only surviving evidence of the
@@ -279,37 +245,6 @@ func TestUpgradeToleratesMembershipOfARemovedBoardLabel(t *testing.T) {
 	}
 	if f, _ := s.projectFormat("ATM"); f != StoreFormatV2 {
 		t.Fatalf("format = %q, want v2", f)
-	}
-}
-
-// Rollback rebuilds the cache from v1 BEFORE flipping the format. If the v2
-// freshness row survived that rebuild, a crash in the window (or any later v2
-// reader) would see format=v2, a matching last_v2_event_count, and v1-derived
-// rows: a coherent-looking cache missing every post-cutover v2 write.
-func TestRollbackClearsV2FreshnessRow(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
-		t.Fatal(err)
-	} else if !ok {
-		t.Fatal("precondition: upgrade must record a v2 freshness row")
-	}
-	if _, err := s.RollbackProjectToV1("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if n, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil {
-		t.Fatal(err)
-	} else if ok {
-		t.Fatalf("v2 freshness row survived rollback (count=%d): a v1-derived cache would look fresh to a v2 reader", n)
 	}
 }
 

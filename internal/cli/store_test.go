@@ -151,15 +151,13 @@ func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
 	}
 }
 
-func TestStoreUpgradeProjectAndRollback(t *testing.T) {
+func TestStoreUpgradeProject(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
 	mustContain(t, out, "upgraded\tATM\tv2")
 	out = runArgsOut(t, st, "store", "verify", "ATM")
 	mustContain(t, out, "format: v2")
-	out = runArgsOut(t, st, "store", "rollback", "--project", "ATM", "--to", "v1")
-	mustContain(t, out, "rolled back\tATM\tv1")
 }
 
 func TestStoreUpgradeAll(t *testing.T) {
