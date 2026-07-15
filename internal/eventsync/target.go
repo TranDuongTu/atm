@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 )
@@ -62,6 +63,65 @@ func SetDigest(ids []string) string {
 	slices.Sort(sorted)
 	sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// defaultRemoteSubpath is the directory within a remote (git repo or
+// plain directory tree) holding project event logs, used whenever a
+// remote URL doesn't specify one of its own.
+const defaultRemoteSubpath = ".atm"
+
+// errNotRecognized is SelectTarget's error when raw is neither an
+// existing directory nor a recognizable git URL.
+var errNotRecognized = errors.New("not an existing directory and not a recognizable git URL (use git:: to force)")
+
+// SelectTarget picks a SyncTarget transport from a single remote string,
+// the same value a user would put in a remote config: a "git::" prefix
+// always forces git (stripping the prefix, then splitting a trailing
+// "//<subpath>" at the last "//"); a "git@"/"ssh://" prefix, a ".git"
+// suffix, or a ".git//" infix is recognized as git without forcing; an
+// existing directory is a DirTarget; anything else is an error. A git
+// remote's clone cache lives under storeRemotesDir, keyed by url so
+// repeated selections of the same remote reuse the same clone. A
+// subpath left unspecified by raw defaults to ".atm".
+func SelectTarget(storeRemotesDir, raw string) (SyncTarget, error) {
+	if rest, ok := strings.CutPrefix(raw, "git::"); ok {
+		url, subpath := rest, ""
+		if idx := strings.LastIndex(rest, "//"); idx >= 0 {
+			url, subpath = rest[:idx], rest[idx+2:]
+		}
+		if subpath == "" {
+			subpath = defaultRemoteSubpath
+		}
+		return NewGitTarget(storeRemotesDir, url, subpath), nil
+	}
+
+	if url, subpath, ok := splitGitURL(raw); ok {
+		if subpath == "" {
+			subpath = defaultRemoteSubpath
+		}
+		return NewGitTarget(storeRemotesDir, url, subpath), nil
+	}
+
+	if info, err := os.Stat(raw); err == nil && info.IsDir() {
+		return NewDirTarget(raw), nil
+	}
+
+	return nil, errNotRecognized
+}
+
+// splitGitURL reports whether raw looks like a git remote (a "git@" or
+// "ssh://" prefix, or a ".git" suffix or ".git//" infix) and, if so,
+// splits off any subpath found after a ".git//" infix. ok is false, with
+// url and subpath both empty, when raw doesn't match any of those forms
+// — the caller falls back to treating raw as a plain directory.
+func splitGitURL(raw string) (url, subpath string, ok bool) {
+	if idx := strings.Index(raw, ".git//"); idx >= 0 {
+		return raw[:idx+len(".git")], raw[idx+len(".git//"):], true
+	}
+	if strings.HasPrefix(raw, "git@") || strings.HasPrefix(raw, "ssh://") || strings.HasSuffix(raw, ".git") {
+		return raw, "", true
+	}
+	return "", "", false
 }
 
 // ErrRootMismatch reports that two event sets belong to different
