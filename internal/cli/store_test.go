@@ -332,3 +332,70 @@ func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
 	mustContain(t, out, c.ID)
 	mustContain(t, out, "hash comment body")
 }
+
+func TestStoreRemoteAddListRemoveRoundTrip(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	mustContain(t, out, "origin")
+
+	out = runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	if out != "origin\thttps://example.com/atm.git\n" {
+		t.Fatalf("unexpected list output: %q", out)
+	}
+
+	out = runArgsOut(t, st, "store", "remote", "remove", "origin", "--project", "ATM", "--actor", "admin@cli:unset")
+	mustContain(t, out, "origin")
+
+	out = runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	if out != "" {
+		t.Fatalf("expected empty list after remove, got %q", out)
+	}
+}
+
+func TestStoreRemoteAddRequiresProject(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, code := runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--actor", "admin@cli:unset")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage without --project, got %d", code)
+	}
+}
+
+func TestStoreRemoteRemoveRequiresProject(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, code := runArgs(st, "store", "remote", "remove", "origin", "--actor", "admin@cli:unset")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage without --project, got %d", code)
+	}
+}
+
+func TestStoreRemoteRemoveUnknownNotFound(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, code := runArgs(st, "store", "remote", "remove", "nope", "--project", "ATM", "--actor", "admin@cli:unset")
+	if code != ExitNotFound {
+		t.Fatalf("expected ExitNotFound removing unknown remote, got %d", code)
+	}
+}
+
+func TestStoreRemoteListJSON(t *testing.T) {
+	st := newTestCLI(t)
+	st.output = outputJSON
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "list", "--project", "ATM")
+	mustContain(t, out, `"project": "ATM"`)
+	mustContain(t, out, `"name": "origin"`)
+	mustContain(t, out, `"url": "https://example.com/atm.git"`)
+}
+
+func TestStoreRemoteListAllProjects(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "project", "create", "--code", "BVX", "--name", "y", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "store", "remote", "add", "origin", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "store", "remote", "list")
+	if out != "ATM\torigin\thttps://example.com/atm.git\n" {
+		t.Fatalf("unexpected all-projects list output: %q", out)
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 
 	"atm/internal/store"
 
@@ -274,7 +275,145 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	setFormatCmd.Flags().String("format", "", "v1 or v2; v2 is refused while any project lacks an explicit format entry")
 	cmd.AddCommand(setFormatCmd)
 
+	remoteCmd := &cobra.Command{
+		Use:   "remote",
+		Short: "Manage a project's sync remotes",
+	}
+	bindActorFlag(remoteCmd, st)
+
+	remoteAddCmd := &cobra.Command{
+		Use:   "add <name> <url>",
+		Short: "Add or update a project's sync remote (upsert)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			if project == "" {
+				return fmt.Errorf("%w: --project is required", store.ErrUsage)
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.SetProjectRemote(project, args[0], args[1], actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0], "url": args[1]}, func() {
+				fmt.Fprintf(st.stdout(), "added remote %s -> %s (project %s)\n", args[0], args[1], project)
+			})
+		},
+	}
+	remoteAddCmd.Flags().String("project", "", "project code")
+	remoteCmd.AddCommand(remoteAddCmd)
+
+	remoteListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List a project's (or all projects') sync remotes",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			rows, err := listProjectRemotes(s, project)
+			if err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), rows)
+			}
+			for _, r := range rows {
+				if project != "" {
+					fmt.Fprintf(st.stdout(), "%s\t%s\n", r.Name, r.URL)
+				} else {
+					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", r.Project, r.Name, r.URL)
+				}
+			}
+			return nil
+		},
+	}
+	remoteListCmd.Flags().String("project", "", "project code (all projects with remotes if omitted)")
+	remoteCmd.AddCommand(remoteListCmd)
+
+	remoteRemoveCmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a project's sync remote",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			if project == "" {
+				return fmt.Errorf("%w: --project is required", store.ErrUsage)
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.RemoveProjectRemote(project, args[0], actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0]}, func() {
+				fmt.Fprintf(st.stdout(), "removed remote %s (project %s)\n", args[0], project)
+			})
+		},
+	}
+	remoteRemoveCmd.Flags().String("project", "", "project code")
+	remoteCmd.AddCommand(remoteRemoveCmd)
+
+	cmd.AddCommand(remoteCmd)
+
 	return cmd
+}
+
+// remoteRow is a project-qualified sync remote row, used for both the
+// single-project and all-projects `store remote list` shapes: text output
+// drops the Project column when --project narrows to one, but --json always
+// includes it (Task 8 brief).
+type remoteRow struct {
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+}
+
+// listProjectRemotes returns the sync remotes for one project (code != ""),
+// or for every project that has at least one remote (code == ""). Both
+// projects and remote names are sorted for deterministic output.
+func listProjectRemotes(s *store.Store, code string) ([]remoteRow, error) {
+	codes := []string{code}
+	if code == "" {
+		var err error
+		codes, err = s.ProjectCodes()
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(codes)
+	}
+	rows := make([]remoteRow, 0)
+	for _, c := range codes {
+		remotes, err := s.ProjectRemotes(c)
+		if err != nil {
+			return nil, err
+		}
+		if code == "" && len(remotes) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(remotes))
+		for n := range remotes {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			rows = append(rows, remoteRow{Project: c, Name: n, URL: remotes[n]})
+		}
+	}
+	return rows, nil
 }
 
 func (st *cliState) emitVerify(r *store.VerifyReport) error {
