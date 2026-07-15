@@ -2,15 +2,6 @@
 
 ATM is a fast, scalable, distributed task ledger — git-like in how it stores truth, Jira-like in how it tells the story — built as the main interface through which coding agents keep a software organization's knowledge base.
 
-## What You Can Use It For Today
-
-- Work across multiple projects at once, including projects that span several repositories.
-- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
-- Resume or hand off work between agents with minimal re-briefing.
-- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
-- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
-- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
-
 ## 30-Second Start
 
 **1. Install** the `atm` binary:
@@ -43,6 +34,17 @@ atm manage --project ATM --mapping      # reconcile the context map against the 
 ```
 
 ## The Story
+
+### What You Can Try Today
+
+- Work across multiple projects at once, including projects that span several repositories.
+- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
+- Resume or hand off work between agents with minimal re-briefing.
+- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
+- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
+- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
+
+### The Grand Vision
 
 Whether the future belongs to AI or to humans, software has to remain soft to stay useful — and it stays soft only while the intent behind it stays legible. Software has always been where an organization accumulates its lessons and scales them, and for decades human engineers kept that knowledge base alive with more than languages and IDEs: git preserved every decision as history, while Jira boards and a sprawl of docs carried the narrative of where the system goes next. A senior engineer often works those tools more than they write code.
 
