@@ -37,79 +37,10 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 			return nil, err
 		}
 	}
-	if f, err := s.dispatchFormat(code); err != nil {
-		return nil, err
-	} else if f == StoreFormatV2 {
-		return s.createCommentV2(code, taskID, body, labels, replyTo, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
-	var created *Comment
-	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		t, err := s.getTaskLocked(taskID)
-		if err != nil {
-			return err
-		}
-		n := t.NextCommentN
-		idN := n + 1
-		id := RenderCommentID(taskID, idN)
-		ts := Now()
-		labelsSorted := append([]string(nil), labels...)
-		sort.Strings(labelsSorted)
-		c := &Comment{
-			ID:        id,
-			TaskID:    taskID,
-			ReplyTo:   replyTo,
-			Body:      body,
-			Labels:    labelsSorted,
-			CreatedAt: ts,
-			CreatedBy: actor,
-			UpdatedAt: ts,
-			UpdatedBy: actor,
-		}
-		if _, err := s.appendLabelUpsertsLocked(code, labels, actor, ts); err != nil {
-			return err
-		}
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      ts,
-			Actor:   actor,
-			Action:  ActionCommentCreated,
-			Subject: Subject{Kind: "comment", ID: id},
-			Payload: mustMarshal(c),
-		})
-		if err != nil {
-			return err
-		}
-		c.LogSeq = entry.Seq
-		t.NextCommentN = idN
-		t.UpdatedAt = ts
-		t.UpdatedBy = actor
-		metaEntry, err := s.appendLogLocked(code, LogEntry{
-			At:      ts,
-			Actor:   actor,
-			Action:  ActionTaskMetaChanged,
-			Subject: Subject{Kind: "task", ID: taskID},
-			Payload: mustMarshal(t),
-		})
-		if err != nil {
-			return err
-		}
-		t.LogSeq = metaEntry.Seq
-		if err := cacheUpsertComment(db, c); err != nil {
-			return err
-		}
-		if err := cacheUpsertTask(db, t); err != nil {
-			return err
-		}
-		created = c
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
+	// Every project is born v2, so comment creation is unconditionally v2. There
+	// is no v1 NextCommentN minting or task.meta-changed companion append any
+	// more — v2 aliases are content hashes with no per-task counter.
+	return s.createCommentV2(code, taskID, body, labels, replyTo, actor)
 }
 
 // commentProjectFormat parses a comment alias for its project code and

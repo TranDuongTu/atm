@@ -35,79 +35,11 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	// Birth format: projectFormat on a not-yet-existing project has no
-	// ProjectFormats entry to find, so it resolves to the store's ActiveFormat
-	// — which `atm store upgrade --all` / `set-format --format v2` flip to v2.
-	if f, err := s.dispatchFormat(code); err != nil {
-		return nil, err
-	} else if f == StoreFormatV2 {
-		return s.createProjectV2(code, name, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
-	var created *Project
-	// The birth format is re-checked under the lock like every other mutator's:
-	// a concurrent `atm store set-format --format v2` (or an `upgrade --all`
-	// that flips ActiveFormat) between the read above and the lock would
-	// otherwise give this project v1 media while the store believes new projects
-	// are born v2.
-	err = s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		if err := s.projectMediaExists(code); err != nil {
-			return err
-		}
-		if _, ok, err := cacheGetProject(db, code); err != nil {
-			return err
-		} else if ok {
-			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
-		}
-		now := Now()
-		p := &Project{
-			Code:      code,
-			Name:      name,
-			NextTaskN: 1,
-			CreatedAt: now,
-			CreatedBy: actor,
-			UpdatedAt: now,
-			UpdatedBy: actor,
-			LogSeq:    0,
-		}
-		// 1. Append project.created to log.
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectCreated,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		if err != nil {
-			return err
-		}
-		p.LogSeq = entry.Seq
-		// 2. Seed default labels (appends label.upserted per default label).
-		if err := s.seedLabelsLocked(code, actor, now); err != nil {
-			return err
-		}
-		// 3. Write project cache row.
-		if err := cacheUpsertProject(db, p); err != nil {
-			return err
-		}
-		// 4. Record the born format EXPLICITLY, exactly as the v2 birth path
-		// does. Every project created from L3 onward therefore carries an
-		// entry, which is what makes SetActiveFormat's refusal rule precise:
-		// the entry-less set is exactly the pre-L3 legacy projects (v1 media
-		// by construction).
-		if err := s.setProjectFormat(code, StoreFormatV1); err != nil {
-			return err
-		}
-		created = p
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
+	// Every new project is born v2. createProjectV2 ESTABLISHES the format (it
+	// writes ProjectFormats[code]=v2 itself), so CreateProject no longer
+	// dispatches on the store's ActiveFormat — the fresh-store DEFAULT stays v1,
+	// but no v1-active project can be created any more.
+	return s.createProjectV2(code, name, actor)
 }
 
 // createProjectV2 is the v2 birth path — the only mutator that starts from an
@@ -118,7 +50,15 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		return nil, err
 	}
 	var created *Project
-	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
+	// A plain WithLock, NOT withProjectFormatLock(code, v2): createProjectV2
+	// ESTABLISHES the format rather than operating on an already-v2 project.
+	// withProjectFormatLock re-checks projectFormat(code)==v2 under the lock and
+	// would ErrConflict on a fresh v1-DEFAULT store (a not-yet-existing project
+	// resolves to the default). Double-creation is already guarded below
+	// (projectMediaExists + the cache "already exists" check), and this body
+	// writes setProjectFormat(code, v2) itself, so no format re-check is correct
+	// here.
+	err = s.WithLock(code, func() error {
 		if err := s.projectMediaExists(code); err != nil {
 			return err
 		}

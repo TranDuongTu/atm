@@ -4,77 +4,6 @@ import (
 	"testing"
 )
 
-func TestCreateCommentAssignsPerTaskCounter(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	c1, err := s.CreateComment(tk.ID, "first", nil, "", testActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c2, _ := s.CreateComment(tk.ID, "second", nil, "", testActor)
-	if c1.ID != "ATM-0001-c0001" || c2.ID != "ATM-0001-c0002" {
-		t.Fatalf("ids = %s, %s", c1.ID, c2.ID)
-	}
-	got, _ := s.GetTask(tk.ID)
-	if got.NextCommentN != 2 {
-		t.Fatalf("NextCommentN = %d want 2", got.NextCommentN)
-	}
-}
-
-func TestCreateCommentAppendsLogEntriesInOrder(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	before, _ := s.LastLogSeq("ATM")
-	_, _ = s.CreateComment(tk.ID, "first", []string{"ATM:comment:custom-kind"}, "", testActor)
-	after, _ := s.LastLogSeq("ATM")
-	// 1 label.upserted + 1 comment.created + 1 task.meta-changed = 3 entries.
-	if after != before+3 {
-		t.Fatalf("seq jumped %d → %d, want %d (label+comment+meta)", before, after, before+3)
-	}
-	entries, _ := s.ReadLog("ATM")
-	var actions []string
-	for _, e := range entries {
-		if e.Seq > before {
-			actions = append(actions, e.Action)
-		}
-	}
-	want := []string{ActionLabelUpserted, ActionCommentCreated, ActionTaskMetaChanged}
-	if len(actions) != 3 || actions[0] != want[0] || actions[1] != want[1] || actions[2] != want[2] {
-		t.Fatalf("action order = %v want %v", actions, want)
-	}
-}
-
-func TestCreateCommentReplyToSameTaskValidated(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	c1, _ := s.CreateComment(tk.ID, "first", nil, "", testActor)
-	// Same task: ok
-	c2, err := s.CreateComment(tk.ID, "reply", nil, c1.ID, testActor)
-	if err != nil {
-		t.Fatalf("same-task reply should be ok: %v", err)
-	}
-	if c2.ReplyTo != c1.ID {
-		t.Fatalf("ReplyTo = %q want %q", c2.ReplyTo, c1.ID)
-	}
-	// Cross-task comment ID: reject
-	tk2, _ := s.CreateTask("ATM", "other", "", nil, testActor)
-	other1, _ := s.CreateComment(tk2.ID, "on other", nil, "", testActor)
-	if _, err := s.CreateComment(tk.ID, "bad reply", nil, other1.ID, testActor); !IsUsage(err) {
-		t.Fatalf("cross-task ReplyTo should be ErrUsage, got %v", err)
-	}
-	// Malformed ReplyTo: reject
-	if _, err := s.CreateComment(tk.ID, "bad", nil, "c0001", testActor); !IsUsage(err) {
-		t.Fatalf("malformed ReplyTo should be ErrUsage, got %v", err)
-	}
-	// Non-existent parent ID (no orphan check): ok — dangling pointer tolerated
-	if _, err := s.CreateComment(tk.ID, "ok dangling", nil, "ATM-0001-c0099", testActor); err != nil {
-		t.Fatalf("non-existent ReplyTo should be allowed (no orphan check): %v", err)
-	}
-}
-
 func TestCreateCommentRequiresBodyAndActor(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
@@ -130,28 +59,14 @@ func TestGetCommentLazyMissRebuildsFromLog(t *testing.T) {
 		t.Fatal("cache row was not rewritten after lazy miss")
 	}
 }
-
-func TestGetCommentFutureLogSeqIntegrity(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	c, _ := s.CreateComment(tk.ID, "x", nil, "", testActor)
-	db, _ := s.cacheDB()
-	_, _ = db.Exec(`UPDATE comments SET log_seq = 9999 WHERE id = ?`, c.ID)
-	_, err := s.GetComment(c.ID)
-	if !IsIntegrity(err) {
-		t.Fatalf("expected ErrIntegrity, got %v", err)
-	}
-}
-
 func TestListCommentsSortedAndFilteredByTask(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	tk, _ := s.CreateTask("ATM", "t1", "", nil, testActor)
 	tk2, _ := s.CreateTask("ATM", "t2", "", nil, testActor)
-	_, _ = s.CreateComment(tk.ID, "a", nil, "", testActor)
+	c1, _ := s.CreateComment(tk.ID, "a", nil, "", testActor)
 	_, _ = s.CreateComment(tk2.ID, "on other", nil, "", testActor)
-	_, _ = s.CreateComment(tk.ID, "c", nil, "", testActor)
+	c2, _ := s.CreateComment(tk.ID, "c", nil, "", testActor)
 	got, err := s.ListComments(tk.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -159,8 +74,11 @@ func TestListCommentsSortedAndFilteredByTask(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 comments on tk, got %d", len(got))
 	}
-	if got[0].ID >= got[1].ID {
-		t.Fatalf("comments not sorted ascending: %s, %s", got[0].ID, got[1].ID)
+	// Thread order is CREATION order (the per-task fold ordinal), not id order:
+	// a v2 comment alias is a content hash, so id-asc would render the thread in
+	// hash order. c1 was created before c2, so it must come first.
+	if got[0].ID != c1.ID || got[1].ID != c2.ID {
+		t.Fatalf("comments not in creation order: got %s, %s; want %s, %s", got[0].ID, got[1].ID, c1.ID, c2.ID)
 	}
 	for _, c := range got {
 		if c.TaskID != tk.ID {
@@ -181,23 +99,6 @@ func TestListCommentsEmpty(t *testing.T) {
 		t.Fatalf("expected empty slice, got %+v", got)
 	}
 }
-
-func TestParseReplayNextCommentNFromMetaChanged(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	_, _ = s.CreateComment(tk.ID, "first", nil, "", testActor)
-	db, _ := s.cacheDB()
-	_, _ = db.Exec(`DELETE FROM tasks WHERE id = ?`, tk.ID)
-	got, err := s.GetTask(tk.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.NextCommentN != 1 {
-		t.Fatalf("replay-derived NextCommentN = %d want 1", got.NextCommentN)
-	}
-}
-
 func TestSetCommentBodyAppendsAndUpdates(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)

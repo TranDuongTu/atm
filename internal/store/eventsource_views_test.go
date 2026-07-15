@@ -32,9 +32,6 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
 	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
@@ -59,9 +56,6 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 func TestReadLogCachedReturnsPartialV2ViewOnIntegrityError(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	corruptV2File(t, s, "ATM")

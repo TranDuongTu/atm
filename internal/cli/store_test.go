@@ -2,17 +2,12 @@ package cli
 
 import (
 	"bytes"
-	"database/sql"
-	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"atm/internal/store"
-
-	_ "modernc.org/sqlite"
 )
 
 // Minimal test harness for the store subcommands. The package's golden harness
@@ -130,90 +125,6 @@ func TestStoreRebuild(t *testing.T) {
 	out := runArgsOut(t, st, "store", "rebuild")
 	mustContain(t, out, "projects")
 }
-
-func TestStoreVerifyExitsNonzeroOnDivergence(t *testing.T) {
-	st := newTestCLI(t)
-	_, _ = st.store.CreateProject("ATM", "x", "admin@cli:unset")
-	tk, _ := st.store.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_ = st.store.SetTitle(tk.ID, "changed", "admin@cli:unset")
-	// Stomp the task cache row back to seq 1 (stale) so verify detects divergence.
-	db, err := sql.Open("sqlite", filepath.Join(st.store.StorePath(), "cache.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID); err != nil {
-		t.Fatal(err)
-	}
-	_, _, code := runArgs(st, "store", "verify")
-	if code != 5 {
-		t.Fatalf("store verify exit code = %d, want 5 (integrity divergence)", code)
-	}
-}
-
-func TestStoreUpgradeProject(t *testing.T) {
-	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	out := runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
-	mustContain(t, out, "upgraded\tATM\tv2")
-	out = runArgsOut(t, st, "store", "verify", "ATM")
-	mustContain(t, out, "format: v2")
-}
-
-func TestStoreUpgradeAll(t *testing.T) {
-	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	_, _, _ = runArgs(st, "project", "create", "--code", "DOC", "--name", "docs", "--actor", "admin@cli:unset")
-	out := runArgsOut(t, st, "store", "upgrade", "--all")
-	mustContain(t, out, "upgraded\tATM\tv2")
-	mustContain(t, out, "upgraded\tDOC\tv2")
-	mustContain(t, out, "active format: v2")
-}
-
-func TestStoreSetFormat(t *testing.T) {
-	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	// Since ATM-0107 Task 8 every birth writes an explicit ProjectFormats
-	// entry, so the entry-less set is exactly the PRE-L3 legacy projects.
-	// Reproduce that state by dropping ATM's entry from store.json.
-	makeProjectFormatEntryless(t, st.store.StorePath())
-	// v2 refused while ATM lacks an explicit entry (legacy v1 project).
-	// runArgs returns (stdout, stderr, exit code) — assert on the exit code.
-	_, stderr, code := runArgs(st, "store", "set-format", "--format", "v2")
-	if code == ExitSuccess {
-		t.Fatalf("set-format v2 must refuse with entry-less projects; stderr=%s", stderr)
-	}
-	_ = runArgsOut(t, st, "store", "upgrade", "--all")
-	out := runArgsOut(t, st, "store", "set-format", "--format", "v1")
-	mustContain(t, out, "active format: v1")
-	out = runArgsOut(t, st, "store", "set-format", "--format", "v2")
-	mustContain(t, out, "active format: v2")
-}
-
-// makeProjectFormatEntryless strips every explicit per-project format entry
-// from store.json, reproducing a pre-L3 store whose projects are v1 media with
-// no ProjectFormats record.
-func makeProjectFormatEntryless(t *testing.T, root string) {
-	t.Helper()
-	path := filepath.Join(root, "store.json")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		t.Fatal(err)
-	}
-	delete(m, "project_formats")
-	out, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestStoreLogFromToFilter(t *testing.T) {
 	st := newTestCLI(t)
 	_, _ = st.store.CreateProject("ATM", "x", "admin@cli:unset")
@@ -247,7 +158,7 @@ func TestStoreLogFromToFilter(t *testing.T) {
 func TestStoreLogShowsV2EventsForV2ActiveProject(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
+	// Born v2: no upgrade needed — the project's log surface is already v2.
 	out := runArgsOut(t, st, "store", "log", "ATM")
 	mustContain(t, out, "project.created")
 	mustContain(t, out, "sha256:")
@@ -290,7 +201,6 @@ func TestProjectListRendersDashForV2NextTaskN(t *testing.T) {
 	// its v1 NextTaskN back.
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
 	out := runArgsStdoutOut(t, st, "project", "list")
 	mustContain(t, out, "ATM\tx\t-\t")
 }
@@ -302,7 +212,6 @@ func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
 	// v2 read path must then answer a hash alias by id.
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	_ = runArgsOut(t, st, "store", "upgrade", "--project", "ATM")
 	tk, err := st.store.CreateTask("ATM", "hash task", "", nil, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)

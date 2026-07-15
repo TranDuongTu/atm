@@ -4,10 +4,10 @@
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
     "history": [],
-    "id": "ATM-0001-c0001",
+    "id": "ATM-66789a-c0a76",
     "labels": [],
-    "log_seq": 26,
-    "task_id": "ATM-0001",
+    "log_seq": 1,
+    "task_id": "ATM-66789a",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

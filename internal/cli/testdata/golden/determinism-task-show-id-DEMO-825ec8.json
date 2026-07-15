@@ -11,11 +11,11 @@
         "seq": 19
       }
     ],
-    "id": "DEMO-0001",
+    "id": "DEMO-825ec8",
     "labels": [
       "DEMO:status:open"
     ],
-    "log_seq": 19,
+    "log_seq": 1,
     "project_code": "DEMO",
     "title": "Demo task",
     "updated_at": "TIMESTAMP",

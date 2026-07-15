@@ -14,15 +14,33 @@ import (
 	"atm/internal/store"
 )
 
+// deterministicSeam returns a fixed byte stream. A born-v2 store mints more
+// than one replica id (StoreInstanceID + ReplicaID, each 16 bytes via
+// io.ReadFull), so a finite 16-byte reader would exhaust after the first mint
+// and the second would draw non-reproducible bytes. This reader is INFINITE and
+// reproducible: a fresh instance (one per store.Open) always yields the same
+// deterministic sequence, so two seeded stores mint identical ids and goldens
+// are byte-stable across processes. The counter advances so consecutive 16-byte
+// mints differ (StoreInstanceID != ReplicaID), matching production's shape.
+type deterministicSeam struct{ b byte }
+
+func (d *deterministicSeam) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = d.b
+		d.b++
+	}
+	return len(p), nil
+}
+
 // deterministicSeamOpts returns the fixed determinism seams (clock, replica
 // entropy, and now) used by the golden harness so that when goldens are
-// regenerated for v2 they are reproducible. Call it fresh per store.Open
-// since the entropy reader is consumed once.
+// regenerated for v2 they are reproducible. Call it fresh per store.Open since
+// the entropy reader carries per-store consumption state.
 func deterministicSeamOpts() []store.Option {
 	var n int64 = 1_752_480_000_000
 	return []store.Option{
 		store.WithClock(func() int64 { n++; return n }),
-		store.WithReplicaEntropy(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 16))),
+		store.WithReplicaEntropy(&deterministicSeam{}),
 		store.WithNow(func() time.Time { return time.Date(2026, 7, 14, 9, 12, 3, 0, time.UTC) }),
 	}
 }
@@ -62,7 +80,14 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	s, err := store.Open(dir, deterministicSeamOpts()...)
+	// One shared seam set threaded through BOTH the harness's own handle and
+	// every store the CLI commands open (st.storeOpts): v2 events are authored
+	// inside command execution via openStore, so the seams must reach there or
+	// the minted hex aliases draw from the real wall clock / crypto-rand and are
+	// not reproducible.
+	opts := deterministicSeamOpts()
+	st.storeOpts = opts
+	s, err := store.Open(dir, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +111,9 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	s, err := store.Open(storePath, deterministicSeamOpts()...)
+	opts := deterministicSeamOpts()
+	st.storeOpts = opts
+	s, err := store.Open(storePath, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

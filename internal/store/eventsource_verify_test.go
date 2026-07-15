@@ -116,17 +116,11 @@ func TestRebuildToleratesCorruptV2ProjectAndRebuildsHealthyOnes(t *testing.T) {
 	if _, err := s.CreateProject("AAA", "corrupt-to-be", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.CreateProject("ZZZ", "healthy", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
 	tk, err := s.CreateTask("ZZZ", "healthy task", "", nil, "admin@cli:unset")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ZZZ"); err != nil {
 		t.Fatal(err)
 	}
 	// A complete-but-unparseable line is an integrity error (never a repair
@@ -167,9 +161,6 @@ func TestVerifyProjectV2SurfacesNonIntegrityErrorInstead(t *testing.T) {
 	if _, err := s.CreateTask("AAA", "t", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
 	path := s.eventsV2Path("AAA")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
@@ -200,12 +191,6 @@ func TestRebuildDedupsSharedLabelNameAcrossV2Projects(t *testing.T) {
 	if _, err := s.CreateProject("BBB", "y", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("AAA"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("BBB"); err != nil {
-		t.Fatal(err)
-	}
 	appendRawV2LabelEvent(t, s, "AAA", "SHARED:tag", 5000)
 	appendRawV2LabelEvent(t, s, "BBB", "SHARED:tag", 5001)
 	resetCacheForRebuild(t, s)
@@ -230,9 +215,6 @@ func TestRebuildDoesNotWipeVectorIndexForV2Project(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.

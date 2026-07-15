@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -27,17 +26,6 @@ func TestCreateTaskNoAutoStatus(t *testing.T) {
 		}
 	}
 }
-
-func TestCreateTaskAssignsNextId(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	a, _ := s.CreateTask("ATM", "a", "", nil, testActor)
-	b, _ := s.CreateTask("ATM", "b", "", nil, testActor)
-	if a.ID != "ATM-0001" || b.ID != "ATM-0002" {
-		t.Fatalf("ids = %s, %s", a.ID, b.ID)
-	}
-}
-
 func TestTaskLabelAddAutoRegisters(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
@@ -72,30 +60,6 @@ func TestTaskLabelRemoveDoesNotTouchRegistry(t *testing.T) {
 		t.Fatalf("registry must still contain label: %v", err)
 	}
 }
-
-func TestCreateTaskAppendsLogEntry(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	seqBefore, _ := s.LastLogSeq("ATM")
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	entries, _ := s.ReadLog("ATM")
-	var created *LogEntry
-	for i := range entries {
-		if entries[i].Seq > seqBefore && entries[i].Action == ActionTaskCreated {
-			created = &entries[i]
-			break
-		}
-	}
-	if created == nil {
-		t.Fatal("no task.created entry appended")
-	}
-	var got Task
-	_ = json.Unmarshal(created.Payload, &got)
-	if got.ID != tk.ID {
-		t.Fatalf("payload id = %q want %q", got.ID, tk.ID)
-	}
-}
-
 func TestSetTitleAppendsTitleChanged(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
@@ -182,40 +146,6 @@ func TestGetTaskLazyMissRebuildsFromLog(t *testing.T) {
 	}
 	if _, ok, _ := cacheGetTask(db, tk.ID); !ok {
 		t.Fatal("cache row was not rewritten after lazy miss")
-	}
-}
-
-func TestGetTaskStaleLogSeqTriggersRebuild(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	_ = s.SetTitle(tk.ID, "changed", testActor)
-	wantSeq, _ := s.LastLogSeq("ATM")
-	// Stomp the cache back to an old LogSeq (simulate cache write failure after the log append).
-	db, _ := s.cacheDB()
-	_, _ = db.Exec(`UPDATE tasks SET log_seq = 1 WHERE id = ?`, tk.ID)
-	got, err := s.GetTask(tk.ID)
-	if err != nil {
-		t.Fatalf("GetTask with stale cache: %v", err)
-	}
-	if got.Title != "changed" {
-		t.Fatalf("lazy miss did not rebuild: title = %q want %q", got.Title, "changed")
-	}
-	if got.LogSeq != wantSeq {
-		t.Fatalf("rebuilt LogSeq = %d, want %d (seq of title-changed entry)", got.LogSeq, wantSeq)
-	}
-}
-
-func TestGetTaskFutureLogSeqIntegrity(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	db, _ := s.cacheDB()
-	// Hand-write a cache row that claims a seq higher than the log's last.
-	_, _ = db.Exec(`UPDATE tasks SET log_seq = 9999 WHERE id = ?`, tk.ID)
-	_, err := s.GetTask(tk.ID)
-	if !IsIntegrity(err) {
-		t.Fatalf("expected ErrIntegrity, got %v", err)
 	}
 }
 

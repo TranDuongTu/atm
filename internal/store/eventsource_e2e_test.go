@@ -19,9 +19,6 @@ func TestEventsourceV2EndToEndUpgradeWriteRebuildVerify(t *testing.T) {
 	if _, err := s.CreateTask("ATM", "before", "", []string{"ATM:status:open"}, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.CreateTask("ATM", "after v2", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +80,7 @@ func TestEventsourceV2ListOrderFollowsCreationNotAlias(t *testing.T) {
 		}
 		wantC = append(wantC, c.ID)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	// Six hash-aliased tasks after cutover. Six random hashes land in creation
+	// Six more hash-aliased tasks. Six random hashes land in creation
 	// order by luck once in 720 runs, so an id-asc sort cannot pass this.
 	for i := 1; i <= 6; i++ {
 		tk, err := s.CreateTask("ATM", fmt.Sprintf("v2 task %d", i), "", nil, "admin@cli:unset")

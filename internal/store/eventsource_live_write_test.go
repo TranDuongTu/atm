@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"os"
+	"regexp"
 	"testing"
 
 	"atm/internal/eventsource"
@@ -11,19 +12,14 @@ import (
 func TestV2ActiveTaskMutationWritesOnlyEventsV2(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
-	before, err := os.ReadFile(s.logPath("ATM"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Born v2: there is no log.jsonl at all. mustRead tolerates its absence, and
+	// the byte-identical check below then proves the mutation never created one.
+	before := mustRead(t, s.logPath("ATM"))
 	tk, err := s.CreateTask("ATM", "v2 task", "desc", []string{"ATM:status:open"}, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := os.ReadFile(s.logPath("ATM"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := mustRead(t, s.logPath("ATM"))
 	if string(before) != string(after) {
 		t.Fatal("v1 log changed while project is v2-active")
 	}
@@ -52,23 +48,16 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	frozen, err := os.ReadFile(s.logPath("ATM"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Born v2: no log.jsonl exists. frozen is the empty/absent baseline; every
+	// step below proves the mutator never brings a log.jsonl into existence.
+	frozen := mustRead(t, s.logPath("ATM"))
 	events := 0
 	step := func(name string, fn func() error) {
 		t.Helper()
 		if err := fn(); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		now, err := os.ReadFile(s.logPath("ATM"))
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+		now := mustRead(t, s.logPath("ATM"))
 		if string(now) != string(frozen) {
 			t.Fatalf("%s appended to log.jsonl on a v2-active project", name)
 		}
@@ -214,6 +203,52 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	}
 }
 
+// TestCreateProjectBornV2OnDefaultStore pins the born-v2 flip: on a fresh store
+// whose ActiveFormat is the untouched v1 DEFAULT (no SetActiveFormat call), a
+// brand-new project is STILL born v2. createProjectV2 establishes the format
+// under a plain WithLock — it must not gate on the store's ActiveFormat, which
+// resolves to v1 for a not-yet-existing project.
+func TestCreateProjectBornV2OnDefaultStore(t *testing.T) {
+	s := testStore(t)
+	// NOTE: deliberately NO s.SetActiveFormat(StoreFormatV2) here.
+	p, err := s.CreateProject("ATM", "born v2 on default", "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "born v2 on default" {
+		t.Fatalf("project = %#v", p)
+	}
+	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
+		t.Fatal("v2-born project must have no log.jsonl")
+	}
+	if _, err := os.Stat(s.eventsV2Path("ATM")); err != nil {
+		t.Fatalf("events.v2.jsonl missing: %v", err)
+	}
+	m, err := s.readStoreMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ProjectFormats["ATM"] != StoreFormatV2 {
+		t.Fatalf("born-v2 project must carry an explicit ProjectFormats entry, got %#v", m.ProjectFormats)
+	}
+	// A subsequent task must be v2 (hex alias), not a v1 sequential ATM-0001. A
+	// v2 alias's segment is >=6 lowercase hex chars; a v1 id's is exactly the
+	// 4-digit "0001".
+	tk, err := s.CreateTask("ATM", "first task", "desc", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := ParseTaskID(tk.ID); !ok {
+		t.Fatalf("task id %q does not parse", tk.ID)
+	}
+	if tk.ID == "ATM-0001" {
+		t.Fatalf("task minted a v1 sequential id %q on a born-v2 project", tk.ID)
+	}
+	if !regexp.MustCompile(`^ATM-[0-9a-f]{6,}$`).MatchString(tk.ID) {
+		t.Fatalf("expected a v2 hex task id, got %q", tk.ID)
+	}
+}
+
 // mustRead returns the file's bytes, or nil when it does not exist.
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
@@ -222,53 +257,6 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return raw
-}
-
-// TestMutatorRechecksFormatUnderLock covers the TOCTOU between a mutator's
-// PRE-LOCK format read (which picks the v1 or v2 body) and its acquisition of
-// the project lock. `atm` is multi-process — WithLock is a cross-process flock —
-// so another process can cut the project over (upgrade) in exactly that
-// window. testHookAfterDispatchFormat makes the window deterministic instead
-// of racing goroutines at it.
-//
-// Without the under-lock re-check the upgrade direction is silent corruption:
-// the v1 body appends to log.jsonl on a project that is now v2-active (the
-// plan's hardest constraint is that log.jsonl stays byte-identical) and the
-// task never reaches events.v2.jsonl.
-func TestMutatorRechecksFormatUnderLock(t *testing.T) {
-	t.Run("upgrade lands in the window: no v1 append", func(t *testing.T) {
-		s := testStore(t)
-		if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-			t.Fatal(err)
-		}
-		before := mustRead(t, s.logPath("ATM"))
-
-		fired := false
-		testHookAfterDispatchFormat = func(code string) {
-			if fired || code != "ATM" {
-				return
-			}
-			fired = true
-			// Another process upgrades the project while our mutator sits
-			// between its format read and the project lock.
-			if _, err := s.UpgradeProjectToV2(code); err != nil {
-				t.Errorf("upgrade in hook: %v", err)
-			}
-		}
-		t.Cleanup(func() { testHookAfterDispatchFormat = nil })
-
-		_, err := s.CreateTask("ATM", "racy", "d", nil, "admin@cli:unset")
-		if !fired {
-			t.Fatal("hook never fired: CreateTask no longer reads the format before taking the lock")
-		}
-		// The corruption first, the error contract second.
-		if after := mustRead(t, s.logPath("ATM")); string(after) != string(before) {
-			t.Error("v1 body ran on a now-v2-active project: log.jsonl changed")
-		}
-		if !IsConflict(err) {
-			t.Errorf("CreateTask across an upgrade = %v, want ErrConflict", err)
-		}
-	})
 }
 
 // TestCreateCommentV2OnMissingTaskAppendsNothing: an event append is DURABLE,
@@ -281,9 +269,6 @@ func TestMutatorRechecksFormatUnderLock(t *testing.T) {
 func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	before := mustRead(t, s.eventsV2Path("ATM"))
@@ -374,9 +359,6 @@ func TestV2ReadPathReturnsV2Truth(t *testing.T) {
 		if _, err := s.CreateProject("ATM", "original", "admin@cli:unset"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-			t.Fatal(err)
-		}
 		if err := s.SetProjectName("ATM", "renamed", "admin@cli:unset"); err != nil {
 			t.Fatal(err)
 		}
@@ -427,9 +409,6 @@ func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {
 func TestRemoveProjectRefusesUnprojectedV2Task(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	// A writer that fsynced its commit point and died before reprojecting: the

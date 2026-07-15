@@ -4,12 +4,12 @@
     "created_by": "admin@cli:unset",
     "description": "",
     "history": [],
-    "id": "ATM-0001",
+    "id": "ATM-e12c4c",
     "labels": [
       "ATM:priority:high",
       "ATM:type:feature"
     ],
-    "log_seq": 19,
+    "log_seq": 1,
     "project_code": "ATM",
     "title": "t",
     "updated_at": "TIMESTAMP",

@@ -4,9 +4,9 @@
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
     "history": [],
-    "log_seq": 23,
+    "log_seq": 0,
     "name": "Renamed Project",
-    "next_task_n": 3,
+    "next_task_n": 0,
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

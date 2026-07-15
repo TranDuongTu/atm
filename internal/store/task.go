@@ -16,86 +16,8 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	if f, err := s.dispatchFormat(projectCode); err != nil {
-		return nil, err
-	} else if f == StoreFormatV2 {
-		return s.createTaskV2(projectCode, title, description, labels, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
-	var created *Task
-	err = s.withProjectFormatLock(projectCode, StoreFormatV1, func() error {
-		p, err := s.getProjectLocked(projectCode)
-		if err != nil {
-			return err
-		}
-		for _, l := range labels {
-			if err := ValidateLabelName(l); err != nil {
-				return err
-			}
-			if err := s.labelProjectExistsLocked(l); err != nil {
-				return err
-			}
-			// I1 - a task may only carry stored labels.
-			if IsNamespaceName(l) {
-				return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
-			}
-			if lb, ok, err := cacheGetLabel(db, l); err != nil {
-				return err
-			} else if ok && lb.Expr != "" {
-				return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
-			}
-		}
-		n := p.NextTaskN
-		id := RenderTaskID(projectCode, n)
-		ts := Now()
-		t := &Task{
-			ID:          id,
-			ProjectCode: projectCode,
-			Title:       title,
-			Description: description,
-			Labels:      append([]string(nil), labels...),
-			CreatedAt:   ts,
-			CreatedBy:   actor,
-			UpdatedAt:   ts,
-			UpdatedBy:   actor,
-		}
-		sort.Strings(t.Labels)
-		// 1. Append label.upserted for any newly-registered labels (BEFORE the task event).
-		labelEntries, err := s.appendLabelUpsertsLocked(projectCode, labels, actor, ts)
-		if err != nil {
-			return err
-		}
-		_ = labelEntries
-		// 2. Append task.created.
-		entry, err := s.appendLogLocked(projectCode, LogEntry{
-			At:      ts,
-			Actor:   actor,
-			Action:  ActionTaskCreated,
-			Subject: Subject{Kind: "task", ID: id},
-			Payload: mustMarshal(t),
-		})
-		if err != nil {
-			return err
-		}
-		t.LogSeq = entry.Seq
-		// 3. Bump project counter and write project cache row.
-		p.NextTaskN = n + 1
-		p.UpdatedAt = ts
-		p.UpdatedBy = actor
-		if err := cacheUpsertProject(db, p); err != nil {
-			return err
-		}
-		// 4. Write task cache row.
-		if err := cacheUpsertTask(db, t); err != nil {
-			return err
-		}
-		created = t
-		return nil
-	})
-	return created, err
+	// Every project is born v2, so task creation is unconditionally v2.
+	return s.createTaskV2(projectCode, title, description, labels, actor)
 }
 
 // taskProjectFormat parses a task alias for its project code and resolves the

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 )
@@ -123,51 +122,6 @@ func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
 		t.Error("ATM:status:open lost its description after re-seed")
 	}
 }
-
-func TestCreateProjectAppendsLogEntries(t *testing.T) {
-	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
-		t.Fatal(err)
-	}
-	entries, _ := s.ReadLog("ATM")
-	// 1 project.created + 16 label.upserted (seed) = 17 entries
-	if len(entries) < 2 {
-		t.Fatalf("log has %d entries, want >= 2", len(entries))
-	}
-	if entries[0].Action != ActionProjectCreated {
-		t.Fatalf("first entry action = %q want %q", entries[0].Action, ActionProjectCreated)
-	}
-	for _, e := range entries[1:] {
-		if e.Action != ActionLabelUpserted {
-			t.Fatalf("seed entry action = %q want %q", e.Action, ActionLabelUpserted)
-		}
-	}
-}
-
-func TestSetProjectNameAppendsNameChanged(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "old", testActor)
-	// Drop seed entries from the comparison: focus on entries after create.
-	before, _ := s.LastLogSeq("ATM")
-	_ = s.SetProjectName("ATM", "new", testActor)
-	entries, _ := s.ReadLog("ATM")
-	var nameChange *LogEntry
-	for i := range entries {
-		if entries[i].Seq > before && entries[i].Action == ActionProjectNameChanged {
-			nameChange = &entries[i]
-			break
-		}
-	}
-	if nameChange == nil {
-		t.Fatalf("no project.name-changed entry after SetProjectName")
-	}
-	var p Project
-	_ = json.Unmarshal(nameChange.Payload, &p)
-	if p.Name != "new" {
-		t.Fatalf("payload name = %q want %q", p.Name, "new")
-	}
-}
-
 func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
@@ -222,50 +176,6 @@ func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
 		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
 	}
 }
-
-// TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks is a
-// regression test for a bug where rebuildProjectFromLog derived NextTaskN
-// solely from the last project.* event's payload, which never advances past
-// its value at project-creation (or last name-change) time -- CreateTask
-// only bumps NextTaskN in the cache row, never in a log event. After a
-// cache-only loss of the project row, the lazy rebuild path (triggered here
-// via GetProject on a cache miss) must reconstruct NextTaskN as one past the
-// highest task-ID N ever created, not reset it to 1.
-func TestGetProjectLazyRebuildReconstructsNextTaskNPastCreatedTasks(t *testing.T) {
-	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 3; i++ {
-		if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Simulate a cache-only loss of the project row.
-	db, err := s.cacheDB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetProject("ATM")
-	if err != nil {
-		t.Fatalf("GetProject after cache-only loss: %v", err)
-	}
-	if got.NextTaskN != 4 {
-		t.Fatalf("NextTaskN after lazy rebuild = %d want 4 (3 tasks created, ATM-0001..ATM-0003)", got.NextTaskN)
-	}
-	// A subsequent CreateTask must not collide with any existing task ID.
-	newTask, err := s.CreateTask("ATM", "t4", "", nil, testActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if newTask.ID != "ATM-0004" {
-		t.Fatalf("new task ID = %q want ATM-0004 (must not collide with existing tasks)", newTask.ID)
-	}
-}
-
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)

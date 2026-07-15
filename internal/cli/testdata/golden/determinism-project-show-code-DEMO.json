@@ -17,9 +17,9 @@
         "seq": 20
       }
     ],
-    "log_seq": 20,
+    "log_seq": 0,
     "name": "Demo Project",
-    "next_task_n": 2,
+    "next_task_n": 0,
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

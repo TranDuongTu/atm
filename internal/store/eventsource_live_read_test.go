@@ -21,42 +21,6 @@ func TestV2ActiveReadRebuildsMissingCache(t *testing.T) {
 	}
 }
 
-// TestV2ActiveReadRebuildsFromV2NotV1 is the sharper form of the test above: on
-// an UPGRADED project the frozen v1 log can still answer a cache miss, so a
-// rebuild that silently fell back to rebuildTaskFromLog would look correct.
-// Mutating the task through v2 FIRST makes the two sources disagree, so only a
-// rebuild from the v2 fold produces the right answer.
-func TestV2ActiveReadRebuildsFromV2NotV1(t *testing.T) {
-	s := testStore(t)
-	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	tk, err := s.CreateTask("ATM", "before", "", nil, "admin@cli:unset")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetTitle(tk.ID, "after", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	db, _ := s.cacheDB()
-	if _, err := db.Exec(`DELETE FROM tasks`); err != nil {
-		t.Fatal(err)
-	}
-	if err := cacheClearV2Freshness(db, "ATM"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetTask(tk.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Title != "after" {
-		t.Fatalf("title = %q, want %q (the read rebuilt from the frozen v1 log, not the v2 fold)", got.Title, "after")
-	}
-}
-
 // TestV2ActiveMissingEntityReadsReturnErrNotFound pins the sentinel contract:
 // a v2 read of an entity that does not exist must be ErrNotFound, exactly as v1
 // is — the CLI's exit codes key on IsNotFound.
@@ -120,9 +84,6 @@ func TestListTasksSurfacesV2IntegrityErrorNotEmptyList(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTask("ATM", "t1", "", nil, testActor); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpgradeProjectToV2("ATM"); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate a crashed writer leaving a complete-but-unparseable line: same

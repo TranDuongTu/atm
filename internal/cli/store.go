@@ -30,7 +30,7 @@ func newStoreCmd(st *cliState) *cobra.Command {
 		Short: "Print the resolved store path",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root)
+			s, err := store.Open(root, st.storeOpts...)
 			if err != nil {
 				return err
 			}
