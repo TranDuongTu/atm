@@ -149,12 +149,17 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 
 // --- Boards pane tests (ported from the Labels pane) ---
 
+// The Boards pane is no longer reachable via focus (Task 3 removed the [3]
+// pane; Task 7 re-wires boards actions into the Tasks pane). These tests
+// drive boardsModel directly via m.boards.handleKey instead of routing keys
+// through the Model's pane-focus dispatch.
+
 func TestBoardsTabEmptyStateNoProject(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3") // focus Boards pane
-	if m.focused != paneLabels {
-		t.Fatalf("focus = %v want paneLabels", m.focused)
-	}
+	// boardsModel is no longer sized by Model.SetSize (it is not part of the
+	// rendered workspace as of Task 3), so tests that render its View must
+	// size it directly.
+	m.boards.SetSize(80, 20)
 	v := m.boards.View()
 	mustContain(t, v, "no project selected")
 	mustContain(t, v, "press [s] in the Projects pane")
@@ -164,8 +169,7 @@ func TestBoardsTabAddLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "a") // add label form
+	m.boards.handleKey(keyMsg("a")) // add label form
 	if m.form == nil {
 		t.Fatalf("add-label form not open")
 	}
@@ -187,8 +191,7 @@ func TestBoardsTabSeedKey(t *testing.T) {
 	_, _ = m.store.LabelRemove("ATM:context:question", testActor)
 	m.refreshAll()
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "S")
+	m.boards.handleKey(keyMsg("S"))
 	if !strings.Contains(m.toastMsg, "seeded 16 labels into ATM") {
 		t.Fatalf("toast = %q, want seeded 16 labels into ATM", m.toastMsg)
 	}
@@ -204,6 +207,7 @@ func TestBoardsTabSeedKey(t *testing.T) {
 // rows still carry a distinct-task count.
 func TestBoardsL0FlatCounts(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
 		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
@@ -214,7 +218,6 @@ func TestBoardsL0FlatCounts(t *testing.T) {
 	mk("b", "ATM:status:done", "ATM:priority:high")
 	mk("c", "ATM:priority:high")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	byName := map[string]boardRow{}
 	for _, r := range m.boards.rows {
@@ -250,7 +253,6 @@ func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 
 	lines := strings.Split(m.boards.View(), "\n")
 	if len(lines) < 2 {
@@ -277,7 +279,6 @@ func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 	// (sprint) does not, so it renders the ⚠ marker.
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	lines := strings.Split(m.boards.View(), "\n")
 	if len(lines) < 2 {
@@ -309,7 +310,6 @@ func TestBoardsL0ShowsDescriptionColumn(t *testing.T) {
 	// undescribed (renders ⚠ and an empty description cell).
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	view := m.boards.View()
 	// The header has a DESCRIPTION column.
@@ -332,9 +332,8 @@ func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelChart {
 		t.Fatalf("level = %v want chart", m.boards.level)
 	}
@@ -344,7 +343,7 @@ func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	if m.tasks.focus.mode != focusPresent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want present/status", m.tasks.focus)
 	}
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelTable {
 		t.Fatalf("level = %v want table after esc", m.boards.level)
 	}
@@ -365,9 +364,8 @@ func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
 	seedTask(t, m, "ATM", "open1", "ATM:status:open")
 	seedTask(t, m, "ATM", "done1", "ATM:status:done")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToBoardRow(t, m, "next-sprint")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelTable {
 		t.Fatalf("board selection must not leave L0: level = %v", m.boards.level)
 	}
@@ -392,7 +390,6 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	// sprint is emergent (a task carries ATM:sprint:next) and undescribed.
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	// Before: the sprint row is flagged.
 	cursorToNamespaceRow(t, m, "sprint")
@@ -402,7 +399,7 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	}
 
 	// [e] on the namespace row opens the descriptor form, not the board editor.
-	update(t, m, "e")
+	m.boards.handleKey(keyMsg("e"))
 	if m.form == nil || m.formKind != formNamespaceDescribe {
 		t.Fatalf("[e] on namespace must open formNamespaceDescribe; form=%v kind=%v", m.form, m.formKind)
 	}
@@ -445,10 +442,9 @@ func TestBoardsEscFromChartRestoresTableCursor(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("esc"))
 
 	if m.boards.level != lLevelTable {
 		t.Fatalf("level = %v want table", m.boards.level)
@@ -469,7 +465,6 @@ func TestBoardsL0HasNoNoneRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	for _, r := range m.boards.rows {
 		if r.Name == "(none)" {
 			t.Fatalf("(none) row must not appear in flat boards list: %+v", r)
@@ -494,12 +489,12 @@ func TestBoardsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 			}
 			seedTask(t, m, "ATM", "open", "ATM:status:open")
 			m.SetSize(size.w, size.h)
+			m.boards.SetSize(size.w, size.h)
 			update(t, m, "s")
-			update(t, m, "3")
 			cursorToNamespaceRow(t, m, "status")
-			update(t, m, "enter")
+			m.boards.handleKey(keyMsg("enter"))
 			cursorToChartLabel(t, m, "ATM:status:open")
-			update(t, m, "enter")
+			m.boards.handleKey(keyMsg("enter"))
 
 			view := m.boards.View()
 			mustContain(t, view, "name        ATM:status:open")
@@ -535,6 +530,7 @@ func TestBoardsChartCursorAndUnsetRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(120, 80)
+	m.boards.SetSize(120, 80)
 	if err := m.store.LabelAdd("ATM:status:blocked", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
@@ -549,9 +545,8 @@ func TestBoardsChartCursorAndUnsetRow(t *testing.T) {
 	mk("d", "ATM:priority:high") // no status -> unset
 
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // into chart
+	m.boards.handleKey(keyMsg("enter")) // into chart
 
 	rows := m.boards.chartRows()
 	// open(2), blocked(0), done(1), unset(1) in this fixture.
@@ -590,14 +585,14 @@ func TestBoardsChartHighlightsOnlyName(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
 
 	line := ""
@@ -633,9 +628,8 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 
 	unset := -1
 	for i, r := range m.boards.chartRows() {
@@ -648,7 +642,7 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 		t.Fatalf("unset row not found")
 	}
 	for m.boards.cursor < unset {
-		update(t, m, "j")
+		m.boards.handleKey(keyMsg("j"))
 	}
 	if !m.boards.chartRows()[m.boards.cursor].unset {
 		t.Fatalf("cursor = %d want unset row %d before render", m.boards.cursor, unset)
@@ -668,30 +662,30 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 
 func TestBoardsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "both", "ATM:status:open", "ATM:status:done")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	seedTask(t, m, "ATM", "unset", "ATM:priority:high")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 
 	mustContain(t, m.boards.View(), "status  ·  2 tasks")
 }
 
 func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // chart
+	m.boards.handleKey(keyMsg("enter")) // chart
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "enter") // detail
+	m.boards.handleKey(keyMsg("enter")) // detail
 
 	if m.boards.level != lLevelDetail {
 		t.Fatalf("level = %v want detail", m.boards.level)
@@ -702,7 +696,7 @@ func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	mustContain(t, m.boards.View(), "name        ATM:status:open")
 
 	// Esc returns to the chart and re-applies present focus.
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelChart {
 		t.Fatalf("level = %v want chart after esc", m.boards.level)
 	}
@@ -713,6 +707,7 @@ func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 
 func TestBoardsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
 		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
@@ -723,17 +718,16 @@ func TestBoardsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	mk("b", "ATM:priority:high") // no status
 
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // chart
+	m.boards.handleKey(keyMsg("enter")) // chart
 	cursorToChartUnset(t, m)
-	update(t, m, "enter") // unset leaf
+	m.boards.handleKey(keyMsg("enter")) // unset leaf
 
 	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
 	}
 	mustContain(t, m.boards.View(), "1 task with no status")
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelChart || m.tasks.focus.mode != focusPresent {
 		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.boards.level, m.tasks.focus)
 	}
@@ -746,11 +740,10 @@ func TestBoardsChartRemovePrefillsCursorLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("l"))
 
 	if m.form == nil || m.formKind != formLabelRemove {
 		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
@@ -767,12 +760,11 @@ func TestBoardsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "enter")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("l"))
 
 	if m.form == nil || m.formKind != formLabelRemove {
 		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
@@ -789,16 +781,15 @@ func TestBoardsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartUnset(t, m)
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("l"))
 	if m.form != nil {
 		t.Fatalf("remove form opened for chart (unset) row")
 	}
-	update(t, m, "enter")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("l"))
 	if m.form != nil {
 		t.Fatalf("remove form opened for unset detail leaf")
 	}

@@ -189,7 +189,6 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	update(t, m, "s")
 
 	leftW, rightW := splitWorkspaceWidths(m.width)
-	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 	assertLinesWithinWidth := func(name, body string, maxW int) {
 		for i, line := range strings.Split(body, "\n") {
 			if got := lipgloss.Width(line); got > maxW {
@@ -199,36 +198,12 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	assertLinesWithinWidth("labels", m.boards.View(), innerPaneWidth(rightW))
-	wantPageSize := innerPaneHeight(tasksH) - 6
+	wantPageSize := innerPaneHeight(m.contentHeight) - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
 	}
 	if got, want := m.tasks.pageSize, wantPageSize; got != want {
 		t.Fatalf("tasks pageSize = %d want %d", got, want)
-	}
-	_ = labelsH
-}
-
-func TestSplitRightColumnHeights75_25(t *testing.T) {
-	cases := []struct {
-		height, wantTop, wantBottom int
-	}{
-		{0, 0, 0},
-		{1, 1, 0},
-		{2, 1, 1}, // bottom must stay >= 1
-		{4, 3, 1},
-		{40, 30, 10},
-		{100, 75, 25},
-	}
-	for _, c := range cases {
-		top, bottom := splitRightColumnHeights(c.height)
-		if top != c.wantTop || bottom != c.wantBottom {
-			t.Errorf("splitRightColumnHeights(%d) = (%d,%d) want (%d,%d)", c.height, top, bottom, c.wantTop, c.wantBottom)
-		}
-		if c.height >= 2 && bottom < 1 {
-			t.Errorf("splitRightColumnHeights(%d): bottom=%d must be >= 1", c.height, bottom)
-		}
 	}
 }
 
@@ -243,13 +218,26 @@ func TestPaneFocusKeys(t *testing.T) {
 	if m.focused != paneTasks {
 		t.Fatalf("after 2: focus = %v want paneTasks", m.focused)
 	}
-	update(t, m, "3")
-	if m.focused != paneLabels {
-		t.Fatalf("after 3: focus = %v want paneLabels", m.focused)
-	}
 	update(t, m, "1")
 	if m.focused != paneProjects {
 		t.Fatalf("after 1: focus = %v want paneProjects", m.focused)
+	}
+}
+
+func TestWorkspaceRendersTwoPanesNotThree(t *testing.T) {
+	m := newTestModel(t)
+	v := m.View()
+	mustContain(t, v, "[1] Projects")
+	mustContain(t, v, "[2] Tasks")
+	mustNotContain(t, v, "[3] Boards")
+}
+
+func TestKey3IsNoOp(t *testing.T) {
+	m := newTestModel(t)
+	m.focused = paneProjects
+	m.handleKey(keyMsg("3"))
+	if m.focused != paneProjects {
+		t.Errorf("focused = %v, want paneProjects (3 must not switch panes)", m.focused)
 	}
 }
 
@@ -313,7 +301,6 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Boards")
 	mustNotContain(t, v, "1  Projects")
 	mustNotContain(t, v, "4  Help")
 }
@@ -321,12 +308,11 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
-	for _, key := range []string{"1", "2", "3"} {
+	for _, key := range []string{"1", "2"} {
 		update(t, m, key)
 		v := m.View()
 		mustContain(t, v, "[1] Projects")
 		mustContain(t, v, "[2] Tasks")
-		mustContain(t, v, "[3] Boards")
 	}
 }
 
@@ -353,13 +339,10 @@ func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
 	projects := m.renderStatusLine()
 	update(t, m, "2")
 	tasks := m.renderStatusLine()
-	update(t, m, "3")
-	labels := m.renderStatusLine()
-	if projects == tasks || tasks == labels || projects == labels {
-		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q\nlabels=%q", projects, tasks, labels)
+	if projects == tasks {
+		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q", projects, tasks)
 	}
 	mustContain(t, tasks, "[s]ort")
-	mustContain(t, labels, "[a]dd")
 }
 
 func TestDefaultTheme(t *testing.T) {
@@ -1691,7 +1674,6 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Boards")
 	mustContain(t, v, "Task "+tk.ID)
 }
 
@@ -2130,13 +2112,15 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.projectScope != "ATM" {
 		t.Fatalf("projectScope = %q want ATM", m.projectScope)
 	}
-	m.focused = paneLabels
-	update(t, m, "enter") // enter ATM namespace chart
+	// paneLabels no longer exists as a focusable pane (Task 3 removed the
+	// [3] Boards pane); drive boardsModel directly since Task 7 has not yet
+	// re-wired its key handling into the Tasks pane.
+	m.boards.handleKey(keyMsg("enter")) // enter ATM namespace chart
 	if m.boards.level != lLevelChart {
 		t.Fatalf("boards.level = %v want lLevelChart", m.boards.level)
 	}
 	// Pick the first chart row (a concrete label) and drill into detail.
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelDetail {
 		t.Fatalf("boards.level = %v want lLevelDetail", m.boards.level)
 	}

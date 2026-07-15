@@ -22,7 +22,7 @@ type keyEntry struct {
 
 // keymapRows is the verbatim Global keymap summary table from the mockup spec.
 var keymapRows = []keyEntry{
-	{"1/2/3", "focus pane", "focus pane", "focus pane", "focus pane"},
+	{"1/2", "focus pane", "focus pane", "-", "focus pane"},
 	{"j/k", "move cursor", "move cursor", "move cursor", "scroll"},
 	{"g", "top of list", "top of list", "top of list", "top"},
 	{"Enter", "open detail", "open detail / toggle group", "drill into namespace / open label detail / select board", "confirm overlay"},

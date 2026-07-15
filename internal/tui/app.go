@@ -16,10 +16,9 @@ type workspacePane int
 const (
 	paneProjects workspacePane = iota
 	paneTasks
-	paneLabels
 )
 
-const numPanes = 3
+const numPanes = 2
 
 // helpOverlayKind identifies which read-only reference overlay is open.
 type helpOverlayKind int
@@ -196,10 +195,8 @@ func (m *Model) SetSize(w, h int) {
 		m.contentHeight = 1
 	}
 	leftW, rightW := splitWorkspaceWidths(w)
-	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
-	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(tasksH))
-	m.boards.SetSize(innerPaneWidth(rightW), innerPaneHeight(labelsH))
+	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(m.contentHeight))
 	if m.helpOverlay != helpNone {
 		bw, bh := m.helpBoxSize()
 		m.help.SetSize(bw, bh)
@@ -299,19 +296,6 @@ func splitWorkspaceWidths(width int) (int, int) {
 	}
 	right := width - left
 	return left, right
-}
-
-func splitRightColumnHeights(height int) (int, int) {
-	if height < 2 {
-		return height, 0
-	}
-	top := height * 75 / 100
-	bottom := height - top
-	if bottom < 1 {
-		bottom = 1
-		top = height - bottom
-	}
-	return top, bottom
 }
 
 func innerPaneWidth(width int) int {
@@ -582,9 +566,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "2":
 		m.focused = paneTasks
 		return nil
-	case "3":
-		m.focused = paneLabels
-		return nil
 	case "?":
 		m.openHelp(helpKeys)
 		return nil
@@ -617,9 +598,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 		}
-		if m.focused == paneLabels {
-			return m.boards.handleKey(k)
-		}
 		// No detail to leave: ignore.
 		return nil
 	}
@@ -629,8 +607,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.projects.handleKey(k)
 	case paneTasks:
 		return m.tasks.handleKey(k)
-	case paneLabels:
-		return m.boards.handleKey(k)
 	}
 	return nil
 }
@@ -807,14 +783,9 @@ func (m *Model) View() string {
 
 func (m *Model) renderWorkspace() string {
 	leftW, rightW := splitWorkspaceWidths(m.width)
-	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
-
 	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
-	tasks := m.renderPane(paneTasks, rightW, tasksH, "[2] Tasks", m.tasks.View())
-	boards := m.renderPane(paneLabels, rightW, labelsH, "[3] Boards", m.boards.View())
-
-	right := lipgloss.JoinVertical(lipgloss.Left, tasks, boards)
-	return lipgloss.JoinHorizontal(lipgloss.Top, projects, right)
+	tasks := m.renderPane(paneTasks, rightW, m.contentHeight, "[2] Tasks", m.tasks.View())
+	return lipgloss.JoinHorizontal(lipgloss.Top, projects, tasks)
 }
 
 func (m *Model) renderPane(pane workspacePane, width int, height int, title string, body string) string {
@@ -832,8 +803,6 @@ func (m *Model) statusHint() string {
 		return m.projects.statusHint()
 	case paneTasks:
 		return m.tasks.statusHint()
-	case paneLabels:
-		return m.boards.statusHint()
 	}
 	return "[?]keys [C]conventions"
 }

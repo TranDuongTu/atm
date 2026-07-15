@@ -179,10 +179,10 @@ atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [N]
 atm project remove --code             Projects pane  [x]
 
-atm label add --name --desc           Boards pane  [a]dd / [d]esc
-atm label remove --name               Boards pane  [l]
-atm label seed --project              Boards pane  [S]
-atm label list [--project] [--ns]     Boards pane  (list)
+atm label add --name --desc           Tasks pane (boards)  [a]dd / [d]esc
+atm label remove --name               Tasks pane (boards)  [l]
+atm label seed --project              Tasks pane (boards)  [S]
+atm label list [--project] [--ns]     Tasks pane (boards)  (list)
 atm label show --name                 — (CLI only)
 
 atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
