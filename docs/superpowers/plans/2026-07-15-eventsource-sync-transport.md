@@ -8,6 +8,8 @@
 
 **Tech Stack:** Go 1.22+, existing `internal/eventsource` (Parse/BuildDAG/Fold/CompareEvents/Clock), existing `internal/store` v2 helpers (`readV2File`, `appendV2EventLineLocked`, `reprojectV2Locked`, `mutateStoreMeta`, `WithLock`), Cobra CLI, system `git` binary (no go-git).
 
+**ATM-0127 interaction (2026-07-15):** the v1 storage decommission is executing concurrently on branch `atm-0127-v1-decommission`. **Execute this plan only after ATM-0127 lands** (at minimum its born-v2 flip commit). No design conflict — 0127 keeps everything Task 6 consumes (`eventsource_meta.go` is deliberately untouched: `dispatchFormat`, `ProjectFormats`, explicit-entry semantics; `readV2File`/`appendV2EventLineLocked`/`reprojectV2Locked`/`mutateStoreMeta` survive; the `ErrSyncNeedsV2` guard stays valid for stray v1 media and `upgrade` survives as the one-shot import tool). But: (a) 0127 rewrites `internal/cli/store.go` (rollback command deleted) and regenerates all CLI goldens — Tasks 8–9 must be written against the post-0127 file; (b) 0127 renames `LogSeq` → `Ordinal` (fields + cache column) and deletes the `last_log_seq` helpers — this plan's code never touches those, but do not reintroduce the old names; (c) born-v2 adds determinism seams (`clockNow`, `replicaEntropy`, `nowFn` functional options on `store.Open`) — USE them in Task 10's convergence tests to pin replica ids and HLC stamps instead of relying on wall clock.
+
 ## Global Constraints
 
 - Sync is per-project set reconciliation; the union is atomic — any staged-validation failure (parse, missing parent, cycle, root mismatch) aborts the whole sync with local and remote untouched (L4-4).
