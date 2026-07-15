@@ -153,13 +153,6 @@ func TestLabelRemoveAppendsTombstone(t *testing.T) {
 	if after != before+1 {
 		t.Fatalf("LabelRemove seq jumped %d → %d, want +1 (tombstone)", before, after)
 	}
-	// Replay excludes the removed label.
-	st, _ := s.Replay("ATM")
-	for _, l := range st.Labels {
-		if l.Name == "ATM:type:bug" {
-			t.Fatal("removed label appeared in replay live set")
-		}
-	}
 }
 
 func TestRebuildRegeneratesLabelCache(t *testing.T) {

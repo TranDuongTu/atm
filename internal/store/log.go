@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 )
 
@@ -68,13 +67,6 @@ type Subject struct {
 	ID   string `json:"id,omitempty"`
 	Code string `json:"code,omitempty"`
 	Name string `json:"name,omitempty"`
-}
-
-type ReplayState struct {
-	Project  *Project
-	Tasks    []*Task
-	Labels   []Label
-	Comments []*Comment
 }
 
 type HistoryView struct {
@@ -165,8 +157,9 @@ func marshalLogLine(e LogEntry) ([]byte, error) {
 }
 
 // ReadLog reads projects/<CODE>/log.jsonl. It is v1-only BY DESIGN and must
-// NEVER grow a format branch: Replay and lastProjectEventSeq both depend on it
-// reading the v1 bytes even for a v2-active project (the frozen log is the
+// NEVER grow a format branch: lastLogSeqLocked depends on it reading the v1
+// bytes to recover the append sequence on a cache miss, for the still-live v1
+// write mutators, even for a v2-active project (the frozen log is the
 // upgrade's read-back artifact). Views that must follow the project's
 // effective format go through readLogForViews instead.
 func (s *Store) ReadLog(code string) ([]LogEntry, error) {
@@ -363,97 +356,6 @@ func (s *Store) invalidateLogSnapshot(code string) {
 	s.logSnapMu.Lock()
 	delete(s.logSnapshots, code)
 	s.logSnapMu.Unlock()
-}
-
-func (s *Store) Replay(code string) (*ReplayState, error) {
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return nil, err
-	}
-	st := &ReplayState{}
-	var proj *Project
-	tasks := map[string]*Task{}
-	labels := map[string]Label{}
-	comments := map[string]*Comment{}
-	maxTaskN := 0
-	for _, e := range entries {
-		switch e.Subject.Kind {
-		case "project":
-			switch e.Action {
-			case ActionProjectCreated, ActionProjectNameChanged:
-				var p Project
-				if err := json.Unmarshal(e.Payload, &p); err == nil {
-					p.LogSeq = e.Seq
-					proj = &p
-				}
-			case ActionProjectRemoved:
-				proj = nil
-			}
-		case "task":
-			// Track the highest task-ID N seen across ALL task.* entries
-			// (including task.removed tombstones) so NextTaskN can be
-			// reconstructed below without relying on a project.* log event
-			// that CreateTask never appends. A removed task's number must
-			// never be reused.
-			if _, n, ok := ParseTaskID(e.Subject.ID); ok && n > maxTaskN {
-				maxTaskN = n
-			}
-			var tk Task
-			_ = json.Unmarshal(e.Payload, &tk)
-			tk.LogSeq = e.Seq
-			switch e.Action {
-			case ActionTaskCreated, ActionTaskTitleChanged, ActionTaskDescChanged, ActionTaskLabelAdded, ActionTaskLabelRemoved, ActionTaskMetaChanged:
-				tasks[e.Subject.ID] = &tk
-			case ActionTaskRemoved:
-				delete(tasks, e.Subject.ID)
-			}
-		case "comment":
-			var c Comment
-			_ = json.Unmarshal(e.Payload, &c)
-			c.LogSeq = e.Seq
-			switch e.Action {
-			case ActionCommentCreated, ActionCommentBodyChanged,
-				ActionCommentLabelAdded, ActionCommentLabelRemoved:
-				comments[e.Subject.ID] = &c
-			case ActionCommentRemoved:
-				delete(comments, e.Subject.ID)
-			}
-		case "label":
-			var l Label
-			_ = json.Unmarshal(e.Payload, &l)
-			l.LogSeq = e.Seq
-			switch e.Action {
-			case ActionLabelUpserted:
-				labels[e.Subject.Name] = l
-			case ActionLabelRemoved:
-				delete(labels, e.Subject.Name)
-			}
-		}
-	}
-	if proj != nil {
-		proj.NextTaskN = max(proj.NextTaskN, maxTaskN+1)
-	}
-	st.Project = proj
-	for _, tk := range tasks {
-		st.Tasks = append(st.Tasks, tk)
-	}
-	sort.Slice(st.Tasks, func(i, j int) bool { return st.Tasks[i].ID < st.Tasks[j].ID })
-	for _, l := range labels {
-		st.Labels = append(st.Labels, l)
-	}
-	sort.Slice(st.Labels, func(i, j int) bool { return st.Labels[i].Name < st.Labels[j].Name })
-	for _, c := range comments {
-		st.Comments = append(st.Comments, c)
-	}
-	sort.Slice(st.Comments, func(i, j int) bool { return st.Comments[i].ID < st.Comments[j].ID })
-	// Replay is the cache.db-wiped recovery path: populate the per-project
-	// last-log-seq cache row so subsequent LastLogSeq calls stay O(1).
-	if len(entries) > 0 {
-		if db, err := s.cacheDB(); err == nil {
-			_ = cacheSetLastLogSeq(db, code, entries[len(entries)-1].Seq)
-		}
-	}
-	return st, nil
 }
 
 // History renders one subject's event trail. The compatibility entries carry

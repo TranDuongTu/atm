@@ -121,13 +121,6 @@ func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 	if len(hv) == 0 || hv[len(hv)-1].Action != ActionTaskRemoved {
 		t.Fatalf("tombstone missing from history: %+v", hv)
 	}
-	// Replay excludes the tombstoned task.
-	st, _ := s.Replay("ATM")
-	for _, lt := range st.Tasks {
-		if lt.ID == tk.ID {
-			t.Fatal("tombstoned task appeared in replay live set")
-		}
-	}
 }
 
 func TestGetTaskLazyMissRebuildsFromLog(t *testing.T) {

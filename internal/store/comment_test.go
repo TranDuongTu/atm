@@ -198,10 +198,4 @@ func TestRemoveCommentAppendsTombstoneAndDeletesCache(t *testing.T) {
 	if len(hv) == 0 || hv[len(hv)-1].Action != ActionCommentRemoved {
 		t.Fatalf("tombstone missing from history: %+v", hv)
 	}
-	st, _ := s.Replay("ATM")
-	for _, cc := range st.Comments {
-		if cc.ID == c.ID {
-			t.Fatal("tombstoned comment appeared in replay live set")
-		}
-	}
 }
