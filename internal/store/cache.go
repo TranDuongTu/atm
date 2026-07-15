@@ -80,9 +80,11 @@ func (s *Store) cachePath() string { return filepath.Join(s.Root, "cache.db") }
 // metaKey for the per-project last log seq cache row.
 func lastLogSeqMetaKey(code string) string { return "last_log_seq:" + code }
 
-// cacheSetLastLogSeq upserts the per-project last-log-seq row. Called inside
-// the same locked tx as appendLogLocked so the cache row and the log file
-// commit together.
+// cacheSetLastLogSeq upserts the per-project last-log-seq row. Orphaned by
+// D-Task5b's removal of the v1 write path (appendLogLocked, its only caller,
+// is gone); left in place, along with cacheGetLastLogSeq and
+// lastLogSeqMetaKey, because the cache column/type cleanup is D-Task6's
+// scope, not this prune's.
 func cacheSetLastLogSeq(db *sql.DB, code string, seq int) error {
 	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
@@ -619,9 +621,9 @@ func cacheNamespaces(db *sql.DB, code string) ([]string, error) {
 }
 
 // cachePresentLabels returns the subset of names that currently exist as
-// live label rows. Used by appendLabelUpsertsLocked to decide which labels
-// need a new label.upserted log entry (replaces the old full-log-Replay
-// based labelsInLogLocked).
+// live label rows. Its production caller, the v1 appendLabelUpsertsLocked,
+// was deleted in D-Task5b; left in place (cache.go schema/query cleanup is
+// D-Task6's scope) and still covered directly by TestCachePresentLabels.
 func cachePresentLabels(db *sql.DB, names []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(names))
 	for _, n := range names {

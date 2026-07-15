@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -135,14 +134,6 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 	return created, nil
 }
 
-func mustMarshal(v any) json.RawMessage {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return raw
-}
-
 func (s *Store) GetProject(code string) (*Project, error) {
 	return s.getProjectWithRebuild(code, func() error {
 		return s.WithLock(code, func() error {
@@ -265,37 +256,10 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		return s.setProjectNameV2(code, name, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		p, err := s.getProjectLocked(code)
-		if err != nil {
-			return err
-		}
-		p.Name = name
-		now := Now()
-		p.UpdatedAt = now
-		p.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectNameChanged,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		if err != nil {
-			return err
-		}
-		p.LogSeq = entry.Seq
-		return cacheUpsertProject(db, p)
-	})
+	return s.setProjectNameV2(code, name, actor)
 }
 
 // setProjectNameV2 emits project.name-changed against the project's identity
@@ -326,43 +290,10 @@ func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
 		return err
 	}
-	if f, err := s.dispatchFormat(code); err != nil {
-		return err
-	} else if f == StoreFormatV2 {
-		return s.removeProjectV2(code)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
+	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		if err := s.hasTasksGuard(code); err != nil {
-			return err
-		}
-		p, err := s.getProjectLocked(code)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		// 1. Append project.removed tombstone (payload = last state).
-		_, _ = s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionProjectRemoved,
-			Subject: Subject{Kind: "project", Code: code},
-			Payload: mustMarshal(p),
-		})
-		// 2. Delete the project directory (including log.jsonl).
-		_ = os.RemoveAll(s.projectDir(code))
-		// 3. Drop any explicit format entry: a v1 project born under L3 (or one
-		// rolled back to v1) carries one, and a stale entry must not outlive
-		// the project it describes.
-		if err := s.removeProjectFormat(code); err != nil {
-			return err
-		}
-		// 4. Delete the project cache row.
-		return cacheDeleteProject(db, code)
-	})
+	return s.removeProjectV2(code)
 }
 
 // removeProjectV2 removes a v2-active project. No v1 tombstone is appended:

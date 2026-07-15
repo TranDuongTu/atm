@@ -340,36 +340,11 @@ func (s *Store) RemoveComment(id, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.commentProjectFormat(id)
+	code, _, err := s.commentProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.mutateCommentV2(code, id, ActionCommentRemoved, actor, nil)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		c, err := s.getCommentLocked(id)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		c.UpdatedAt = now
-		c.UpdatedBy = actor
-		if _, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionCommentRemoved,
-			Subject: Subject{Kind: "comment", ID: id},
-			Payload: mustMarshal(c),
-		}); err != nil {
-			return err
-		}
-		return cacheDeleteComment(db, id)
-	})
+	return s.mutateCommentV2(code, id, ActionCommentRemoved, actor, nil)
 }
 
 func (s *Store) CommentLabelAdd(id, label, actor string) error {
@@ -382,88 +357,26 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.commentProjectFormat(id)
+	code, _, err := s.commentProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.commentLabelAddV2(code, id, label, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		c, err := s.getCommentLocked(id)
-		if err != nil {
-			return err
-		}
-		for _, l := range c.Labels {
-			if l == label {
-				return nil
-			}
-		}
-		c.Labels = append(c.Labels, label)
-		sort.Strings(c.Labels)
-		if _, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now()); err != nil {
-			return err
-		}
-		now := Now()
-		c.UpdatedAt = now
-		c.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionCommentLabelAdded,
-			Subject: Subject{Kind: "comment", ID: id},
-			Payload: mustMarshal(c),
-		})
-		if err != nil {
-			return err
-		}
-		c.LogSeq = entry.Seq
-		return cacheUpsertComment(db, c)
-	})
+	return s.commentLabelAddV2(code, id, label, actor)
 }
 
-// mutateComment is the log-first write-through helper for non-delete comment
-// mutations. v2Payload is the equivalent v2 event payload (the writesOf key
-// set for action); on a v2-active project the v1 body is never reached.
+// mutateComment is the shared entry point for non-delete comment mutations;
+// every project is v2-active (D-Task5b removed the v1 write arm), so it
+// resolves the project code and delegates to mutateCommentV2 with the given
+// action and payload. fn is unused now that there is no v1 struct to mutate
+// in place; it survives only because SetCommentBody/CommentLabelRemove still
+// pass it and trimming their call sites is out of scope for this prune.
 func (s *Store) mutateComment(id, actor string, fn func(c *Comment, now time.Time), action string, v2Payload map[string]any) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.commentProjectFormat(id)
+	code, _, err := s.commentProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.mutateCommentV2(code, id, action, actor, v2Payload)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		c, err := s.getCommentLocked(id)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		fn(c, now)
-		c.UpdatedAt = now
-		c.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  action,
-			Subject: Subject{Kind: "comment", ID: id},
-			Payload: mustMarshal(c),
-		})
-		if err != nil {
-			return err
-		}
-		c.LogSeq = entry.Seq
-		return cacheUpsertComment(db, c)
-	})
+	return s.mutateCommentV2(code, id, action, actor, v2Payload)
 }

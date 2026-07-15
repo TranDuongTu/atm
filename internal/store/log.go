@@ -1,11 +1,8 @@
 package store
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -25,33 +22,12 @@ const (
 	ActionTaskRemoved         = "task.removed"
 	ActionLabelUpserted       = "label.upserted"
 	ActionLabelRemoved        = "label.removed"
-	ActionTaskMetaChanged     = "task.meta-changed"
 	ActionCommentCreated      = "comment.created"
 	ActionCommentBodyChanged  = "comment.body-changed"
 	ActionCommentLabelAdded   = "comment.label-added"
 	ActionCommentLabelRemoved = "comment.label-removed"
 	ActionCommentRemoved      = "comment.removed"
 )
-
-var validActions = map[string]bool{
-	ActionProjectCreated:      true,
-	ActionProjectNameChanged:  true,
-	ActionProjectRemoved:      true,
-	ActionTaskCreated:         true,
-	ActionTaskTitleChanged:    true,
-	ActionTaskDescChanged:     true,
-	ActionTaskLabelAdded:      true,
-	ActionTaskLabelRemoved:    true,
-	ActionTaskRemoved:         true,
-	ActionLabelUpserted:       true,
-	ActionLabelRemoved:        true,
-	ActionTaskMetaChanged:     true,
-	ActionCommentCreated:      true,
-	ActionCommentBodyChanged:  true,
-	ActionCommentLabelAdded:   true,
-	ActionCommentLabelRemoved: true,
-	ActionCommentRemoved:      true,
-}
 
 type LogEntry struct {
 	Seq     int             `json:"seq"`
@@ -81,144 +57,6 @@ func (s *Store) logPath(code string) string {
 }
 
 func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
-
-// appendLog is a raw v1-log append under a bare WithLock, with NO format
-// dispatch: on a v2-active project it would write log.jsonl and break the
-// branch's central invariant (the v1 log is FROZEN, byte-identical, and is the
-// rollback artifact). It is deliberately unexported and has no production
-// callers — every mutator reaches the log through a format-dispatched path.
-// Do not export it; add the dispatch to a caller instead.
-func (s *Store) appendLog(code string, e LogEntry) (LogEntry, error) {
-	if !validActions[e.Action] {
-		return LogEntry{}, fmt.Errorf("%w: unknown action %q", ErrUsage, e.Action)
-	}
-	err := s.WithLock(code, func() error {
-		var err2 error
-		e, err2 = s.appendLogLocked(code, e)
-		return err2
-	})
-	if err != nil {
-		return LogEntry{}, err
-	}
-	return e, nil
-}
-
-// appendLogLocked assigns Seq, appends one line to projects/<CODE>/log.jsonl,
-// and fsyncs. Caller MUST already hold the project lock — this is the
-// re-entrancy-safe variant of appendLog for write-first paths that already
-// run inside WithLock.
-func (s *Store) appendLogLocked(code string, e LogEntry) (LogEntry, error) {
-	last, err := s.lastLogSeqLocked(code)
-	if err != nil {
-		return e, err
-	}
-	e.Seq = last + 1
-	if e.At.IsZero() {
-		e.At = Now()
-	}
-	line, err := marshalLogLine(e)
-	if err != nil {
-		return e, err
-	}
-	path := s.logPath(code)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return e, err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return e, err
-	}
-	defer f.Close()
-	if _, err := f.Write(line); err != nil {
-		return e, err
-	}
-	if err := f.Sync(); err != nil {
-		return e, err
-	}
-	// Write-through the per-project last-log-seq cache row in the same
-	// locked critical section as the file append. LastLogSeq reads this
-	// row (O(1)) instead of re-scanning log.jsonl on every staleness
-	// check.
-	if err := s.setLastLogSeqLocked(code, e.Seq); err != nil {
-		return e, err
-	}
-	// Invalidate any in-memory log snapshot for this project so the next
-	// ReadLogCached re-scans and picks up this append.
-	s.invalidateLogSnapshot(code)
-	return e, nil
-}
-
-func marshalLogLine(e LogEntry) ([]byte, error) {
-	raw, err := json.Marshal(e)
-	if err != nil {
-		return nil, err
-	}
-	return append(raw, '\n'), nil
-}
-
-// ReadLog reads projects/<CODE>/log.jsonl. It is v1-only BY DESIGN and must
-// NEVER grow a format branch: lastLogSeqLocked depends on it reading the v1
-// bytes to recover the append sequence on a cache miss, for the still-live v1
-// write mutators, even for a v2-active project (the frozen log is the
-// upgrade's read-back artifact). Views that must follow the project's
-// effective format go through readLogForViews instead.
-func (s *Store) ReadLog(code string) ([]LogEntry, error) {
-	f, err := os.Open(s.logPath(code))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-	var out []LogEntry
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	truncated := 0
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		var e LogEntry
-		if err := json.Unmarshal(line, &e); err != nil {
-			truncated += len(line) + 1 // +1 for the newline Scanner stripped
-			continue
-		}
-		out = append(out, e)
-	}
-	// If scanner stopped early due to a partial last line (no trailing newline),
-	// bufio.Scanner skips it silently; check the file tail.
-	if truncErr := s.detectPartialTail(code); truncErr != nil {
-		truncated += truncErr.bytes
-	}
-	if truncated > 0 {
-		err = fmt.Errorf("%w: %d bytes of malformed log tail truncated", ErrIntegrity, truncated)
-	}
-	return out, err
-}
-
-type partialTailError struct{ bytes int }
-
-func (e *partialTailError) Error() string { return "partial tail" }
-
-func (s *Store) detectPartialTail(code string) *partialTailError {
-	// Re-scan the file raw for a final non-newline-terminated segment.
-	data, err := os.ReadFile(s.logPath(code))
-	if err != nil {
-		return nil
-	}
-	if len(data) == 0 {
-		return nil
-	}
-	if data[len(data)-1] == '\n' {
-		return nil
-	}
-	// Find last newline
-	i := len(data) - 1
-	for i >= 0 && data[i] != '\n' {
-		i--
-	}
-	tail := data[i+1:]
-	return &partialTailError{bytes: len(tail)}
-}
 
 // LastLogSeq is THE staleness probe every poller in the codebase uses (Watch,
 // tui/indexer.go, cli/index.go's Behind count, ReadLogCached's cross-process
@@ -251,56 +89,15 @@ func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
 	return s.readV2LogEntries(code)
 }
 
-// lastLogSeqLocked returns the project's last log seq. Caller MUST hold the
-// project lock when invoked from a write path (appendLogLocked), but the
-// public LastLogSeq calls this directly without a lock because cache.db
-// access is process-serialized. Reads the O(1) cache.db meta row first; on
-// cache miss it scans log.jsonl, returns the right number, and write-throughs
-// the meta row so subsequent calls stay O(1).
-func (s *Store) lastLogSeqLocked(code string) (int, error) {
-	db, err := s.cacheDB()
-	if err != nil {
-		return 0, err
-	}
-	if v, ok, err := cacheGetLastLogSeq(db, code); err != nil {
-		return 0, err
-	} else if ok {
-		return v, nil
-	}
-	// Cache miss: scan the file, then populate the cache.
-	entries, err := s.ReadLog(code)
-	if err != nil && !IsIntegrity(err) {
-		return 0, err
-	}
-	last := 0
-	if len(entries) > 0 {
-		last = entries[len(entries)-1].Seq
-	}
-	if err := cacheSetLastLogSeq(db, code, last); err != nil {
-		return 0, err
-	}
-	return last, nil
-}
-
-// setLastLogSeqLocked write-throughs the per-project last-log-seq cache row.
-// Caller MUST hold the project lock.
-func (s *Store) setLastLogSeqLocked(code string, seq int) error {
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return cacheSetLastLogSeq(db, code, seq)
-}
-
 // ReadLogCached returns the project's log entries, memoizing the parsed
-// result in memory for the Store's lifetime. The snapshot is invalidated in
-// two ways:
-//   - locally: appendLogLocked calls invalidateLogSnapshot after every append,
-//     so the next ReadLogCached re-scans;
-//   - across processes: before serving, the cached snapshot's builtSeq is
-//     compared against LastLogSeq (now O(1) from cache.db). If the cached
-//     last_seq advanced (another process appended + bumped the meta row), the
-//     snapshot is dropped and rebuilt.
+// result in memory for the Store's lifetime. The snapshot is invalidated
+// whenever the cached snapshot's builtSeq falls behind LastLogSeq (now O(1)
+// from cache.db): a local append bumps the v2 event count immediately, and a
+// remote process's append bumps it the same way, so one freshness check
+// covers both cases without a separate local-invalidation call.
+// UpgradeProjectToV2 is the one write path that still calls
+// invalidateLogSnapshot directly, since an upgrade replaces the project's
+// format/media rather than advancing its event count.
 //
 // This keeps the TUI's per-frame renderSummary path from re-parsing
 // log.jsonl on every keystroke while staying fresh under external mutation.
@@ -350,8 +147,10 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 	return entries, nil
 }
 
-// invalidateLogSnapshot drops the in-memory log snapshot for a project. Called
-// by appendLogLocked after a local append so the next ReadLogCached re-scans.
+// invalidateLogSnapshot drops the in-memory log snapshot for a project.
+// Called by UpgradeProjectToV2 after cutting a project over, so the next
+// ReadLogCached re-scans the (now v2) history instead of serving a stale v1
+// snapshot.
 func (s *Store) invalidateLogSnapshot(code string) {
 	s.logSnapMu.Lock()
 	delete(s.logSnapshots, code)

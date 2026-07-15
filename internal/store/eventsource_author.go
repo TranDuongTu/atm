@@ -137,9 +137,11 @@ func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectStat
 	return nil, false
 }
 
-// appendV2LabelUpsertsLocked is the v2 mirror of appendLabelUpsertsLocked: it
-// auto-registers any label name a task/comment mutation asserts but the fold
-// does not already hold live. The payload carries NO fields — label.upserted
+// appendV2LabelUpsertsLocked auto-registers any label name a task/comment
+// mutation asserts but the fold does not already hold live. It was the v2
+// mirror of the v1 appendLabelUpsertsLocked, deleted in D-Task5b along with
+// the v1 write branches that were its only callers. The payload carries NO
+// fields — label.upserted
 // writes the existence slot unconditionally (writesOf), so an empty payload
 // registers the label without clobbering a description/expr some other
 // replica may have set. Caller MUST hold the project lock.

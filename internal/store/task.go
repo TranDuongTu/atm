@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"sort"
 	"time"
 
 	"atm/internal/eventsource"
@@ -164,44 +163,6 @@ func (s *Store) taskLabelAddV2(code, id, label, actor string) error {
 	})
 }
 
-// appendLabelUpsertsLocked appends label.upserted for each label name not
-// already live in cache.db, and write-throughs the new row immediately.
-// Caller MUST hold the project lock.
-func (s *Store) appendLabelUpsertsLocked(code string, labels []string, actor string, at time.Time) ([]LogEntry, error) {
-	if len(labels) == 0 {
-		return nil, nil
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, err
-	}
-	present, err := cachePresentLabels(db, labels)
-	if err != nil {
-		return nil, err
-	}
-	var out []LogEntry
-	for _, name := range labels {
-		if present[name] {
-			continue
-		}
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      at,
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: Subject{Kind: "label", Name: name},
-			Payload: mustMarshal(Label{Name: name}),
-		})
-		if err != nil {
-			return out, err
-		}
-		if err := cacheUpsertLabel(db, Label{Name: name, LogSeq: entry.Seq}); err != nil {
-			return out, err
-		}
-		out = append(out, entry)
-	}
-	return out, nil
-}
-
 func (s *Store) GetTask(id string) (*Task, error) {
 	code, _, ok := ParseTaskID(id)
 	if !ok {
@@ -324,57 +285,11 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.taskProjectFormat(id)
+	code, _, err := s.taskProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.taskLabelAddV2(code, id, label, actor)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		t, err := s.getTaskLocked(id)
-		if err != nil {
-			return err
-		}
-		// I1 - a task may only carry stored labels.
-		if IsNamespaceName(label) {
-			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, label)
-		}
-		if lb, ok, err := cacheGetLabel(db, label); err != nil {
-			return err
-		} else if ok && lb.Expr != "" {
-			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, label)
-		}
-		for _, l := range t.Labels {
-			if l == label {
-				return nil
-			}
-		}
-		t.Labels = append(t.Labels, label)
-		sort.Strings(t.Labels)
-		if _, err := s.appendLabelUpsertsLocked(code, []string{label}, actor, Now()); err != nil {
-			return err
-		}
-		now := Now()
-		t.UpdatedAt = now
-		t.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionTaskLabelAdded,
-			Subject: Subject{Kind: "task", ID: id},
-			Payload: mustMarshal(t),
-		})
-		if err != nil {
-			return err
-		}
-		t.LogSeq = entry.Seq
-		return cacheUpsertTask(db, t)
-	})
+	return s.taskLabelAddV2(code, id, label, actor)
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
@@ -393,77 +308,26 @@ func (s *Store) RemoveTask(id, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.taskProjectFormat(id)
+	code, _, err := s.taskProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.mutateTaskV2(code, id, ActionTaskRemoved, actor, nil)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		t, err := s.getTaskLocked(id)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		t.UpdatedAt = now
-		t.UpdatedBy = actor
-		_, err = s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  ActionTaskRemoved,
-			Subject: Subject{Kind: "task", ID: id},
-			Payload: mustMarshal(t),
-		})
-		if err != nil {
-			return err
-		}
-		return cacheDeleteTask(db, id)
-	})
+	return s.mutateTaskV2(code, id, ActionTaskRemoved, actor, nil)
 }
 
-// mutateTask is the log-first write-through helper for non-delete task
-// mutations. v2Payload is the equivalent v2 event payload (the writesOf key
-// set for action); on a v2-active project the v1 body is never reached.
+// mutateTask is the shared entry point for non-delete task mutations; every
+// project is v2-active (D-Task5b removed the v1 write arm), so it resolves
+// the project code and delegates to mutateTaskV2 with the given action and
+// payload. fn is unused now that there is no v1 struct to mutate in place;
+// it survives only because SetTitle/SetDescription/TaskLabelRemove still
+// pass it and trimming their call sites is out of scope for this prune.
 func (s *Store) mutateTask(id, actor string, fn func(t *Task, now time.Time), action string, v2Payload map[string]any) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	code, f, err := s.taskProjectFormat(id)
+	code, _, err := s.taskProjectFormat(id)
 	if err != nil {
 		return err
 	}
-	if f == StoreFormatV2 {
-		return s.mutateTaskV2(code, id, action, actor, v2Payload)
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return err
-	}
-	return s.withProjectFormatLock(code, StoreFormatV1, func() error {
-		t, err := s.getTaskLocked(id)
-		if err != nil {
-			return err
-		}
-		now := Now()
-		fn(t, now)
-		t.UpdatedAt = now
-		t.UpdatedBy = actor
-		entry, err := s.appendLogLocked(code, LogEntry{
-			At:      now,
-			Actor:   actor,
-			Action:  action,
-			Subject: Subject{Kind: "task", ID: id},
-			Payload: mustMarshal(t),
-		})
-		if err != nil {
-			return err
-		}
-		t.LogSeq = entry.Seq
-		return cacheUpsertTask(db, t)
-	})
+	return s.mutateTaskV2(code, id, action, actor, v2Payload)
 }
