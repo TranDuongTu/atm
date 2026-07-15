@@ -244,7 +244,7 @@ ATM (Agent Tasks Management) is a label-substrate task store for AI agents and t
 
 ## Where labels live
 
-Labels are global and per-project. The seeded defaults (status, priority, context, comment) are written into every new project by ` + "`atm project create`" + ` and re-applied idempotently by ` + "`atm label seed --project <CODE>`" + ` / the Labels pane [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, open the Labels pane or run ` + "`atm label list --project <CODE>`" + `. Each label carries a description; that description is the label's intention record.
+Labels are global and per-project. The seeded defaults (status, priority, context, comment) are written into every new project by ` + "`atm project create`" + ` and re-applied idempotently by ` + "`atm label seed --project <CODE>`" + ` / the Tasks pane [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, open the Tasks pane or run ` + "`atm label list --project <CODE>`" + `. Each label carries a description; that description is the label's intention record.
 
 ## Where tasks live
 
@@ -256,7 +256,7 @@ A task is read as: its title (one line of intent), its description (the running 
 
 ## How to search
 
-Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. On the CLI, facet tokens such as ` + "`<CODE>:status:*`" + ` drive faceting via ` + "`atm task list --facets`" + `. In the TUI, filtering is a Labels-pane drill-down from the namespace table to a chart and then label detail; the Tasks pane is a selection-only mirror of the Labels cursor. Combine labels to narrow on the CLI: ` + "`--label <CODE>:status:open --label <CODE>:priority:high`" + ` is high-priority open work.
+Use labels as the filter. ` + "`atm task list --project <CODE> --label <CODE>:<ns>:<value>`" + ` returns tasks carrying that exact label. On the CLI, facet tokens such as ` + "`<CODE>:status:*`" + ` drive faceting via ` + "`atm task list --facets`" + `. In the TUI, filtering is a board-strip drill-down inside the Tasks pane: the ring picks a board, drilling goes from the namespace chart to label detail, and the task list mirrors the selected board. Combine labels to narrow on the CLI: ` + "`--label <CODE>:status:open --label <CODE>:priority:high`" + ` is high-priority open work.
 
 ## Agent first-contact sequence
 
@@ -274,20 +274,20 @@ Agents working in an ATM project follow these rules to keep the label substrate 
 
 1. Read before you write. Run ` + "`atm label list --project <CODE>`" + ` and read every label's description before introducing any new label. The existing labels are the project's vocabulary; reuse them whenever one fits your intent.
 2. Default setup is the baseline. The seeded labels (status, priority, context, comment) cover the common cases. Prefer them. Do not reinvent ` + "`status:open`" + ` as ` + "`state:open`" + ` or ` + "`wf:open`" + `.
-3. Invent only when nothing fits. If no existing label captures your intent, you may create a new one — agents are free to self-organize. But before you do, ask yourself: would a human reviewing the Labels pane understand why this label exists?
+3. Invent only when nothing fits. If no existing label captures your intent, you may create a new one — agents are free to self-organize. But before you do, ask yourself: would a human reviewing the Tasks pane understand why this label exists?
 4. State the intention in the label description. When you create a new label, also call ` + "`atm label add --name <CODE>:<ns>:<value> --description \"<one sentence: why this label exists>\"`" + `. The description is the intention record. A label with no description is a flag for human review: "agent introduced this but didn't explain why."
 5. One label, one meaning. Don't use the same label string to mean different things across tasks. If your intent diverges from an existing label's description, create a new label with a distinct name and a description that distinguishes it.
-6. Humans reconcile. The Labels pane is the human's review surface. If you see labels that overlap, contradict, or lack descriptions, edit or remove them there. Agents follow the rules above; humans curate.
+6. Humans reconcile. The Tasks pane (board strip) is the human's review surface. If you see labels that overlap, contradict, or lack descriptions, edit or remove them there. Agents follow the rules above; humans curate.
 
 ## First-time human sequence
 
 1. ` + "`atm tui`" + ` (auto-inits the store).
-2. Create the project (Add in the Projects pane). Project create auto-seeds the default labels with descriptions, so the Labels pane is populated from the start.
-3. Create seed index tasks (` + "`context:agent`" + `, ` + "`context:repository`" + `, ` + "`context:documentation`" + `) and initial work tasks, labeling as you go. The human curates labels in the Labels pane.
+2. Create the project (Add in the Projects pane). Project create auto-seeds the default labels with descriptions, so the Tasks pane board strip is populated from the start.
+3. Create seed index tasks (` + "`context:agent`" + `, ` + "`context:repository`" + `, ` + "`context:documentation`" + `) and initial work tasks, labeling as you go. The human curates labels in the Tasks pane.
 
 ## Notes
 
 - Plugins/skills: ATM ships only the doc + the conventions command. Plugins or agent skills may wrap the first-contact sequence; ATM itself has no plugin mechanism.
-- Re-seeding defaults: ` + "`atm label seed --project <CODE>`" + ` or the Labels pane [S] key re-applies the default set idempotently — existing descriptions are preserved, and any new defaults introduced in a release are added.
+- Re-seeding defaults: ` + "`atm label seed --project <CODE>`" + ` or the Tasks pane [S] key re-applies the default set idempotently — existing descriptions are preserved, and any new defaults introduced in a release are added.
 
 Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.`

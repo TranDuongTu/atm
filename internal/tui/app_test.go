@@ -1585,11 +1585,11 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 }
 
 // TestTaskDetailScrollDoesNotBreakPaneBorders pins ATM-0100: scrolling the
-// task detail view must only move the Tasks pane content. The Projects and
-// Labels panes (their borders and their content) must stay fixed, and every
-// workspace line must stay exactly m.width columns wide. The bug report
-// described the borders breaking and scrolling bleeding into the other
-// panes; this test pins the correct behavior so a regression is caught.
+// task detail view must only move the Tasks pane content. The Projects pane
+// (its border and its content) must stay fixed, and every workspace line
+// must stay exactly m.width columns wide. The bug report described the
+// borders breaking and scrolling bleeding into the other panes; this test
+// pins the correct behavior so a regression is caught.
 func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 	cases := []struct{ w, h int }{
 		{120, 36},
@@ -1617,9 +1617,8 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 				t.Fatalf("expected tViewDetail, got %v", m.tasks.view)
 			}
 
-			// Snapshot the Projects and Labels pane content before scrolling.
+			// Snapshot the Projects pane content before scrolling.
 			projBefore := m.projects.View()
-			labelsBefore := m.boards.View()
 
 			// Scroll the task detail to the bottom and back.
 			for i := 0; i < 40; i++ {
@@ -1629,12 +1628,9 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 				update(t, m, "k")
 			}
 
-			// The Projects and Labels panes must be byte-for-byte unchanged.
+			// The Projects pane must be byte-for-byte unchanged.
 			if got := m.projects.View(); got != projBefore {
 				t.Errorf("Projects pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", projBefore, got)
-			}
-			if got := m.boards.View(); got != labelsBefore {
-				t.Errorf("Labels pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", labelsBefore, got)
 			}
 
 			// Every workspace line must be exactly m.width columns wide so
@@ -1785,7 +1781,7 @@ func TestTasksEmptyStateFilterNoMatch(t *testing.T) {
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:done")
 	v := m.tasks.View()
 	mustContain(t, v, "no tasks match this focus")
-	mustContain(t, v, "choose a namespace or label in the Labels pane")
+	mustContain(t, v, "switch boards with [ / ] to change focus")
 }
 
 // TestTasksEmptyStateWildcardNoLabels verifies the wildcard-yields-no-labels

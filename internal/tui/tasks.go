@@ -69,7 +69,7 @@ const (
 	focusUnlabeled
 )
 
-// taskFocus is the Tasks-pane view state the Labels pane sets on each level
+// taskFocus is the Tasks-pane view state the board strip sets on each level
 // entry. ns names a real namespace for present/absent; bareTags switches
 // present/absent to operate on unnamespaced (bare) labels instead.
 type taskFocus struct {
@@ -285,7 +285,7 @@ func taskHasBareTag(scope string, t *store.Task) bool {
 
 // setFocus applies a complete Tasks-pane view state (focus + filter) in one
 // step, resets the cursor, and refreshes. This is the single channel the
-// Labels pane drives; the Tasks pane never edits its own filter.
+// board ring/strip drives; the Tasks pane never edits its own filter.
 func (t *tasksModel) setFocus(f taskFocus, filter string) {
 	t.focus = f
 	t.filter = filter
@@ -925,7 +925,7 @@ func (t *tasksModel) headerLine() string {
 }
 
 // focusCaption is a read-only description of why the Tasks list is scoped,
-// derived from the focus set by the Labels pane. Empty focus reads "(all)".
+// derived from the focus set by the board strip. Empty focus reads "(all)".
 func (t *tasksModel) focusCaption() string {
 	switch t.focus.mode {
 	case focusPresent:
@@ -997,7 +997,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
+			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
 		})
 		return
 	}
@@ -1030,7 +1030,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
+			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
 		})
 		return
 	}
