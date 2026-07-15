@@ -9,7 +9,6 @@ func TestV2ActiveReadRebuildsMissingCache(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	tk, _ := s.CreateTask("ATM", "before", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	db, _ := s.cacheDB()
 	_, _ = db.Exec(`DELETE FROM tasks`)
 	got, err := s.GetTask(tk.ID)
@@ -46,7 +45,6 @@ func TestV2ActiveMissingEntityReadsReturnErrNotFound(t *testing.T) {
 func TestListTasksSeesV2AppendWithoutCacheProjection(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	// Simulate a writer that died between the append commit point and the
 	// cache projection: the event line is truth, the cache is legitimately
 	// stale, and ONLY the freshness gate can save the list read.
@@ -118,7 +116,6 @@ func TestListCommentsSeesV2AppendWithoutCacheProjection(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	tk, _ := s.CreateTask("ATM", "t1", "", nil, testActor)
-	_, _ = s.UpgradeProjectToV2("ATM")
 	var alias string
 	if err := s.WithLock("ATM", func() error {
 		_, a, err := s.appendV2CommentCreatedLocked("ATM", tk.ID, "external", nil, "", testActor)

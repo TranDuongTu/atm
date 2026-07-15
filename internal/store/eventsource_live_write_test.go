@@ -375,7 +375,6 @@ func TestV2ReadPathReturnsV2Truth(t *testing.T) {
 func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	if err := s.RemoveProject("ATM", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}

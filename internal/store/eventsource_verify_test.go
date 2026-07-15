@@ -53,7 +53,6 @@ func TestVerifyProjectReportsV2Format(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	_, _ = s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	r, err := s.VerifyProject("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +69,6 @@ func TestRebuildUsesV2ForV2ActiveProject(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	if err := os.Remove(s.cachePath()); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +90,6 @@ func TestVerifyProjectV2KeepsVectorAndInquiryReports(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	_, _ = s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	// Written AFTER cutover: the cutover itself wipes v1-keyed indexes.
 	if err := s.WriteVectorBatch("ATM", "test-model", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "test-model", Dim: 2, Vector: []float64{1, 0}, TextHash: "sha256:x", LogSeq: 1}}, 3); err != nil {
 		t.Fatal(err)

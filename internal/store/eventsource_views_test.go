@@ -92,7 +92,6 @@ func TestTextSearchPropagatesFormatLookupError(t *testing.T) {
 func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	before, err := s.LastLogSeq("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +119,6 @@ func TestHistoryRendersV2EventsForTaskAlias(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
 	tk, _ := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	if err := s.SetTitle(tk.ID, "t2", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +143,6 @@ func TestHistoryRendersV2EventsForTaskAlias(t *testing.T) {
 func TestReadLogCachedServesActivityShapedV2Entries(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	entries, err := s.ReadLogCached("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +172,6 @@ func TestReadLogCachedServesActivityShapedV2Entries(t *testing.T) {
 func TestTextSearchFindsV2Entities(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	tk, err := s.CreateTask("ATM", "quantum flux capacitor", "", nil, "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +199,6 @@ func TestDedupVectorsKeepsLastEntryOnTiedLogSeq(t *testing.T) {
 func TestPendingIndexEnumeratesV2Entities(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	_, _ = s.UpgradeProjectToV2("ATM")
 	tk, _ := s.CreateTask("ATM", "embed me", "body", nil, "admin@cli:unset")
 	pending, err := s.PendingIndex("ATM", "test-model")
 	if err != nil {
