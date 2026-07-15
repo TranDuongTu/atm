@@ -7,7 +7,7 @@
       "history": [],
       "id": "ATM-66789a-c753e",
       "labels": [],
-      "log_seq": 1,
+      "ordinal": 1,
       "task_id": "ATM-66789a",
       "updated_at": "TIMESTAMP",
       "updated_by": "admin@cli:unset"
@@ -21,7 +21,7 @@
       "labels": [
         "ATM:comment:clarification"
       ],
-      "log_seq": 2,
+      "ordinal": 2,
       "task_id": "ATM-66789a",
       "updated_at": "TIMESTAMP",
       "updated_by": "admin@cli:unset"

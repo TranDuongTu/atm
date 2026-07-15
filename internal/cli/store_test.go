@@ -194,17 +194,6 @@ func runArgsStdoutOut(t *testing.T, h *testCLI, args ...string) string {
 	return out + captured.String()
 }
 
-func TestProjectListRendersDashForV2NextTaskN(t *testing.T) {
-	// The rendering itself landed in Task 6 (renderNextTaskN); it only
-	// becomes observable now that v2 reads bypass the v1 rebuild path — which
-	// would otherwise rebuild the project row from the frozen v1 log and put
-	// its v1 NextTaskN back.
-	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	out := runArgsStdoutOut(t, st, "project", "list")
-	mustContain(t, out, "ATM\tx\t-\t")
-}
-
 func TestCommentShowAcceptsV2HashAliases(t *testing.T) {
 	// Regression for the cli/comment.go project-code derivation: the relaxed
 	// ParseCommentID (Task 2b) must yield the code for a v2 comment alias, or

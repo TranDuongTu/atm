@@ -15,9 +15,9 @@ func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 	db, _ := s.cacheDB()
 	// Seed a mix: no labels, one label, two labels (out of order insertion).
 	tasks := []*Task{
-		{ID: "ATM-0001", ProjectCode: "ATM", Title: "no labels", CreatedAt: now, UpdatedAt: now, LogSeq: 1, CreatedBy: "c", UpdatedBy: "c"},
-		{ID: "ATM-0002", ProjectCode: "ATM", Title: "one label", Labels: []string{"ATM:status:open"}, CreatedAt: now, UpdatedAt: now, LogSeq: 2, CreatedBy: "c", UpdatedBy: "c"},
-		{ID: "ATM-0003", ProjectCode: "ATM", Title: "two labels", Labels: []string{"ATM:type:bug", "ATM:status:open"}, CreatedAt: now, UpdatedAt: now, LogSeq: 3, CreatedBy: "c", UpdatedBy: "c"},
+		{ID: "ATM-0001", ProjectCode: "ATM", Title: "no labels", CreatedAt: now, UpdatedAt: now, Ordinal: 1, CreatedBy: "c", UpdatedBy: "c"},
+		{ID: "ATM-0002", ProjectCode: "ATM", Title: "one label", Labels: []string{"ATM:status:open"}, CreatedAt: now, UpdatedAt: now, Ordinal: 2, CreatedBy: "c", UpdatedBy: "c"},
+		{ID: "ATM-0003", ProjectCode: "ATM", Title: "two labels", Labels: []string{"ATM:type:bug", "ATM:status:open"}, CreatedAt: now, UpdatedAt: now, Ordinal: 3, CreatedBy: "c", UpdatedBy: "c"},
 	}
 	for _, tk := range tasks {
 		if err := cacheUpsertTask(db, tk); err != nil {
@@ -25,7 +25,7 @@ func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 		}
 	}
 	// A task from another project must be excluded.
-	_ = cacheUpsertTask(db, &Task{ID: "OTH-0001", ProjectCode: "OTH", Title: "other", CreatedAt: now, UpdatedAt: now, LogSeq: 1, CreatedBy: "c", UpdatedBy: "c"})
+	_ = cacheUpsertTask(db, &Task{ID: "OTH-0001", ProjectCode: "OTH", Title: "other", CreatedAt: now, UpdatedAt: now, Ordinal: 1, CreatedBy: "c", UpdatedBy: "c"})
 
 	got, err := cacheListTasksForProject(db, "ATM")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 	}
 	// All scalar fields must be populated (the N+1 path filled them too).
 	for i, tk := range got {
-		if tk.Title != tasks[i].Title || tk.ProjectCode != "ATM" || tk.LogSeq != tasks[i].LogSeq {
+		if tk.Title != tasks[i].Title || tk.ProjectCode != "ATM" || tk.Ordinal != tasks[i].Ordinal {
 			t.Fatalf("task %s scalar mismatch: %+v vs %+v", tk.ID, tk, tasks[i])
 		}
 	}

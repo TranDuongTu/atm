@@ -64,7 +64,7 @@ func (s *Store) v2EventCount(code string) (int, error) {
 // apart from a genuine projection at count 0.
 //
 // The v1 last_log_seq freshness key is meaningless here: a v2 cache row's
-// LogSeq holds a creation ORDINAL from the fold, unrelated to any v1 log seq.
+// Ordinal holds a creation ordinal from the fold, unrelated to any v1 log seq.
 func (s *Store) v2CacheFresh(code string) (bool, error) {
 	db, err := s.cacheDB()
 	if err != nil {

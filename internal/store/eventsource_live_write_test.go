@@ -313,7 +313,7 @@ func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 //
 //   - a v2-BORN project has no log.jsonl, so LastLogSeq is 0 while
 //     cacheProjectFromV2State stores a v2 CREATION ORDINAL in
-//     Task.LogSeq/Comment.LogSeq: the v1 freshness check `LogSeq > LastSeq` used
+//     Task.Ordinal/Comment.Ordinal: the v1 freshness check `LogSeq > LastSeq` used
 //     to hard-fail with ErrIntegrity. The v2 branch precedes it.
 //   - on an UPGRADED project lastProjectEventSeq still matches the FROZEN v1
 //     log's project.created (keyed on Subject.Code), so the v1 staleness check

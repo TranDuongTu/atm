@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,16 +11,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// cacheSchema is the full, current cache.db shape. It carries every column the
+// live cache uses, including the v2 projection columns (identity/alias) that
+// were once added by ad-hoc ALTERs: the cacheSchemaVersion gate in cacheDB()
+// recreates the derived tables on any schema bump, so there is no incremental
+// ALTER path to keep in sync — bump cacheSchemaVersion and edit this DDL.
 const cacheSchema = `
 CREATE TABLE IF NOT EXISTS projects (
 	code TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
-	next_task_n INTEGER NOT NULL,
-	log_seq INTEGER NOT NULL,
+	ordinal INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
 	created_by TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	updated_by TEXT NOT NULL
+	updated_by TEXT NOT NULL,
+	identity TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -27,14 +33,17 @@ CREATE TABLE IF NOT EXISTS tasks (
 	project_code TEXT NOT NULL,
 	title TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
-	log_seq INTEGER NOT NULL,
+	ordinal INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
 	created_by TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	updated_by TEXT NOT NULL,
-	next_comment_n INTEGER NOT NULL DEFAULT 0
+	identity TEXT NOT NULL DEFAULT '',
+	alias TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project_code ON tasks(project_code);
+CREATE INDEX IF NOT EXISTS idx_tasks_identity ON tasks(identity);
+CREATE INDEX IF NOT EXISTS idx_tasks_alias ON tasks(alias);
 
 CREATE TABLE IF NOT EXISTS task_labels (
 	task_id TEXT NOT NULL,
@@ -47,7 +56,8 @@ CREATE TABLE IF NOT EXISTS labels (
 	name TEXT PRIMARY KEY,
 	description TEXT NOT NULL DEFAULT '',
 	expr TEXT NOT NULL DEFAULT '',
-	log_seq INTEGER NOT NULL DEFAULT 0
+	ordinal INTEGER NOT NULL DEFAULT 0,
+	identity TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -55,13 +65,17 @@ CREATE TABLE IF NOT EXISTS comments (
 	task_id TEXT NOT NULL,
 	reply_to TEXT NOT NULL DEFAULT '',
 	body TEXT NOT NULL,
-	log_seq INTEGER NOT NULL,
+	ordinal INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
 	created_by TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	updated_by TEXT NOT NULL
+	updated_by TEXT NOT NULL,
+	identity TEXT NOT NULL DEFAULT '',
+	alias TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_comments_task_id ON comments(task_id);
+CREATE INDEX IF NOT EXISTS idx_comments_identity ON comments(identity);
+CREATE INDEX IF NOT EXISTS idx_comments_alias ON comments(alias);
 
 CREATE TABLE IF NOT EXISTS comment_labels (
 	comment_id TEXT NOT NULL,
@@ -77,42 +91,12 @@ CREATE TABLE IF NOT EXISTS meta (
 
 func (s *Store) cachePath() string { return filepath.Join(s.Root, "cache.db") }
 
-// metaKey for the per-project last log seq cache row.
-func lastLogSeqMetaKey(code string) string { return "last_log_seq:" + code }
-
-// cacheSetLastLogSeq upserts the per-project last-log-seq row. Orphaned by
-// D-Task5b's removal of the v1 write path (appendLogLocked, its only caller,
-// is gone); left in place, along with cacheGetLastLogSeq and
-// lastLogSeqMetaKey, because the cache column/type cleanup is D-Task6's
-// scope, not this prune's.
-func cacheSetLastLogSeq(db *sql.DB, code string, seq int) error {
-	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-		lastLogSeqMetaKey(code), seq)
-	return err
-}
-
-// cacheGetLastLogSeq returns the cached last-log-seq and a found flag. A
-// missing row returns (0, false) so the caller can fall back to a file scan.
-func cacheGetLastLogSeq(db *sql.DB, code string) (int, bool, error) {
-	var v int
-	err := db.QueryRow(`SELECT value FROM meta WHERE key = ?`, lastLogSeqMetaKey(code)).Scan(&v)
-	if err == sql.ErrNoRows {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return v, true, nil
-}
-
 // v2FreshnessMetaKey for the per-project last-projected v2 event count row.
 func v2FreshnessMetaKey(code string) string { return "last_v2_event_count:" + code }
 
 // cacheSetV2Freshness upserts the per-project v2 freshness row: the event
-// count of the events.v2.jsonl file the cache was last projected from.
-// Analogous to cacheSetLastLogSeq but keyed on the v2 event count rather
-// than a v1 log seq, since v2 files have no monotonic seq column.
+// count of the events.v2.jsonl file the cache was last projected from, keyed
+// on the v2 event count since v2 files have no monotonic seq column.
 func cacheSetV2Freshness(db *sql.DB, code string, eventCount int) error {
 	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
@@ -165,46 +149,31 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 			s.cacheErr = err
 			return
 		}
-		if _, err := db.Exec(cacheSchema); err != nil {
+		// cache.db carries its schema shape in PRAGMA user_version. cache.db is
+		// derived and rebuildable, so on any schema bump we simply DROP the
+		// derived tables and recreate them at the current cacheSchema: the next
+		// read re-projects each project from its events.v2.jsonl via
+		// ensureV2CacheFresh. A fresh DB reports user_version 0, so it takes the
+		// same path and lands at the current version. Bump cacheSchemaVersion
+		// whenever cacheSchema changes shape.
+		const cacheSchemaVersion = 2
+		var uv int
+		if err := db.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil {
 			s.cacheErr = err
 			return
 		}
-		// The labels.expr column was added after the initial schema. CREATE TABLE
-		// IF NOT EXISTS will not add it to an existing cache.db, and the schema
-		// carries no version marker, so ALTER unconditionally and swallow the
-		// "duplicate column" error. cache.db is derived and rebuildable, so the
-		// worst case is always recoverable by deleting it and replaying the log.
-		if _, err := db.Exec(`ALTER TABLE labels ADD COLUMN expr TEXT NOT NULL DEFAULT ''`); err != nil &&
-			!strings.Contains(err.Error(), "duplicate column name") {
-			s.cacheErr = err
-			return
-		}
-		// v2 projection columns: identity carries the eventsource entity ID
-		// (opaque to v1 readers) and alias carries the same value as id/name
-		// for v1 rows but lets a future identity-keyed lookup distinguish a
-		// v2 row from a v1 one. Guarded the same way as the expr column
-		// above: cache.db is derived and rebuildable, so the worst case is
-		// always recoverable by deleting it and replaying the log.
-		for _, stmt := range []string{
-			`ALTER TABLE projects ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
-			`ALTER TABLE tasks ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
-			`ALTER TABLE tasks ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
-			`ALTER TABLE comments ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
-			`ALTER TABLE comments ADD COLUMN alias TEXT NOT NULL DEFAULT ''`,
-			`ALTER TABLE labels ADD COLUMN identity TEXT NOT NULL DEFAULT ''`,
-		} {
-			if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		if uv < cacheSchemaVersion {
+			for _, t := range []string{"projects", "tasks", "task_labels", "labels", "comments", "comment_labels", "meta"} {
+				if _, err := db.Exec(`DROP TABLE IF EXISTS ` + t); err != nil {
+					s.cacheErr = err
+					return
+				}
+			}
+			if _, err := db.Exec(cacheSchema); err != nil {
 				s.cacheErr = err
 				return
 			}
-		}
-		for _, stmt := range []string{
-			`CREATE INDEX IF NOT EXISTS idx_tasks_identity ON tasks(identity)`,
-			`CREATE INDEX IF NOT EXISTS idx_tasks_alias ON tasks(alias)`,
-			`CREATE INDEX IF NOT EXISTS idx_comments_identity ON comments(identity)`,
-			`CREATE INDEX IF NOT EXISTS idx_comments_alias ON comments(alias)`,
-		} {
-			if _, err := db.Exec(stmt); err != nil {
+			if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, cacheSchemaVersion)); err != nil {
 				s.cacheErr = err
 				return
 			}
@@ -217,21 +186,21 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 // ---- project cache ----
 
 func cacheUpsertProject(db *sql.DB, p *Project) error {
-	_, err := db.Exec(`INSERT INTO projects (code, name, next_task_n, log_seq, created_at, created_by, updated_at, updated_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := db.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(code) DO UPDATE SET
-			name=excluded.name, next_task_n=excluded.next_task_n, log_seq=excluded.log_seq,
+			name=excluded.name, ordinal=excluded.ordinal,
 			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		p.Code, p.Name, p.NextTaskN, p.LogSeq, RFC3339UTC(p.CreatedAt), p.CreatedBy, RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
+		p.Code, p.Name, p.Ordinal, RFC3339UTC(p.CreatedAt), p.CreatedBy, RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
 	return err
 }
 
 func cacheGetProject(db *sql.DB, code string) (*Project, bool, error) {
 	var p Project
 	var createdAt, updatedAt string
-	err := db.QueryRow(`SELECT code, name, next_task_n, log_seq, created_at, created_by, updated_at, updated_by
+	err := db.QueryRow(`SELECT code, name, ordinal, created_at, created_by, updated_at, updated_by
 		FROM projects WHERE code = ?`, code).
-		Scan(&p.Code, &p.Name, &p.NextTaskN, &p.LogSeq, &createdAt, &p.CreatedBy, &updatedAt, &p.UpdatedBy)
+		Scan(&p.Code, &p.Name, &p.Ordinal, &createdAt, &p.CreatedBy, &updatedAt, &p.UpdatedBy)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -273,12 +242,12 @@ func cacheUpsertTask(db *sql.DB, t *Task) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO tasks (id, project_code, title, description, log_seq, created_at, created_by, updated_at, updated_by, next_comment_n)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err = tx.Exec(`INSERT INTO tasks (id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			title=excluded.title, description=excluded.description, log_seq=excluded.log_seq,
-			updated_at=excluded.updated_at, updated_by=excluded.updated_by, next_comment_n=excluded.next_comment_n`,
-		t.ID, t.ProjectCode, t.Title, t.Description, t.LogSeq, RFC3339UTC(t.CreatedAt), t.CreatedBy, RFC3339UTC(t.UpdatedAt), t.UpdatedBy, t.NextCommentN)
+			title=excluded.title, description=excluded.description, ordinal=excluded.ordinal,
+			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
+		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, RFC3339UTC(t.CreatedAt), t.CreatedBy, RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
 	if err != nil {
 		return err
 	}
@@ -313,9 +282,9 @@ func cacheTaskLabels(db *sql.DB, taskID string) ([]string, error) {
 func cacheGetTask(db *sql.DB, id string) (*Task, bool, error) {
 	var t Task
 	var createdAt, updatedAt string
-	err := db.QueryRow(`SELECT id, project_code, title, description, log_seq, created_at, created_by, updated_at, updated_by, next_comment_n
+	err := db.QueryRow(`SELECT id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by
 		FROM tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.ProjectCode, &t.Title, &t.Description, &t.LogSeq, &createdAt, &t.CreatedBy, &updatedAt, &t.UpdatedBy, &t.NextCommentN)
+		Scan(&t.ID, &t.ProjectCode, &t.Title, &t.Description, &t.Ordinal, &createdAt, &t.CreatedBy, &updatedAt, &t.UpdatedBy)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -373,8 +342,8 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 	// replaces the per-id N+1 (SELECT ids; then SELECT * + labels per id),
 	// which at 80 tasks issued ~160 round-trips. The query returns tasks
 	// with zero labels as a single NULL-label row (LEFT JOIN).
-	rows, err := db.Query(`SELECT t.id, t.project_code, t.title, t.description, t.log_seq,
-		t.created_at, t.created_by, t.updated_at, t.updated_by, t.next_comment_n,
+	rows, err := db.Query(`SELECT t.id, t.project_code, t.title, t.description, t.ordinal,
+		t.created_at, t.created_by, t.updated_at, t.updated_by,
 		tl.label
 		FROM tasks t
 		LEFT JOIN task_labels tl ON tl.task_id = t.id
@@ -389,24 +358,23 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 	for rows.Next() {
 		var (
 			id, projectCode, title, description, createdAt, createdBy, updatedAt, updatedBy string
-			logSeq, nextCommentN                                                            int
+			ordinal                                                                         int
 			label                                                                           sql.NullString
 		)
-		if err := rows.Scan(&id, &projectCode, &title, &description, &logSeq,
-			&createdAt, &createdBy, &updatedAt, &updatedBy, &nextCommentN, &label); err != nil {
+		if err := rows.Scan(&id, &projectCode, &title, &description, &ordinal,
+			&createdAt, &createdBy, &updatedAt, &updatedBy, &label); err != nil {
 			return nil, err
 		}
 		tk, ok := byID[id]
 		if !ok {
 			tk = &Task{
-				ID:           id,
-				ProjectCode:  projectCode,
-				Title:        title,
-				Description:  description,
-				LogSeq:       logSeq,
-				CreatedBy:    createdBy,
-				UpdatedBy:    updatedBy,
-				NextCommentN: nextCommentN,
+				ID:          id,
+				ProjectCode: projectCode,
+				Title:       title,
+				Description: description,
+				Ordinal:     ordinal,
+				CreatedBy:   createdBy,
+				UpdatedBy:   updatedBy,
 			}
 			tk.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 			tk.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
@@ -453,16 +421,16 @@ func SortTaskIDsByFunc(tasks []*Task) {
 // ---- label cache ----
 
 func cacheUpsertLabel(db *sql.DB, l Label) error {
-	_, err := db.Exec(`INSERT INTO labels (name, description, expr, log_seq) VALUES (?, ?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET description=excluded.description, expr=excluded.expr, log_seq=excluded.log_seq`,
-		l.Name, l.Description, l.Expr, l.LogSeq)
+	_, err := db.Exec(`INSERT INTO labels (name, description, expr, ordinal) VALUES (?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET description=excluded.description, expr=excluded.expr, ordinal=excluded.ordinal`,
+		l.Name, l.Description, l.Expr, l.Ordinal)
 	return err
 }
 
 func cacheGetLabel(db *sql.DB, name string) (Label, bool, error) {
 	var l Label
-	err := db.QueryRow(`SELECT name, description, expr, log_seq FROM labels WHERE name = ?`, name).
-		Scan(&l.Name, &l.Description, &l.Expr, &l.LogSeq)
+	err := db.QueryRow(`SELECT name, description, expr, ordinal FROM labels WHERE name = ?`, name).
+		Scan(&l.Name, &l.Description, &l.Expr, &l.Ordinal)
 	if err == sql.ErrNoRows {
 		return Label{}, false, nil
 	}
@@ -483,7 +451,7 @@ func escapeLike(s string) string {
 }
 
 func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label, error) {
-	query := `SELECT name, description, expr, log_seq FROM labels WHERE 1=1`
+	query := `SELECT name, description, expr, ordinal FROM labels WHERE 1=1`
 	var args []any
 	if projectPrefix != "" {
 		query += ` AND name LIKE ? ESCAPE '\'`
@@ -502,7 +470,7 @@ func cacheListLabels(db *sql.DB, projectPrefix, namespacePrefix string) ([]Label
 	var out []Label
 	for rows.Next() {
 		var l Label
-		if err := rows.Scan(&l.Name, &l.Description, &l.Expr, &l.LogSeq); err != nil {
+		if err := rows.Scan(&l.Name, &l.Description, &l.Expr, &l.Ordinal); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -646,11 +614,11 @@ func cacheUpsertComment(db *sql.DB, c *Comment) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO comments (id, task_id, reply_to, body, log_seq, created_at, created_by, updated_at, updated_by)
+	_, err = tx.Exec(`INSERT INTO comments (id, task_id, reply_to, body, ordinal, created_at, created_by, updated_at, updated_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			body=excluded.body, log_seq=excluded.log_seq, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		c.ID, c.TaskID, c.ReplyTo, c.Body, c.LogSeq, RFC3339UTC(c.CreatedAt), c.CreatedBy, RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
+			body=excluded.body, ordinal=excluded.ordinal, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
+		c.ID, c.TaskID, c.ReplyTo, c.Body, c.Ordinal, RFC3339UTC(c.CreatedAt), c.CreatedBy, RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
 	if err != nil {
 		return err
 	}
@@ -685,9 +653,9 @@ func cacheCommentLabels(db *sql.DB, commentID string) ([]string, error) {
 func cacheGetComment(db *sql.DB, id string) (*Comment, bool, error) {
 	var c Comment
 	var createdAt, updatedAt string
-	err := db.QueryRow(`SELECT id, task_id, reply_to, body, log_seq, created_at, created_by, updated_at, updated_by
+	err := db.QueryRow(`SELECT id, task_id, reply_to, body, ordinal, created_at, created_by, updated_at, updated_by
 		FROM comments WHERE id = ?`, id).
-		Scan(&c.ID, &c.TaskID, &c.ReplyTo, &c.Body, &c.LogSeq, &createdAt, &c.CreatedBy, &updatedAt, &c.UpdatedBy)
+		Scan(&c.ID, &c.TaskID, &c.ReplyTo, &c.Body, &c.Ordinal, &createdAt, &c.CreatedBy, &updatedAt, &c.UpdatedBy)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -722,7 +690,7 @@ func cacheDeleteComment(db *sql.DB, id string) error {
 func cacheListComments(db *sql.DB, taskID string) ([]*Comment, error) {
 	// Single JOIN: one row per (comment, label). Assemble labels in Go.
 	// Replaces the per-id N+1 (SELECT ids; then SELECT * + labels per id).
-	rows, err := db.Query(`SELECT c.id, c.task_id, c.reply_to, c.body, c.log_seq,
+	rows, err := db.Query(`SELECT c.id, c.task_id, c.reply_to, c.body, c.ordinal,
 		c.created_at, c.created_by, c.updated_at, c.updated_by, cl.label
 		FROM comments c
 		LEFT JOIN comment_labels cl ON cl.comment_id = c.id
@@ -737,10 +705,10 @@ func cacheListComments(db *sql.DB, taskID string) ([]*Comment, error) {
 	for rows.Next() {
 		var (
 			id, taskID, replyTo, body, createdAt, createdBy, updatedAt, updatedBy string
-			logSeq                                                                int
+			ordinal                                                               int
 			label                                                                 sql.NullString
 		)
-		if err := rows.Scan(&id, &taskID, &replyTo, &body, &logSeq,
+		if err := rows.Scan(&id, &taskID, &replyTo, &body, &ordinal,
 			&createdAt, &createdBy, &updatedAt, &updatedBy, &label); err != nil {
 			return nil, err
 		}
@@ -751,7 +719,7 @@ func cacheListComments(db *sql.DB, taskID string) ([]*Comment, error) {
 				TaskID:    taskID,
 				ReplyTo:   replyTo,
 				Body:      body,
-				LogSeq:    logSeq,
+				Ordinal:   ordinal,
 				CreatedBy: createdBy,
 				UpdatedBy: updatedBy,
 			}

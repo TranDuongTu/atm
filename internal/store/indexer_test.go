@@ -23,8 +23,8 @@ func TestPendingIndexEmptyWhenFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	realHash := hashText(taskDocumentText(realTask))
-	entries := []VectorEntry{{ID: realTask.ID, Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}, TextHash: realHash, LogSeq: realTask.LogSeq, Title: "label resolver", Snippet: "hierarchical"}}
-	if err := s.WriteVectorBatch("ATM", "m", entries, realTask.LogSeq); err != nil {
+	entries := []VectorEntry{{ID: realTask.ID, Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}, TextHash: realHash, LogSeq: realTask.Ordinal, Title: "label resolver", Snippet: "hierarchical"}}
+	if err := s.WriteVectorBatch("ATM", "m", entries, realTask.Ordinal); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := s.PendingIndex("ATM", "m")

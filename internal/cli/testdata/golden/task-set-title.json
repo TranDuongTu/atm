@@ -9,7 +9,7 @@
       "ATM:status:open",
       "ATM:type:bug"
     ],
-    "log_seq": 1,
+    "ordinal": 1,
     "project_code": "ATM",
     "title": "Reconciled title",
     "updated_at": "TIMESTAMP",

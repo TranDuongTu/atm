@@ -8,7 +8,7 @@
     "labels": [
       "ATM:comment:open-question"
     ],
-    "log_seq": 1,
+    "ordinal": 1,
     "task_id": "ATM-66789a",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"

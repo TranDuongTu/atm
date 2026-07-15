@@ -61,25 +61,25 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	}
 	var pending []IndexDoc
 	for _, t := range tasks {
-		if t.LogSeq <= lastIndexed {
+		if t.Ordinal <= lastIndexed {
 			if h, ok := existing[t.ID]; ok && h == hashText(taskDocumentText(t)) {
 				continue
 			}
 		}
 		pending = append(pending, IndexDoc{
 			ID: t.ID, Kind: "task", Text: taskDocumentText(t), TextHash: hashText(taskDocumentText(t)),
-			LogSeq: t.LogSeq, Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels,
+			LogSeq: t.Ordinal, Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels,
 		})
 	}
 	for _, c := range comments {
-		if c.LogSeq <= lastIndexed {
+		if c.Ordinal <= lastIndexed {
 			if h, ok := existing[c.ID]; ok && h == hashText(commentDocumentText(c)) {
 				continue
 			}
 		}
 		pending = append(pending, IndexDoc{
 			ID: c.ID, Kind: "comment", Text: commentDocumentText(c), TextHash: hashText(commentDocumentText(c)),
-			LogSeq: c.LogSeq, Snippet: snippet(c.Body, 80), Labels: c.Labels,
+			LogSeq: c.Ordinal, Snippet: snippet(c.Body, 80), Labels: c.Labels,
 		})
 	}
 	return pending, nil

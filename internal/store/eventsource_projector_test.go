@@ -218,7 +218,7 @@ func TestCacheProjectFromV2StateDeletesStaleLabels(t *testing.T) {
 	}
 	// A label outside the project's <CODE>: prefix, inserted directly, must
 	// survive the sweep — it belongs to no project's projection.
-	if err := cacheUpsertLabel(db, Label{Name: "OTHER:status:open", Description: "unrelated", LogSeq: 1}); err != nil {
+	if err := cacheUpsertLabel(db, Label{Name: "OTHER:status:open", Description: "unrelated", Ordinal: 1}); err != nil {
 		t.Fatal(err)
 	}
 

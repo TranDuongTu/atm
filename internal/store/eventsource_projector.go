@@ -116,9 +116,8 @@ func cacheDeleteProjectRows(db *sql.DB, code string) error {
 }
 
 func projectFromV2(p *eventsource.ProjectState) *Project {
-	// NextTaskN and LogSeq are v1 bookkeeping; they are meaningless for a
-	// v2-active project, and every v2 read path must branch by format
-	// before the v1 freshness checks that would read them (Task 9).
+	// A v2 project has no per-project ordinal (only tasks/comments/labels do),
+	// so Ordinal is left 0 here.
 	return &Project{
 		Code:      p.Code,
 		Name:      p.Name,
@@ -138,7 +137,7 @@ func taskFromV2(code string, t *eventsource.TaskState, ordinal int) *Task {
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      labels,
-		LogSeq:      ordinal,
+		Ordinal:     ordinal,
 		CreatedAt:   t.CreatedAt,
 		CreatedBy:   t.CreatedBy,
 		UpdatedAt:   t.UpdatedAt,
@@ -155,7 +154,7 @@ func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, 
 		ReplyTo:   replyToAlias,
 		Body:      c.Body,
 		Labels:    labels,
-		LogSeq:    ordinal,
+		Ordinal:   ordinal,
 		CreatedAt: c.CreatedAt,
 		CreatedBy: c.CreatedBy,
 		UpdatedAt: c.UpdatedAt,
@@ -164,5 +163,5 @@ func commentFromV2(c *eventsource.CommentState, taskAlias, replyToAlias string, 
 }
 
 func labelFromV2(l *eventsource.LabelState, ordinal int) Label {
-	return Label{Name: l.Name, Description: l.Description, Expr: l.Expr, LogSeq: ordinal}
+	return Label{Name: l.Name, Description: l.Description, Expr: l.Expr, Ordinal: ordinal}
 }

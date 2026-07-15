@@ -15,7 +15,7 @@
     "labels": [
       "DEMO:status:open"
     ],
-    "log_seq": 1,
+    "ordinal": 1,
     "project_code": "DEMO",
     "title": "Demo task",
     "updated_at": "TIMESTAMP",

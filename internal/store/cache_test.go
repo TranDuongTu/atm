@@ -9,7 +9,7 @@ func TestCacheProjectUpsertGetRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := Now()
-	p := &Project{Code: "ATM", Name: "x", NextTaskN: 3, LogSeq: 5, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
+	p := &Project{Code: "ATM", Name: "x", Ordinal: 5, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	if err := cacheUpsertProject(db, p); err != nil {
 		t.Fatal(err)
 	}
@@ -17,7 +17,7 @@ func TestCacheProjectUpsertGetRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("cacheGetProject: ok=%v err=%v", ok, err)
 	}
-	if got.NextTaskN != 3 || got.LogSeq != 5 {
+	if got.Ordinal != 5 {
 		t.Fatalf("got = %+v", got)
 	}
 }
@@ -35,13 +35,12 @@ func TestCacheProjectUpsertOverwrites(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
 	now := Now()
-	p := &Project{Code: "ATM", Name: "x", NextTaskN: 1, LogSeq: 1, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
+	p := &Project{Code: "ATM", Name: "x", Ordinal: 1, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	_ = cacheUpsertProject(db, p)
-	p.NextTaskN = 9
-	p.LogSeq = 9
+	p.Ordinal = 9
 	_ = cacheUpsertProject(db, p)
 	got, _, _ := cacheGetProject(db, "ATM")
-	if got.NextTaskN != 9 || got.LogSeq != 9 {
+	if got.Ordinal != 9 {
 		t.Fatalf("upsert did not overwrite: %+v", got)
 	}
 }
@@ -80,7 +79,7 @@ func TestCacheTaskUpsertGetRoundTripWithLabels(t *testing.T) {
 	db, _ := s.cacheDB()
 	now := Now()
 	tk := &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", Labels: []string{"ATM:type:bug", "ATM:status:open"},
-		LogSeq: 3, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
+		Ordinal: 3, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	if err := cacheUpsertTask(db, tk); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +143,7 @@ func TestCacheListTaskIDsScopedByProjectAndSorted(t *testing.T) {
 func TestCacheLabelUpsertGetDelete(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	if err := cacheUpsertLabel(db, Label{Name: "ATM:type:bug", Description: "d", LogSeq: 1}); err != nil {
+	if err := cacheUpsertLabel(db, Label{Name: "ATM:type:bug", Description: "d", Ordinal: 1}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := cacheGetLabel(db, "ATM:type:bug")

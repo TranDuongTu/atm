@@ -131,8 +131,8 @@ func ParseTaskID(id string) (code string, n int, ok bool) {
 }
 
 // numericOrZero parses an all-digit alias segment; v2 hex segments yield 0.
-// n is v1 bookkeeping (RenderTaskID round-trips, NextTaskN recovery); v2
-// code paths key on the FULL alias string and must never depend on n.
+// n is v1 bookkeeping (RenderTaskID round-trips, sequential task-number
+// recovery); v2 code paths key on the FULL alias string and must never depend on n.
 func numericOrZero(seg string) int {
 	v := 0
 	for _, c := range seg {

@@ -28,8 +28,8 @@ func TestGetCommentReturnsCreated(t *testing.T) {
 	if got.Body != "hello" || len(got.Labels) != 1 || got.Labels[0] != "ATM:comment:open-question" {
 		t.Fatalf("got = %+v", got)
 	}
-	if got.LogSeq != c.LogSeq {
-		t.Fatalf("LogSeq mismatch: got %d want %d", got.LogSeq, c.LogSeq)
+	if got.Ordinal != c.Ordinal {
+		t.Fatalf("Ordinal mismatch: got %d want %d", got.Ordinal, c.Ordinal)
 	}
 }
 

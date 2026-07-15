@@ -37,8 +37,8 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 		}
 	}
 	// Every project is born v2, so comment creation is unconditionally v2. There
-	// is no v1 NextCommentN minting or task.meta-changed companion append any
-	// more — v2 aliases are content hashes with no per-task counter.
+	// is no v1 per-comment counter minting or task.meta-changed companion append
+	// any more — v2 aliases are content hashes with no per-task counter.
 	return s.createCommentV2(code, taskID, body, labels, replyTo, actor)
 }
 
@@ -61,8 +61,8 @@ func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
 // auto-registration) to events.v2.jsonl. Both the alias and the task/reply-to
 // identity references come from the eventsource helper, which resolves them
 // from the fold — L3 never mints an alias or resolves an identity itself
-// (ATM-0125). There is no v1 task.meta-changed counterpart: NextCommentN is v1
-// bookkeeping and has no meaning under v2's hash aliases.
+// (ATM-0125). There is no v1 task.meta-changed counterpart: the v1 per-comment
+// counter was bookkeeping and has no meaning under v2's hash aliases.
 func (s *Store) createCommentV2(code, taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
 	var created *Comment
 	err := s.withProjectFormatLock(code, StoreFormatV2, func() error {
@@ -298,13 +298,13 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 		// -cNNNN segment is a zero-padded per-task creation counter), but a v2
 		// comment alias is a content hash, so id-asc renders the narrative in
 		// hash order -- a reply can print above the comment it answers. The
-		// projector stamps Comment.LogSeq with the per-task creation ordinal
+		// projector stamps Comment.Ordinal with the per-task creation ordinal
 		// from the fold (CommentsByCreation, i.e. HLC creation order), which is
 		// the honest thread order; sort on it. Ordinals may have gaps (tombstoned
 		// comments consume one) but stay monotone in creation order.
 		sort.SliceStable(out, func(i, j int) bool {
-			if out[i].LogSeq != out[j].LogSeq {
-				return out[i].LogSeq < out[j].LogSeq
+			if out[i].Ordinal != out[j].Ordinal {
+				return out[i].Ordinal < out[j].Ordinal
 			}
 			return out[i].ID < out[j].ID
 		})

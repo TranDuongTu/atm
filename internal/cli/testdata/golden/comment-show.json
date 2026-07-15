@@ -13,7 +13,7 @@
     ],
     "id": "ATM-66789a-c9e62",
     "labels": [],
-    "log_seq": 1,
+    "ordinal": 1,
     "task_id": "ATM-66789a",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
