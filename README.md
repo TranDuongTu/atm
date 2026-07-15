@@ -65,28 +65,23 @@ Persona drilldown with agent, model, and action breakdowns.
 
 ATM keeps everything as plain files under `ATM_HOME` (default `~/.config/atm`), so a whole store is portable by directory copy. A project is not the same thing as a repository; one project can cover multiple repos.
 
-Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Events are content-addressed (an event's id is a hash of its content, not a central counter) and carry a hybrid-logical-clock stamp and a replica id, so the histories of independent copies can be merged deterministically — the groundwork for multi-machine sync. Everything you query is a *derived* projection of that log: `cache.db` and the vector index are rebuilt from the events on demand, and deleting them never loses data.
+Each project is a **distributed event source**: an append-only stream of events — task created, title changed, label added — that is the single source of truth. Events are content-addressed (an event's id is a hash of its content, not a central counter) and carry a hybrid-logical-clock stamp and a replica id, so the histories of independent copies can be merged deterministically — the groundwork for multi-machine sync. Everything you query is a *derived* projection of that log: `cache.db` and the vector index are rebuilt from the events on demand, and deleting them never loses data. Every project is born on this v2 format, so its task ids are hash ids like `ATM-9f3c1a`.
 
 ```text
 $ATM_HOME/
   store.json               # store-wide metadata: active format, per-project formats, this replica's id + HLC clock
   cache.db                 # derived SQLite projection of every project — rebuildable, never the source of truth
   projects/<CODE>/
-    events.v2.jsonl        # the project's event log — the v2 source of truth, one event per line, append-only
-    log.jsonl              # legacy v1 log — source of truth before upgrade, preserved read-only afterward
+    events.v2.jsonl        # the project's event log — the source of truth, one event per line, append-only
+    log.jsonl              # legacy v1 log, if a project predates v2 — importable with atm store upgrade, then retired with atm store prune-v1
     config.json            # per-project settings, e.g. the embedding endpoint (when configured)
     vocabulary.json        # computed ubiquitous language (when generated)
     vectors/               # semantic-search index — derived
 ```
 
-### Upgrade To v2
+### Importing A Legacy v1 Log
 
-```sh
-atm store upgrade --all      # upgrade every project; new projects are born on v2 afterward
-atm store verify
-```
-
-Upgrade builds each project's `events.v2.jsonl` from its existing `log.jsonl`, verifies the two agree, and cuts over; the v1 log is left untouched, so a failed upgrade changes nothing. Add `--project <CODE>` to upgrade one project without changing the store default. Existing ids are kept (`ATM-0001` stays `ATM-0001`); new tasks and comments get hash ids like `ATM-9f3c1a`.
+A stray pre-v2 `log.jsonl` (from before this format existed) can be imported with `atm store upgrade --project <CODE>` (or `--all`): it builds `events.v2.jsonl` from the log, verifies the two agree, and cuts over, keeping existing ids (`ATM-0001` stays `ATM-0001`) while new tasks and comments get hash ids. The old log is left untouched during import; once you've verified the import, retire it with `atm store prune-v1` (archives the log by default, `--delete` to remove it outright). There is no rollback.
 
 ## Build And Verify
 
