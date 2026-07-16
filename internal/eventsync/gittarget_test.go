@@ -18,11 +18,14 @@ func initBareRepo(t *testing.T) string {
 	t.Helper()
 
 	bare := filepath.Join(t.TempDir(), "remote.git")
-	runGit(t, "", "init", "--bare", bare)
+	// Use -b main so the bare repo's HEAD points at refs/heads/main
+	// regardless of the environment's init.defaultBranch; otherwise a
+	// machine whose default is "master" leaves the cloned remote with no
+	// checkoutable HEAD and git rev-parse HEAD fails.
+	runGit(t, "", "init", "-b", "main", "--bare", bare)
 
 	scratch := t.TempDir()
 	runGit(t, "", "clone", bare, scratch)
-	runGit(t, scratch, "checkout", "-b", "main")
 	runGit(t, scratch, "commit", "--allow-empty", "-m", "init")
 	runGit(t, scratch, "push", "origin", "main")
 
