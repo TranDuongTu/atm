@@ -27,3 +27,15 @@ var (
 	ValidatePersonaName = core.ValidatePersonaName
 	IsNamespaceName     = core.IsNamespaceName
 )
+
+// Board-expression AST (renamed on the move: Node -> Expr).
+type Node = core.Expr
+type AtomNode = core.ExprAtom
+type NotNode = core.ExprNot
+type AndNode = core.ExprAnd
+type OrNode = core.ExprOr
+
+var (
+	ParseExpr = core.ParseExpr
+	Atoms     = core.Atoms
+)

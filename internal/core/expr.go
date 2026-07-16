@@ -1,4 +1,4 @@
-package store
+package core
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Node is one node of a parsed board expression. The grammar, lowest
+// Expr is one node of a parsed board expression. The grammar, lowest
 // precedence first:
 //
 //	or   := and ("OR" and)*
@@ -18,22 +18,22 @@ import (
 // ("status:open"), a namespace predicate ("status:*"), or a board
 // reference ("next-sprint"). Which one it is, is decided at resolve time
 // by looking the name up — not by its syntax. See resolve.go.
-type Node interface{ isNode() }
+type Expr interface{ isExpr() }
 
-type AtomNode struct{ Name string }
-type NotNode struct{ X Node }
-type AndNode struct{ L, R Node }
-type OrNode struct{ L, R Node }
+type ExprAtom struct{ Name string }
+type ExprNot struct{ X Expr }
+type ExprAnd struct{ L, R Expr }
+type ExprOr struct{ L, R Expr }
 
-func (*AtomNode) isNode() {}
-func (*NotNode) isNode()  {}
-func (*AndNode) isNode()  {}
-func (*OrNode) isNode()   {}
+func (*ExprAtom) isExpr() {}
+func (*ExprNot) isExpr()  {}
+func (*ExprAnd) isExpr()  {}
+func (*ExprOr) isExpr()   {}
 
 // ParseExpr parses a board expression. Operators are case-sensitive
 // (AND/OR/NOT) so they cannot collide with label names, which the label
 // grammar constrains to lowercase.
-func ParseExpr(src string) (Node, error) {
+func ParseExpr(src string) (Expr, error) {
 	toks, err := lexExpr(src)
 	if err != nil {
 		return nil, err
@@ -50,19 +50,19 @@ func ParseExpr(src string) (Node, error) {
 }
 
 // Atoms returns every atom name in the tree, deduped and sorted.
-func Atoms(n Node) []string {
+func Atoms(n Expr) []string {
 	seen := map[string]bool{}
-	var walk func(Node)
-	walk = func(n Node) {
+	var walk func(Expr)
+	walk = func(n Expr) {
 		switch t := n.(type) {
-		case *AtomNode:
+		case *ExprAtom:
 			seen[t.Name] = true
-		case *NotNode:
+		case *ExprNot:
 			walk(t.X)
-		case *AndNode:
+		case *ExprAnd:
 			walk(t.L)
 			walk(t.R)
-		case *OrNode:
+		case *ExprOr:
 			walk(t.L)
 			walk(t.R)
 		}
@@ -121,7 +121,7 @@ func (p *exprParser) next() string {
 	return t
 }
 
-func (p *exprParser) parseOr() (Node, error) {
+func (p *exprParser) parseOr() (Expr, error) {
 	l, err := p.parseAnd()
 	if err != nil {
 		return nil, err
@@ -132,12 +132,12 @@ func (p *exprParser) parseOr() (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		l = &OrNode{L: l, R: r}
+		l = &ExprOr{L: l, R: r}
 	}
 	return l, nil
 }
 
-func (p *exprParser) parseAnd() (Node, error) {
+func (p *exprParser) parseAnd() (Expr, error) {
 	l, err := p.parseNot()
 	if err != nil {
 		return nil, err
@@ -148,24 +148,24 @@ func (p *exprParser) parseAnd() (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		l = &AndNode{L: l, R: r}
+		l = &ExprAnd{L: l, R: r}
 	}
 	return l, nil
 }
 
-func (p *exprParser) parseNot() (Node, error) {
+func (p *exprParser) parseNot() (Expr, error) {
 	if p.peek() == "NOT" {
 		p.next()
 		x, err := p.parseNot()
 		if err != nil {
 			return nil, err
 		}
-		return &NotNode{X: x}, nil
+		return &ExprNot{X: x}, nil
 	}
 	return p.parseAtom()
 }
 
-func (p *exprParser) parseAtom() (Node, error) {
+func (p *exprParser) parseAtom() (Expr, error) {
 	if p.done() {
 		return nil, fmt.Errorf("unexpected end of expression")
 	}
@@ -184,5 +184,5 @@ func (p *exprParser) parseAtom() (Node, error) {
 	if t == ")" || t == "AND" || t == "OR" || t == "NOT" {
 		return nil, fmt.Errorf("unexpected %q", t)
 	}
-	return &AtomNode{Name: t}, nil
+	return &ExprAtom{Name: t}, nil
 }

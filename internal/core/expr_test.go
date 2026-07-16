@@ -1,4 +1,4 @@
-package store
+package core
 
 import "testing"
 
@@ -8,12 +8,12 @@ func TestParseExprPrecedenceAndAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseExpr: %v", err)
 	}
-	or, ok := n.(*OrNode)
+	or, ok := n.(*ExprOr)
 	if !ok {
-		t.Fatalf("root = %T, want *OrNode (OR is lowest precedence)", n)
+		t.Fatalf("root = %T, want *ExprOr (OR is lowest precedence)", n)
 	}
-	if _, ok := or.R.(*AndNode); !ok {
-		t.Fatalf("or.R = %T, want *AndNode", or.R)
+	if _, ok := or.R.(*ExprAnd); !ok {
+		t.Fatalf("or.R = %T, want *ExprAnd", or.R)
 	}
 	got := Atoms(n)
 	want := []string{"a", "b", "c"}
@@ -27,8 +27,8 @@ func TestParseExprParensOverridePrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseExpr: %v", err)
 	}
-	if _, ok := n.(*AndNode); !ok {
-		t.Fatalf("root = %T, want *AndNode", n)
+	if _, ok := n.(*ExprAnd); !ok {
+		t.Fatalf("root = %T, want *ExprAnd", n)
 	}
 }
 
@@ -39,9 +39,9 @@ func TestParseExprAtomForms(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseExpr(%q): %v", src, err)
 		}
-		a, ok := n.(*AtomNode)
+		a, ok := n.(*ExprAtom)
 		if !ok || a.Name != src {
-			t.Fatalf("ParseExpr(%q) = %#v, want AtomNode{%q}", src, n, src)
+			t.Fatalf("ParseExpr(%q) = %#v, want ExprAtom{%q}", src, n, src)
 		}
 	}
 }
