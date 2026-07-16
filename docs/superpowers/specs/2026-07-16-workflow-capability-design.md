@@ -32,7 +32,9 @@ Promote `internal/workflow` from a vocabulary-only capability into a full capabi
 
 ## Command surface (`atm workflow`)
 
-A new top-level command `atm workflow`, paralleling `atm context`. The core `atm task` stays substrate-level (raw label ops). All verbs take a task id (positional or `--task`); all mutating verbs require `--actor` (via `requireMutatingActor`, like `atm context add`).
+A new top-level command `atm workflow`, paralleling `atm context`. The core `atm task` stays substrate-level (raw label ops). All verbs take a task id via `--task`; all mutating verbs require `--actor` (via `requireMutatingActor`, like `atm context add`).
+
+**Amendment 2026-07-16:** an earlier draft said "positional or `--task`" while also stating that id resolution "reuses `resolveTaskID`" — a self-contradiction. `resolveTaskID` (`internal/cli/task.go`) handles only `--task` / the deprecated `--id`, and `atm context` (the command this parallels) takes no positional id either. Positional was never real; the `<id>` in the table below is shorthand for `--task <id>`. Implemented as `--task`, consistent with every neighboring command.
 
 ### Mutating verbs (scrum intent, swap semantics)
 
@@ -42,16 +44,16 @@ Each verb resolves the task's project, computes the prefixed target label (`<COD
 
 | Verb | Target status | One-line intent |
 |---|---|---|
-| `atm workflow start <id>` | in-progress | someone is now on this |
-| `atm workflow open <id>` | open | (re)open for consideration |
-| `atm workflow block <id>` | blocked | cannot proceed pending something else |
-| `atm workflow complete <id>` | done | finished |
+| `atm workflow start --task <id>` | in-progress | someone is now on this |
+| `atm workflow open --task <id>` | open | (re)open for consideration |
+| `atm workflow block --task <id>` | blocked | cannot proceed pending something else |
+| `atm workflow complete --task <id>` | done | finished |
 
 On success, each prints a single line: `<id>: status -> <value>` (or `<id>: status <prior> -> <value>` when a prior status was swapped out), and emits the updated task JSON when `--output json` is set, matching the `atm task label add` shape.
 
 ### Reporter (read-only)
 
-`atm workflow status <id>` — prints the task's current status value, or `untriaged` when no `status:*` label is present. Pure: store byte-identical before and after (testable, like `atm context check`).
+`atm workflow status --task <id>` — prints the task's current status value, or `untriaged` when no `status:*` label is present. Pure: store byte-identical before and after (testable, like `atm context check`).
 
 ### Vocabulary ensure
 
