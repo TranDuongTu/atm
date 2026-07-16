@@ -52,21 +52,53 @@ func (t *tasksModel) grouped() bool {
 // until ATM-b9d83a.
 func taskLabels(t *store.Task) []string { return t.Labels }
 
-// dropUnmatchedTop removes the top-level `(no matching labels)` node from a
-// core.GroupNested tree. At the top level that bucket is exactly the store's
-// others, which the TUI renders under its own policy — hidden under a present
-// focus, flat under focusOff (tasks_list.go's focusOff bucket). Leaving the
-// node in would render those tasks twice under focusOff and surface them under
-// focusPresent, which hides them by design. Nested `(no matching labels)`
-// buckets are kept: nothing else represents them.
+// splitUnmatchedTop separates the top-level `(no matching labels)` bucket from a
+// core.GroupNested tree, returning the remaining nodes and that bucket's tasks:
+// every task in `tasks` carrying no label that matches wildcards[0].
 //
-// GroupNested emits the bucket last and only when non-empty, so this drops at
-// most the final node.
-func dropUnmatchedTop(nodes []core.Node[*store.Task]) []core.Node[*store.Task] {
-	if n := len(nodes); n > 0 && nodes[n-1].Label == "" {
-		return nodes[:n-1]
+// That set STRICTLY CONTAINS the store's others (tasks matching no wildcard at
+// all) whenever the filter carries two or more wildcards, so the store's others
+// cannot stand in for it — dropping the node while rendering the store's others
+// makes the difference vanish from the UI entirely. With a single wildcard the
+// two coincide. The TUI renders this bucket under its own policy: hidden under
+// a present focus, flat under focusOff (tasks_list.go's focusOff bucket).
+// Nested `(no matching labels)` buckets are kept: nothing else represents them.
+//
+// The bucket is recomputed from `tasks` rather than read off the node: with two
+// or more wildcards GroupNested has already split it into children, which
+// re-bucket multi-label tasks and reorder them. The predicate here is
+// GroupNested's own, so the two agree by construction and input order survives.
+//
+// GroupNested emits the bucket last and only when non-empty, so this splits off
+// at most the final node.
+func splitUnmatchedTop(nodes []core.Node[*store.Task], tasks []*store.Task, wildcards []string) ([]core.Node[*store.Task], []*store.Task) {
+	n := len(nodes)
+	if n == 0 {
+		// No wildcards to facet by, so nothing matches one: every task is
+		// unmatched. (GroupNested returns no nodes only when wildcards is
+		// empty, or when there is nothing to group at all.)
+		return nodes, tasks
 	}
-	return nodes
+	if nodes[n-1].Label != "" {
+		return nodes, nil
+	}
+	var unmatched []*store.Task
+	for _, tk := range tasks {
+		if !matchesAny(tk.Labels, wildcards[0]) {
+			unmatched = append(unmatched, tk)
+		}
+	}
+	return nodes[:n-1], unmatched
+}
+
+// matchesAny reports whether any label matches the wildcard.
+func matchesAny(labels []string, wildcard string) bool {
+	for _, l := range labels {
+		if core.LabelMatchesWildcard(l, wildcard) {
+			return true
+		}
+	}
+	return false
 }
 
 // nodesToGroups adapts core's rendering-agnostic facet tree into the TUI's

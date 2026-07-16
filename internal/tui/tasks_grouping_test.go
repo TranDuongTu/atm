@@ -105,9 +105,9 @@ func dumpTree(groups []taskGroup, indent string) string {
 }
 
 // TestFacetTreeCharacterization records the TUI group tree as rendered,
-// reproducing the COMPOSITION at tasks.go's focusPresent case — core.GroupNested
-// builds the whole tree from wildcards[0], and the others bucket comes
-// alongside it. The tasks are drawn from the real store, so the query half of
+// reproducing the COMPOSITION at tasks.go's focusOff case — core.GroupNested
+// builds the whole tree from wildcards[0], and the others bucket is split off
+// that same tree. The tasks are drawn from the real store, so the query half of
 // the seam stays covered.
 //
 // The golden must not change when the algebra moves into internal/core
@@ -120,8 +120,8 @@ func TestFacetTreeCharacterization(t *testing.T) {
 		fmt.Fprintf(&b, "== filter: [%s]\n", strings.Join(filters, " "))
 		tasks := s.ListTasks(store.QueryFilters{Project: "ATM", Labels: filters})
 		wildcards := core.WildcardTokens(filters)
-		groups := nodesToGroups(dropUnmatchedTop(core.GroupNested(tasks, taskLabels, wildcards)), toRowTest)
-		_, others := core.GroupByWildcard(tasks, taskLabels, wildcards)
+		nodes, others := splitUnmatchedTop(core.GroupNested(tasks, taskLabels, wildcards), tasks, wildcards)
+		groups := nodesToGroups(nodes, toRowTest)
 		if len(groups) == 0 {
 			b.WriteString("  (no groups)\n")
 		}

@@ -141,17 +141,19 @@ func (t *tasksModel) refresh() {
 		}
 		filters := t.parseFilter()
 		wildcards := core.WildcardTokens(filters)
-		// GroupTasksErr is still the source of the others bucket and of the
-		// board-as-facet guard (a board has no members). Its groups are
+		// GroupTasksErr is still the source of the board-as-facet guard (a
+		// board has no members) and of focusAbsent's rows. Its groups are
 		// discarded: the tree below nests from wildcards[0] rather than
-		// taking a flat level 1.
+		// taking a flat level 1. Its others is only sound for focusAbsent,
+		// whose filter always carries exactly one wildcard.
 		_, others, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters})
 		if gerr != nil {
 			break // matches the old GroupTasks, which swallowed the error and rendered nothing
 		}
 		if t.focus.mode == focusPresent {
 			inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
-			t.groups = nodesToGroups(dropUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards)), t.toRow)
+			nodes, _ := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
+			t.groups = nodesToGroups(nodes, t.toRow)
 		} else {
 			for _, tk := range t.applySort(others) {
 				t.rows = append(t.rows, t.toRow(tk))
@@ -166,13 +168,15 @@ func (t *tasksModel) refresh() {
 			}
 			break
 		}
-		_, others, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters})
-		if gerr != nil {
+		// GroupTasksErr is called only for the board-as-facet guard; its
+		// others under-counts what the tree drops (see splitUnmatchedTop).
+		if _, _, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters}); gerr != nil {
 			break
 		}
 		inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
-		t.groups = nodesToGroups(dropUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards)), t.toRow)
-		for _, tk := range others {
+		nodes, unmatched := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
+		t.groups = nodesToGroups(nodes, t.toRow)
+		for _, tk := range unmatched {
 			t.others = append(t.others, t.toRow(tk))
 		}
 	}

@@ -39,6 +39,7 @@
       multi-status
       mixed-bare
   others
+    type-only
     bare-tag
     unlabeled
 == filter: [ATM:status:* ATM:type:* ATM:*]
@@ -74,6 +75,8 @@
       group ATM:urgent
         mixed-bare
   others
+    type-only
+    bare-tag
     unlabeled
 == filter: [ATM:* ATM:status:*]
   group ATM:status:blocked
