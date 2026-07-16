@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 )
 
 // toRowTest builds a taskRow without depending on a live *Model (which
@@ -243,6 +245,10 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustCreate("bare", "ATM:urgent")
 	mustCreate("naked")
 	m.projectScope = "ATM"
+	// Give the list ample height: the fixed pinned box always reserves
+	// pinnedBoxHeight lines, so a default-small terminal would page out the last
+	// of the five tasks and mask the focus-subset assertions.
+	m.SetSize(100, 40)
 
 	// present on status -> grouped, only tasks with a status (others hidden).
 	m.tasks.setFocus(taskFocus{mode: focusPresent, ns: "status"}, "ATM:status:*")
@@ -283,6 +289,121 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustContain(t, v, "bare")
 }
 
+// TestTasksPaneRendersStripAndPinnedRow verifies the Tasks pane list view
+// renders the board thumbnail strip above the task list (Task 7: merging the
+// Boards pane into Tasks).
+func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	v := m.tasks.View()
+	// "open-tasks" already appears once via the header FOCUS caption (the
+	// board's filter token, ATM:open-tasks); the strip renders the board name
+	// again as its thumbnail title, so a passing render must contain it at
+	// least twice.
+	if got := strings.Count(v, "open-tasks"); got < 2 {
+		t.Errorf("tasks view missing strip board name (got %d occurrences, want >= 2):\n%s", got, v)
+	}
+}
+
+// TestBracketKeysSwitchBoard verifies "["/"]" cycle the board ring from the
+// Tasks pane (relocated from task-list paging, which now lives on
+// pgup/pgdown).
+func TestBracketKeysSwitchBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	// Two distinct namespaces so the ring has more than one entry to cycle
+	// (matches the established pattern in TestCycleBoardMovesRing).
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	m.tasks.handleKey(keyMsg("]"))
+	if m.boards.selected == first {
+		t.Error("] did not advance the board ring")
+	}
+	m.tasks.handleKey(keyMsg("["))
+	if m.boards.selected != first {
+		t.Errorf("[ did not return to first board: got %q want %q", m.boards.selected, first)
+	}
+}
+
+// TestShiftArrowsDrillAndMoveChartCursor verifies the shift+arrow rebind:
+// shift+right/shift+left drill the SELECTED thumbnail in/out (replacing
+// >/<), and once at the chart level, shift+down/shift+up move the chart
+// cursor (replacing }/{).
+func TestShiftArrowsDrillAndMoveChartCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+	for i := 0; m.boards.selected != "ATM:status:*"; i++ {
+		if i > len(m.boards.rows) {
+			t.Fatalf("status namespace never became selected; rows=%v", m.boards.rowNames())
+		}
+		m.boards.cycleBoard(1)
+	}
+
+	m.tasks.handleKey(keyMsg("shift+right"))
+	if m.boards.level != lLevelChart {
+		t.Fatalf("shift+right did not drill in: level = %v, want lLevelChart", m.boards.level)
+	}
+
+	before := m.boards.cursor
+	m.tasks.handleKey(keyMsg("shift+down"))
+	if m.boards.cursor != before+1 {
+		t.Errorf("shift+down cursor = %d, want %d", m.boards.cursor, before+1)
+	}
+	m.tasks.handleKey(keyMsg("shift+up"))
+	if m.boards.cursor != before {
+		t.Errorf("shift+up cursor = %d, want %d", m.boards.cursor, before)
+	}
+
+	m.tasks.handleKey(keyMsg("shift+left"))
+	if m.boards.level != lLevelTable {
+		t.Errorf("shift+left did not drill out: level = %v, want lLevelTable", m.boards.level)
+	}
+}
+
+// TestCloseParenFocusesCenterBoard verifies ")" (Shift+0) moves the strong
+// current-filter highlight from a pin box back to the strip's SELECTED
+// (center) board, without touching b.selected or the filter.
+func TestCloseParenFocusesCenterBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	selected := m.boards.selected
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.pinFocus != 0 {
+		t.Fatalf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+
+	m.tasks.handleKey(keyMsg(")"))
+
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after ) = %d, want -1 (center board focused)", m.boards.pinFocus)
+	}
+	if m.boards.selected != selected {
+		t.Errorf(") must not change b.selected: got %q, want %q", m.boards.selected, selected)
+	}
+}
+
 func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -293,4 +414,79 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	v := m.tasks.View()
 	mustContain(t, v, "no tasks match this focus")
 	mustNotContain(t, v, "showing 1-1 of 1")
+}
+
+// TestListHintOrderPutsNavFirstAndInspectLast verifies the [2] pane list-view
+// hint drops the shift+arrow drill/member/focus keys entirely: that
+// information is already shown inline in the pane itself (the "[Shift-N]" /
+// "[Shift-0]" box labels and the SELECTED cell's "Shift+-> to inspect" hint),
+// so the status bar stays terse rather than duplicating it.
+func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
+	if got := m.tasks.statusHint(); got != want {
+		t.Errorf("statusHint() = %q, want %q", got, want)
+	}
+}
+
+// TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
+// top-to-bottom the pane stacks task list -> tabbed pinned box -> board strip,
+// so the strip is the LAST stripHeight lines and the fixed pinned box
+// (pinnedBoxHeight lines) sits directly above it. The pinned open-tasks board
+// surfaces as the Shift-1 tab, with its name in the box body.
+func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	m.SetSize(100, 40)
+
+	view := m.tasks.View()
+	lines := strings.Split(view, "\n")
+	if !strings.Contains(lines[0], "PROJECT:") {
+		t.Fatalf("first line = %q, want the task list header first", lines[0])
+	}
+	stripBlock := strings.Join(lines[len(lines)-stripHeight:], "\n")
+	if !strings.Contains(stripBlock, "open-tasks") {
+		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
+	}
+	pinBlock := strings.Join(lines[len(lines)-stripHeight-pinnedBoxHeight:len(lines)-stripHeight], "\n")
+	if !strings.Contains(pinBlock, "open-tasks") {
+		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned open-tasks board named in the body", pinnedBoxHeight, pinBlock)
+	}
+	if !strings.Contains(pinBlock, "Shift-1") {
+		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)
+	}
+}
+
+// TestListPageSizeConstantAsPinsAdded verifies the FIXED-slot invariant from
+// the page-jump side: because the pinned region always reserves 3*maxPins
+// lines, listPageSize does NOT change as boards are pinned. Pinning must never
+// shift the page boundary pgup/pgdown lands on.
+func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.SetSize(100, 40)
+
+	before := m.tasks.listPageSize()
+	m.boards.togglePin()
+	after := m.tasks.listPageSize()
+	if after != before {
+		t.Errorf("listPageSize after pinning 1 board = %d, want %d (fixed slot, unchanged)", after, before)
+	}
 }

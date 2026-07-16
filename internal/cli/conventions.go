@@ -73,7 +73,7 @@ Every mutation (task, comment, label, project, persona, config) stamps an actor 
 1. Read this guide, including the code-of-conduct below.
 2. ` + "`atm label list --project <CODE>`" + ` — read every label's description first to learn the project's vocabulary before touching tasks. Labels are the project's language; knowing them makes every task query meaningful. Do not assume the seeded defaults are all the labels this project uses.
 3. ` + "`atm task list --project <CODE> --label <CODE>:context-current`" + ` — the project's current knowledge: agent directions, repository pointers, and documentation pointers that have not been superseded. Read this board rather than the raw ` + "`context:*`" + ` namespace; membership is computed, so it is always the latest. Narrow by kind with an extra ` + "`--label <CODE>:context:agent`" + `.
-4. ` + "`atm task list --project <CODE> --label <CODE>:status:open`" + ` — get open work.
+4. ` + "`atm task list --project <CODE> --label <CODE>:open-tasks`" + ` — get open work. The open-tasks board (expression status:open) is ensured on project create / label seed / TUI use; in an older project where it is absent, ` + "`--label <CODE>:status:open`" + ` is equivalent.
 5. ` + "`atm store log <CODE>`" + ` — read the project's append-only audit log to observe recent activity.
 6. ` + "`atm task comment list --task <ID>`" + ` — read the running narrative on a task before acting on it.
 7. ` + "`atm index models --project <CODE>`" + ` — see which embedding models have a vector index. If none, configure one with ` + "`atm project set-embedding`" + ` then ` + "`atm embed --project <CODE>`" + `.
@@ -147,7 +147,7 @@ func conventionsStructured() map[string]any {
 			"read this guide, including the code-of-conduct",
 			"atm label list --project <CODE> — read every label's description first to learn the project's vocabulary before touching tasks",
 			"atm task list --project <CODE> --label <CODE>:context-current — the project's current knowledge: agent directions, repository pointers, and documentation pointers that have not been superseded. Read this board rather than the raw context:* namespace; membership is computed, so it is always the latest. Narrow by kind with an extra --label <CODE>:context:agent.",
-			"atm task list --project <CODE> --label <CODE>:status:open — get open work",
+			"atm task list --project <CODE> --label <CODE>:open-tasks — get open work. The open-tasks board (expression status:open) is ensured on project create / label seed / TUI use; in an older project where it is absent, --label <CODE>:status:open is equivalent.",
 			"atm store log <CODE> — read the project's append-only audit log to observe recent activity",
 			"atm task comment list --task <ID> — read the running narrative on a task before acting on it",
 			"atm index models --project <CODE> — see which embedding models have a vector index; if none, configure one with atm project set-embedding then atm embed --project <CODE>",

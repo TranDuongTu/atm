@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -47,8 +48,9 @@ func newTestModelWithActor(t *testing.T, actor string) *Model {
 
 // keyMsg constructs a tea.KeyMsg from a key string. Rune keys use KeyRunes;
 // the special-key strings bubbletea expects (enter, esc, backspace, space,
-// down, up, pgdown, pgup, tab) map to their KeyType. The returned KeyMsg's
-// String() matches what the TUI handlers switch on.
+// down, up, shift+up, shift+down, shift+left, shift+right, pgdown, pgup, tab)
+// map to their KeyType. The returned KeyMsg's String() matches what the TUI
+// handlers switch on.
 func keyMsg(s string) tea.KeyMsg {
 	switch s {
 	case "enter":
@@ -63,6 +65,14 @@ func keyMsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyDown}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
+	case "shift+up":
+		return tea.KeyMsg{Type: tea.KeyShiftUp}
+	case "shift+down":
+		return tea.KeyMsg{Type: tea.KeyShiftDown}
+	case "shift+left":
+		return tea.KeyMsg{Type: tea.KeyShiftLeft}
+	case "shift+right":
+		return tea.KeyMsg{Type: tea.KeyShiftRight}
 	case "pgdown":
 		return tea.KeyMsg{Type: tea.KeyPgDown}
 	case "pgup":
@@ -189,7 +199,6 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	update(t, m, "s")
 
 	leftW, rightW := splitWorkspaceWidths(m.width)
-	tasksH, labelsH := splitRightColumnHeights(m.contentHeight)
 	assertLinesWithinWidth := func(name, body string, maxW int) {
 		for i, line := range strings.Split(body, "\n") {
 			if got := lipgloss.Width(line); got > maxW {
@@ -199,36 +208,12 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	assertLinesWithinWidth("labels", m.boards.View(), innerPaneWidth(rightW))
-	wantPageSize := innerPaneHeight(tasksH) - 6
+	wantPageSize := innerPaneHeight(m.contentHeight) - stripHeight - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
 	}
 	if got, want := m.tasks.pageSize, wantPageSize; got != want {
 		t.Fatalf("tasks pageSize = %d want %d", got, want)
-	}
-	_ = labelsH
-}
-
-func TestSplitRightColumnHeights75_25(t *testing.T) {
-	cases := []struct {
-		height, wantTop, wantBottom int
-	}{
-		{0, 0, 0},
-		{1, 1, 0},
-		{2, 1, 1}, // bottom must stay >= 1
-		{4, 3, 1},
-		{40, 30, 10},
-		{100, 75, 25},
-	}
-	for _, c := range cases {
-		top, bottom := splitRightColumnHeights(c.height)
-		if top != c.wantTop || bottom != c.wantBottom {
-			t.Errorf("splitRightColumnHeights(%d) = (%d,%d) want (%d,%d)", c.height, top, bottom, c.wantTop, c.wantBottom)
-		}
-		if c.height >= 2 && bottom < 1 {
-			t.Errorf("splitRightColumnHeights(%d): bottom=%d must be >= 1", c.height, bottom)
-		}
 	}
 }
 
@@ -243,13 +228,26 @@ func TestPaneFocusKeys(t *testing.T) {
 	if m.focused != paneTasks {
 		t.Fatalf("after 2: focus = %v want paneTasks", m.focused)
 	}
-	update(t, m, "3")
-	if m.focused != paneLabels {
-		t.Fatalf("after 3: focus = %v want paneLabels", m.focused)
-	}
 	update(t, m, "1")
 	if m.focused != paneProjects {
 		t.Fatalf("after 1: focus = %v want paneProjects", m.focused)
+	}
+}
+
+func TestWorkspaceRendersTwoPanesNotThree(t *testing.T) {
+	m := newTestModel(t)
+	v := m.View()
+	mustContain(t, v, "[1] Projects")
+	mustContain(t, v, "[2] Tasks")
+	mustNotContain(t, v, "[3] Boards")
+}
+
+func TestKey3IsNoOp(t *testing.T) {
+	m := newTestModel(t)
+	m.focused = paneProjects
+	m.handleKey(keyMsg("3"))
+	if m.focused != paneProjects {
+		t.Errorf("focused = %v, want paneProjects (3 must not switch panes)", m.focused)
 	}
 }
 
@@ -313,7 +311,6 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Boards")
 	mustNotContain(t, v, "1  Projects")
 	mustNotContain(t, v, "4  Help")
 }
@@ -321,12 +318,11 @@ func TestWorkspaceRendersAllPaneTitlesAtOnce(t *testing.T) {
 func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
-	for _, key := range []string{"1", "2", "3"} {
+	for _, key := range []string{"1", "2"} {
 		update(t, m, key)
 		v := m.View()
 		mustContain(t, v, "[1] Projects")
 		mustContain(t, v, "[2] Tasks")
-		mustContain(t, v, "[3] Boards")
 	}
 }
 
@@ -353,13 +349,10 @@ func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
 	projects := m.renderStatusLine()
 	update(t, m, "2")
 	tasks := m.renderStatusLine()
-	update(t, m, "3")
-	labels := m.renderStatusLine()
-	if projects == tasks || tasks == labels || projects == labels {
-		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q\nlabels=%q", projects, tasks, labels)
+	if projects == tasks {
+		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q", projects, tasks)
 	}
 	mustContain(t, tasks, "[s]ort")
-	mustContain(t, labels, "[a]dd")
 }
 
 func TestDefaultTheme(t *testing.T) {
@@ -1275,6 +1268,9 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "task one", "ATM:status:open")
 	update(t, m, "s") // select ATM
+	// Task 4: project-select now defaults the Tasks pane to the Open Tasks
+	// board; clear it here so this test can verify the unfiltered flat list.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2") // focus Tasks pane
 	v := m.View()
 	body := m.tasks.View()
@@ -1322,6 +1318,9 @@ func TestTasksPagingFooter(t *testing.T) {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this paging test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	v := m.View()
 	mustContain(t, v, "showing ")
@@ -1338,6 +1337,9 @@ func TestTasksFlatListScrollsWithCursor(t *testing.T) {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this scrolling test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 
 	rows := m.tasks.rows
@@ -1355,25 +1357,29 @@ func TestTasksFlatListScrollsWithCursor(t *testing.T) {
 	}
 }
 
-// TestTasksFlatListBracketKeysPageThroughList verifies "]"/"[" jump the
-// cursor a full page forward/backward in the flat list.
-func TestTasksFlatListBracketKeysPageThroughList(t *testing.T) {
+// TestTasksFlatListPageKeysPageThroughList verifies pgdown/pgup jump the
+// cursor a full page forward/backward in the flat list. (Relocated from
+// "]"/"[", which now cycle the board ring — Task 7.)
+func TestTasksFlatListPageKeysPageThroughList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	for i := 0; i < 25; i++ {
 		seedTask(t, m, "ATM", "task "+string(rune('A'+i)))
 	}
 	update(t, m, "s")
+	// Task 4: clear the Open Tasks board default so all 25 (unlabeled) tasks
+	// are visible for this paging test.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	start := m.tasks.cursor
-	update(t, m, "]")
+	update(t, m, "pgdown")
 	if m.tasks.cursor <= start {
-		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+		t.Fatalf("pgdown should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
 	}
 	after := m.tasks.cursor
-	update(t, m, "[")
+	update(t, m, "pgup")
 	if m.tasks.cursor >= after {
-		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+		t.Fatalf("pgup should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
 	}
 }
 
@@ -1416,9 +1422,10 @@ func TestTasksGroupedListScrollsWithCursor(t *testing.T) {
 	}
 }
 
-// TestTasksGroupedListBracketKeysPageThroughList verifies "]"/"[" jump the
-// cursor a full page forward/backward in the grouped/tree list.
-func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
+// TestTasksGroupedListPageKeysPageThroughList verifies pgdown/pgup jump the
+// cursor a full page forward/backward in the grouped/tree list. (Relocated
+// from "]"/"[", which now cycle the board ring — Task 7.)
+func TestTasksGroupedListPageKeysPageThroughList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	for i := 0; i < 12; i++ {
@@ -1428,14 +1435,14 @@ func TestTasksGroupedListBracketKeysPageThroughList(t *testing.T) {
 	update(t, m, "2")
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:*")
 	start := m.tasks.cursor
-	update(t, m, "]")
+	update(t, m, "pgdown")
 	if m.tasks.cursor <= start {
-		t.Fatalf("] should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
+		t.Fatalf("pgdown should move cursor forward, got %d (was %d)", m.tasks.cursor, start)
 	}
 	after := m.tasks.cursor
-	update(t, m, "[")
+	update(t, m, "pgup")
 	if m.tasks.cursor >= after {
-		t.Fatalf("[ should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
+		t.Fatalf("pgup should move cursor backward, got %d (was %d)", m.tasks.cursor, after)
 	}
 }
 
@@ -1528,6 +1535,9 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	}
 	m.refreshAll()
 	update(t, m, "s")
+	// Task 4: the task carries status:in-progress, not status:open, so it is
+	// excluded from the default Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	// Cursor on the task (row 0); open detail.
 	update(t, m, "enter")
@@ -1584,11 +1594,11 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 }
 
 // TestTaskDetailScrollDoesNotBreakPaneBorders pins ATM-0100: scrolling the
-// task detail view must only move the Tasks pane content. The Projects and
-// Labels panes (their borders and their content) must stay fixed, and every
-// workspace line must stay exactly m.width columns wide. The bug report
-// described the borders breaking and scrolling bleeding into the other
-// panes; this test pins the correct behavior so a regression is caught.
+// task detail view must only move the Tasks pane content. The Projects pane
+// (its border and its content) must stay fixed, and every workspace line
+// must stay exactly m.width columns wide. The bug report described the
+// borders breaking and scrolling bleeding into the other panes; this test
+// pins the correct behavior so a regression is caught.
 func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 	cases := []struct{ w, h int }{
 		{120, 36},
@@ -1607,15 +1617,17 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			}
 			m.refreshAll()
 			update(t, m, "s")
+			// Task 4: the task has no labels, so it is excluded from the
+			// default Open Tasks board; clear focus to see it.
+			m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			update(t, m, "2")
 			update(t, m, "enter")
 			if m.tasks.view != tViewDetail {
 				t.Fatalf("expected tViewDetail, got %v", m.tasks.view)
 			}
 
-			// Snapshot the Projects and Labels pane content before scrolling.
+			// Snapshot the Projects pane content before scrolling.
 			projBefore := m.projects.View()
-			labelsBefore := m.boards.View()
 
 			// Scroll the task detail to the bottom and back.
 			for i := 0; i < 40; i++ {
@@ -1625,16 +1637,13 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 				update(t, m, "k")
 			}
 
-			// The Projects and Labels panes must be byte-for-byte unchanged.
+			// The Projects pane must be byte-for-byte unchanged.
 			if got := m.projects.View(); got != projBefore {
 				t.Errorf("Projects pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", projBefore, got)
 			}
-			if got := m.boards.View(); got != labelsBefore {
-				t.Errorf("Labels pane changed while scrolling task detail:\nbefore:\n%s\nafter:\n%s", labelsBefore, got)
-			}
 
 			// Every workspace line must be exactly m.width columns wide so
-			// the three pane borders stay aligned vertically.
+			// the pane borders stay aligned vertically.
 			ws := m.renderWorkspace()
 			for i, line := range strings.Split(ws, "\n") {
 				if w := lipgloss.Width(line); w != m.width {
@@ -1643,7 +1652,10 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			}
 
 			// Switching panes (1 -> 2 -> 3 -> 2) must not change the workspace
-			// geometry either; it only changes which pane is focused.
+			// geometry either; it only changes which pane is focused. "3" is a
+			// no-op since Task 3 removed the Boards pane; it is kept in the
+			// sequence to confirm a stale/removed key press does not disturb
+			// the geometry.
 			update(t, m, "1")
 			update(t, m, "2")
 			update(t, m, "3")
@@ -1691,7 +1703,6 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
 	mustContain(t, v, "[2] Tasks")
-	mustContain(t, v, "[3] Boards")
 	mustContain(t, v, "Task "+tk.ID)
 }
 
@@ -1700,6 +1711,9 @@ func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "pane task")
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "enter")
 	if m.projects.view != pViewDetail {
 		t.Fatalf("setup: project detail not open")
@@ -1776,7 +1790,7 @@ func TestTasksEmptyStateFilterNoMatch(t *testing.T) {
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:done")
 	v := m.tasks.View()
 	mustContain(t, v, "no tasks match this focus")
-	mustContain(t, v, "choose a namespace or label in the Labels pane")
+	mustContain(t, v, "switch boards with [ / ] to change focus")
 }
 
 // TestTasksEmptyStateWildcardNoLabels verifies the wildcard-yields-no-labels
@@ -1875,6 +1889,9 @@ func TestTaskDetailDescriptionEdit(t *testing.T) {
 	m.refreshAll()
 	// Select project, switch to Tasks, open detail at cursor row 0.
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
 	if m.tasks.view != tViewDetail {
@@ -1928,6 +1945,9 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	tk := seedTask(t, m, "ATM", "Doomed task")
 	update(t, m, "s")
+	// Task 4: the task has no labels, so it is excluded from the default
+	// Open Tasks board; clear focus to see it.
+	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
 	if m.tasks.view != tViewDetail {
@@ -2130,13 +2150,15 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.projectScope != "ATM" {
 		t.Fatalf("projectScope = %q want ATM", m.projectScope)
 	}
-	m.focused = paneLabels
-	update(t, m, "enter") // enter ATM namespace chart
+	// paneLabels no longer exists as a focusable pane (Task 3 removed the
+	// [3] Boards pane); drive boardsModel directly since Task 7 has not yet
+	// re-wired its key handling into the Tasks pane.
+	m.boards.handleKey(keyMsg("enter")) // enter ATM namespace chart
 	if m.boards.level != lLevelChart {
 		t.Fatalf("boards.level = %v want lLevelChart", m.boards.level)
 	}
 	// Pick the first chart row (a concrete label) and drill into detail.
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelDetail {
 		t.Fatalf("boards.level = %v want lLevelDetail", m.boards.level)
 	}
@@ -2168,8 +2190,13 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.tasks.detail.id != "" {
 		t.Errorf("tasks.detail.id = %q want empty (stale detail survived switch)", m.tasks.detail.id)
 	}
-	if m.tasks.filter != "" {
-		t.Errorf("tasks.filter = %q want empty (stale filter survived switch)", m.tasks.filter)
+	// Task 4: project-select now defaults the Tasks pane to the new
+	// project's Open Tasks board (not an empty filter), so the invariant
+	// under test is that the OLD project's (ATM) filter does not survive —
+	// not that the filter is literally empty.
+	wantFilter := workflow.BoardOpenTasks("SCY")
+	if m.tasks.filter != wantFilter {
+		t.Errorf("tasks.filter = %q want %q (new project's default board, not the stale ATM filter)", m.tasks.filter, wantFilter)
 	}
 	if m.tasks.focus.mode != focusOff {
 		t.Errorf("tasks.focus.mode = %v want focusOff", m.tasks.focus.mode)

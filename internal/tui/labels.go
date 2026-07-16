@@ -8,9 +8,11 @@ import (
 
 	"atm/internal/seed"
 	"atm/internal/store"
+	"atm/internal/workflow"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // pluralUses returns "use"/"uses" for the given count — neutral over tasks
@@ -140,6 +142,21 @@ type boardsModel struct {
 	offset        int
 	pageSize      int
 	detail        labelDetailState
+
+	// selected is the FullName of the ring-selected board, driving the Tasks
+	// pane focus. Empty when no project is scoped. Set by selectDefault (on
+	// project select) and cycleBoard; refresh() only touches it when the
+	// previously selected board vanished from the rebuilt ring.
+	selected string
+
+	pins []string // ordered pinned board FullNames; loaded from store.GetPins
+
+	// pinFocus is WHERE the strong current-filter highlight is drawn: -1 means
+	// the strip's SELECTED board is the active filter (the default — set by
+	// cycleBoard/selectDefault); >=0 is the index into pins of the pin that
+	// Shift-N jumped to. It never changes the filter itself (b.selected still
+	// drives that via applyFocus) — only which element gets the strong border.
+	pinFocus int
 }
 
 type lLevel int
@@ -169,7 +186,7 @@ type chartRow struct {
 }
 
 func newBoardsModel(m *Model) boardsModel {
-	return boardsModel{m: m}
+	return boardsModel{m: m, pinFocus: -1}
 }
 
 func (b *boardsModel) SetSize(w, h int) {
@@ -218,6 +235,324 @@ func (b *boardsModel) refresh() {
 		return
 	}
 	b.clampCursor()
+	b.loadPins()
+	// The initial selection happens on project select (selectDefault is
+	// called there), not here — refresh runs on every tick and must not
+	// clobber a deliberately-empty selection. Only recover when the
+	// previously selected board vanished from the rebuilt ring (deleted
+	// mid-session), so a stale selection never keeps driving the task list.
+	if b.selected != "" && b.ringIndex() < 0 {
+		b.selectDefault()
+	}
+}
+
+// selectDefault selects the Open Tasks board if present, else the first ring
+// board. Called on project select after EnsureVocabulary, and from refresh()
+// when the previously selected board vanished mid-session — that fallback can
+// fire while a chart/detail is drilled into the now-vanished board, so this
+// always resets the drill state for the same leak-prevention invariant as
+// cycleBoard/jumpPin.
+func (b *boardsModel) selectDefault() {
+	b.resetDrill()
+	b.pinFocus = -1 // the ring board becomes the active-filter highlight
+	want := workflow.BoardOpenTasks(b.m.projectScope)
+	for _, r := range b.rows {
+		if r.FullName == want {
+			b.selected = want
+			b.applyFocus()
+			return
+		}
+	}
+	if len(b.rows) > 0 {
+		b.selected = b.rows[0].FullName
+		b.applyFocus()
+		return
+	}
+	b.selected = ""
+}
+
+// loadPins reads the project's pins from the store and prunes any whose board
+// no longer exists. Called on project select and on refresh (cheap read).
+// Also clamps to maxPins so a legacy pins.json written before the cap dropped
+// to 3 (or edited by hand) never renders/jumps past what the fixed slot holds.
+func (b *boardsModel) loadPins() {
+	b.pins = nil
+	if b.m.projectScope == "" {
+		return
+	}
+	p, err := b.m.store.GetPins(b.m.projectScope)
+	if err != nil || p == nil {
+		return
+	}
+	live := map[string]bool{}
+	for _, r := range b.rows {
+		live[r.FullName] = true
+	}
+	for _, full := range p.Boards {
+		if live[full] {
+			b.pins = append(b.pins, full)
+		}
+		if len(b.pins) >= maxPins {
+			break
+		}
+	}
+	b.syncPinFocus()
+}
+
+// maxPins caps the pinned boards at 3, reachable by Shift-1..3 and surfaced as
+// the Shift-1..3 tabs of the single tabbed pinned box (see renderPinnedTabs).
+// The pinned region is a FIXED slot: the task list reserves a constant
+// pinnedBoxHeight lines for it (see listContentHeight), so its height never
+// changes as pins are added or removed — an empty slot's tab just renders
+// dimmed rather than collapsing.
+const maxPins = 3
+
+// togglePin adds the selected board to the pin list (at the end) if absent, or
+// removes it if present, then persists. Adding past maxPins (3) is ignored
+// rather than evicting an existing pin. When a pin is the active highlight
+// (pinFocus >= 0), b.selected equals that pin's board, so [p] unpins the
+// focused pin and syncPinFocus resets pinFocus back to the strip.
+func (b *boardsModel) togglePin() {
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	pinned := false
+	for _, full := range b.pins {
+		if full == b.selected {
+			pinned = true
+			break
+		}
+	}
+	if !pinned && len(b.pins) >= maxPins {
+		return
+	}
+	out := b.pins[:0:0]
+	for _, full := range b.pins {
+		if full != b.selected {
+			out = append(out, full)
+		}
+	}
+	if !pinned {
+		out = append(out, b.selected)
+	}
+	b.pins = out
+	b.persistPins()
+	b.syncPinFocus()
+}
+
+// syncPinFocus re-derives the highlighted-pin index after b.pins changes, so
+// the strong highlight stays on the active filter (b.selected). When the
+// focused board is no longer pinned, pinFocus falls back to -1 and the strip's
+// SELECTED cell reclaims the highlight (b.selected still drives the filter).
+func (b *boardsModel) syncPinFocus() {
+	if b.pinFocus < 0 {
+		return
+	}
+	b.pinFocus = -1
+	for i, full := range b.pins {
+		if full == b.selected {
+			b.pinFocus = i
+			return
+		}
+	}
+}
+
+// jumpPin moves the ring selection to the nth pinned board (1-based). Returns
+// false if n is out of range.
+func (b *boardsModel) jumpPin(n int) bool {
+	if n < 1 || n > len(b.pins) {
+		return false
+	}
+	b.selected = b.pins[n-1]
+	// A jump must not leak a stale chart/detail/cursor from whatever board was
+	// previously drilled into (see cycleBoard's resetDrill call for the same
+	// invariant).
+	b.resetDrill()
+	b.pinFocus = n - 1 // the jumped-to pin becomes the active-filter highlight
+	b.applyFocus()
+	return true
+}
+
+// focusCenter is the inverse of jumpPin: it moves the strong current-filter
+// highlight from a pin box back to the strip's SELECTED (center) board. Beyond
+// restoring pinFocus, it also ENTERS the center board for immediate
+// navigation: a namespace board (Expandable) sitting at L0 drills straight into
+// its chart, so Shift-↑/↓ move among members right away without a preceding
+// Shift-→. A leaf board (no chart) just takes the focus. b.selected and the
+// task filter are otherwise untouched (enterChart re-applies the same facet).
+func (b *boardsModel) focusCenter() {
+	b.pinFocus = -1
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	// Only enter from L0; if the board is already drilled (chart/detail) there
+	// is nothing to enter, and we must not disturb the current level.
+	if b.level != lLevelTable {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	if r := b.rows[idx]; r.Expandable {
+		b.enterChart(r.Name)
+	}
+}
+
+// resetDrill returns the SELECTED thumbnail to L0 so a board switch never
+// leaks a stale chart/detail/cursor into the newly selected board.
+func (b *boardsModel) resetDrill() {
+	b.level = lLevelTable
+	b.ns = ""
+	b.cursor = 0
+	b.detail = labelDetailState{}
+}
+
+func (b *boardsModel) persistPins() {
+	if b.m.projectScope == "" {
+		return
+	}
+	_ = b.m.store.WritePins(b.m.projectScope, &store.Pins{
+		Actor:  b.m.actor,
+		Boards: b.pins,
+	})
+}
+
+// cycleBoard moves the ring selection by dir (+1 next, -1 prev) with
+// wraparound and applies the new board's focus to the Tasks list.
+func (b *boardsModel) cycleBoard(dir int) {
+	if len(b.rows) == 0 {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		idx = 0
+	}
+	idx = (idx + dir) % len(b.rows)
+	if idx < 0 {
+		idx += len(b.rows)
+	}
+	b.selected = b.rows[idx].FullName
+	b.resetDrill()
+	b.pinFocus = -1 // the ring board becomes the active-filter highlight
+	b.applyFocus()
+}
+
+// ringIndex returns the current ring index of b.selected, or -1 if absent.
+func (b *boardsModel) ringIndex() int {
+	for i, r := range b.rows {
+		if r.FullName == b.selected {
+			return i
+		}
+	}
+	return -1
+}
+
+// drillIn advances the SELECTED thumbnail one level deeper. For a namespace
+// board: L0 -> chart. For a leaf board: L0 -> its detail. For a chart row
+// under the cursor: chart -> that label's detail (or unset leaf). At detail,
+// it is already the deepest level and is a no-op.
+func (b *boardsModel) drillIn() {
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	r := b.rows[idx]
+	switch b.level {
+	case lLevelTable:
+		if r.Expandable {
+			b.enterChart(r.Name)
+		} else {
+			// Leaf board: show its detail.
+			b.level = lLevelDetail
+			b.detail = labelDetailState{row: labelRow{
+				suffix:      strings.TrimPrefix(r.FullName, b.m.projectScope+":"),
+				full:        r.FullName,
+				description: r.Description,
+				usage:       r.Count,
+			}}
+		}
+	case lLevelChart:
+		rows := b.chartRows()
+		if b.cursor >= 0 && b.cursor < len(rows) {
+			if rows[b.cursor].unset {
+				b.enterUnsetLeaf()
+				return
+			}
+			if rr, ok := b.chartLabelRow(); ok {
+				b.enterDetail(rr)
+			}
+		}
+	case lLevelDetail:
+		// already at the deepest level; no-op
+	}
+}
+
+// drillOut climbs the SELECTED thumbnail one level out: detail -> chart ->
+// L0. At L0 it is a no-op. It must NOT route through enterTable(), whose
+// setFocus(focusOff, "") would clear the task filter while a board is still
+// SELECTED — climbing out re-applies the selected board's own focus instead.
+func (b *boardsModel) drillOut() {
+	switch b.level {
+	case lLevelDetail:
+		if b.ns != "" {
+			// Came from a namespace chart (member detail or unset leaf):
+			// climb back to the chart. reenterChart restores the facet focus.
+			b.reenterChart()
+			return
+		}
+		// Leaf board's detail -> L0; the SELECTED board keeps driving the list.
+		b.level = lLevelTable
+		b.detail = labelDetailState{}
+		b.applyFocus()
+	case lLevelChart:
+		b.level = lLevelTable
+		b.ns = ""
+		b.cursor = 0
+		b.applyFocus()
+	}
+}
+
+// chartCursorMove moves the SELECTED thumbnail's chart cursor (the member row
+// that d, l target). Only meaningful at the chart level; no-op elsewhere.
+func (b *boardsModel) chartCursorMove(dir int) {
+	if b.level != lLevelChart {
+		return
+	}
+	rows := b.chartRows()
+	if len(rows) == 0 {
+		return
+	}
+	b.cursor += dir
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(rows) {
+		b.cursor = len(rows) - 1
+	}
+}
+
+// applyFocus pushes the selected board's focus to the Tasks pane, reusing the
+// existing setFocus channel. A namespace board (Expandable) uses focusPresent;
+// a leaf board uses focusOff + the board's FullName as the filter token.
+func (b *boardsModel) applyFocus() {
+	if b.selected == "" || b.m.projectScope == "" {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	r := b.rows[idx]
+	if r.Expandable {
+		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, facetToken(b.m.projectScope, r.Name))
+	} else {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, r.FullName)
+	}
 }
 
 // buildBoardRows constructs the flat L0 list: every board (a label with an
@@ -462,6 +797,74 @@ func (b *boardsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		return b.handleChartKey(k)
 	case lLevelDetail:
 		return b.handleDetailKey(k)
+	}
+	return nil
+}
+
+// handleAuthoringKey dispatches the board-authoring keys (n/e/S/d/l) from the
+// merged Tasks pane, scoped to the SELECTED board and current drill level.
+// It is the selection-aware counterpart to handleTableKey/handleChartKey/
+// handleDetailKey (which stay driven directly by the Task-3 re-homed tests):
+//
+//   - n / S are project-scoped and work at any level.
+//   - e (table level only) edits the SELECTED board — b.rows[b.ringIndex()],
+//     NOT b.cursor. cycleBoard resets b.cursor to 0, so in the merged pane the
+//     cursor no longer tracks the selection; reading it would edit index 0.
+//   - d / l describe/remove a label. At chart level they target the {/}-moved
+//     chart cursor (b.chartLabelRow, keyed on b.cursor); at a leaf board's
+//     detail they target b.detail.row. Both are already correct in the merged
+//     pane, so they reuse the same scoping the old handlers use.
+//
+// Nav keys (j/k/g/[/]/enter/esc) and a=add-task are never routed here — only
+// n/e/S/d/l reach this handler.
+func (b *boardsModel) handleAuthoringKey(k tea.KeyMsg) tea.Cmd {
+	if b.m.projectScope == "" {
+		return nil
+	}
+	switch k.String() {
+	case "n":
+		b.m.openBoardEditorForm(b.m.projectScope, "")
+	case "S":
+		return b.seedDefaults()
+	case "e":
+		// Edit the SELECTED board (meaningful only at table level). A board (a
+		// label with an Expr) opens the full editor; a namespace row opens its
+		// descriptor's description-only editor.
+		if b.level != lLevelTable {
+			return nil
+		}
+		idx := b.ringIndex()
+		if idx < 0 {
+			return nil
+		}
+		r := b.rows[idx]
+		if r.Expr != "" {
+			b.m.openBoardEditorForm(b.m.projectScope, r.Name)
+		} else if r.Expandable {
+			b.m.openNamespaceDescribeForm(b.m.projectScope, r.Name, r.Description)
+		}
+	case "d":
+		switch b.level {
+		case lLevelChart:
+			if r, ok := b.chartLabelRow(); ok {
+				b.m.openLabelDescribeFormFor(r.suffix, r.description)
+			}
+		case lLevelDetail:
+			if b.detail.leaf == "" {
+				b.m.openLabelDescribeFormFor(b.detail.row.suffix, b.detail.row.description)
+			}
+		}
+	case "l":
+		switch b.level {
+		case lLevelChart:
+			if r, ok := b.chartLabelRow(); ok {
+				b.m.openLabelRemoveFormFor(b.m.projectScope, r.suffix)
+			}
+		case lLevelDetail:
+			if b.detail.leaf == "" {
+				b.m.openLabelRemoveFormFor(b.m.projectScope, b.detail.row.suffix)
+			}
+		}
 	}
 	return nil
 }
@@ -720,6 +1123,19 @@ func boardTableLine(width int, name, description, count string) string {
 	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
 }
 
+// namespaceDescription returns the description of ns's namespace descriptor
+// label (<scope>:<ns>:*), or "" if it has none. Looked up against the
+// already-computed L0 row list rather than re-querying the store — buildBoardRows
+// resolves the same descLabel.Description onto that namespace's boardRow.
+func (b *boardsModel) namespaceDescription(ns string) string {
+	for _, r := range b.rows {
+		if r.Expandable && r.Name == ns {
+			return r.Description
+		}
+	}
+	return ""
+}
+
 func (b *boardsModel) renderChart() string {
 	title := b.ns
 	rows := b.chartRows()
@@ -731,6 +1147,12 @@ func (b *boardsModel) renderChart() string {
 	var sb strings.Builder
 	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%s  ·  %d tasks", title, b.activeNamespaceTaskCount())))
 	sb.WriteString("\n")
+	if desc := b.namespaceDescription(b.ns); desc != "" {
+		for _, line := range strings.Split(wordwrap.String(desc, b.width), "\n") {
+			sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render(line)))
+			sb.WriteString("\n")
+		}
+	}
 
 	nameW := 0
 	for _, r := range rows {
@@ -764,7 +1186,6 @@ func (b *boardsModel) renderChart() string {
 		sb.WriteString(lines[i])
 		sb.WriteString("\n")
 	}
-	sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render("[Enter]inspect  [Esc]back")))
 	return padToHeight(sb.String(), b.contentHeight)
 }
 
@@ -774,8 +1195,6 @@ func (b *boardsModel) renderDetail() string {
 	case "unset":
 		count := b.syntheticLeafTaskCount()
 		sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%d %s with no %s", count, pluralTasks(count), b.ns)))
-		sb.WriteString("\n")
-		sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render("[Esc] back to chart")))
 		return padToHeight(sb.String(), b.contentHeight)
 	}
 	r := b.detail.row
@@ -783,11 +1202,23 @@ func (b *boardsModel) renderDetail() string {
 	sb.WriteString("\n")
 	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	sb.WriteString("\n")
-	desc := r.description
-	if desc == "" {
-		desc = b.m.styles.Warning.Render("needs description")
+	const descLabel = "description "
+	if r.description == "" {
+		sb.WriteString(dashboardLine(b.width, descLabel+b.m.styles.Warning.Render("needs description")))
+		return padToHeight(sb.String(), b.contentHeight)
 	}
-	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("description %s", desc)))
+	wrapW := b.width - len(descLabel)
+	if wrapW < 1 {
+		wrapW = 1
+	}
+	for i, line := range strings.Split(wordwrap.String(r.description, wrapW), "\n") {
+		if i > 0 {
+			sb.WriteString("\n")
+			sb.WriteString(dashboardLine(b.width, spaces(len(descLabel))+line))
+		} else {
+			sb.WriteString(dashboardLine(b.width, descLabel+line))
+		}
+	}
 	return padToHeight(sb.String(), b.contentHeight)
 }
 

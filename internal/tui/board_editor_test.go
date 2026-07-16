@@ -88,8 +88,7 @@ func TestBoardsTabNewBoardEditor(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "n") // new board editor form
+	m.boards.handleKey(keyMsg("n")) // new board editor form
 	if m.form == nil || m.formKind != formBoardEditor {
 		t.Fatalf("board editor form not open: form=%v kind=%v", m.form, m.formKind)
 	}
@@ -144,8 +143,7 @@ func TestBoardsTabNewBoardEditorRefusesInvalidExpr(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "n")
+	m.boards.handleKey(keyMsg("n"))
 	for _, r := range "next-sprint" {
 		update(t, m, string(r))
 	}
@@ -181,9 +179,8 @@ func TestBoardsTabEditBoardEditorPrefills(t *testing.T) {
 	}
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToBoardRow(t, m, "next-sprint")
-	update(t, m, "e")
+	m.boards.handleKey(keyMsg("e"))
 	if m.form == nil || m.formKind != formBoardEditor {
 		t.Fatalf("board editor form not open: form=%v kind=%v", m.form, m.formKind)
 	}

@@ -1,13 +1,464 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"atm/internal/store"
+	"atm/internal/workflow"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
+
+// --- Board ring / default selection tests ---
+
+func TestSelectDefaultPicksOpenTasksBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected != workflow.BoardOpenTasks("ATM") {
+		t.Errorf("selected = %q, want ATM:open-tasks", m.boards.selected)
+	}
+}
+
+func TestSelectDefaultFallsBackToFirstWhenOpenTasksAbsent(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	// Do NOT ensure open-tasks; it is absent.
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected == "" && len(m.boards.rows) > 0 {
+		t.Errorf("selected empty but ring has %d boards", len(m.boards.rows))
+	}
+	if len(m.boards.rows) > 0 && m.boards.selected != m.boards.rows[0].FullName {
+		t.Errorf("selected = %q, want first ring board %q", m.boards.selected, m.boards.rows[0].FullName)
+	}
+}
+
+func TestCycleBoardMovesRing(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	// Two distinct namespaces so the ring has more than one entry to cycle.
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	m.boards.cycleBoard(1) // next
+	if m.boards.selected == first {
+		t.Error("cycleBoard(1) did not move selection")
+	}
+	m.boards.cycleBoard(-1) // back
+	if m.boards.selected != first {
+		t.Errorf("after cycle back, selected = %q, want %q", m.boards.selected, first)
+	}
+}
+
+// --- Pinning tests ---
+
+func TestTogglePinPersists(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	p, err := m.store.GetPins("ATM")
+	if err != nil {
+		t.Fatalf("get pins: %v", err)
+	}
+	if p == nil || len(p.Boards) != 1 || p.Boards[0] != m.boards.selected {
+		t.Errorf("pins after toggle = %+v, want [%s]", p, m.boards.selected)
+	}
+	// Toggle again unpins.
+	m.boards.togglePin()
+	p, _ = m.store.GetPins("ATM")
+	if p != nil && len(p.Boards) != 0 {
+		t.Errorf("pins after second toggle = %v, want empty", p.Boards)
+	}
+}
+
+func TestJumpPinSelectsNth(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	first := m.boards.selected
+	// Pin a second board if one exists; else pin first twice is a no-op. For a
+	// deterministic test, pin first and verify jumpPin(1) selects it.
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.selected != first {
+		t.Errorf("after jumpPin(1), selected = %q, want %q", m.boards.selected, first)
+	}
+}
+
+// TestJumpPinResetsDrillState guards against a jump leaking a stale
+// chart/detail/cursor from the previously-drilled board into the newly
+// jumped-to board: drill into a namespace board's chart, then jumpPin to a
+// DIFFERENT pinned board, and confirm the thumbnail is back at L0 rather
+// than still showing the old namespace's chart under the new title.
+func TestJumpPinResetsDrillState(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+
+	var statusFull, priorityFull string
+	for _, r := range m.boards.rows {
+		switch r.Name {
+		case "status":
+			statusFull = r.FullName
+		case "priority":
+			priorityFull = r.FullName
+		}
+	}
+	if statusFull == "" || priorityFull == "" {
+		t.Fatalf("expected status and priority namespace boards, got rows: %v", m.boards.rowNames())
+	}
+
+	// Pin the priority board (the jump target) while it is SELECTED, so the
+	// jump lands on a board different from the one we are about to drill into.
+	m.boards.selected = priorityFull
+	m.boards.applyFocus()
+	m.boards.togglePin()
+
+	// Select and drill into the status namespace's chart.
+	m.boards.selected = statusFull
+	m.boards.applyFocus()
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v, want lLevelChart after drillIn on status", m.boards.level)
+	}
+
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.selected != priorityFull {
+		t.Fatalf("selected = %q, want %q", m.boards.selected, priorityFull)
+	}
+	if m.boards.level != lLevelTable {
+		t.Errorf("level = %v after jumpPin, want lLevelTable (stale chart leaked)", m.boards.level)
+	}
+	if m.boards.ns != "" {
+		t.Errorf("ns = %q after jumpPin, want empty (stale namespace leaked)", m.boards.ns)
+	}
+	if m.boards.detail != (labelDetailState{}) {
+		t.Errorf("detail = %+v after jumpPin, want zero value", m.boards.detail)
+	}
+	if m.boards.cursor != 0 {
+		t.Errorf("cursor = %d after jumpPin, want 0", m.boards.cursor)
+	}
+}
+
+// TestFocusCenterEntersNamespaceChartForImmediateNav verifies Shift-0
+// (focusCenter) doesn't just restore the highlight — it ENTERS the center
+// board so member navigation works right away. On a namespace board at L0 it
+// drills into the chart (level == lLevelChart) so Shift-up/down (chartCursorMove)
+// move among members with no intervening Shift-right.
+func TestFocusCenterEntersNamespaceChartForImmediateNav(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+
+	var statusFull string
+	for _, r := range m.boards.rows {
+		if r.Name == "status" {
+			statusFull = r.FullName
+		}
+	}
+	if statusFull == "" {
+		t.Fatalf("expected a status namespace board, got rows: %v", m.boards.rowNames())
+	}
+	m.boards.selected = statusFull
+	m.boards.applyFocus()
+	if m.boards.level != lLevelTable {
+		t.Fatalf("precondition: level = %v, want lLevelTable before focusCenter", m.boards.level)
+	}
+
+	m.boards.focusCenter() // Shift-0
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus = %d after focusCenter, want -1", m.boards.pinFocus)
+	}
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v after focusCenter on a namespace board, want lLevelChart (should enter the chart)", m.boards.level)
+	}
+
+	// Shift-down moves the chart cursor immediately — no Shift-right first.
+	rows := m.boards.chartRows()
+	if len(rows) < 2 {
+		t.Fatalf("expected >= 2 chart rows for status, got %d", len(rows))
+	}
+	before := m.boards.cursor
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor == before {
+		t.Errorf("chartCursorMove(1) did not move the cursor (was %d) after focusCenter", before)
+	}
+}
+
+// --- pinFocus (current-filter highlight location) tests ---
+
+// TestPinFocusDefaultsToStrip verifies pinFocus starts at -1 (the strip's
+// SELECTED board is the active filter) and that selectDefault, the entry
+// point called on project select, leaves it there.
+func TestPinFocusDefaultsToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after selectDefault = %d, want -1", m.boards.pinFocus)
+	}
+}
+
+// TestJumpPinSetsPinFocus verifies Shift-N moves the highlight to the jumped
+// pin's index without touching how the filter itself is chosen.
+func TestJumpPinSetsPinFocus(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.pinFocus != 0 {
+		t.Errorf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+}
+
+// TestCycleBoardReturnsPinFocusToStrip verifies "[" / "]" (cycleBoard) give
+// the highlight back to the strip even after a Shift-N jump moved it onto a
+// pin box.
+func TestCycleBoardReturnsPinFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	m.boards.cycleBoard(1)
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after cycleBoard = %d, want -1 (strip regains the highlight)", m.boards.pinFocus)
+	}
+}
+
+// TestSelectDefaultReturnsPinFocusToStrip verifies the refresh()-triggered
+// fallback path (a jumped-to pin's board vanishing mid-session) also resets
+// the highlight to the strip, not just the direct project-select call.
+func TestSelectDefaultReturnsPinFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	m.boards.selectDefault()
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after selectDefault = %d, want -1", m.boards.pinFocus)
+	}
+}
+
+// TestLoadPinsClampsToMaxPins verifies a pins.json written before the cap
+// dropped to 3 (or edited by hand) is clamped on load rather than rendering
+// or being jumpable past what the fixed slot holds.
+func TestLoadPinsClampsToMaxPins(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	var boards []string
+	for i := 0; i < 7; i++ {
+		name := fmt.Sprintf("ATM:board-%02d", i)
+		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+		boards = append(boards, name)
+	}
+	m.boards.refresh()
+	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: boards}); err != nil {
+		t.Fatalf("write pins: %v", err)
+	}
+	m.boards.refresh()
+	if len(m.boards.pins) != maxPins {
+		t.Fatalf("pins after loading 7 stored = %d, want %d (clamped)", len(m.boards.pins), maxPins)
+	}
+}
+
+// --- pinFocus repair on b.pins shrinkage (highlight-exclusivity invariant) ---
+
+// TestUnpinFocusedPinResetsFocusToStrip covers unpinning the very board that
+// is currently focused (jumped to via Shift-N): b.selected drops out of
+// b.pins entirely, so the strong highlight must fall back to the strip
+// (pinFocus == -1) rather than staying at a now-out-of-range or
+// wrongly-shifted index.
+func TestUnpinFocusedPinResetsFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins = %v, want 2", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 2 pins")
+	}
+	focused := m.boards.selected
+	if m.boards.pinFocus != 0 {
+		t.Fatalf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+
+	// Unpin the focused board itself.
+	m.boards.togglePin()
+
+	if m.boards.selected != focused {
+		t.Errorf("selected = %q, want unchanged %q (unpin must not move the filter)", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after unpinning the focused board = %d, want -1 (strip reclaims the highlight)", m.boards.pinFocus)
+	}
+}
+
+// TestUnpinLowerIndexPinKeepsFocusOnSameBoard covers b.pins shrinking below
+// the focused index while the focused board itself stays pinned and its
+// label/board stays alive (unlike TestLoadPinsPruneKeepsFocusOnSameBoard,
+// where the underlying board is deleted): another session drops a
+// lower-index pin straight from the persisted pin list, and the next
+// loadPins-driven refresh must still re-derive pinFocus so the highlight
+// follows the focused BOARD, not the slot.
+func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins = %v, want 3", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+		t.Fatal("jumpPin(3) returned false with 3 pins")
+	}
+	focused := m.boards.selected // "ATM:gamma"
+	if m.boards.pinFocus != 2 {
+		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
+	}
+
+	// Another session unpins alpha (index 0, below the focused index)
+	// straight through the store; alpha's label/board stays alive, only the
+	// persisted pin list shrinks.
+	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: []string{"ATM:beta", "ATM:gamma"}}); err != nil {
+		t.Fatalf("write pins: %v", err)
+	}
+	m.boards.refresh()
+
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins after external unpin = %v, want 2", m.boards.pins)
+	}
+	if m.boards.selected != focused {
+		t.Fatalf("selected = %q, want unchanged %q", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus < 0 || m.boards.pinFocus >= len(m.boards.pins) || m.boards.pins[m.boards.pinFocus] != focused {
+		t.Errorf("pins=%v pinFocus=%d, want pinFocus to still point at %q", m.boards.pins, m.boards.pinFocus, focused)
+	}
+}
+
+// TestLoadPinsPruneKeepsFocusOnSameBoard covers loadPins pruning a
+// lower-index pinned board (its label removed from the store) while a
+// higher-index pin stays focused: refresh must re-derive pinFocus so it
+// still points at the focused board, not a shifted slot.
+func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins = %v, want 3", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+		t.Fatal("jumpPin(3) returned false with 3 pins")
+	}
+	focused := m.boards.selected // "ATM:gamma"
+	if m.boards.pinFocus != 2 {
+		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
+	}
+
+	// Remove alpha's label entirely so loadPins prunes it as no-longer-live.
+	if _, err := m.store.LabelRemove("ATM:alpha", m.actor); err != nil {
+		t.Fatalf("LabelRemove: %v", err)
+	}
+	m.boards.refresh()
+
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins after prune = %v, want 2", m.boards.pins)
+	}
+	if m.boards.selected != focused {
+		t.Fatalf("selected = %q, want unchanged %q (gamma still exists)", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus < 0 || m.boards.pinFocus >= len(m.boards.pins) || m.boards.pins[m.boards.pinFocus] != focused {
+		t.Errorf("pins=%v pinFocus=%d, want pinFocus to still point at %q", m.boards.pins, m.boards.pinFocus, focused)
+	}
+}
 
 // --- Boards pane tests ---
 
@@ -149,12 +600,17 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 
 // --- Boards pane tests (ported from the Labels pane) ---
 
+// The Boards pane is no longer reachable via focus (Task 3 removed the [3]
+// pane; Task 7 re-wires boards actions into the Tasks pane). These tests
+// drive boardsModel directly via m.boards.handleKey instead of routing keys
+// through the Model's pane-focus dispatch.
+
 func TestBoardsTabEmptyStateNoProject(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "3") // focus Boards pane
-	if m.focused != paneLabels {
-		t.Fatalf("focus = %v want paneLabels", m.focused)
-	}
+	// boardsModel is no longer sized by Model.SetSize (it is not part of the
+	// rendered workspace as of Task 3), so tests that render its View must
+	// size it directly.
+	m.boards.SetSize(80, 20)
 	v := m.boards.View()
 	mustContain(t, v, "no project selected")
 	mustContain(t, v, "press [s] in the Projects pane")
@@ -164,8 +620,7 @@ func TestBoardsTabAddLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "a") // add label form
+	m.boards.handleKey(keyMsg("a")) // add label form
 	if m.form == nil {
 		t.Fatalf("add-label form not open")
 	}
@@ -187,8 +642,7 @@ func TestBoardsTabSeedKey(t *testing.T) {
 	_, _ = m.store.LabelRemove("ATM:context:question", testActor)
 	m.refreshAll()
 	update(t, m, "s")
-	update(t, m, "3")
-	update(t, m, "S")
+	m.boards.handleKey(keyMsg("S"))
 	if !strings.Contains(m.toastMsg, "seeded 16 labels into ATM") {
 		t.Fatalf("toast = %q, want seeded 16 labels into ATM", m.toastMsg)
 	}
@@ -204,6 +658,7 @@ func TestBoardsTabSeedKey(t *testing.T) {
 // rows still carry a distinct-task count.
 func TestBoardsL0FlatCounts(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
 		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
@@ -214,7 +669,6 @@ func TestBoardsL0FlatCounts(t *testing.T) {
 	mk("b", "ATM:status:done", "ATM:priority:high")
 	mk("c", "ATM:priority:high")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	byName := map[string]boardRow{}
 	for _, r := range m.boards.rows {
@@ -250,7 +704,6 @@ func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 
 	lines := strings.Split(m.boards.View(), "\n")
 	if len(lines) < 2 {
@@ -277,7 +730,6 @@ func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 	// (sprint) does not, so it renders the ⚠ marker.
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	lines := strings.Split(m.boards.View(), "\n")
 	if len(lines) < 2 {
@@ -309,7 +761,6 @@ func TestBoardsL0ShowsDescriptionColumn(t *testing.T) {
 	// undescribed (renders ⚠ and an empty description cell).
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	view := m.boards.View()
 	// The header has a DESCRIPTION column.
@@ -332,9 +783,8 @@ func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelChart {
 		t.Fatalf("level = %v want chart", m.boards.level)
 	}
@@ -344,7 +794,7 @@ func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 	if m.tasks.focus.mode != focusPresent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want present/status", m.tasks.focus)
 	}
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelTable {
 		t.Fatalf("level = %v want table after esc", m.boards.level)
 	}
@@ -365,9 +815,8 @@ func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
 	seedTask(t, m, "ATM", "open1", "ATM:status:open")
 	seedTask(t, m, "ATM", "done1", "ATM:status:done")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToBoardRow(t, m, "next-sprint")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelTable {
 		t.Fatalf("board selection must not leave L0: level = %v", m.boards.level)
 	}
@@ -392,7 +841,6 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	// sprint is emergent (a task carries ATM:sprint:next) and undescribed.
 	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 
 	// Before: the sprint row is flagged.
 	cursorToNamespaceRow(t, m, "sprint")
@@ -402,7 +850,7 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	}
 
 	// [e] on the namespace row opens the descriptor form, not the board editor.
-	update(t, m, "e")
+	m.boards.handleKey(keyMsg("e"))
 	if m.form == nil || m.formKind != formNamespaceDescribe {
 		t.Fatalf("[e] on namespace must open formNamespaceDescribe; form=%v kind=%v", m.form, m.formKind)
 	}
@@ -445,10 +893,9 @@ func TestBoardsEscFromChartRestoresTableCursor(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("esc"))
 
 	if m.boards.level != lLevelTable {
 		t.Fatalf("level = %v want table", m.boards.level)
@@ -469,7 +916,6 @@ func TestBoardsL0HasNoNoneRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	for _, r := range m.boards.rows {
 		if r.Name == "(none)" {
 			t.Fatalf("(none) row must not appear in flat boards list: %+v", r)
@@ -494,12 +940,12 @@ func TestBoardsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 			}
 			seedTask(t, m, "ATM", "open", "ATM:status:open")
 			m.SetSize(size.w, size.h)
+			m.boards.SetSize(size.w, size.h)
 			update(t, m, "s")
-			update(t, m, "3")
 			cursorToNamespaceRow(t, m, "status")
-			update(t, m, "enter")
+			m.boards.handleKey(keyMsg("enter"))
 			cursorToChartLabel(t, m, "ATM:status:open")
-			update(t, m, "enter")
+			m.boards.handleKey(keyMsg("enter"))
 
 			view := m.boards.View()
 			mustContain(t, view, "name        ATM:status:open")
@@ -535,6 +981,7 @@ func TestBoardsChartCursorAndUnsetRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(120, 80)
+	m.boards.SetSize(120, 80)
 	if err := m.store.LabelAdd("ATM:status:blocked", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
@@ -549,9 +996,8 @@ func TestBoardsChartCursorAndUnsetRow(t *testing.T) {
 	mk("d", "ATM:priority:high") // no status -> unset
 
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // into chart
+	m.boards.handleKey(keyMsg("enter")) // into chart
 
 	rows := m.boards.chartRows()
 	// open(2), blocked(0), done(1), unset(1) in this fixture.
@@ -590,14 +1036,14 @@ func TestBoardsChartHighlightsOnlyName(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
 
 	line := ""
@@ -633,9 +1079,8 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 
 	unset := -1
 	for i, r := range m.boards.chartRows() {
@@ -648,7 +1093,7 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 		t.Fatalf("unset row not found")
 	}
 	for m.boards.cursor < unset {
-		update(t, m, "j")
+		m.boards.handleKey(keyMsg("j"))
 	}
 	if !m.boards.chartRows()[m.boards.cursor].unset {
 		t.Fatalf("cursor = %d want unset row %d before render", m.boards.cursor, unset)
@@ -668,30 +1113,30 @@ func TestBoardsChartCursorCanStayOnUnset(t *testing.T) {
 
 func TestBoardsChartHeadlineCountsDistinctPresentTasks(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	seedTask(t, m, "ATM", "both", "ATM:status:open", "ATM:status:done")
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	seedTask(t, m, "ATM", "unset", "ATM:priority:high")
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 
 	mustContain(t, m.boards.View(), "status  ·  2 tasks")
 }
 
 func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateTask("ATM", "a", "", []string{"ATM:status:open"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // chart
+	m.boards.handleKey(keyMsg("enter")) // chart
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "enter") // detail
+	m.boards.handleKey(keyMsg("enter")) // detail
 
 	if m.boards.level != lLevelDetail {
 		t.Fatalf("level = %v want detail", m.boards.level)
@@ -702,7 +1147,7 @@ func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 	mustContain(t, m.boards.View(), "name        ATM:status:open")
 
 	// Esc returns to the chart and re-applies present focus.
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelChart {
 		t.Fatalf("level = %v want chart after esc", m.boards.level)
 	}
@@ -713,6 +1158,7 @@ func TestBoardsChartEnterRowOpensDetailAndFocusesExactLabel(t *testing.T) {
 
 func TestBoardsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	m := newTestModel(t)
+	m.boards.SetSize(80, 20)
 	seedProject(t, m, "ATM", "Acme")
 	mk := func(title string, labels ...string) {
 		if _, err := m.store.CreateTask("ATM", title, "", labels, m.actor); err != nil {
@@ -723,17 +1169,16 @@ func TestBoardsChartEnterUnsetFiltersAbsent(t *testing.T) {
 	mk("b", "ATM:priority:high") // no status
 
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter") // chart
+	m.boards.handleKey(keyMsg("enter")) // chart
 	cursorToChartUnset(t, m)
-	update(t, m, "enter") // unset leaf
+	m.boards.handleKey(keyMsg("enter")) // unset leaf
 
 	if m.tasks.focus.mode != focusAbsent || m.tasks.focus.ns != "status" {
 		t.Fatalf("focus = %+v want absent/status", m.tasks.focus)
 	}
 	mustContain(t, m.boards.View(), "1 task with no status")
-	update(t, m, "esc")
+	m.boards.handleKey(keyMsg("esc"))
 	if m.boards.level != lLevelChart || m.tasks.focus.mode != focusPresent {
 		t.Fatalf("esc from unset leaf did not restore chart present focus: %v %+v", m.boards.level, m.tasks.focus)
 	}
@@ -746,11 +1191,10 @@ func TestBoardsChartRemovePrefillsCursorLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("l"))
 
 	if m.form == nil || m.formKind != formLabelRemove {
 		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
@@ -767,12 +1211,11 @@ func TestBoardsDetailRemovePrefillsDisplayedLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartLabel(t, m, "ATM:status:open")
-	update(t, m, "enter")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("l"))
 
 	if m.form == nil || m.formKind != formLabelRemove {
 		t.Fatalf("remove form not open: form=%v kind=%v", m.form, m.formKind)
@@ -789,16 +1232,15 @@ func TestBoardsSyntheticUnsetRemoveIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	update(t, m, "s")
-	update(t, m, "3")
 	cursorToNamespaceRow(t, m, "status")
-	update(t, m, "enter")
+	m.boards.handleKey(keyMsg("enter"))
 	cursorToChartUnset(t, m)
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("l"))
 	if m.form != nil {
 		t.Fatalf("remove form opened for chart (unset) row")
 	}
-	update(t, m, "enter")
-	update(t, m, "l")
+	m.boards.handleKey(keyMsg("enter"))
+	m.boards.handleKey(keyMsg("l"))
 	if m.form != nil {
 		t.Fatalf("remove form opened for unset detail leaf")
 	}
@@ -826,6 +1268,87 @@ func cursorToChartUnset(t *testing.T, m *Model) {
 	t.Fatalf("chart (unset) row not found")
 }
 
+// --- Thumbnail drill-down tests (Task 8) ---
+
+func TestDrillIntoNamespaceChart(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	// Select the status:* namespace board.
+	for i, r := range m.boards.rows {
+		if r.Expandable && r.Name == "status" {
+			m.boards.selected = r.FullName
+			_ = i
+			break
+		}
+	}
+	m.boards.applyFocus()
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart {
+		t.Errorf("level = %v, want lLevelChart after drillIn on namespace", m.boards.level)
+	}
+	m.boards.drillOut()
+	if m.boards.level != lLevelTable {
+		t.Errorf("level = %v, want lLevelTable after drillOut", m.boards.level)
+	}
+}
+
+func TestChartCursorMoveTargetsMember(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Expandable && r.Name == "status" {
+			m.boards.selected = r.FullName
+			break
+		}
+	}
+	m.boards.applyFocus()
+	m.boards.drillIn() // -> chart
+	if m.boards.chartCursorMove(0); m.boards.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 at chart entry", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor != 1 {
+		t.Errorf("cursor = %d after move, want 1", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("cursor = %d after move back, want 0", m.boards.cursor)
+	}
+}
+
+func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault() // SELECTED = ATM:open-tasks (leaf board)
+	m.boards.drillIn()       // leaf board -> its detail
+	if m.boards.level != lLevelDetail {
+		t.Fatalf("level = %v, want lLevelDetail", m.boards.level)
+	}
+	m.boards.drillOut() // back to L0 — board focus must be re-applied, not cleared
+	if m.boards.level != lLevelTable {
+		t.Fatalf("level = %v, want lLevelTable", m.boards.level)
+	}
+	// The task list must still be filtered by the SELECTED board (assert via
+	// the tasks pane's focus caption / filter — check the exact accessor in
+	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
+	if got := m.tasks.focusCaption(); !strings.Contains(got, "open-tasks") {
+		t.Errorf("focus caption = %q, want it to reference open-tasks after drillOut", got)
+	}
+}
+
 func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
@@ -838,4 +1361,145 @@ func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	if !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("truncated selected row does not reset ANSI styling: %q", got)
 	}
+}
+
+// --- UX refinement follow-up tests (pin cap, description wrapping, hint removal) ---
+
+// TestTogglePinCapsAtThree verifies a 4th pin is ignored rather than evicting
+// an existing pin or growing past what jumpPin / the fixed pin slot can
+// address (maxPins is 3 for the fixed-slot rework, reachable by Shift-1..3).
+func TestTogglePinCapsAtThree(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	var boards []string
+	for i := 0; i < 4; i++ {
+		name := fmt.Sprintf("ATM:board-%02d", i)
+		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+		boards = append(boards, name)
+	}
+	m.boards.refresh()
+	for _, full := range boards {
+		m.boards.selected = full
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins after 4 toggles = %d, want 3 (cap)", len(m.boards.pins))
+	}
+	if m.boards.pins[len(m.boards.pins)-1] == boards[3] {
+		t.Errorf("4th board %q was pinned past the cap", boards[3])
+	}
+	p, err := m.store.GetPins("ATM")
+	if err != nil {
+		t.Fatalf("get pins: %v", err)
+	}
+	if p == nil || len(p.Boards) != 3 {
+		t.Errorf("persisted pins = %+v, want 3", p)
+	}
+}
+
+// TestRenderDetailWrapsLongDescription verifies renderDetail wraps a
+// description that overflows the pane width into multiple lines rather than
+// truncating it to one.
+func TestRenderDetailWrapsLongDescription(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	long := "this description is intentionally long enough that it must wrap across more than one line at a narrow pane width"
+	if err := m.store.LabelAdd("ATM:status:open", long, "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	m.SetSize(40, 30)
+	m.boards.SetSize(40, 30)
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+	cursorToChartLabel(t, m, "ATM:status:open")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	descLines := 0
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "description") || (descLines > 0 && strings.TrimSpace(line) != "") {
+			descLines++
+		} else if descLines > 0 {
+			break
+		}
+	}
+	if descLines < 2 {
+		t.Errorf("description rendered in %d line(s), want wrapped across >= 2 at width 40:\n%s", descLines, view)
+	}
+	mustContain(t, view, "intentionally long")
+	mustContain(t, view, "wrap across")
+}
+
+// TestRenderChartShowsNamespaceDescriptorDescription verifies renderChart
+// surfaces the namespace descriptor label's (<scope>:<ns>:*) description
+// above the member bars, when one is set.
+func TestRenderChartShowsNamespaceDescriptorDescription(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if err := m.store.LabelAdd("ATM:status:*", "the lifecycle stage of a task", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	m.SetSize(100, 30)
+	m.boards.SetSize(100, 30)
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustContain(t, view, "the lifecycle stage of a task")
+}
+
+// TestRenderChartOmitsHintLine and TestRenderDetailOmitsBackToChartHint verify
+// change 4: the leftover Labels-pane hints embedded in renderChart/renderDetail
+// are gone (the [2] pane's own statusHint already covers navigation).
+func TestRenderChartOmitsHintLine(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustNotContain(t, view, "[Enter]inspect")
+	mustNotContain(t, view, "[Esc]back")
+}
+
+func TestRenderDetailOmitsBackToChartHint(t *testing.T) {
+	m := newTestModel(t)
+	m.boards.SetSize(120, 80)
+	seedProject(t, m, "ATM", "Acme")
+	if err := m.store.LabelAdd("ATM:status:blocked", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateTask("ATM", "no-status", "", nil, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+	cursorToChartUnsetRow(t, m)
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustNotContain(t, view, "back to chart")
+}
+
+// cursorToChartUnsetRow moves the chart cursor to the "(unset)" synthetic row.
+func cursorToChartUnsetRow(t *testing.T, m *Model) {
+	t.Helper()
+	rows := m.boards.chartRows()
+	for i, r := range rows {
+		if r.unset {
+			m.boards.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no (unset) chart row found")
 }

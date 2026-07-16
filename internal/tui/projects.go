@@ -9,6 +9,7 @@ import (
 
 	"atm/internal/activity"
 	"atm/internal/store"
+	"atm/internal/workflow"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -239,6 +240,9 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.boards.reset()
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+			if err := workflow.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
+				p.m.showToast("ensure open-tasks: " + err.Error())
+			}
 			// D15: auto-start the indexer for the newly-selected project
 			// (starts the watcher if config present; opens the overlay to
 			// configure if not). resetIndexer on the old project is handled
@@ -255,6 +259,8 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			cmd := autoStartIndexer(p.m, r.code)
 			p.m.tasks.refresh()
 			p.m.boards.refresh()
+			p.m.boards.selectDefault()
+			p.m.boards.loadPins()
 			return cmd
 		}
 	case "a":

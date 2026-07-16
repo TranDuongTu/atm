@@ -69,7 +69,7 @@ const (
 	focusUnlabeled
 )
 
-// taskFocus is the Tasks-pane view state the Labels pane sets on each level
+// taskFocus is the Tasks-pane view state the board strip sets on each level
 // entry. ns names a real namespace for present/absent; bareTags switches
 // present/absent to operate on unnamespaced (bare) labels instead.
 type taskFocus struct {
@@ -123,6 +123,10 @@ func newTasksModel(m *Model) tasksModel {
 	return tasksModel{m: m, sortMode: sortUpdatedDesc}
 }
 
+// stripHeight is the fixed height of the board thumbnail strip rendered
+// above the task list (list view only; clamps down on short terminals).
+const stripHeight = 8
+
 func (t *tasksModel) SetSize(w, h int) {
 	if w < 1 {
 		w = 1
@@ -132,10 +136,33 @@ func (t *tasksModel) SetSize(w, h int) {
 	}
 	t.width = w
 	t.contentHeight = h
-	t.pageSize = h - 6 // header line + blank + column header + rule + footer + margin
+	// header line + blank + column header + rule + footer + margin, plus the
+	// board strip reserved in the list view. This is only a placeholder value
+	// for t.pageSize until the first render — listPageSize() and
+	// renderListWithStrip() both recompute the real page size from
+	// listContentHeight(), which also accounts for the fixed tabbed pinned box
+	// (SetSize never re-runs on a pin toggle and would otherwise leave this
+	// value stale).
+	t.pageSize = h - stripHeight - 6
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}
+}
+
+// listContentHeight is the single source of truth for how many lines the
+// scrollable task list gets in the list view, once the fixed board strip and
+// the FIXED pinned slot are subtracted. The pinned slot is a single tabbed box
+// that always reserves pinnedBoxHeight lines (renderPinnedTabs draws exactly
+// that many, regardless of how many boards are pinned), so the subtraction is a
+// CONSTANT — the list height never changes as pins are added or removed.
+// renderListWithStrip and listPageSize both derive from this single value, so
+// the renderer and the pgup/pgdown page jumps always agree on the page boundary.
+func (t *tasksModel) listContentHeight() int {
+	h := t.contentHeight - stripHeight - pinnedBoxHeight
+	if h < 4 {
+		h = 4
+	}
+	return h
 }
 
 func (t *tasksModel) refresh() {
@@ -276,7 +303,7 @@ func taskHasBareTag(scope string, t *store.Task) bool {
 
 // setFocus applies a complete Tasks-pane view state (focus + filter) in one
 // step, resets the cursor, and refreshes. This is the single channel the
-// Labels pane drives; the Tasks pane never edits its own filter.
+// board ring/strip drives; the Tasks pane never edits its own filter.
 func (t *tasksModel) setFocus(f taskFocus, filter string) {
 	t.focus = f
 	t.filter = filter
@@ -476,12 +503,41 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		t.cursor = 0
 		t.offset = 0
-	case "]":
+	case "[", "]":
+		dir := -1
+		if k.String() == "]" {
+			dir = 1
+		}
+		t.m.boards.cycleBoard(dir)
+	case "pgdown":
 		t.cursor += t.listPageSize()
 		t.clampCursor()
-	case "[":
+	case "pgup":
 		t.cursor -= t.listPageSize()
 		t.clampCursor()
+	case "shift+right", "shift+left":
+		// Drill the SELECTED thumbnail in / out via boardsModel's level navigation.
+		if k.String() == "shift+right" {
+			t.m.boards.drillIn()
+		} else {
+			t.m.boards.drillOut()
+		}
+	case "shift+up", "shift+down":
+		// Move the SELECTED thumbnail's chart cursor (the member that d, l target).
+		dir := -1
+		if k.String() == "shift+down" {
+			dir = 1
+		}
+		t.m.boards.chartCursorMove(dir)
+	case "p":
+		t.m.boards.togglePin()
+	case "!", "@", "#", "$", "%", "^", "&", "*", "(":
+		n := shiftDigitToInt(k.String())
+		t.m.boards.jumpPin(n)
+	case ")":
+		// Shift+0: return the strong current-filter highlight from a pin box
+		// to the strip's SELECTED (center) board, the inverse of Shift-1..9.
+		t.m.boards.focusCenter()
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % 3
@@ -491,6 +547,13 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		t.openCreateForm()
+	case "n", "e", "S", "d", "l":
+		// Board-authoring keys, scoped to the SELECTED board at its current
+		// drill level. Delegated to a selection-aware handler on boardsModel
+		// (not handleTableKey, whose e targets b.cursor — wrong in the merged
+		// pane, where cycleBoard resets b.cursor to 0 and the selection lives
+		// at b.ringIndex()).
+		return t.m.boards.handleAuthoringKey(k)
 	case "enter":
 		if t.grouped() {
 			// Enter is context-sensitive: toggle a header, or open detail
@@ -830,11 +893,45 @@ func (t *tasksModel) clampDetail() {
 func (t *tasksModel) View() string {
 	switch t.view {
 	case tViewList:
-		return t.renderList()
+		return t.renderListWithStrip()
 	case tViewDetail:
 		return t.renderDetailView()
 	}
 	return ""
+}
+
+// renderListWithStrip renders the list view top to bottom: the task list
+// (fills), then the single tabbed pinned box, then the board thumbnail strip at
+// the bottom (the detail view keeps the full pane since the strip is
+// contextual to browsing). It reuses the existing renderList() by temporarily
+// shrinking t.contentHeight/t.pageSize to the list's sub-height (from
+// listContentHeight()) rather than refactoring renderList itself —
+// renderList already ends with padToHeight(..., t.contentHeight), so the
+// shrink makes it pad to the sub-height, and the outer padToHeight below
+// clamps any rounding.
+func (t *tasksModel) renderListWithStrip() string {
+	listH := t.listContentHeight()
+	savedH, savedPageSize := t.contentHeight, t.pageSize
+	t.contentHeight = listH
+	t.pageSize = listH - 6
+	if t.pageSize < 1 {
+		t.pageSize = 1
+	}
+	listOut := t.renderList()
+	t.contentHeight, t.pageSize = savedH, savedPageSize
+
+	pinned := t.m.boards.renderPinnedTabs(t.width)
+	strip := t.m.boards.renderStrip(t.width, stripHeight)
+
+	var b strings.Builder
+	b.WriteString(listOut)
+	if pinned != "" {
+		b.WriteString("\n")
+		b.WriteString(pinned)
+	}
+	b.WriteString("\n")
+	b.WriteString(strip)
+	return padToHeight(b.String(), t.contentHeight)
 }
 
 func (t *tasksModel) headerLine() string {
@@ -846,7 +943,7 @@ func (t *tasksModel) headerLine() string {
 }
 
 // focusCaption is a read-only description of why the Tasks list is scoped,
-// derived from the focus set by the Labels pane. Empty focus reads "(all)".
+// derived from the focus set by the board strip. Empty focus reads "(all)".
 func (t *tasksModel) focusCaption() string {
 	switch t.focus.mode {
 	case focusPresent:
@@ -904,8 +1001,23 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 // TITLE width that absorbs the remaining pane width. The format string used
 // by both the header and data rows is " %-*s %-*s %-*s %*s" (leading space +
 // 3 inter-column spaces = 4 extra columns of padding).
+//
+// idW is sized to the widest ID actually present (clamped to [9, 14]): task
+// IDs are "<CODE>-<hash>" (e.g. DEMO-f7d632, 11 chars), and Go's %-9s does NOT
+// truncate a longer value — an under-sized idW would let every row overflow
+// its column and push the trailing UPDATED value off the pane, clipping it
+// (the "1d ago" -> "1d ag" bug). Sizing to the real IDs keeps the row within
+// the pane; renderFlatList still truncates defensively.
 func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
 	idW, labelsW, updatedW = 9, 18, 8
+	for _, r := range t.rows {
+		if w := len(r.id); w > idW {
+			idW = w
+		}
+	}
+	if idW > 14 {
+		idW = 14
+	}
 	titleW = t.width - idW - labelsW - updatedW - 4
 	if titleW < 16 {
 		titleW = 16
@@ -918,7 +1030,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
+			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
 		})
 		return
 	}
@@ -936,7 +1048,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		if len(r.labels) > 0 {
 			labels = strings.Join(r.labels, " ")
 		}
-		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, r.id, titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
+		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
 		if i == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -951,7 +1063,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyText.Render("choose a namespace or label in the Labels pane to change focus"),
+			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
 		})
 		return
 	}
@@ -1108,25 +1220,68 @@ func (t *tasksModel) pageWindow(total int) (int, int) {
 	return windowLines(total, t.cursor, t.pageSize)
 }
 
-// groupPageSize returns the number of lines that fit in the grouped/tree
-// list body (the header line + blank line written by renderList are the
-// only fixed overhead; group/row lines are the scrollable body).
+// groupPageSize returns the number of lines that fit in the grouped/tree list
+// body. Fixed overhead is 3 lines: the header line + blank line written by
+// renderList, PLUS the "showing X of Y" footer renderGroupedList writes after
+// the body. Reserving only 2 makes the body one line too tall, so padToHeight
+// truncates the footer (and the pinned stack then renders where it would be).
+// Called ONLY during render, where renderListWithStrip has already shrunk
+// t.contentHeight to the list sub-height (listContentHeight), so
+// t.contentHeight-3 == listH-3 here. The keypress side (listPageSize)
+// reconstructs the same listH-3 from listContentHeight() directly, since at
+// keypress time t.contentHeight is the full pane height.
 func (t *tasksModel) groupPageSize() int {
-	size := t.contentHeight - 2
+	size := t.contentHeight - 3
 	if size < 1 {
 		size = 1
 	}
 	return size
 }
 
-// listPageSize returns the page size for whichever list mode is active,
-// used by the "[" / "]" page-jump keys (and matching the size the renderer
-// windows by, so a jump always lands on a page boundary).
+// listPageSize returns the page size for whichever list mode is active, used by
+// the pgdown / pgup page-jump keys. Both modes derive from listContentHeight()
+// (the list sub-height) so a jump always lands on the exact page boundary the
+// renderer draws: the flat body reserves 6 lines of chrome, the grouped body 3
+// (header + blank + "showing" footer).
 func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
-		return t.groupPageSize()
+		size := t.listContentHeight() - 3
+		if size < 1 {
+			size = 1
+		}
+		return size
 	}
-	return t.pageSize
+	size := t.listContentHeight() - 6
+	if size < 1 {
+		size = 1
+	}
+	return size
+}
+
+// shiftDigitToInt maps a shifted-digit key (US keyboard row: ! @ # $ % ^ & * ()
+// to the 1-9 pin slot it jumps to. Returns 0 for anything else.
+func shiftDigitToInt(k string) int {
+	switch k {
+	case "!":
+		return 1
+	case "@":
+		return 2
+	case "#":
+		return 3
+	case "$":
+		return 4
+	case "%":
+		return 5
+	case "^":
+		return 6
+	case "&":
+		return 7
+	case "*":
+		return 8
+	case "(":
+		return 9
+	}
+	return 0
 }
 
 func (t *tasksModel) statusHint() string {
@@ -1142,7 +1297,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[s]ort [a]dd [Enter]detail [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
 }
 
 // --- form openers ---

@@ -37,6 +37,11 @@
       "name": "ATM:context:repository"
     },
     {
+      "description": "every open task: the project's active work. Default board in the TUI.",
+      "expr": "status:open",
+      "name": "ATM:open-tasks"
+    },
+    {
       "description": "optional urgency ranking; absent means default priority",
       "name": "ATM:priority:*"
     },
@@ -107,6 +112,11 @@
     {
       "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
       "name": "DEMO:context:repository"
+    },
+    {
+      "description": "every open task: the project's active work. Default board in the TUI.",
+      "expr": "status:open",
+      "name": "DEMO:open-tasks"
     },
     {
       "description": "optional urgency ranking; absent means default priority",

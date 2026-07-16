@@ -124,6 +124,26 @@ func TestLabelSeedTextOutput(t *testing.T) {
 	}
 }
 
+func TestLabelSeedEnsuresOpenTasksBoard(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	// Simulate an older project that predates the open-tasks board.
+	h.run("label", "remove", "--store", sp, "--name", "FOO:open-tasks", "--actor", "admin@cli:unset")
+	_, _, code := h.run("label", "seed", "--store", sp, "--project", "FOO", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
+	}
+	l, err := h.store.LabelShow("FOO:open-tasks")
+	if err != nil {
+		t.Fatalf("open-tasks board missing after label seed: %v", err)
+	}
+	if l.Expr == "" {
+		t.Error("open-tasks board has no expression")
+	}
+}
+
 func TestLabelAddWithExprCreatesBoard(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
