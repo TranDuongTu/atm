@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
 )
 
 type taskDetailState struct {
 	id     string
-	task   *store.Task
+	task   *core.Task
 	lines  []string
 	offset int
 }
@@ -115,8 +115,8 @@ func (t *tasksModel) renderDetail() {
 			}
 		}
 	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("created %s   by %s", store.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("updated %s   by %s", store.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("created %s   by %s", core.RFC3339UTC(tk.CreatedAt), tk.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("updated %s   by %s", core.RFC3339UTC(tk.UpdatedAt), tk.UpdatedBy)))
 	b.WriteString("\n")
 
 	b.WriteString(sectionCaption(t.m.styles, t.width, "LABELS"))
@@ -143,7 +143,7 @@ func (t *tasksModel) renderDetail() {
 			if len(c.Labels) > 0 {
 				labels = strings.Join(c.Labels, " ")
 			}
-			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf(" %s   %s   %s", c.CreatedBy, relTime(c.CreatedAt, store.Now()), truncateRunes(labels, 36))))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf(" %s   %s   %s", c.CreatedBy, relTime(c.CreatedAt, core.Now()), truncateRunes(labels, 36))))
 			bodyLines := strings.Split(c.Body, "\n")
 			maxLines := 6
 			for i := 0; i < len(bodyLines) && i < maxLines; i++ {

@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"atm/internal/store"
+	"atm/internal/core"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -12,17 +12,17 @@ import (
 // expression that does not parse. This is what makes the expression language
 // usable by someone who does not know its syntax.
 type boardEditor struct {
-	store *store.Store
+	store core.Service
 	code  string
 
 	Name, Description, expr string
 
-	parsed store.Node
+	parsed core.Expr
 	err    error
 	count  int
 }
 
-func newBoardEditor(s *store.Store, code string) *boardEditor {
+func newBoardEditor(s core.Service, code string) *boardEditor {
 	return &boardEditor{store: s, code: code}
 }
 
@@ -31,7 +31,7 @@ func newBoardEditor(s *store.Store, code string) *boardEditor {
 // match count is what the form renders below the expression field.
 func (e *boardEditor) SetExpr(src string) {
 	e.expr = src
-	e.parsed, e.err = store.ParseExpr(src)
+	e.parsed, e.err = core.ParseExpr(src)
 	e.count = 0
 	if e.err != nil {
 		return
@@ -39,7 +39,7 @@ func (e *boardEditor) SetExpr(src string) {
 	// A cyclic or otherwise unresolvable expression surfaces here, because
 	// ListTasksErr evaluates it. ListTasks swallows the error and would
 	// conflate a broken board with an empty one.
-	tasks, err := e.store.ListTasksErr(store.QueryFilters{Project: e.code, Expr: src})
+	tasks, err := e.store.ListTasksErr(core.QueryFilters{Project: e.code, Expr: src})
 	if err != nil {
 		e.err = err
 		return

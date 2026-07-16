@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
 )
 
@@ -13,7 +13,7 @@ type taskRow struct {
 	title   string
 	labels  []string
 	updated string
-	task    *store.Task
+	task    *core.Task
 }
 
 // stripHeight is the fixed height of the board thumbnail strip rendered

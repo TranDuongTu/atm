@@ -41,6 +41,7 @@ type ProjectService interface {
 
 type LabelService interface {
 	LabelAdd(name, description, expr, actor string) error
+	LabelSeed(name, description, expr, actor string) error
 	LabelList(project, namespace string) []Label
 	LabelShow(name string) (Label, error)
 	LabelRemove(name, actor string) (*LabelRemoveResult, error)

@@ -6,7 +6,7 @@
 // project-select re-ensures it.
 package workflow
 
-import "atm/internal/store"
+import "atm/internal/core"
 
 // BoardOpenTasks returns the full name of the Open Tasks board for a project.
 // Callers select this board by name; they never reference the expression.
@@ -20,7 +20,7 @@ func openTasksExpr() string { return "status:open" }
 // Idempotent: LabelSeed upserts only when the label is absent, so a human's
 // curated description is never overwritten. Self-bootstrapping: it does not
 // assume `atm label seed` ran.
-func EnsureVocabulary(s *store.Store, code, actor string) error {
+func EnsureVocabulary(s core.LabelService, code, actor string) error {
 	return s.LabelSeed(
 		BoardOpenTasks(code),
 		"every open task: the project's active work. Default board in the TUI.",

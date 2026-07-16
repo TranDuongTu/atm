@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"atm/internal/core"
 	"atm/internal/embed"
-	"atm/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -53,7 +53,7 @@ type indexerModel struct {
 	lastError      string
 	logs           []string
 	logOffset      int
-	cfg            *store.EmbeddingConfig
+	cfg            *core.EmbeddingConfig
 	status         []indexerStatusRow
 	cancel         context.CancelFunc
 	done           chan struct{}
@@ -62,7 +62,7 @@ type indexerModel struct {
 	editFields     []formField
 	editCursor     int
 	msgCh          chan indexerMsg
-	embedFnBuilder func(*store.EmbeddingConfig) store.EmbedFunc
+	embedFnBuilder func(*core.EmbeddingConfig) core.EmbedFunc
 }
 
 type indexerPlugin struct{}
@@ -444,7 +444,7 @@ func (p *indexerPlugin) saveConfig(m *Model) tea.Cmd {
 			return nil
 		}
 	}
-	cfg := store.EmbeddingConfig{
+	cfg := core.EmbeddingConfig{
 		Model:       vals["model"],
 		Endpoint:    vals["endpoint"],
 		QueryPrefix: vals["query_prefix"],
@@ -556,7 +556,7 @@ func (p *indexerPlugin) model(m *Model) *indexerModel {
 	return m.indexer
 }
 
-func defaultEmbedFnBuilder(cfg *store.EmbeddingConfig) store.EmbedFunc {
+func defaultEmbedFnBuilder(cfg *core.EmbeddingConfig) core.EmbedFunc {
 	client := embed.New(*cfg)
 	return func(text, role string) ([]float64, error) { return client.Embed(text, role) }
 }
@@ -774,7 +774,7 @@ func sendIndexerMsg(im *indexerModel, msg indexerMsg) {
 // completion line and the no-op "nothing to do"/"index fresh" lines both count.
 //
 // isCaughtUpLine and isFreshDeltaLine match the progress-string prefixes
-// emitted by store.Watch / store.ReindexOnce ("indexing ", "embedding ",
+// emitted by core.Watch / core.ReindexOnce ("indexing ", "embedding ",
 // "nothing to do", "index fresh", "wrote "). Changing the store's log
 // phrasing requires updating these matchers.
 func isCaughtUpLine(line string) bool {

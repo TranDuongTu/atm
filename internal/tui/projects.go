@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"atm/internal/activity"
-	"atm/internal/store"
+	"atm/internal/core"
 	"atm/internal/workflow"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
@@ -47,7 +47,7 @@ type projRow struct {
 
 type detailState struct {
 	code      string
-	project   *store.Project
+	project   *core.Project
 	lines     []string // rendered detail lines (for scroll)
 	offset    int
 	historyOn bool
@@ -103,11 +103,11 @@ func computeStripDays(width int) int {
 	return days
 }
 
-func activityStripeDayCounts(entries []store.LogEntry, days int) []activityStripeDay {
-	return activityStripeDayCountsEnding(entries, days, store.Now())
+func activityStripeDayCounts(entries []core.LogEntry, days int) []activityStripeDay {
+	return activityStripeDayCountsEnding(entries, days, core.Now())
 }
 
-func activityStripeDayCountsEnding(entries []store.LogEntry, days int, end time.Time) []activityStripeDay {
+func activityStripeDayCountsEnding(entries []core.LogEntry, days int, end time.Time) []activityStripeDay {
 	if days <= 0 {
 		return nil
 	}
@@ -167,7 +167,7 @@ func (p *projectsModel) refresh() {
 			name:    pr.Name,
 			tasks:   tasks,
 			labels:  labels,
-			updated: relTime(pr.UpdatedAt, store.Now()),
+			updated: relTime(pr.UpdatedAt, core.Now()),
 		})
 	}
 	// store pre-sorts by code-asc; keep that (fixed sort per mockup).
@@ -336,20 +336,20 @@ func (p *projectsModel) renderDetail() {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("name      %s", pr.Name)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("tasks     %d", len(listTaskIDs(p.m.store, pr.Code)))))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("labels    %d", len(p.m.store.LabelList(pr.Code, "")))))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("created   %s   by %s", store.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("updated   %s   by %s", store.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("created   %s   by %s", core.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("updated   %s   by %s", core.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
 
 	if p.detail.historyOn {
 		b.WriteString("\n")
 		b.WriteString(sectionCaption(p.m.styles, p.width, "HISTORY"))
 		b.WriteString("\n")
-		hv := p.m.store.History(p.detail.code, store.Subject{Kind: "project", Code: p.detail.code})
+		hv := p.m.store.History(p.detail.code, core.Subject{Kind: "project", Code: p.detail.code})
 		if len(hv) == 0 {
 			b.WriteString(dashboardLine(p.width, " (no history)"))
 			b.WriteString("\n")
 		} else {
 			for _, e := range hv {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
 			}
 		}
 	}
@@ -527,7 +527,7 @@ func chartBoxHeights(total int) (int, int, int) {
 	return actor, stripe, bubbles
 }
 
-func (p *projectsModel) renderPersonaActivityChart(entries []store.LogEntry, maxLines int) []string {
+func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxLines int) []string {
 	if maxLines <= 0 {
 		return nil
 	}
@@ -601,7 +601,7 @@ func longestPersonaKeyWidth(groups []activity.Group) int {
 	return width
 }
 
-func (p *projectsModel) renderActivityStripeChart(entries []store.LogEntry, bodyHeight int) string {
+func (p *projectsModel) renderActivityStripeChart(entries []core.LogEntry, bodyHeight int) string {
 	innerW := chartBoxInnerWidth(p.width)
 	numDays := computeStripDays(innerW)
 	days := activityStripeDayCounts(entries, numDays)
@@ -742,7 +742,7 @@ func densityFillRune(count int) rune {
 	}
 }
 
-func renderUbiquitousLanguageCanvas(width int, height int, terms []store.VocabularyTerm) string {
+func renderUbiquitousLanguageCanvas(width int, height int, terms []core.VocabularyTerm) string {
 	if width < 18 {
 		width = 18
 	}
@@ -751,7 +751,7 @@ func renderUbiquitousLanguageCanvas(width int, height int, terms []store.Vocabul
 	}
 	c := canvas.New(width, height)
 	colors := []lipgloss.Color{"39", "214", "82", "171", "203", "117"}
-	sorted := make([]store.VocabularyTerm, len(terms))
+	sorted := make([]core.VocabularyTerm, len(terms))
 	copy(sorted, terms)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].Weight != sorted[j].Weight {
@@ -772,7 +772,7 @@ func renderUbiquitousLanguageCanvas(width int, height int, terms []store.Vocabul
 	return c.View()
 }
 
-func (p *projectsModel) renderUbiquitousLanguageChart(vocab *store.Vocabulary, maxLines int) string {
+func (p *projectsModel) renderUbiquitousLanguageChart(vocab *core.Vocabulary, maxLines int) string {
 	if maxLines < 3 {
 		return dashboardLine(p.width, "Ubiquitous Language")
 	}
@@ -881,7 +881,7 @@ func meterBar(percent int, width int) string {
 	return repeat("█", filled) + repeat("░", width-filled)
 }
 
-func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []store.LogEntry, *store.Vocabulary, bool) {
+func (p *projectsModel) projectSummaryData() (*core.Project, []*core.Task, []core.LogEntry, *core.Vocabulary, bool) {
 	code := p.m.projectScope
 	if code == "" {
 		return nil, nil, nil, nil, false
@@ -890,9 +890,9 @@ func (p *projectsModel) projectSummaryData() (*store.Project, []*store.Task, []s
 	if err != nil {
 		return nil, nil, nil, nil, false
 	}
-	tasks := p.m.store.ListTasks(store.QueryFilters{Project: code})
+	tasks := p.m.store.ListTasks(core.QueryFilters{Project: code})
 	entries, err := p.m.store.ReadLogCached(code)
-	if err != nil && !store.IsIntegrity(err) {
+	if err != nil && !core.IsIntegrity(err) {
 		return nil, nil, nil, nil, false
 	}
 	vocab, _ := p.m.store.GetVocabulary(code)
@@ -1010,7 +1010,7 @@ func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
 	code := vals["code"]
 	name := vals["name"]
 	if _, err := m.store.CreateProject(code, name, m.actor); err != nil {
-		if store.IsConflict(err) {
+		if core.IsConflict(err) {
 			m.showToast(fmt.Sprintf("4 conflict: code %s exists", code))
 		} else {
 			m.showToast("error: " + err.Error())
@@ -1121,8 +1121,8 @@ func padToHeight(s string, h int) string {
 
 // listTaskIDs returns the per-project task IDs via the exported store query
 // API (the store's own listTaskIDs is unexported).
-func listTaskIDs(s *store.Store, code string) []string {
-	ts := s.ListTasks(store.QueryFilters{Project: code})
+func listTaskIDs(s core.Service, code string) []string {
+	ts := s.ListTasks(core.QueryFilters{Project: code})
 	out := make([]string, 0, len(ts))
 	for _, t := range ts {
 		out = append(out, t.ID)

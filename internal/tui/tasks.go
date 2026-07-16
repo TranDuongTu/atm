@@ -2,7 +2,6 @@ package tui
 
 import (
 	"atm/internal/core"
-	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
 )
 
@@ -124,14 +123,14 @@ func (t *tasksModel) refresh() {
 	scope := t.m.projectScope
 	switch t.focus.mode {
 	case focusUnlabeled:
-		for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope})) {
+		for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope})) {
 			if len(tk.Labels) == 0 {
 				t.rows = append(t.rows, t.toRow(tk))
 			}
 		}
 	case focusPresent, focusAbsent:
 		if t.focus.bareTags {
-			for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope})) {
+			for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope})) {
 				has := core.HasBareTag(scope, tk.Labels)
 				if (t.focus.mode == focusPresent) == has {
 					t.rows = append(t.rows, t.toRow(tk))
@@ -146,12 +145,12 @@ func (t *tasksModel) refresh() {
 		// discarded: the tree below nests from wildcards[0] rather than
 		// taking a flat level 1. Its others is only sound for focusAbsent,
 		// whose filter always carries exactly one wildcard.
-		_, others, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters})
+		_, others, gerr := t.m.store.GroupTasksErr(core.QueryFilters{Project: scope, Labels: filters})
 		if gerr != nil {
 			break // matches the old GroupTasks, which swallowed the error and rendered nothing
 		}
 		if t.focus.mode == focusPresent {
-			inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
+			inScope := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
 			nodes, _ := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
 			t.groups = nodesToGroups(nodes, t.toRow)
 		} else {
@@ -163,17 +162,17 @@ func (t *tasksModel) refresh() {
 		filters := t.parseFilter()
 		wildcards := core.WildcardTokens(filters)
 		if len(wildcards) == 0 {
-			for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})) {
+			for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})) {
 				t.rows = append(t.rows, t.toRow(tk))
 			}
 			break
 		}
 		// GroupTasksErr is called only for the board-as-facet guard; its
 		// others under-counts what the tree drops (see splitUnmatchedTop).
-		if _, _, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters}); gerr != nil {
+		if _, _, gerr := t.m.store.GroupTasksErr(core.QueryFilters{Project: scope, Labels: filters}); gerr != nil {
 			break
 		}
-		inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
+		inScope := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
 		nodes, unmatched := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
 		t.groups = nodesToGroups(nodes, t.toRow)
 		for _, tk := range unmatched {
@@ -183,18 +182,18 @@ func (t *tasksModel) refresh() {
 	t.clampCursor()
 }
 
-func (t *tasksModel) toRow(tk *store.Task) taskRow {
+func (t *tasksModel) toRow(tk *core.Task) taskRow {
 	return taskRow{
 		id:      tk.ID,
 		title:   tk.Title,
 		labels:  tk.Labels,
-		updated: relTime(tk.UpdatedAt, store.Now()),
+		updated: relTime(tk.UpdatedAt, core.Now()),
 		task:    tk,
 	}
 }
 
-func (t *tasksModel) applySort(ts []*store.Task) []*store.Task {
-	out := make([]*store.Task, len(ts))
+func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {
+	out := make([]*core.Task, len(ts))
 	copy(out, ts)
 	switch t.sortMode {
 	case sortUpdatedDesc:

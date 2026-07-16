@@ -8,7 +8,6 @@ import (
 
 	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/internal/store"
 	"atm/internal/workflow"
 
 	"github.com/charmbracelet/bubbletea"
@@ -150,7 +149,7 @@ type boardsModel struct {
 	// previously selected board vanished from the rebuilt ring.
 	selected string
 
-	pins []string // ordered pinned board FullNames; loaded from store.GetPins
+	pins []string // ordered pinned board FullNames; loaded from core.GetPins
 
 	// pinFocus is WHERE the strong current-filter highlight is drawn: -1 means
 	// the strip's SELECTED board is the active filter (the default — set by
@@ -413,7 +412,7 @@ func (b *boardsModel) persistPins() {
 	if b.m.projectScope == "" {
 		return
 	}
-	_ = b.m.store.WritePins(b.m.projectScope, &store.Pins{
+	_ = b.m.store.WritePins(b.m.projectScope, &core.Pins{
 		Actor:  b.m.actor,
 		Boards: b.pins,
 	})
@@ -561,9 +560,9 @@ func (b *boardsModel) applyFocus() {
 // joined to its ATM:<ns>:* descriptor when one exists). Boards and
 // namespaces are intermixed and sorted by display name; the result is a
 // single flat list of computed labels.
-func (b *boardsModel) buildBoardRows(ls []store.Label) []boardRow {
+func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	scope := b.m.projectScope
-	byName := map[string]store.Label{}
+	byName := map[string]core.Label{}
 	for _, l := range ls {
 		byName[l.Name] = l
 	}
@@ -595,7 +594,7 @@ func (b *boardsModel) buildBoardRows(ls []store.Label) []boardRow {
 	nsSeen := map[string]bool{}
 	for _, l := range ls {
 		suffix := strings.TrimPrefix(l.Name, scope+":")
-		if store.IsNamespaceName(l.Name) {
+		if core.IsNamespaceName(l.Name) {
 			ns := strings.TrimSuffix(suffix, ":*")
 			if !nsSeen[ns] {
 				nsSeen[ns] = true
@@ -648,7 +647,7 @@ func (b *boardsModel) buildBoardRows(ls []store.Label) []boardRow {
 // via a single-label query because ListTasks swallows expression errors
 // and would conflate a broken board with an empty one.
 func (b *boardsModel) boardCount(full string) (int, bool) {
-	_, others, err := b.m.store.GroupTasksErr(store.QueryFilters{
+	_, others, err := b.m.store.GroupTasksErr(core.QueryFilters{
 		Project: b.m.projectScope,
 		Labels:  []string{full},
 	})
@@ -663,7 +662,7 @@ func (b *boardsModel) boardCount(full string) (int, bool) {
 func (b *boardsModel) namespaceTaskCount(ns string) int {
 	scope := b.m.projectScope
 	count := 0
-	for _, tk := range b.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+	for _, tk := range b.m.store.ListTasks(core.QueryFilters{Project: scope}) {
 		for _, full := range tk.Labels {
 			if strings.HasPrefix(full, scope+":"+ns+":") {
 				count++
@@ -747,7 +746,7 @@ func (b *boardsModel) chartRows() []chartRow {
 	scope := b.m.projectScope
 	var rows []chartRow
 	unset := 0
-	groups, others := b.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: []string{core.FacetToken(scope, b.ns)}})
+	groups, others := b.m.store.GroupTasks(core.QueryFilters{Project: scope, Labels: []string{core.FacetToken(scope, b.ns)}})
 	counts := map[string]int{}
 	for _, g := range groups {
 		counts[g.Label] = len(g.Tasks)
@@ -1229,7 +1228,7 @@ func (b *boardsModel) renderDetail() string {
 func (b *boardsModel) activeNamespaceTaskCount() int {
 	scope := b.m.projectScope
 	count := 0
-	for _, tk := range b.m.store.ListTasks(store.QueryFilters{Project: scope}) {
+	for _, tk := range b.m.store.ListTasks(core.QueryFilters{Project: scope}) {
 		for _, full := range tk.Labels {
 			if strings.HasPrefix(full, scope+":"+b.ns+":") {
 				count++
@@ -1242,7 +1241,7 @@ func (b *boardsModel) activeNamespaceTaskCount() int {
 
 func (b *boardsModel) syntheticLeafTaskCount() int {
 	count := 0
-	for _, tk := range b.m.store.ListTasks(store.QueryFilters{Project: b.m.projectScope}) {
+	for _, tk := range b.m.store.ListTasks(core.QueryFilters{Project: b.m.projectScope}) {
 		if b.detail.leaf != "unset" {
 			continue
 		}

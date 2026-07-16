@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
 )
 
 type commentOverlayModel struct {
 	id          string
-	comment     *store.Comment
+	comment     *core.Comment
 	historyOpen bool
 	offset      int
 	lines       []string
@@ -44,8 +44,8 @@ func (co *commentOverlayModel) render(m *Model) {
 		fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("reply-to %s", c.ReplyTo)))
 	}
 	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("actor    %s", c.CreatedBy)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("created  %s", store.RFC3339UTC(c.CreatedAt))))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("updated  %s by %s", store.RFC3339UTC(c.UpdatedAt), c.UpdatedBy)))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("created  %s", core.RFC3339UTC(c.CreatedAt))))
+	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("updated  %s by %s", core.RFC3339UTC(c.UpdatedAt), c.UpdatedBy)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("labels   %s", formatLabelsTUI(c.Labels))))
 	b.WriteString("\n")
 	b.WriteString(sectionCaption(m.styles, m.tasks.width, "BODY"))
@@ -57,14 +57,14 @@ func (co *commentOverlayModel) render(m *Model) {
 		b.WriteString("\n")
 		b.WriteString(sectionCaption(m.styles, m.tasks.width, "HISTORY"))
 		b.WriteString("\n")
-		code, _, _, _ := store.ParseCommentID(c.ID)
-		hv := m.store.History(code, store.Subject{Kind: "comment", ID: c.ID})
+		code, _, _, _ := core.ParseCommentID(c.ID)
+		hv := m.store.History(code, core.Subject{Kind: "comment", ID: c.ID})
 		if len(hv) == 0 {
 			b.WriteString(dashboardLine(m.tasks.width, " (no history)"))
 			b.WriteString("\n")
 		} else {
 			for _, e := range hv {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+				fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
 			}
 		}
 	}
@@ -143,13 +143,13 @@ func (ho *historyOverlayModel) render(m *Model, code, taskID string) {
 	fmt.Fprintf(&b, "History  %s\n", taskID)
 	b.WriteString(sepLine("─", 78, m.tasks.width, 2))
 	b.WriteString("\n")
-	hv := m.store.History(code, store.Subject{Kind: "task", ID: taskID})
+	hv := m.store.History(code, core.Subject{Kind: "task", ID: taskID})
 	if len(hv) == 0 {
 		b.WriteString(dashboardLine(m.tasks.width, " (no history)"))
 		b.WriteString("\n")
 	} else {
 		for _, e := range hv {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, store.RFC3339UTC(e.At), e.Actor, e.Action)))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
 		}
 	}
 	ho.lines = strings.Split(b.String(), "\n")

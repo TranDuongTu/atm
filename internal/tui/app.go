@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"atm/internal/core"
 	"atm/internal/store"
 	"atm/internal/workflow"
 	"github.com/charmbracelet/bubbletea"
@@ -64,7 +65,7 @@ const (
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
 // workspace (Projects, Tasks), a help overlay, and a status line.
 type Model struct {
-	store    *store.Store
+	store    core.Service
 	storeSet bool
 	actor    string
 	km       keymap
@@ -331,7 +332,7 @@ func (m *Model) refreshAll() {
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
-	m.lastRefreshAt = store.Now()
+	m.lastRefreshAt = core.Now()
 }
 
 // actorOr returns the actor string for the status line. The actor is always
@@ -717,7 +718,7 @@ func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
 	desc := vals["description"]
 	_, err := m.store.CreatePersona(name, "", desc, m.actor)
 	if err != nil {
-		if store.IsConflict(err) {
+		if core.IsConflict(err) {
 			m.showToast(fmt.Sprintf("persona %s already exists", name))
 		} else {
 			m.showToast("error: " + err.Error())
@@ -744,7 +745,7 @@ func (m *Model) openPersonaCreateForm() tea.Cmd {
 		if value == "" {
 			return nil
 		}
-		return store.ValidatePersonaName(value)
+		return core.ValidatePersonaName(value)
 	}
 	fields := []formField{
 		{Label: "name", Required: true, Hint: "lowercase slug, e.g. staff-engineer", Validator: nameValidator},
@@ -867,7 +868,7 @@ func (m *Model) renderStatusLine() string {
 }
 
 func (m *Model) refreshRecencySegment() string {
-	now := store.Now()
+	now := core.Now()
 	if !m.lastRefreshAt.IsZero() && !now.Before(m.lastRefreshAt) && now.Sub(m.lastRefreshAt) <= 15*time.Second {
 		return m.refreshRecencyStyleAt(now).Render("✓")
 	}
@@ -875,7 +876,7 @@ func (m *Model) refreshRecencySegment() string {
 }
 
 func (m *Model) refreshRecencyStyle() lipgloss.Style {
-	return m.refreshRecencyStyleAt(store.Now())
+	return m.refreshRecencyStyleAt(core.Now())
 }
 
 func (m *Model) refreshRecencyStyleAt(now time.Time) lipgloss.Style {

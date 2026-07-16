@@ -2,7 +2,6 @@ package tui
 
 import (
 	"atm/internal/core"
-	"atm/internal/store"
 )
 
 type taskGroup struct {
@@ -47,10 +46,8 @@ func (t *tasksModel) grouped() bool {
 	}
 }
 
-// taskLabels is the core.GroupNested accessor for store tasks. It is the only
-// thing core needs to know about a Task — the type itself stays in store
-// until ATM-b9d83a.
-func taskLabels(t *store.Task) []string { return t.Labels }
+// taskLabels is the core.GroupNested accessor for core tasks.
+func taskLabels(t *core.Task) []string { return t.Labels }
 
 // splitUnmatchedTop separates the top-level `(no matching labels)` bucket from a
 // core.GroupNested tree, returning the remaining nodes and that bucket's tasks:
@@ -71,7 +68,7 @@ func taskLabels(t *store.Task) []string { return t.Labels }
 //
 // GroupNested emits the bucket last and only when non-empty, so this splits off
 // at most the final node.
-func splitUnmatchedTop(nodes []core.Node[*store.Task], tasks []*store.Task, wildcards []string) ([]core.Node[*store.Task], []*store.Task) {
+func splitUnmatchedTop(nodes []core.Node[*core.Task], tasks []*core.Task, wildcards []string) ([]core.Node[*core.Task], []*core.Task) {
 	n := len(nodes)
 	if n == 0 {
 		// No wildcards to facet by, so nothing matches one: every task is
@@ -82,7 +79,7 @@ func splitUnmatchedTop(nodes []core.Node[*store.Task], tasks []*store.Task, wild
 	if nodes[n-1].Label != "" {
 		return nodes, nil
 	}
-	var unmatched []*store.Task
+	var unmatched []*core.Task
 	for _, tk := range tasks {
 		if !anyLabelMatches(tk.Labels, wildcards[0]) {
 			unmatched = append(unmatched, tk)
@@ -105,7 +102,7 @@ func anyLabelMatches(labels []string, wildcard string) bool {
 // taskGroup, attaching rows via toRow. Leaf rows live only at the deepest
 // level, mirroring core.GroupNested's Items placement; collapsed defaults to
 // false (expanded).
-func nodesToGroups(nodes []core.Node[*store.Task], toRow func(*store.Task) taskRow) []taskGroup {
+func nodesToGroups(nodes []core.Node[*core.Task], toRow func(*core.Task) taskRow) []taskGroup {
 	if len(nodes) == 0 {
 		return nil
 	}
