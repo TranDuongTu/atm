@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Promote `internal/workflow` from vocabulary-only into a full capability that owns status-transition verbs (`atm workflow start/queue/open/block/complete/status/seed`), ensures three boards (`backlog`, `open-tasks`, `in-progress-tasks`), and updates conventions to point agents at the paved road.
+**Goal:** Promote `internal/workflow` from vocabulary-only into a full capability that owns status-transition verbs (`atm workflow start/open/block/complete/status/seed`), ensures three boards (`backlog`, `open-tasks`, `in-progress-tasks`), and updates conventions to point agents at the paved road.
 
 **Architecture:** `internal/workflow` mirrors `internal/contextmap`'s recorder/reporter split. Recorder mutates via existing store calls (`TaskLabelAdd`/`TaskLabelRemove`/`GetTask`/`LabelSeed`) only; the swap removes all `status:*` labels then adds the target. Reporter is pure (store byte-identical before/after). A new `atm workflow` CLI command tree parallels `atm context`. The store gains nothing — the capability is a paved road, not a fence.
 
@@ -28,7 +28,7 @@
 
 **Create:**
 - `internal/workflow/status.go` — status value constants + namespace name (the only place the `"status"` literal lives).
-- `internal/workflow/recorder.go` — `Recorder` with `SetStatus` + five scrum-verb wrappers.
+- `internal/workflow/recorder.go` — `Recorder` with `SetStatus` + four scrum-verb wrappers.
 - `internal/workflow/reporter.go` — `Reporter.Status` (read-only).
 - `internal/workflow/recorder_test.go` — recorder behavior.
 - `internal/workflow/reporter_test.go` — reporter behavior + purity.
@@ -55,7 +55,7 @@ No changes to `internal/store`, `internal/tui` (the ensure call sites already ca
 - Create: `internal/workflow/status.go`
 
 **Interfaces:**
-- Produces: `workflow.StatusOpen`, `workflow.StatusTodo`, `workflow.StatusInProgress`, `workflow.StatusBlocked`, `workflow.StatusDone` (string constants); `workflow.StatusNamespace` (`"status"`).
+- Produces: `workflow.StatusOpen`, `workflow.StatusInProgress`, `workflow.StatusBlocked`, `workflow.StatusDone` (string constants); `workflow.StatusNamespace` (`"status"`).
 
 - [ ] **Step 1: Create the constants file**
 
@@ -70,9 +70,11 @@ const StatusNamespace = "status"
 
 // Status values are the seeded lifecycle states the workflow capability
 // transitions between. They match internal/seed's status:* labels.
+// Note: status:todo is deliberately absent from the seed (see
+// internal/seed/seed_test.go TestDroppedNamespacesAbsent), so there is no
+// StatusTodo and no queue verb.
 const (
 	StatusOpen       = "open"
-	StatusTodo       = "todo"
 	StatusInProgress = "in-progress"
 	StatusBlocked    = "blocked"
 	StatusDone       = "done"
@@ -397,7 +399,7 @@ git commit -m "feat(workflow): add read-only status reporter"
 - Create: `internal/workflow/recorder_test.go`
 
 **Interfaces:**
-- Produces: `workflow.Recorder{Store *store.Store, Actor string}`, method `SetStatus(taskID, target string) (prior string, err error)`; wrappers `Start`, `Queue`, `Open`, `Block`, `Complete`.
+- Produces: `workflow.Recorder{Store *store.Store, Actor string}`, method `SetStatus(taskID, target string) (prior string, err error)`; wrappers `Start`, `Open`, `Block`, `Complete`.
 - Consumes: `store.GetTask`, `store.TaskLabelAdd`, `store.TaskLabelRemove`, `store.ParseTaskID`, `workflow.StatusNamespace`.
 
 - [ ] **Step 1: Write the failing test**
@@ -512,7 +514,6 @@ func TestRecorderScrumVerbsMapToCorrectStatus(t *testing.T) {
 		want string
 	}{
 		{r.Start, StatusInProgress},
-		{r.Queue, StatusTodo},
 		{r.Open, StatusOpen},
 		{r.Block, StatusBlocked},
 		{r.Complete, StatusDone},
@@ -654,9 +655,6 @@ func (r *Recorder) SetStatus(taskID, target string) (prior string, err error) {
 // Start transitions the task to in-progress (someone is now on this).
 func (r *Recorder) Start(taskID string) (string, error) { return r.SetStatus(taskID, StatusInProgress) }
 
-// Queue transitions the task to todo (ready to be picked up).
-func (r *Recorder) Queue(taskID string) (string, error) { return r.SetStatus(taskID, StatusTodo) }
-
 // Open transitions the task to open ((re)open for consideration).
 func (r *Recorder) Open(taskID string) (string, error) { return r.SetStatus(taskID, StatusOpen) }
 
@@ -694,7 +692,7 @@ git commit -m "feat(workflow): add status-transition recorder with swap semantic
 - Modify: `internal/cli/root.go` (register the command)
 
 **Interfaces:**
-- Produces: `newWorkflowCmd(st *cliState) *cobra.Command` with subcommands: `start`, `queue`, `open`, `block`, `complete`, `status`, `seed`.
+- Produces: `newWorkflowCmd(st *cliState) *cobra.Command` with subcommands: `start`, `open`, `block`, `complete`, `status`, `seed`.
 - Consumes: `cliState.openStore`, `resolveTaskID`, `requireMutatingActor`, `resolveActor`, `emit`, `taskToJSON`; `workflow.Recorder`, `workflow.Reporter`, `workflow.EnsureVocabulary`.
 
 - [ ] **Step 1: Write the failing test**
@@ -704,6 +702,7 @@ git commit -m "feat(workflow): add status-transition recorder with swap semantic
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -742,10 +741,14 @@ func TestWorkflowStartSwapsStatus(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr)
 	}
-	// JSON envelope: {"task": {...}}; text mode prints "<id>: status open -> in-progress".
-	// Assert the JSON task carries status:in-progress and not status:open.
-	if !strings.Contains(out, "in-progress") {
-		t.Fatalf("output missing in-progress: %s", out)
+	// Swap semantics: the target must be present AND the prior status gone.
+	// Asserting only the target would pass even if BOTH labels survived,
+	// which is exactly the bug the swap exists to prevent.
+	if !strings.Contains(out, "ATM:status:in-progress") {
+		t.Fatalf("output missing ATM:status:in-progress: %s", out)
+	}
+	if strings.Contains(out, "ATM:status:open") {
+		t.Fatalf("prior status ATM:status:open survived the swap: %s", out)
 	}
 }
 
@@ -784,10 +787,18 @@ func TestWorkflowStatusUntriaged(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
-	// JSON: {"task":"...","status":""} — the value is the empty string.
-	// Assert the envelope parses and status is empty.
-	if !strings.Contains(out, `"status":""`) {
-		t.Fatalf("expected status \"\" for untriaged, got: %s", out)
+	// The CLI pretty-prints JSON (store.MarshalSorted uses SetIndent("", "  ")),
+	// so a substring match on `"status":""` would NOT match the real output.
+	// Parse the envelope and assert the field instead.
+	var env struct {
+		Task   string `json:"task"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal %q: %v", out, err)
+	}
+	if env.Status != "" {
+		t.Fatalf("expected status \"\" for untriaged, got %q", env.Status)
 	}
 }
 
@@ -852,8 +863,11 @@ func TestWorkflowCompleteSwapsToDone(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
-	if !strings.Contains(out, "done") {
-		t.Fatalf("output missing 'done': %s", out)
+	if !strings.Contains(out, "ATM:status:done") {
+		t.Fatalf("output missing ATM:status:done: %s", out)
+	}
+	if strings.Contains(out, "ATM:status:in-progress") {
+		t.Fatalf("prior status ATM:status:in-progress survived the swap: %s", out)
 	}
 }
 ```
@@ -874,7 +888,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"atm/internal/workflow"
 
@@ -894,7 +907,6 @@ func newWorkflowCmd(st *cliState) *cobra.Command {
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newWorkflowStartCmd(st))
-	cmd.AddCommand(newWorkflowQueueCmd(st))
 	cmd.AddCommand(newWorkflowOpenCmd(st))
 	cmd.AddCommand(newWorkflowBlockCmd(st))
 	cmd.AddCommand(newWorkflowCompleteCmd(st))
@@ -934,9 +946,9 @@ func runStatusVerb(st *cliState, id, legacy string, fn func(*workflow.Recorder, 
 	}
 	return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
 		if prior == "" {
-			fmt.Fprintf(os.Stdout, "%s: status -> %s\n", t.ID, now)
+			fmt.Fprintf(st.stdout(), "%s: status -> %s\n", t.ID, now)
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: status %s -> %s\n", t.ID, prior, now)
+			fmt.Fprintf(st.stdout(), "%s: status %s -> %s\n", t.ID, prior, now)
 		}
 	})
 }
@@ -949,21 +961,6 @@ func newWorkflowStartCmd(st *cliState) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
 				return r.Start(tid)
-			})
-		},
-	}
-	bindTaskIDFlags(cmd, &id, &legacy)
-	return cmd
-}
-
-func newWorkflowQueueCmd(st *cliState) *cobra.Command {
-	var id, legacy string
-	cmd := &cobra.Command{
-		Use:   "queue",
-		Short: "Transition a task to todo",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
-				return r.Queue(tid)
 			})
 		},
 	}
@@ -1037,10 +1034,10 @@ func newWorkflowStatusCmd(st *cliState) *cobra.Command {
 			}
 			return st.emit(st.stdout(), map[string]any{"task": taskID, "status": value}, func() {
 				if value == "" {
-					fmt.Fprintf(os.Stdout, "untriaged\n")
+					fmt.Fprintf(st.stdout(), "untriaged\n")
 					return
 				}
-				fmt.Fprintf(os.Stdout, "%s\n", value)
+				fmt.Fprintf(st.stdout(), "%s\n", value)
 			})
 		},
 	}
@@ -1154,7 +1151,7 @@ Append to `internal/cli/conventions_test.go`:
 ```go
 func TestConventionsMentionWorkflowVerbs(t *testing.T) {
 	for _, verb := range []string{
-		"atm workflow start", "atm workflow queue", "atm workflow open",
+		"atm workflow start", "atm workflow open",
 		"atm workflow block", "atm workflow complete", "atm workflow status",
 		"atm workflow seed",
 	} {
@@ -1211,7 +1208,7 @@ Then, after the `## The context map` section (which ends before `## Actor identi
 ```text
 ## Workflow verbs (status transitions)
 
-Status transitions live in the `internal/workflow` capability, exposed as `atm workflow` verbs — `start` (in-progress), `queue` (todo), `open`, `block` (blocked), `complete` (done) — plus a read-only `status` reporter and `seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/workflow` is a paved road, not a fence — a project can replace it with a different transition model.
+Status transitions live in the `internal/workflow` capability, exposed as `atm workflow` verbs — `start` (in-progress), `open`, `block` (blocked), `complete` (done) — plus a read-only `status` reporter and `seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/workflow` is a paved road, not a fence — a project can replace it with a different transition model.
 
 Three boards are ensured on project create / label seed / TUI use: `ATM:backlog` (`NOT status:*` — untriaged jottings), `ATM:open-tasks` (`status:open` — active work, the TUI default), `ATM:in-progress-tasks` (`status:in-progress`). In an older project where a board is absent, the expression fallback applies (`--label <CODE>:status:open` etc.).
 ```
@@ -1234,7 +1231,7 @@ In `conventionsStructured()` in `internal/cli/conventions.go`:
 2. Add a new key:
 
 ```go
-"workflow_verbs": "Status transitions live in the internal/workflow capability, exposed as atm workflow verbs: start (in-progress), queue (todo), open, block (blocked), complete (done), plus a read-only status reporter and seed. Each mutating verb swaps the task's status:* label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store enforces nothing; raw atm task label add/remove --label <CODE>:status:<value> still works. internal/workflow is a paved road, not a fence — a project can replace it.",
+"workflow_verbs": "Status transitions live in the internal/workflow capability, exposed as atm workflow verbs: start (in-progress), open, block (blocked), complete (done), plus a read-only status reporter and seed. Each mutating verb swaps the task's status:* label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store enforces nothing; raw atm task label add/remove --label <CODE>:status:<value> still works. internal/workflow is a paved road, not a fence — a project can replace it.",
 ```
 
 3. In the `"agent_first_contact_sequence"` slice, insert the new step (the workflow status / backlog step) right after the `open-tasks` step, and keep the subsequent steps in order.

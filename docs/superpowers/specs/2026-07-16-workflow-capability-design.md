@@ -24,7 +24,9 @@ Promote `internal/workflow` from a vocabulary-only capability into a full capabi
 
 - No store API changes (uses existing `TaskLabelAdd` / `TaskLabelRemove` / `GetTask` / `LabelSeed`).
 - No state machine in the store; no enforcement. The capability is a paved road, not a fence — raw `atm task label add/remove --label status:*` still works.
-- No new status values (uses the five seeded: open, todo, in-progress, blocked, done).
+- No new status values (uses the four seeded: open, in-progress, blocked, done).
+
+  **Amendment 2026-07-16:** an earlier draft of this spec claimed five seeded values, including `todo`, and defined an `atm workflow queue` verb targeting it. That premise was false: `internal/seed/seed.go` seeds only open, in-progress, done, blocked, and `status:todo` was *deliberately retired* — `internal/seed/seed_test.go` (`TestDroppedNamespacesAbsent`) guards its absence. Since `store.TaskLabelAdd` does not require a label to be registered, a `queue` verb would have silently minted an undescribed `status:todo` label, violating ATM's own label-hygiene code-of-conduct. Decision (project owner, 2026-07-16): drop the `queue` verb and `StatusTodo`; the capability ships four verbs.
 - No rename or redefinition of `open-tasks` (deferred to a separate design).
 - No TUI board-ring changes beyond the new boards appearing as normal ring members.
 
@@ -39,7 +41,6 @@ Each verb resolves the task's project, computes the prefixed target label (`<COD
 | Verb | Target status | One-line intent |
 |---|---|---|
 | `atm workflow start <id>` | in-progress | someone is now on this |
-| `atm workflow queue <id>` | todo | ready to be picked up |
 | `atm workflow open <id>` | open | (re)open for consideration |
 | `atm workflow block <id>` | blocked | cannot proceed pending something else |
 | `atm workflow complete <id>` | done | finished |
@@ -57,7 +58,7 @@ On success, each prints a single line: `<id>: status -> <value>` (or `<id>: stat
 ### Argument resolution and errors
 
 - Task id resolution reuses `resolveTaskID` (handles `--task` / `--id` / legacy). Project code is derived from the task id prefix (the existing `taskProjectFormat` path) — no `--project` flag needed on the verbs, since a status label is always project-scoped and the id carries the project.
-- Unknown status target is a programming error (the verbs are fixed to the five seeded values) — never user-supplied, so no enum validation surface.
+- Unknown status target is a programming error (the verbs are fixed to the four seeded values) — never user-supplied, so no enum validation surface.
 - Errors from the store propagate as-is; the capability adds no validation of its own beyond "swap the status label."
 
 ## Capability internals (`internal/workflow`)
@@ -100,7 +101,6 @@ func EnsureVocabulary(s *store.Store, code, actor string) error {
 // internal/workflow/status.go
 const (
     StatusOpen       = "open"
-    StatusTodo       = "todo"
     StatusInProgress = "in-progress"
     StatusBlocked    = "blocked"
     StatusDone       = "done"
@@ -133,11 +133,10 @@ func (r *Recorder) SetStatus(taskID, target string) (prior string, err error)
 - Adds `<code>:status:<target>` via `TaskLabelAdd`.
 - `prior` is the bare value removed (e.g. `"open"`), or `""` if the task was untriaged. The CLI uses it for the `<id>: status <prior> -> <target>` line. When the task had multiple status labels (hand-edited), `prior` is the first non-target removed; the swap line reports the transition from that value.
 
-The five scrum verbs are thin wrappers:
+The four scrum verbs are thin wrappers:
 
 ```go
 func (r *Recorder) Start(taskID string) (string, error)    { return r.SetStatus(taskID, StatusInProgress) }
-func (r *Recorder) Queue(taskID string) (string, error)    { return r.SetStatus(taskID, StatusTodo) }
 func (r *Recorder) Open(taskID string) (string, error)     { return r.SetStatus(taskID, StatusOpen) }
 func (r *Recorder) Block(taskID string) (string, error)    { return r.SetStatus(taskID, StatusBlocked) }
 func (r *Recorder) Complete(taskID string) (string, error) { return r.SetStatus(taskID, StatusDone) }
@@ -157,7 +156,7 @@ Scans the task's labels for `<code>:status:*`; returns the bare value or `""`. P
 
 ### CLI wiring
 
-A new `internal/cli/workflow.go` builds the `atm workflow` command tree. Each mutating verb: `resolveTaskID` -> `requireMutatingActor` -> `openStore` -> `Recorder{...}.Start/Queue/...` -> print the swap line + JSON emit. The reporter: `resolveActor(true)` (defaults allowed) -> `openStore` -> `Reporter.Status` -> print the value or `untriaged`. `seed`: `requireMutatingActor` -> `openStore` -> `EnsureVocabulary`.
+A new `internal/cli/workflow.go` builds the `atm workflow` command tree. Each mutating verb: `resolveTaskID` -> `requireMutatingActor` -> `openStore` -> `Recorder{...}.Start/Open/...` -> print the swap line + JSON emit. The reporter: `resolveActor(true)` (defaults allowed) -> `openStore` -> `Reporter.Status` -> print the value or `untriaged`. `seed`: `requireMutatingActor` -> `openStore` -> `EnsureVocabulary`.
 
 The existing `workflow.EnsureVocabulary` call sites (`cli/project.go:46`, `cli/label.go:164`, `tui/projects.go:243`, `tui/app.go:186`) become calls to the same `EnsureVocabulary` (now ensuring all three boards). The `workflow.BoardOpenTasks` reference in `tui/labels.go:259` (default selection) is unchanged — `open-tasks` stays the default SELECTED board; `backlog` and `in-progress-tasks` enter the ring as normal members.
 
@@ -171,7 +170,7 @@ The store gains nothing. `TaskLabelAdd` / `TaskLabelRemove` / `GetTask` / `Label
 
 ### New conventions text (the workflow paragraph)
 
-> **Workflow verbs (status transitions).** Status transitions live in the `internal/workflow` capability, exposed as `atm workflow` verbs — `start` (in-progress), `queue` (todo), `open`, `block`, `complete` (done) — plus a read-only `status` reporter. Each verb swaps the task's `status:*` label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/workflow` is a paved road, not a fence — a project can replace it with a different transition model. Three boards are ensured on project create / label seed / TUI use: `ATM:backlog` (`NOT status:*` — untriaged jottings), `ATM:open-tasks` (`status:open` — active work, the TUI default), `ATM:in-progress-tasks` (`status:in-progress`). In an older project where a board is absent, the expression fallback applies (`--label <CODE>:status:open` etc.).
+> **Workflow verbs (status transitions).** Status transitions live in the `internal/workflow` capability, exposed as `atm workflow` verbs — `start` (in-progress), `open`, `block`, `complete` (done) — plus a read-only `status` reporter. Each verb swaps the task's `status:*` label (removes any existing one, adds the target), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/workflow` is a paved road, not a fence — a project can replace it with a different transition model. Three boards are ensured on project create / label seed / TUI use: `ATM:backlog` (`NOT status:*` — untriaged jottings), `ATM:open-tasks` (`status:open` — active work, the TUI default), `ATM:in-progress-tasks` (`status:in-progress`). In an older project where a board is absent, the expression fallback applies (`--label <CODE>:status:open` etc.).
 
 ### Edits to existing paragraphs
 
@@ -200,7 +199,7 @@ Three test layers, mirroring `internal/contextmap` and the existing conventions 
 - `Reporter.Status`:
   - Returns the value for a task with a status; returns `""` for an untriaged task; returns `""` (not an error) for a task with only non-status labels.
   - **Purity**: store byte-identical before and after `Status` runs (read the event log, run, re-read, compare) — the same contract `contextmap`'s reporter test enforces.
-- The five scrum verbs (`Start` / `Queue` / `Open` / `Block` / `Complete`) map to the right target status (table-driven).
+- The four scrum verbs (`Start` / `Open` / `Block` / `Complete`) map to the right target status (table-driven).
 
 ### `internal/cli` (`atm workflow`)
 
