@@ -92,7 +92,10 @@ func (b *boardsModel) renderSideCell(w, h int, r boardRow, marker string) string
 // renderSelectedCell renders the SELECTED thumbnail at its current drill
 // level (b.level), reusing the existing level renderers. L0 falls back to a
 // namespace's chart or a leaf board's detail as the default view — the same
-// as drillIn's first step, but without mutating drill state.
+// as drillIn's first step, but without mutating drill state. Its border is
+// the strong current-filter highlight only while pinFocus == -1 (the strip
+// IS the active filter); once Shift-N has moved the highlight to a pin box,
+// this cell renders muted like any other strip cell.
 func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	// Temporarily size boardsModel to the selected cell so the reused renderers
 	// window correctly, then restore.
@@ -134,37 +137,41 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 			inner = b.renderDetail()
 		}
 	}
-	return titledBoxHeight(b.m.styles.PaneActive, w, r.Name, inner, h)
+	style := b.m.styles.PaneInactive
+	if b.pinFocus == -1 {
+		style = b.m.styles.PaneActiveStrong
+	}
+	return titledBoxHeight(style, w, r.Name, inner, h)
 }
 
-// renderPinnedStack renders the pinned-boards stack: one full-width line per
-// pinned board, each a single-line side-bordered pill (genuine rounded
-// corners need >=3 lines, so this is the 1-line approximation — a rounded
-// border with the top/bottom sides switched off). Each line shows
-// "[N] name  description" in full, truncated with fitLine only if it
-// overflows paneW. Returns "" when no pins exist.
+// renderPinnedStack renders the pinned-boards stack: one full-width, 3-line
+// rounded box per pinned board (up to maxPins), title "[N] name" with the
+// board's description as its single content line (fitLine-truncated by
+// titledBoxHeight if it overflows paneW). The box at pinFocus — the pin
+// Shift-N jumped to — carries the strong current-filter border; every other
+// box is muted, including all of them while pinFocus == -1 (the strip's
+// SELECTED cell carries the highlight instead; see renderSelectedCell).
+// Returns "" when no pins exist.
 func (b *boardsModel) renderPinnedStack(paneW int) string {
 	if len(b.pins) == 0 {
 		return ""
 	}
-	innerW := paneW - 2 // left + right border columns
-	if innerW < 1 {
-		innerW = 1
+	n := len(b.pins)
+	if n > maxPins {
+		n = maxPins
 	}
-	lines := make([]string, len(b.pins))
-	for i, full := range b.pins {
+	boxes := make([]string, n)
+	for i := 0; i < n; i++ {
+		full := b.pins[i]
 		name := strings.TrimPrefix(full, b.m.projectScope+":")
-		text := fmt.Sprintf("[%d] %s", i+1, name)
-		if desc := b.pinDescription(full); desc != "" {
-			text += "  " + desc
+		title := fmt.Sprintf("[%d] %s", i+1, name)
+		style := b.m.styles.PaneInactive
+		if i == b.pinFocus {
+			style = b.m.styles.PaneActiveStrong
 		}
-		text = fitLine(text, innerW)
-		if lw := lipgloss.Width(text); lw < innerW {
-			text += spaces(innerW - lw)
-		}
-		lines[i] = b.m.styles.PinPill.Render(text)
+		boxes[i] = titledBoxHeight(style, paneW, title, b.pinDescription(full), 3)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(boxes, "\n")
 }
 
 // pinDescription returns a pinned board's description, looked up by FullName

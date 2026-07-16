@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"atm/internal/workflow"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestSplitStripWidths(t *testing.T) {
@@ -40,10 +42,10 @@ func TestRenderStripShowsSelectedOpenTasks(t *testing.T) {
 	}
 }
 
-// TestRenderPinnedStackOneLinePerPinWithFullText verifies renderPinnedStack
-// (replacing the old compact renderPinnedRow) emits one full-width line per
-// pinned board, each showing the board's name AND description in full.
-func TestRenderPinnedStackOneLinePerPinWithFullText(t *testing.T) {
+// TestRenderPinnedStackBoxedPerPinWithFullText verifies renderPinnedStack
+// emits one full-width, 3-line rounded box per pinned board (title "[N] name",
+// description as the content line), stacked in pin order.
+func TestRenderPinnedStackBoxedPerPinWithFullText(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -61,14 +63,76 @@ func TestRenderPinnedStackOneLinePerPinWithFullText(t *testing.T) {
 
 	stack := m.boards.renderPinnedStack(100)
 	lines := strings.Split(stack, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("renderPinnedStack lines = %d, want 2 (one per pin):\n%s", len(lines), stack)
+	if len(lines) != 6 {
+		t.Fatalf("renderPinnedStack lines = %d, want 6 (3 per pin, 2 pins):\n%s", len(lines), stack)
 	}
-	if !strings.Contains(lines[0], "[1]") || !strings.Contains(lines[0], "next-sprint") || !strings.Contains(lines[0], "work slated for the next sprint") {
-		t.Errorf("pin line 1 = %q, want [1], name, and full description", lines[0])
+	box1, box2 := strings.Join(lines[0:3], "\n"), strings.Join(lines[3:6], "\n")
+	if !strings.Contains(box1, "[1]") || !strings.Contains(box1, "next-sprint") || !strings.Contains(box1, "work slated for the next sprint") {
+		t.Errorf("pin box 1 = %q, want [1], name, and full description", box1)
 	}
-	if !strings.Contains(lines[1], "[2]") || !strings.Contains(lines[1], "blocked-items") || !strings.Contains(lines[1], "tasks currently blocked") {
-		t.Errorf("pin line 2 = %q, want [2], name, and full description", lines[1])
+	if !strings.Contains(box2, "[2]") || !strings.Contains(box2, "blocked-items") || !strings.Contains(box2, "tasks currently blocked") {
+		t.Errorf("pin box 2 = %q, want [2], name, and full description", box2)
+	}
+}
+
+// TestActiveFilterHighlightOnStripWhenPinFocusIsStrip verifies the
+// current-filter highlight (the strong, bold accent border) sits on the
+// strip's SELECTED cell while pinFocus == -1, and that pinned boxes render
+// muted (no bold) in that state.
+func TestActiveFilterHighlightOnStripWhenPinFocusIsStrip(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault() // pinFocus == -1
+	m.boards.togglePin()     // pin the SELECTED board (open-tasks)
+
+	strip := m.boards.renderStrip(80, stripHeight)
+	pinned := m.boards.renderPinnedStack(80)
+
+	if !strings.Contains(strip, "\x1b[1") {
+		t.Errorf("strip missing the strong (bold) highlight while pinFocus == -1:\n%s", strip)
+	}
+	if strings.Contains(pinned, "\x1b[1") {
+		t.Errorf("pinned box should be muted while pinFocus == -1:\n%s", pinned)
+	}
+}
+
+// TestActiveFilterHighlightMovesToPinOnJump verifies Shift-N moves the strong
+// highlight from the strip onto the jumped-to pin box.
+func TestActiveFilterHighlightMovesToPinOnJump(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+
+	strip := m.boards.renderStrip(80, stripHeight)
+	pinned := m.boards.renderPinnedStack(80)
+
+	if strings.Contains(strip, "\x1b[1") {
+		t.Errorf("strip should be muted once a pin is the active filter:\n%s", strip)
+	}
+	if !strings.Contains(pinned, "\x1b[1") {
+		t.Errorf("pinned box missing the strong (bold) highlight for the jumped-to pin:\n%s", pinned)
 	}
 }
 

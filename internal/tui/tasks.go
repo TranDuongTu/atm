@@ -151,13 +151,17 @@ func (t *tasksModel) SetSize(w, h int) {
 
 // listContentHeight is the single source of truth for how many lines the
 // scrollable task list gets in the list view, once the fixed board strip and
-// the live pinned stack (one line per pin) are subtracted. It is computed
-// from the live pin count at render/paging time — not cached at SetSize — so
-// renderListWithStrip and listPageSize always agree, and pgup/pgdown keep
-// landing on the page boundary the renderer actually draws as pins are added
-// or removed.
+// the live pinned stack (3 lines per boxed pin, capped at maxPins) are
+// subtracted. It is computed from the live pin count at render/paging time —
+// not cached at SetSize — so renderListWithStrip and listPageSize always
+// agree, and pgup/pgdown keep landing on the page boundary the renderer
+// actually draws as pins are added or removed.
 func (t *tasksModel) listContentHeight() int {
-	h := t.contentHeight - stripHeight - len(t.m.boards.pins)
+	pinCount := len(t.m.boards.pins)
+	if pinCount > maxPins {
+		pinCount = maxPins
+	}
+	h := t.contentHeight - stripHeight - 3*pinCount
 	if h < 4 {
 		h = 4
 	}

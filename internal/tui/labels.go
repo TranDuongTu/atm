@@ -150,6 +150,13 @@ type boardsModel struct {
 	selected string
 
 	pins []string // ordered pinned board FullNames; loaded from store.GetPins
+
+	// pinFocus is WHERE the strong current-filter highlight is drawn: -1 means
+	// the strip's SELECTED board is the active filter (the default — set by
+	// cycleBoard/selectDefault); >=0 is the index into pins of the pin that
+	// Shift-N jumped to. It never changes the filter itself (b.selected still
+	// drives that via applyFocus) — only which element gets the strong border.
+	pinFocus int
 }
 
 type lLevel int
@@ -179,7 +186,7 @@ type chartRow struct {
 }
 
 func newBoardsModel(m *Model) boardsModel {
-	return boardsModel{m: m}
+	return boardsModel{m: m, pinFocus: -1}
 }
 
 func (b *boardsModel) SetSize(w, h int) {
@@ -247,6 +254,7 @@ func (b *boardsModel) refresh() {
 // cycleBoard/jumpPin.
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
+	b.pinFocus = -1 // the ring board becomes the active-filter highlight
 	want := workflow.BoardOpenTasks(b.m.projectScope)
 	for _, r := range b.rows {
 		if r.FullName == want {
@@ -265,6 +273,8 @@ func (b *boardsModel) selectDefault() {
 
 // loadPins reads the project's pins from the store and prunes any whose board
 // no longer exists. Called on project select and on refresh (cheap read).
+// Also clamps to maxPins so a pins.json written before the cap dropped to 5
+// (or edited by hand) never renders/jumps past what fits as boxes.
 func (b *boardsModel) loadPins() {
 	b.pins = nil
 	if b.m.projectScope == "" {
@@ -282,13 +292,16 @@ func (b *boardsModel) loadPins() {
 		if live[full] {
 			b.pins = append(b.pins, full)
 		}
+		if len(b.pins) >= maxPins {
+			break
+		}
 	}
 }
 
-// maxPins caps the pinned-boards stack at 10 — one more than Shift-1..9 can
-// jump to, so the cap always leaves at least one pin reachable only by
-// scrolling the stack rather than a digit shortcut.
-const maxPins = 10
+// maxPins caps the pinned-boards stack at 5 full-width 3-line boxes — enough
+// to stay reachable by Shift-1..5 without eating too much of the list's
+// vertical space.
+const maxPins = 5
 
 // togglePin adds the selected board to the pin list (at the end) if absent, or
 // removes it if present, then persists. Adding past maxPins is ignored rather
@@ -331,6 +344,7 @@ func (b *boardsModel) jumpPin(n int) bool {
 	// previously drilled into (see cycleBoard's resetDrill call for the same
 	// invariant).
 	b.resetDrill()
+	b.pinFocus = n - 1 // the jumped-to pin becomes the active-filter highlight
 	b.applyFocus()
 	return true
 }
@@ -370,6 +384,7 @@ func (b *boardsModel) cycleBoard(dir int) {
 	}
 	b.selected = b.rows[idx].FullName
 	b.resetDrill()
+	b.pinFocus = -1 // the ring board becomes the active-filter highlight
 	b.applyFocus()
 }
 

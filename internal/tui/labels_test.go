@@ -168,6 +168,107 @@ func TestJumpPinResetsDrillState(t *testing.T) {
 	}
 }
 
+// --- pinFocus (current-filter highlight location) tests ---
+
+// TestPinFocusDefaultsToStrip verifies pinFocus starts at -1 (the strip's
+// SELECTED board is the active filter) and that selectDefault, the entry
+// point called on project select, leaves it there.
+func TestPinFocusDefaultsToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after selectDefault = %d, want -1", m.boards.pinFocus)
+	}
+}
+
+// TestJumpPinSetsPinFocus verifies Shift-N moves the highlight to the jumped
+// pin's index without touching how the filter itself is chosen.
+func TestJumpPinSetsPinFocus(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.pinFocus != 0 {
+		t.Errorf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+}
+
+// TestCycleBoardReturnsPinFocusToStrip verifies "[" / "]" (cycleBoard) give
+// the highlight back to the strip even after a Shift-N jump moved it onto a
+// pin box.
+func TestCycleBoardReturnsPinFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "high one", "ATM:priority:high")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	m.boards.cycleBoard(1)
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after cycleBoard = %d, want -1 (strip regains the highlight)", m.boards.pinFocus)
+	}
+}
+
+// TestSelectDefaultReturnsPinFocusToStrip verifies the refresh()-triggered
+// fallback path (a jumped-to pin's board vanishing mid-session) also resets
+// the highlight to the strip, not just the direct project-select call.
+func TestSelectDefaultReturnsPinFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	m.boards.selectDefault()
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after selectDefault = %d, want -1", m.boards.pinFocus)
+	}
+}
+
+// TestLoadPinsClampsToMaxPins verifies a pins.json written before the cap
+// dropped to 5 (or edited by hand) is clamped on load rather than rendering
+// or being jumpable past what fits as boxes.
+func TestLoadPinsClampsToMaxPins(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	var boards []string
+	for i := 0; i < 7; i++ {
+		name := fmt.Sprintf("ATM:board-%02d", i)
+		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+		boards = append(boards, name)
+	}
+	m.boards.refresh()
+	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: boards}); err != nil {
+		t.Fatalf("write pins: %v", err)
+	}
+	m.boards.refresh()
+	if len(m.boards.pins) != 5 {
+		t.Fatalf("pins after loading 7 stored = %d, want 5 (clamped)", len(m.boards.pins))
+	}
+}
+
 // --- Boards pane tests ---
 
 // newTestStore opens a fresh temp-dir store for direct store-API tests that
@@ -1073,14 +1174,15 @@ func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 
 // --- UX refinement follow-up tests (pin cap, description wrapping, hint removal) ---
 
-// TestTogglePinCapsAtTen verifies an 11th pin is ignored rather than evicting
-// an existing pin or growing past what jumpPin/the pin stack can address.
-func TestTogglePinCapsAtTen(t *testing.T) {
+// TestTogglePinCapsAtFive verifies a 6th pin is ignored rather than evicting
+// an existing pin or growing past what jumpPin/the boxed pin stack can
+// address (maxPins dropped from 10 to 5 for the boxed-pin rework).
+func TestTogglePinCapsAtFive(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	var boards []string
-	for i := 0; i < 11; i++ {
+	for i := 0; i < 6; i++ {
 		name := fmt.Sprintf("ATM:board-%02d", i)
 		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
 			t.Fatal(err)
@@ -1092,18 +1194,18 @@ func TestTogglePinCapsAtTen(t *testing.T) {
 		m.boards.selected = full
 		m.boards.togglePin()
 	}
-	if len(m.boards.pins) != 10 {
-		t.Fatalf("pins after 11 toggles = %d, want 10 (cap)", len(m.boards.pins))
+	if len(m.boards.pins) != 5 {
+		t.Fatalf("pins after 6 toggles = %d, want 5 (cap)", len(m.boards.pins))
 	}
-	if m.boards.pins[len(m.boards.pins)-1] == boards[10] {
-		t.Errorf("11th board %q was pinned past the cap", boards[10])
+	if m.boards.pins[len(m.boards.pins)-1] == boards[5] {
+		t.Errorf("6th board %q was pinned past the cap", boards[5])
 	}
 	p, err := m.store.GetPins("ATM")
 	if err != nil {
 		t.Fatalf("get pins: %v", err)
 	}
-	if p == nil || len(p.Boards) != 10 {
-		t.Errorf("persisted pins = %+v, want 10", p)
+	if p == nil || len(p.Boards) != 5 {
+		t.Errorf("persisted pins = %+v, want 5", p)
 	}
 }
 

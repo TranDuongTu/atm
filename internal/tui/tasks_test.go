@@ -384,16 +384,17 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	if !strings.Contains(stripBlock, "open-tasks") {
 		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
 	}
-	pinLine := lines[len(lines)-stripHeight-1]
-	if !strings.Contains(pinLine, "open-tasks") {
-		t.Errorf("line directly above the strip = %q, want the pinned open-tasks pill", pinLine)
+	pinBlock := strings.Join(lines[len(lines)-stripHeight-3:len(lines)-stripHeight], "\n")
+	if !strings.Contains(pinBlock, "open-tasks") {
+		t.Errorf("3 lines directly above the strip = %q, want the pinned open-tasks box", pinBlock)
 	}
 }
 
 // TestListPageSizeShrinksAsPinsAdded verifies listPageSize derives from the
 // live pin count (via listContentHeight) rather than a value cached at
 // SetSize, so pgup/pgdown keep landing on the page boundary the renderer
-// actually draws as pins are added.
+// actually draws as pins are added. Each pin is a 3-line box, so one pin
+// shrinks the page by 3.
 func TestListPageSizeShrinksAsPinsAdded(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -409,7 +410,7 @@ func TestListPageSizeShrinksAsPinsAdded(t *testing.T) {
 	before := m.tasks.listPageSize()
 	m.boards.togglePin()
 	after := m.tasks.listPageSize()
-	if after != before-1 {
-		t.Errorf("listPageSize after pinning 1 board = %d, want %d (one less than unpinned %d)", after, before-1, before)
+	if after != before-3 {
+		t.Errorf("listPageSize after pinning 1 board = %d, want %d (3 less than unpinned %d)", after, before-3, before)
 	}
 }
