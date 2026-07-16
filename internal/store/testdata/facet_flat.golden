@@ -1,0 +1,114 @@
+== filter: []
+  others
+    open-chore
+    open-bug
+    done-chore
+    multi-status
+    type-only
+    bare-tag
+    mixed-bare
+    unlabeled
+== filter: [ATM:status:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  others
+    type-only
+    bare-tag
+    unlabeled
+== filter: [ATM:status:* ATM:type:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  group ATM:type:bug
+    open-bug
+    type-only
+  group ATM:type:chore
+    open-chore
+    done-chore
+  others
+    bare-tag
+    unlabeled
+== filter: [ATM:status:* ATM:type:* ATM:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  group ATM:type:bug
+    open-bug
+    type-only
+  group ATM:type:chore
+    open-chore
+    done-chore
+  group ATM:urgent
+    bare-tag
+    mixed-bare
+  others
+    unlabeled
+== filter: [ATM:* ATM:status:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  group ATM:type:bug
+    open-bug
+    type-only
+  group ATM:type:chore
+    open-chore
+    done-chore
+  group ATM:urgent
+    bare-tag
+    mixed-bare
+  others
+    unlabeled
+== filter: [ATM:status:* ATM:status:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  others
+    type-only
+    bare-tag
+    unlabeled
+== filter: [ATM:nosuch:*]
+  others
+    open-chore
+    open-bug
+    done-chore
+    multi-status
+    type-only
+    bare-tag
+    mixed-bare
+    unlabeled
+== filter: [ATM:type:bug ATM:status:*]
+  group ATM:status:open
+    open-bug
+  others
+    type-only

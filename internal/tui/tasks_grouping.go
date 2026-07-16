@@ -1,9 +1,7 @@
 package tui
 
 import (
-	"sort"
-	"strings"
-
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -23,29 +21,11 @@ type taskGroup struct {
 
 // parseFilter splits the filter string on spaces; tokens ending `:*` are
 // wildcards (facets), others are exact restrictors.
-func (t *tasksModel) parseFilter() []string {
-	s := strings.TrimSpace(t.filter)
-	if s == "" {
-		return nil
-	}
-	return strings.Fields(s)
-}
-
-// taskHasBareTag reports whether t carries at least one unnamespaced (bare)
-// label — a label whose suffix after the "<scope>:" prefix contains no colon.
-func taskHasBareTag(scope string, t *store.Task) bool {
-	for _, full := range t.Labels {
-		suffix := strings.TrimPrefix(full, scope+":")
-		if !strings.Contains(suffix, ":") {
-			return true
-		}
-	}
-	return false
-}
+func (t *tasksModel) parseFilter() []string { return core.ParseFilter(t.filter) }
 
 func (t *tasksModel) hasWildcard() bool {
 	for _, tok := range t.parseFilter() {
-		if isWildcardTUI(tok) {
+		if core.IsWildcard(tok) {
 			return true
 		}
 	}
@@ -67,136 +47,83 @@ func (t *tasksModel) grouped() bool {
 	}
 }
 
-func isWildcardTUI(l string) bool { return strings.HasSuffix(l, ":*") }
+// taskLabels is the core.GroupNested accessor for store tasks. It is the only
+// thing core needs to know about a Task — the type itself stays in store
+// until ATM-b9d83a.
+func taskLabels(t *store.Task) []string { return t.Labels }
 
-// facetToken returns the full wildcard label used to facet the Tasks pane by
-// a namespace, e.g. facetToken("ATM","status") == "ATM:status:*".
-func facetToken(scope, ns string) string { return scope + ":" + ns + ":*" }
+// splitUnmatchedTop separates the top-level `(no matching labels)` bucket from a
+// core.GroupNested tree, returning the remaining nodes and that bucket's tasks:
+// every task in `tasks` carrying no label that matches wildcards[0].
+//
+// That set STRICTLY CONTAINS the store's others (tasks matching no wildcard at
+// all) whenever the filter carries two or more wildcards, so the store's others
+// cannot stand in for it — dropping the node while rendering the store's others
+// makes the difference vanish from the UI entirely. With a single wildcard the
+// two coincide. The TUI renders this bucket under its own policy: hidden under
+// a present focus, flat under focusOff (tasks_list.go's focusOff bucket).
+// Nested `(no matching labels)` buckets are kept: nothing else represents them.
+//
+// The bucket is recomputed from `tasks` rather than read off the node: with two
+// or more wildcards GroupNested has already split it into children, which
+// re-bucket multi-label tasks and reorder them. The predicate here is
+// GroupNested's own, so the two agree by construction and input order survives.
+//
+// GroupNested emits the bucket last and only when non-empty, so this splits off
+// at most the final node.
+func splitUnmatchedTop(nodes []core.Node[*store.Task], tasks []*store.Task, wildcards []string) ([]core.Node[*store.Task], []*store.Task) {
+	n := len(nodes)
+	if n == 0 {
+		// No wildcards to facet by, so nothing matches one: every task is
+		// unmatched. (GroupNested returns no nodes only when wildcards is
+		// empty, or when there is nothing to group at all.)
+		return nodes, tasks
+	}
+	if nodes[n-1].Label != "" {
+		return nodes, nil
+	}
+	var unmatched []*store.Task
+	for _, tk := range tasks {
+		if !anyLabelMatches(tk.Labels, wildcards[0]) {
+			unmatched = append(unmatched, tk)
+		}
+	}
+	return nodes[:n-1], unmatched
+}
 
-// filterHasToken reports whether token is one of the space-separated fields of
-// filter.
-func filterHasToken(filter, token string) bool {
-	for _, f := range strings.Fields(filter) {
-		if f == token {
+// anyLabelMatches reports whether any label matches the wildcard.
+func anyLabelMatches(labels []string, wildcard string) bool {
+	for _, l := range labels {
+		if core.LabelMatchesWildcard(l, wildcard) {
 			return true
 		}
 	}
 	return false
 }
 
-// filterAddToken appends token to filter (single-space separated) unless it is
-// already present.
-func filterAddToken(filter, token string) string {
-	if filterHasToken(filter, token) {
-		return filter
-	}
-	if strings.TrimSpace(filter) == "" {
-		return token
-	}
-	return filter + " " + token
-}
-
-// filterRemoveToken removes every occurrence of token from filter and rejoins
-// the remaining fields with single spaces.
-func filterRemoveToken(filter, token string) string {
-	var kept []string
-	for _, f := range strings.Fields(filter) {
-		if f != token {
-			kept = append(kept, f)
-		}
-	}
-	return strings.Join(kept, " ")
-}
-
-func wildcardTokens(labels []string) []string {
-	var out []string
-	for _, l := range labels {
-		if isWildcardTUI(l) {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-// buildNestedGroups buckets `tasks` by the concrete labels they carry that
-// match the given wildcards, recursing for each remaining wildcard. This is
-// the TUI-side nesting pass that turns the store's flat per-concrete-label
-// groups into the nested facet tree (mockup Screen 7, two-wildcard case).
-//
-// Multi-membership: a task appears in every sub-group whose key it carries.
-// Tasks matching no label for the current wildcard land in a sub-
-// `(no matching labels)` bucket (label == ""), consistent with the top-level
-// pattern. At the deepest level (no remaining wildcards), the caller already
-// holds the leaf rows; this helper only recurses while wildcards remain.
-func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup {
-	if len(wildcards) == 0 {
+// nodesToGroups adapts core's rendering-agnostic facet tree into the TUI's
+// taskGroup, attaching rows via toRow. Leaf rows live only at the deepest
+// level, mirroring core.GroupNested's Items placement; collapsed defaults to
+// false (expanded).
+func nodesToGroups(nodes []core.Node[*store.Task], toRow func(*store.Task) taskRow) []taskGroup {
+	if len(nodes) == 0 {
 		return nil
 	}
-	w := wildcards[0]
-	// Bucket tasks by each concrete label they carry matching w, preserving
-	// discovery order then alphabetical (store.GroupTasks already sorts;
-	// we sort here for determinism independent of input order).
-	buckets := map[string][]*store.Task{}
-	var keys []string
-	matched := map[*store.Task]bool{}
-	for _, t := range tasks {
-		for _, l := range t.Labels {
-			if labelMatchesWildcardTUI(l, w) {
-				if _, exists := buckets[l]; !exists {
-					keys = append(keys, l)
-				}
-				buckets[l] = append(buckets[l], t)
-				matched[t] = true
+	out := make([]taskGroup, 0, len(nodes))
+	for _, n := range nodes {
+		g := taskGroup{label: n.Label}
+		if len(n.Children) > 0 {
+			g.subgroups = nodesToGroups(n.Children, toRow)
+		} else {
+			rows := make([]taskRow, 0, len(n.Items))
+			for _, tk := range n.Items {
+				rows = append(rows, toRow(tk))
 			}
-		}
-	}
-	sort.Strings(keys)
-	// (no matching labels) sub-bucket: tasks matching no label for w.
-	var noneMatched []*store.Task
-	for _, t := range tasks {
-		if !matched[t] {
-			noneMatched = append(noneMatched, t)
-		}
-	}
-	var groups []taskGroup
-	for _, k := range keys {
-		rows := make([]taskRow, 0, len(buckets[k]))
-		for _, tk := range buckets[k] {
-			rows = append(rows, toRow(tk))
-		}
-		g := taskGroup{label: k}
-		if len(wildcards) >= 2 {
-			g.subgroups = buildNestedGroups(buckets[k], wildcards[1:], toRow)
-			// Leaf rows live only at the deepest level.
-			g.rows = nil
-		} else {
 			g.rows = rows
 		}
-		groups = append(groups, g)
+		out = append(out, g)
 	}
-	// Sub-`(no matching labels)` bucket, rendered last within this level.
-	if len(noneMatched) > 0 {
-		rows := make([]taskRow, 0, len(noneMatched))
-		for _, tk := range noneMatched {
-			rows = append(rows, toRow(tk))
-		}
-		g := taskGroup{label: ""} // "" == (no matching labels)
-		if len(wildcards) >= 2 {
-			g.subgroups = buildNestedGroups(noneMatched, wildcards[1:], toRow)
-		} else {
-			g.rows = rows
-		}
-		groups = append(groups, g)
-	}
-	return groups
-}
-
-// labelMatchesWildcardTUI reports whether label matches the wildcard (e.g.
-// "ATM:status:open" matches "ATM:status:*"). Mirrors store.labelMatchesWildcard
-// without exposing the unexported helper.
-func labelMatchesWildcardTUI(label, wildcard string) bool {
-	prefix := strings.TrimSuffix(wildcard, "*")
-	return strings.HasPrefix(label, prefix)
+	return out
 }
 
 // groupLineCount returns the logical lines contributed by one group and its

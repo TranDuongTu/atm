@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"atm/internal/core"
 	"atm/internal/seed"
 	"atm/internal/store"
 	"atm/internal/workflow"
@@ -549,7 +550,7 @@ func (b *boardsModel) applyFocus() {
 	}
 	r := b.rows[idx]
 	if r.Expandable {
-		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, facetToken(b.m.projectScope, r.Name))
+		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
 	} else {
 		b.m.tasks.setFocus(taskFocus{mode: focusOff}, r.FullName)
 	}
@@ -729,7 +730,7 @@ func (b *boardsModel) enterChart(ns string) {
 	b.ns = ns
 	b.cursor = 0
 	b.offset = 0
-	b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: ns}, facetToken(b.m.projectScope, ns))
+	b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: ns}, core.FacetToken(b.m.projectScope, ns))
 }
 
 // enterBoard filters the Tasks pane to a board's computed membership. A board
@@ -746,7 +747,7 @@ func (b *boardsModel) chartRows() []chartRow {
 	scope := b.m.projectScope
 	var rows []chartRow
 	unset := 0
-	groups, others := b.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: []string{facetToken(scope, b.ns)}})
+	groups, others := b.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: []string{core.FacetToken(scope, b.ns)}})
 	counts := map[string]int{}
 	for _, g := range groups {
 		counts[g.Label] = len(g.Tasks)
@@ -775,7 +776,7 @@ func (b *boardsModel) enterDetail(r labelRow) {
 func (b *boardsModel) enterUnsetLeaf() {
 	b.level = lLevelDetail
 	b.detail = labelDetailState{leaf: "unset"}
-	b.m.tasks.setFocus(taskFocus{mode: focusAbsent, ns: b.ns}, facetToken(b.m.projectScope, b.ns))
+	b.m.tasks.setFocus(taskFocus{mode: focusAbsent, ns: b.ns}, core.FacetToken(b.m.projectScope, b.ns))
 }
 
 // reset returns the pane to L0 and clears Tasks focus. Called on project switch

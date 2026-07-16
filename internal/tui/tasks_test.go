@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 	"atm/internal/workflow"
 )
@@ -25,7 +26,7 @@ func mkTask(id, title string, labels ...string) *store.Task {
 
 // TestBuildNestedGroupsTwoWildcards verifies the TUI-side nesting pass for a
 // two-wildcard filter (mockup Screen 7). The store returns flat per-concrete-
-// label buckets; buildNestedGroups must turn them into a two-level tree with
+// label buckets; core.GroupNested must turn them into a two-level tree with
 // multi-membership preserved and a per-level (no matching labels) sub-bucket.
 func TestBuildNestedGroupsTwoWildcards(t *testing.T) {
 	// Top-level group "ATM:status:open" tasks (as GroupTasks would bucket them).
@@ -39,7 +40,7 @@ func TestBuildNestedGroupsTwoWildcards(t *testing.T) {
 		mkTask("ATM-0020", "Status only", "ATM:status:open"),
 	}
 	wildcards := []string{"ATM:type:*"}
-	subs := buildNestedGroups(openTasks, wildcards, toRowTest)
+	subs := nodesToGroups(core.GroupNested(openTasks, taskLabels, wildcards), toRowTest)
 
 	// Expect three concrete sub-groups (alphabetical) + one
 	// (no matching labels) sub-bucket last:
@@ -94,7 +95,7 @@ func TestBuildNestedGroupsThreeWildcards(t *testing.T) {
 		mkTask("ATM-0003", "c", "ATM:status:open", "ATM:type:task", "ATM:prio:high"),
 	}
 	wildcards := []string{"ATM:type:*", "ATM:prio:*"}
-	subs := buildNestedGroups(tasks, wildcards, toRowTest)
+	subs := nodesToGroups(core.GroupNested(tasks, taskLabels, wildcards), toRowTest)
 
 	// Top level (ATM:type:*) : bug (2), task (1)
 	if len(subs) != 2 {
@@ -185,49 +186,6 @@ func TestGroupLeafCountNested(t *testing.T) {
 	g.collapsed = true
 	if got := groupLeafCount(g); got != 3 {
 		t.Errorf("groupLeafCount (collapsed) = %d want 3", got)
-	}
-}
-
-func TestFilterTokenHelpers(t *testing.T) {
-	if got := facetToken("ATM", "status"); got != "ATM:status:*" {
-		t.Fatalf("facetToken = %q want ATM:status:*", got)
-	}
-	if !filterHasToken("ATM:status:* ATM:type:*", "ATM:type:*") {
-		t.Fatalf("filterHasToken should find ATM:type:*")
-	}
-	if filterHasToken("ATM:status:*", "ATM:type:*") {
-		t.Fatalf("filterHasToken should not find absent token")
-	}
-	if got := filterAddToken("ATM:status:*", "ATM:type:*"); got != "ATM:status:* ATM:type:*" {
-		t.Fatalf("filterAddToken = %q want two tokens", got)
-	}
-	if got := filterAddToken("ATM:status:*", "ATM:status:*"); got != "ATM:status:*" {
-		t.Fatalf("filterAddToken should not duplicate, got %q", got)
-	}
-	if got := filterAddToken("", "ATM:status:*"); got != "ATM:status:*" {
-		t.Fatalf("filterAddToken onto empty = %q want ATM:status:*", got)
-	}
-	if got := filterRemoveToken("ATM:status:* ATM:type:*", "ATM:status:*"); got != "ATM:type:*" {
-		t.Fatalf("filterRemoveToken = %q want ATM:type:*", got)
-	}
-	if got := filterRemoveToken("ATM:status:*", "ATM:status:*"); got != "" {
-		t.Fatalf("filterRemoveToken last token = %q want empty", got)
-	}
-}
-
-func TestTaskHasBareTag(t *testing.T) {
-	mk := func(labels ...string) *store.Task { return &store.Task{ID: "ATM-0001", Labels: labels} }
-	if taskHasBareTag("ATM", mk("ATM:status:open")) {
-		t.Error("namespaced label must not count as a bare tag")
-	}
-	if !taskHasBareTag("ATM", mk("ATM:urgent")) {
-		t.Error("unnamespaced label must count as a bare tag")
-	}
-	if taskHasBareTag("ATM", mk()) {
-		t.Error("no labels means no bare tag")
-	}
-	if !taskHasBareTag("ATM", mk("ATM:status:open", "ATM:urgent")) {
-		t.Error("mixed labels with one bare tag must count")
 	}
 }
 
