@@ -31,7 +31,9 @@
 - Modify: `internal/store/store.go` (delete moved decls), `internal/store/log.go` (delete `ErrIntegrity` + `IsIntegrity`), `internal/store/persona.go` (delete `ValidatePersonaName` + `personaNameRe`)
 
 **Interfaces:**
-- Produces: `core.ErrNotFound/ErrConflict/ErrIntegrity`, `core.IsNotFound/IsConflict/IsIntegrity(err error) bool`, `core.Now() time.Time`, `core.RFC3339UTC(t time.Time) string`, `core.CommentIDRe`, `core.ParseCommentID(id string) (code string, taskN, commentN int, ok bool)`, `core.ValidatePersonaName(name string) error`, `core.IsNamespaceName(name string) bool`. Store re-exports all of them under the old names; later tasks rely on both spellings.
+- Produces: `core.ErrNotFound/ErrConflict/ErrIntegrity`, `core.IsNotFound/IsConflict/IsIntegrity(err error) bool`, `core.Now() time.Time`, `core.RFC3339UTC(t time.Time) string`, `core.TaskIDRe`, `core.ParseTaskID(id string) (code string, n int, ok bool)`, `core.CommentIDRe`, `core.ParseCommentID(id string) (code string, taskN, commentN int, ok bool)`, `core.ValidatePersonaName(name string) error`, `core.IsNamespaceName(name string) bool`. Store re-exports all of them under the old names; later tasks rely on both spellings.
+
+**Note on the ID-parsing family:** the whole family (`TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID`, and their shared private helper `numericOrZero`) moves to core **together**, and `numericOrZero` exists in exactly ONE place afterwards. Do not copy it. `ParseTaskID` is pure regex parsing in the same family as `ParseCommentID` and is called only from inside store (`task.go`, `comment.go`, `query.go`), which reaches it through the alias.
 
 - [ ] **Step 1: Write failing core tests**
 
@@ -80,6 +82,18 @@ func TestRFC3339UTC(t *testing.T) {
 	in := time.Date(2026, 7, 16, 10, 30, 0, 0, time.FixedZone("X", 7*3600))
 	if got, want := RFC3339UTC(in), "2026-07-16T03:30:00Z"; got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestParseTaskID(t *testing.T) {
+	if code, n, ok := ParseTaskID("ATM-0001"); !ok || code != "ATM" || n != 1 {
+		t.Fatalf("v1 id: got %q %d %v", code, n, ok)
+	}
+	if code, n, ok := ParseTaskID("ATM-7f3a2b"); !ok || code != "ATM" || n != 0 {
+		t.Fatalf("v2 alias: got %q %d %v", code, n, ok)
+	}
+	if _, _, ok := ParseTaskID("ATM-7F3A2B"); ok {
+		t.Fatal("uppercase hex must not parse")
 	}
 }
 
@@ -142,7 +156,7 @@ func IsConflict(err error) bool  { return errors.Is(err, ErrConflict) }
 func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
 ```
 
-`internal/core/convention.go` — new file. Move these declarations **verbatim** from `internal/store/store.go`: `RFC3339UTC`, `Now` (the package-level function, NOT the `(s *Store) Now` method — that stays), `CommentIDRe` (with its doc comment), `ParseCommentID`, and from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`. `ParseCommentID` calls `numericOrZero`; that helper is ALSO used by `ParseTaskID` which stays in store, so core gets a private **copy** (copy the 5-line function + doc comment from `store/store.go`; leave the store copy in place). File skeleton:
+`internal/core/convention.go` — new file. Move these declarations **verbatim** from `internal/store/store.go`: `RFC3339UTC`, `Now` (the package-level function, NOT the `(s *Store) Now` method — that stays), `TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID` (each with its doc comment), the shared private helper `numericOrZero` (moved, NOT copied — delete it from store), and from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`. File skeleton:
 
 ```go
 package core
@@ -153,9 +167,11 @@ import (
 	"time"
 )
 
-// ... RFC3339UTC, Now, CommentIDRe, ParseCommentID, numericOrZero (copy),
-// personaNameRe, ValidatePersonaName — bodies moved verbatim from store.
+// ... RFC3339UTC, Now, TaskIDRe, ParseTaskID, CommentIDRe, ParseCommentID,
+// numericOrZero, personaNameRe, ValidatePersonaName — bodies moved verbatim.
 ```
+
+Note `RenderCommentID`/`RenderTaskID` stay in store — they are not referenced by this task's move set; leave them alone.
 
 (If `ValidatePersonaName` uses `fmt`, keep the import; drop any import the moved bodies don't need — `go vet` will tell you.)
 
@@ -174,7 +190,7 @@ Expected: PASS
 
 - [ ] **Step 5: Delete moved decls from store; add the alias file**
 
-Delete from `internal/store/store.go`: `RFC3339UTC`, package-level `Now`, `CommentIDRe`, `ParseCommentID`, `IsNamespaceName`, and inside the `var (...)` block the `ErrNotFound`/`ErrConflict` lines plus `IsNotFound`/`IsConflict` (KEEP `ErrUsage`/`IsUsage` — they stay in store). Keep `numericOrZero`. Delete from `internal/store/log.go`: `var ErrIntegrity ...` and `func IsIntegrity ...`. Delete from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`.
+Delete from `internal/store/store.go`: `RFC3339UTC`, package-level `Now`, `TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID`, `numericOrZero`, `IsNamespaceName`, and inside the `var (...)` block the `ErrNotFound`/`ErrConflict` lines plus `IsNotFound`/`IsConflict` (KEEP `ErrUsage`/`IsUsage` — they stay in store). Delete from `internal/store/log.go`: `var ErrIntegrity ...` and `func IsIntegrity ...`. Delete from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`.
 
 Create `internal/store/core_aliases.go`:
 
@@ -199,6 +215,8 @@ var (
 	IsIntegrity         = core.IsIntegrity
 	Now                 = core.Now
 	RFC3339UTC          = core.RFC3339UTC
+	TaskIDRe            = core.TaskIDRe
+	ParseTaskID         = core.ParseTaskID
 	CommentIDRe         = core.CommentIDRe
 	ParseCommentID      = core.ParseCommentID
 	ValidatePersonaName = core.ValidatePersonaName
@@ -206,7 +224,7 @@ var (
 )
 ```
 
-Note: `IsNamespaceName` is referenced by `store/types.go` (`Label.IsComputed`) and others — the function-value alias keeps every call site compiling.
+Note: `IsNamespaceName` is referenced by `store/types.go` (`Label.IsComputed`) and `ParseTaskID` by `store/task.go`, `store/comment.go`, `store/query.go` — the function-value aliases keep every call site compiling, and `store/id_alias_test.go` keeps passing unchanged.
 
 - [ ] **Step 6: Verify**
 
