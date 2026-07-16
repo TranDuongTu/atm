@@ -2,12 +2,9 @@ package store
 
 import (
 	"encoding/json"
-	"errors"
 	"path/filepath"
 	"time"
 )
-
-var ErrIntegrity = errors.New("integrity")
 
 // Action enum — closed. Unknown action → ErrUsage.
 const (
@@ -55,8 +52,6 @@ type HistoryView struct {
 func (s *Store) logPath(code string) string {
 	return filepath.Join(s.projectDir(code), "log.jsonl")
 }
-
-func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
 
 // LastLogSeq is THE staleness probe every poller in the codebase uses (Watch,
 // tui/indexer.go, cli/index.go's Behind count, ReadLogCached's cross-process

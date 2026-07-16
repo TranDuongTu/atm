@@ -63,3 +63,7 @@ func HasBareTag(scope string, labels []string) bool {
 	}
 	return false
 }
+
+// IsNamespaceName reports whether name is a namespace label (e.g. "ATM:status:*"),
+// whose membership is every label sharing its prefix.
+func IsNamespaceName(name string) bool { return strings.HasSuffix(name, ":*") }

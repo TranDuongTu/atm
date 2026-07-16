@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"time"
 
@@ -19,15 +18,6 @@ type Persona struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 	CreatedBy   string    `json:"created_by"`
 	UpdatedBy   string    `json:"updated_by"`
-}
-
-var personaNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-
-func ValidatePersonaName(name string) error {
-	if !personaNameRe.MatchString(name) {
-		return fmt.Errorf("%w: invalid persona name %q (want ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$)", ErrUsage, name)
-	}
-	return nil
 }
 
 func (s *Store) personasDir() string { return filepath.Join(s.Root, "personas") }
