@@ -1,0 +1,214 @@
+== filter: []
+  (no groups)
+  others
+    open-chore
+    open-bug
+    done-chore
+    multi-status
+    type-only
+    bare-tag
+    mixed-bare
+    unlabeled
+== filter: [ATM:status:*]
+  group ATM:status:blocked
+    multi-status
+  group ATM:status:done
+    done-chore
+  group ATM:status:open
+    open-chore
+    open-bug
+    multi-status
+    mixed-bare
+  others
+    type-only
+    bare-tag
+    unlabeled
+== filter: [ATM:status:* ATM:type:*]
+  group ATM:status:blocked
+    group (no matching labels)
+      multi-status
+  group ATM:status:done
+    group ATM:type:chore
+      done-chore
+  group ATM:status:open
+    group ATM:type:bug
+      open-bug
+    group ATM:type:chore
+      open-chore
+    group (no matching labels)
+      multi-status
+      mixed-bare
+  group ATM:type:bug
+    group ATM:type:bug
+      open-bug
+      type-only
+  group ATM:type:chore
+    group ATM:type:chore
+      open-chore
+      done-chore
+  others
+    bare-tag
+    unlabeled
+== filter: [ATM:status:* ATM:type:* ATM:*]
+  group ATM:status:blocked
+    group (no matching labels)
+      group ATM:status:blocked
+        multi-status
+        multi-status
+      group ATM:status:open
+        multi-status
+        multi-status
+  group ATM:status:done
+    group ATM:type:chore
+      group ATM:status:done
+        done-chore
+        done-chore
+      group ATM:type:chore
+        done-chore
+        done-chore
+  group ATM:status:open
+    group ATM:type:bug
+      group ATM:status:open
+        open-bug
+        open-bug
+      group ATM:type:bug
+        open-bug
+        open-bug
+    group ATM:type:chore
+      group ATM:status:open
+        open-chore
+        open-chore
+      group ATM:type:chore
+        open-chore
+        open-chore
+    group (no matching labels)
+      group ATM:status:blocked
+        multi-status
+        multi-status
+      group ATM:status:open
+        multi-status
+        multi-status
+        mixed-bare
+        mixed-bare
+      group ATM:urgent
+        mixed-bare
+        mixed-bare
+  group ATM:type:bug
+    group ATM:type:bug
+      group ATM:status:open
+        open-bug
+        open-bug
+      group ATM:type:bug
+        open-bug
+        open-bug
+        type-only
+        type-only
+  group ATM:type:chore
+    group ATM:type:chore
+      group ATM:status:done
+        done-chore
+        done-chore
+      group ATM:status:open
+        open-chore
+        open-chore
+      group ATM:type:chore
+        open-chore
+        open-chore
+        done-chore
+        done-chore
+  group ATM:urgent
+    group (no matching labels)
+      group ATM:status:open
+        mixed-bare
+      group ATM:urgent
+        bare-tag
+        mixed-bare
+  others
+    unlabeled
+== filter: [ATM:* ATM:status:*]
+  group ATM:status:blocked
+    group ATM:status:blocked
+      multi-status
+      multi-status
+    group ATM:status:open
+      multi-status
+      multi-status
+  group ATM:status:done
+    group ATM:status:done
+      done-chore
+      done-chore
+  group ATM:status:open
+    group ATM:status:blocked
+      multi-status
+      multi-status
+    group ATM:status:open
+      open-chore
+      open-chore
+      open-bug
+      open-bug
+      multi-status
+      multi-status
+      mixed-bare
+      mixed-bare
+  group ATM:type:bug
+    group ATM:status:open
+      open-bug
+    group (no matching labels)
+      type-only
+  group ATM:type:chore
+    group ATM:status:done
+      done-chore
+    group ATM:status:open
+      open-chore
+  group ATM:urgent
+    group ATM:status:open
+      mixed-bare
+    group (no matching labels)
+      bare-tag
+  others
+    unlabeled
+== filter: [ATM:status:* ATM:status:*]
+  group ATM:status:blocked
+    group ATM:status:blocked
+      multi-status
+      multi-status
+    group ATM:status:open
+      multi-status
+      multi-status
+  group ATM:status:done
+    group ATM:status:done
+      done-chore
+      done-chore
+  group ATM:status:open
+    group ATM:status:blocked
+      multi-status
+      multi-status
+    group ATM:status:open
+      open-chore
+      open-chore
+      open-bug
+      open-bug
+      multi-status
+      multi-status
+      mixed-bare
+      mixed-bare
+  others
+    type-only
+    bare-tag
+    unlabeled
+== filter: [ATM:nosuch:*]
+  (no groups)
+  others
+    open-chore
+    open-bug
+    done-chore
+    multi-status
+    type-only
+    bare-tag
+    mixed-bare
+    unlabeled
+== filter: [ATM:type:bug ATM:status:*]
+  group ATM:status:open
+    open-bug
+  others
+    type-only
