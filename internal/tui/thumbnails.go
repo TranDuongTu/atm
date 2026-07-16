@@ -137,17 +137,45 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	return titledBoxHeight(b.m.styles.PaneActive, w, r.Name, inner, h)
 }
 
-// renderPinnedRow renders the single compact pinned-boards line. Empty when no
-// pins exist.
-func (b *boardsModel) renderPinnedRow(paneW int) string {
+// renderPinnedStack renders the pinned-boards stack: one full-width line per
+// pinned board, each a single-line side-bordered pill (genuine rounded
+// corners need >=3 lines, so this is the 1-line approximation — a rounded
+// border with the top/bottom sides switched off). Each line shows
+// "[N] name  description" in full, truncated with fitLine only if it
+// overflows paneW. Returns "" when no pins exist.
+func (b *boardsModel) renderPinnedStack(paneW int) string {
 	if len(b.pins) == 0 {
 		return ""
 	}
-	var parts []string
+	innerW := paneW - 2 // left + right border columns
+	if innerW < 1 {
+		innerW = 1
+	}
+	lines := make([]string, len(b.pins))
 	for i, full := range b.pins {
 		name := strings.TrimPrefix(full, b.m.projectScope+":")
-		parts = append(parts, fmt.Sprintf("[%d] %s", i+1, name))
+		text := fmt.Sprintf("[%d] %s", i+1, name)
+		if desc := b.pinDescription(full); desc != "" {
+			text += "  " + desc
+		}
+		text = fitLine(text, innerW)
+		if lw := lipgloss.Width(text); lw < innerW {
+			text += spaces(innerW - lw)
+		}
+		lines[i] = b.m.styles.PinPill.Render(text)
 	}
-	line := " pinned: " + strings.Join(parts, "  ")
-	return dashboardLine(paneW, b.m.styles.Muted.Render(line))
+	return strings.Join(lines, "\n")
+}
+
+// pinDescription returns a pinned board's description, looked up by FullName
+// against the current L0 row list — the same computed rows buildBoardRows
+// produces for both namespace and leaf boards, so this needs no separate
+// store lookup.
+func (b *boardsModel) pinDescription(full string) string {
+	for _, r := range b.rows {
+		if r.FullName == full {
+			return r.Description
+		}
+	}
+	return ""
 }

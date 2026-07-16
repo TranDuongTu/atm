@@ -137,14 +137,31 @@ func (t *tasksModel) SetSize(w, h int) {
 	t.width = w
 	t.contentHeight = h
 	// header line + blank + column header + rule + footer + margin, plus the
-	// board strip reserved above the list. The pinned row's extra line is NOT
-	// accounted for here — it's handled only in the render path
-	// (renderListWithStrip), since SetSize never re-runs on a pin toggle and
-	// would otherwise leave pageSize stale.
+	// board strip reserved in the list view. This is only a placeholder value
+	// for t.pageSize until the first render — listPageSize() and
+	// renderListWithStrip() both recompute the real page size from
+	// listContentHeight(), which also accounts for the live pinned stack
+	// (SetSize never re-runs on a pin toggle and would otherwise leave this
+	// value stale).
 	t.pageSize = h - stripHeight - 6
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}
+}
+
+// listContentHeight is the single source of truth for how many lines the
+// scrollable task list gets in the list view, once the fixed board strip and
+// the live pinned stack (one line per pin) are subtracted. It is computed
+// from the live pin count at render/paging time — not cached at SetSize — so
+// renderListWithStrip and listPageSize always agree, and pgup/pgdown keep
+// landing on the page boundary the renderer actually draws as pins are added
+// or removed.
+func (t *tasksModel) listContentHeight() int {
+	h := t.contentHeight - stripHeight - len(t.m.boards.pins)
+	if h < 4 {
+		h = 4
+	}
+	return h
 }
 
 func (t *tasksModel) refresh() {
@@ -878,24 +895,17 @@ func (t *tasksModel) View() string {
 	return ""
 }
 
-// renderListWithStrip renders the board thumbnail strip above the task list
-// and the pinned-boards row below it (list view only; the detail view keeps
-// the full pane since the strip is contextual to browsing). It reuses the
-// existing renderList() by temporarily shrinking t.contentHeight/t.pageSize
-// to the list's sub-height rather than refactoring renderList itself —
+// renderListWithStrip renders the list view top to bottom: the task list
+// (fills), then the pinned-boards stack, then the board thumbnail strip at
+// the bottom (the detail view keeps the full pane since the strip is
+// contextual to browsing). It reuses the existing renderList() by temporarily
+// shrinking t.contentHeight/t.pageSize to the list's sub-height (from
+// listContentHeight()) rather than refactoring renderList itself —
 // renderList already ends with padToHeight(..., t.contentHeight), so the
 // shrink makes it pad to the sub-height, and the outer padToHeight below
 // clamps any rounding.
 func (t *tasksModel) renderListWithStrip() string {
-	strip := t.m.boards.renderStrip(t.width, stripHeight)
-	pinned := t.m.boards.renderPinnedRow(t.width)
-	listH := t.contentHeight - stripHeight
-	if pinned != "" {
-		listH--
-	}
-	if listH < 4 {
-		listH = 4
-	}
+	listH := t.listContentHeight()
 	savedH, savedPageSize := t.contentHeight, t.pageSize
 	t.contentHeight = listH
 	t.pageSize = listH - 6
@@ -905,14 +915,17 @@ func (t *tasksModel) renderListWithStrip() string {
 	listOut := t.renderList()
 	t.contentHeight, t.pageSize = savedH, savedPageSize
 
+	pinned := t.m.boards.renderPinnedStack(t.width)
+	strip := t.m.boards.renderStrip(t.width, stripHeight)
+
 	var b strings.Builder
-	b.WriteString(strip)
-	b.WriteString("\n")
 	b.WriteString(listOut)
 	if pinned != "" {
 		b.WriteString("\n")
 		b.WriteString(pinned)
 	}
+	b.WriteString("\n")
+	b.WriteString(strip)
 	return padToHeight(b.String(), t.contentHeight)
 }
 
@@ -1205,7 +1218,11 @@ func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
 		return t.groupPageSize()
 	}
-	return t.pageSize
+	size := t.listContentHeight() - 6
+	if size < 1 {
+		size = 1
+	}
+	return size
 }
 
 // shiftDigitToInt maps a shifted-digit key (US keyboard row: ! @ # $ % ^ & * ()
@@ -1247,7 +1264,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[s]ort [a]dd [Enter]detail [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]in  [Enter]detail  [>]inspect board  [?]keys"
 }
 
 // --- form openers ---

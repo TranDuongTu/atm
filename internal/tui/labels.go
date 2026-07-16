@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // pluralUses returns "use"/"uses" for the given count — neutral over tasks
@@ -284,20 +285,33 @@ func (b *boardsModel) loadPins() {
 	}
 }
 
+// maxPins caps the pinned-boards stack at 10 — one more than Shift-1..9 can
+// jump to, so the cap always leaves at least one pin reachable only by
+// scrolling the stack rather than a digit shortcut.
+const maxPins = 10
+
 // togglePin adds the selected board to the pin list (at the end) if absent, or
-// removes it if present, then persists.
+// removes it if present, then persists. Adding past maxPins is ignored rather
+// than evicting an existing pin.
 func (b *boardsModel) togglePin() {
 	if b.selected == "" || b.m.projectScope == "" {
 		return
 	}
-	out := b.pins[:0:0]
 	pinned := false
 	for _, full := range b.pins {
 		if full == b.selected {
 			pinned = true
-			continue
+			break
 		}
-		out = append(out, full)
+	}
+	if !pinned && len(b.pins) >= maxPins {
+		return
+	}
+	out := b.pins[:0:0]
+	for _, full := range b.pins {
+		if full != b.selected {
+			out = append(out, full)
+		}
 	}
 	if !pinned {
 		out = append(out, b.selected)
@@ -1044,6 +1058,19 @@ func boardTableLine(width int, name, description, count string) string {
 	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
 }
 
+// namespaceDescription returns the description of ns's namespace descriptor
+// label (<scope>:<ns>:*), or "" if it has none. Looked up against the
+// already-computed L0 row list rather than re-querying the store — buildBoardRows
+// resolves the same descLabel.Description onto that namespace's boardRow.
+func (b *boardsModel) namespaceDescription(ns string) string {
+	for _, r := range b.rows {
+		if r.Expandable && r.Name == ns {
+			return r.Description
+		}
+	}
+	return ""
+}
+
 func (b *boardsModel) renderChart() string {
 	title := b.ns
 	rows := b.chartRows()
@@ -1055,6 +1082,12 @@ func (b *boardsModel) renderChart() string {
 	var sb strings.Builder
 	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%s  ·  %d tasks", title, b.activeNamespaceTaskCount())))
 	sb.WriteString("\n")
+	if desc := b.namespaceDescription(b.ns); desc != "" {
+		for _, line := range strings.Split(wordwrap.String(desc, b.width), "\n") {
+			sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render(line)))
+			sb.WriteString("\n")
+		}
+	}
 
 	nameW := 0
 	for _, r := range rows {
@@ -1088,7 +1121,6 @@ func (b *boardsModel) renderChart() string {
 		sb.WriteString(lines[i])
 		sb.WriteString("\n")
 	}
-	sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render("[Enter]inspect  [Esc]back")))
 	return padToHeight(sb.String(), b.contentHeight)
 }
 
@@ -1098,8 +1130,6 @@ func (b *boardsModel) renderDetail() string {
 	case "unset":
 		count := b.syntheticLeafTaskCount()
 		sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%d %s with no %s", count, pluralTasks(count), b.ns)))
-		sb.WriteString("\n")
-		sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render("[Esc] back to chart")))
 		return padToHeight(sb.String(), b.contentHeight)
 	}
 	r := b.detail.row
@@ -1107,11 +1137,23 @@ func (b *boardsModel) renderDetail() string {
 	sb.WriteString("\n")
 	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("usage       %d %s", r.usage, pluralUses(r.usage))))
 	sb.WriteString("\n")
-	desc := r.description
-	if desc == "" {
-		desc = b.m.styles.Warning.Render("needs description")
+	const descLabel = "description "
+	if r.description == "" {
+		sb.WriteString(dashboardLine(b.width, descLabel+b.m.styles.Warning.Render("needs description")))
+		return padToHeight(sb.String(), b.contentHeight)
 	}
-	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("description %s", desc)))
+	wrapW := b.width - len(descLabel)
+	if wrapW < 1 {
+		wrapW = 1
+	}
+	for i, line := range strings.Split(wordwrap.String(r.description, wrapW), "\n") {
+		if i > 0 {
+			sb.WriteString("\n")
+			sb.WriteString(dashboardLine(b.width, spaces(len(descLabel))+line))
+		} else {
+			sb.WriteString(dashboardLine(b.width, descLabel+line))
+		}
+	}
 	return padToHeight(sb.String(), b.contentHeight)
 }
 

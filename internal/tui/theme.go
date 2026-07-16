@@ -54,6 +54,7 @@ type Styles struct {
 	GroupHeader     lipgloss.Style
 	NamespaceHeader lipgloss.Style
 	LabelChip       lipgloss.Style
+	PinPill         lipgloss.Style
 	Muted           lipgloss.Style
 	Body            lipgloss.Style
 	Warning         lipgloss.Style
@@ -119,6 +120,7 @@ func buildStyles(themeName ThemeName) Styles {
 		GroupHeader:     lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
 		NamespaceHeader: lipgloss.NewStyle().Foreground(t.Text).Bold(true),
 		LabelChip:       lipgloss.NewStyle().Foreground(t.Text).Background(t.Subtle).Padding(0, 1),
+		PinPill:         lipgloss.NewStyle().Foreground(t.Text).Border(lipgloss.RoundedBorder(), false, true).BorderForeground(t.Border),
 		Muted:           lipgloss.NewStyle().Foreground(t.Muted),
 		Body:            lipgloss.NewStyle().Foreground(t.Text),
 		Warning:         lipgloss.NewStyle().Foreground(t.Warning).Bold(true),

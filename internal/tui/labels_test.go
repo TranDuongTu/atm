@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1068,4 +1069,144 @@ func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 	if !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("truncated selected row does not reset ANSI styling: %q", got)
 	}
+}
+
+// --- UX refinement follow-up tests (pin cap, description wrapping, hint removal) ---
+
+// TestTogglePinCapsAtTen verifies an 11th pin is ignored rather than evicting
+// an existing pin or growing past what jumpPin/the pin stack can address.
+func TestTogglePinCapsAtTen(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	var boards []string
+	for i := 0; i < 11; i++ {
+		name := fmt.Sprintf("ATM:board-%02d", i)
+		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+		boards = append(boards, name)
+	}
+	m.boards.refresh()
+	for _, full := range boards {
+		m.boards.selected = full
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 10 {
+		t.Fatalf("pins after 11 toggles = %d, want 10 (cap)", len(m.boards.pins))
+	}
+	if m.boards.pins[len(m.boards.pins)-1] == boards[10] {
+		t.Errorf("11th board %q was pinned past the cap", boards[10])
+	}
+	p, err := m.store.GetPins("ATM")
+	if err != nil {
+		t.Fatalf("get pins: %v", err)
+	}
+	if p == nil || len(p.Boards) != 10 {
+		t.Errorf("persisted pins = %+v, want 10", p)
+	}
+}
+
+// TestRenderDetailWrapsLongDescription verifies renderDetail wraps a
+// description that overflows the pane width into multiple lines rather than
+// truncating it to one.
+func TestRenderDetailWrapsLongDescription(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	long := "this description is intentionally long enough that it must wrap across more than one line at a narrow pane width"
+	if err := m.store.LabelAdd("ATM:status:open", long, "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	m.SetSize(40, 30)
+	m.boards.SetSize(40, 30)
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+	cursorToChartLabel(t, m, "ATM:status:open")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	descLines := 0
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "description") || (descLines > 0 && strings.TrimSpace(line) != "") {
+			descLines++
+		} else if descLines > 0 {
+			break
+		}
+	}
+	if descLines < 2 {
+		t.Errorf("description rendered in %d line(s), want wrapped across >= 2 at width 40:\n%s", descLines, view)
+	}
+	mustContain(t, view, "intentionally long")
+	mustContain(t, view, "wrap across")
+}
+
+// TestRenderChartShowsNamespaceDescriptorDescription verifies renderChart
+// surfaces the namespace descriptor label's (<scope>:<ns>:*) description
+// above the member bars, when one is set.
+func TestRenderChartShowsNamespaceDescriptorDescription(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if err := m.store.LabelAdd("ATM:status:*", "the lifecycle stage of a task", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	m.SetSize(100, 30)
+	m.boards.SetSize(100, 30)
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustContain(t, view, "the lifecycle stage of a task")
+}
+
+// TestRenderChartOmitsHintLine and TestRenderDetailOmitsBackToChartHint verify
+// change 4: the leftover Labels-pane hints embedded in renderChart/renderDetail
+// are gone (the [2] pane's own statusHint already covers navigation).
+func TestRenderChartOmitsHintLine(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustNotContain(t, view, "[Enter]inspect")
+	mustNotContain(t, view, "[Esc]back")
+}
+
+func TestRenderDetailOmitsBackToChartHint(t *testing.T) {
+	m := newTestModel(t)
+	m.boards.SetSize(120, 80)
+	seedProject(t, m, "ATM", "Acme")
+	if err := m.store.LabelAdd("ATM:status:blocked", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateTask("ATM", "no-status", "", nil, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	update(t, m, "s")
+	cursorToNamespaceRow(t, m, "status")
+	m.boards.handleKey(keyMsg("enter"))
+	cursorToChartUnsetRow(t, m)
+	m.boards.handleKey(keyMsg("enter"))
+
+	view := m.boards.View()
+	mustNotContain(t, view, "back to chart")
+}
+
+// cursorToChartUnsetRow moves the chart cursor to the "(unset)" synthetic row.
+func cursorToChartUnsetRow(t *testing.T, m *Model) {
+	t.Helper()
+	rows := m.boards.chartRows()
+	for i, r := range rows {
+		if r.unset {
+			m.boards.cursor = i
+			return
+		}
+	}
+	t.Fatalf("no (unset) chart row found")
 }

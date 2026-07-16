@@ -343,3 +343,73 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	mustContain(t, v, "no tasks match this focus")
 	mustNotContain(t, v, "showing 1-1 of 1")
 }
+
+// TestListHintOrderPutsNavFirstAndInspectLast verifies the reordered [2] pane
+// list-view hint: task/board nav and the everyday actions come first, with
+// the ">" drill relegated to last since it is a hint-only reflection of the
+// existing "> / <" keys (no new key introduced).
+func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]in  [Enter]detail  [>]inspect board  [?]keys"
+	if got := m.tasks.statusHint(); got != want {
+		t.Errorf("statusHint() = %q, want %q", got, want)
+	}
+}
+
+// TestListViewLayoutOrderListPinsStripBottom verifies change 5's layout
+// inversion: top-to-bottom the list view now stacks task list -> pinned
+// stack -> board strip, so the strip is the LAST stripHeight lines of the
+// rendered pane and the pinned pill sits directly above it.
+func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.boards.togglePin()
+	m.SetSize(100, 40)
+
+	view := m.tasks.View()
+	lines := strings.Split(view, "\n")
+	if !strings.Contains(lines[0], "PROJECT:") {
+		t.Fatalf("first line = %q, want the task list header first", lines[0])
+	}
+	stripBlock := strings.Join(lines[len(lines)-stripHeight:], "\n")
+	if !strings.Contains(stripBlock, "open-tasks") {
+		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
+	}
+	pinLine := lines[len(lines)-stripHeight-1]
+	if !strings.Contains(pinLine, "open-tasks") {
+		t.Errorf("line directly above the strip = %q, want the pinned open-tasks pill", pinLine)
+	}
+}
+
+// TestListPageSizeShrinksAsPinsAdded verifies listPageSize derives from the
+// live pin count (via listContentHeight) rather than a value cached at
+// SetSize, so pgup/pgdown keep landing on the page boundary the renderer
+// actually draws as pins are added.
+func TestListPageSizeShrinksAsPinsAdded(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	m.SetSize(100, 40)
+
+	before := m.tasks.listPageSize()
+	m.boards.togglePin()
+	after := m.tasks.listPageSize()
+	if after != before-1 {
+		t.Errorf("listPageSize after pinning 1 board = %d, want %d (one less than unpinned %d)", after, before-1, before)
+	}
+}
