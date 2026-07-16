@@ -28,15 +28,16 @@ Step 4 moves the domain types into `core`, defines the service interfaces the ad
 Types move; `internal/store` keeps Go type aliases (`type Task = core.Task`) so store internals and every CLI call-site compile unchanged. Aliases are temporary scaffolding, removed when step 6 churns store anyway.
 
 - **Domain types** (`store/types.go` → `core/types.go`): `Task`, `Label`, `Comment`, `Project`.
-- **Query/read-model types the TUI names**: `QueryFilters`, `LogEntry`, `Subject`, `Pins`, `Vocabulary`, `VocabularyTerm`, `VectorMeta`, `EmbeddingConfig`, `EmbedFunc`. (`Node` is already `core.Node` since step 3; the TUI references it directly.)
-- **Pure helpers the TUI calls as package functions**: `Now`, `RFC3339UTC` (time conventions), `ParseExpr` (board-expression algebra — the architecture doc already assigns board expressions to core), `ParseCommentID`, `ValidatePersonaName`. A helper moves only if it is genuinely pure (standard library only); anything store-bound becomes an interface method instead.
+- **Query/read-model types referenced by the interface signatures**: `QueryFilters`, `LabelGroup`, `LogEntry`, `Subject`, `HistoryView`, `Pins`, `Vocabulary`, `VocabularyTerm`, `VectorMeta`, `EmbeddingConfig`, `ProjectConfig`, `AgentsConfig`, `Persona`, `LabelRemoveResult`, `SearchParams`, `Hit`, `IndexResult`, `EmbedFunc`, `ProgressFunc` — all verified plain data at plan time.
+- **The board-expression AST** (`store/expr.go`): moves to core **renamed** — `Node` → `Expr`, `AtomNode`/`NotNode`/`AndNode`/`OrNode` → `ExprAtom`/`ExprNot`/`ExprAnd`/`ExprOr` — because step 3 already claimed `core.Node[T]` for the facet tree. `ParseExpr` and `Atoms` move with it; store aliases preserve the old names.
+- **Pure helpers the TUI calls as package functions**: `Now`, `RFC3339UTC` (time conventions), `ParseCommentID` (+ `CommentIDRe`), `ValidatePersonaName`, `IsNamespaceName`. A helper moves only if it is genuinely pure (standard library only); anything store-bound becomes an interface method instead.
 - **Error kinds**: `ErrNotFound`, `ErrConflict`, `ErrIntegrity` sentinels plus the `IsNotFound`/`IsConflict`/`IsIntegrity` predicates move to core; store keeps aliases so its `errors.Is` wrapping and every existing error message stay byte-identical.
 
 `core` remains a pure leaf: no internal imports, standard library only. Anything that would drag I/O into core stays behind the interfaces.
 
 ### Service interfaces (`internal/core/service.go`)
 
-Role interfaces named in domain terms, covering **exactly** the union of methods `internal/tui` and `internal/cli` invoke on `*store.Store` today (~75 methods; the implementation plan enumerates them mechanically from call-site greps before writing the file):
+Role interfaces named in domain terms, covering the union of methods `internal/tui` and `internal/cli` invoke on `*store.Store` today, minus the storage-format admin surface excluded below (69 methods enumerated mechanically from call-site greps at plan time; 61 enter core):
 
 ```go
 type TaskService interface { /* create/get/list/group, title/description/labels, remove */ }
@@ -45,10 +46,11 @@ type LabelService interface { /* add/list/show/remove, usage, seed */ }
 type CommentService interface { /* create/get/list, body, remove */ }
 type PersonaService interface { /* create/get/list/edit/remove */ }
 type VocabularyService interface { /* get/write */ }
-type ActivityService interface { /* log reads, history, watch, last-seq */ }
-type IndexService interface { /* reindex, vectors, embedding config, search */ }
+type ActivityService interface { /* log reads, history, last-seq, inquiries */ }
+type IndexService interface { /* reindex, watch, vectors, embedding config, search */ }
 type PinService interface { /* get/write pins */ }
-type MaintenanceService interface { /* init, store path, verify, rebuild, migrate/upgrade, prune, sync */ }
+type AgentService interface { /* agents.json: get config, select agent, set args */ }
+type MaintenanceService interface { /* init, store path, clock */ }
 
 // Service is the composite the composition root injects.
 type Service interface {
@@ -61,9 +63,12 @@ type Service interface {
     ActivityService
     IndexService
     PinService
+    AgentService
     MaintenanceService
 }
 ```
+
+**Storage-format admin stays out of core.** Plan-time enumeration found eight union methods whose names or report types carry persistence vocabulary the architecture doc forbids core from knowing (v1/v2 store formats, cache/event sequence numbers): `Verify`, `VerifyProject`, `Rebuild`, `UpgradeProjectToV2`, `UpgradeAllToV2`, `PruneProjectV1`, `SetActiveFormat`, `ReadV2LogForDisplay`, along with `StoreFormat`, `VerifyReport`, `CacheCheck`, `RebuildReport`, `UpgradeReport`, `PruneReport`, `V2LogView`. Their only callers are the CLI store-admin commands, which keep the concrete `*store.Store` in this step anyway; core's interfaces cover the remaining 61 union methods, and step 6 decides where the admin surface lives. Here the brief's "exactly what tui and cli consume" bows to the architecture doc's harder rule that core must never know persistence is event-sourced.
 
 `*store.Store` satisfies these **structurally** — the `eventsync.LocalStore` pattern (`libs/eventsource/sync/engine.go:86`), generalized. Store gains a single compile-time assertion:
 
