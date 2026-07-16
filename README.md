@@ -157,7 +157,18 @@ The Boards pane in the TUI is the human's review surface for boards and namespac
 
 Semantic search needs an embedding endpoint and a vector index.
 
-**1. Configure the embedding model.** Use any OpenAI-compatible `/v1/embeddings` endpoint:
+**1. Make the embedding model available.** ATM speaks any OpenAI-compatible `/v1/embeddings` endpoint. The common case is a local Ollama daemon — install Ollama, then pull an embed model before configuring ATM, or the indexer will fail with `model "..." not found`:
+
+```sh
+ollama pull nomic-embed-text        # default Nomic preset; 768-dim
+# alternates, if nomic-embed-text is unavailable on your Ollama:
+# ollama pull bge-m3                # 1024-dim
+# ollama pull mxbai-embed-large     # 1024-dim
+```
+
+Hosted OpenAI-compatible providers (OpenAI, LocalAI, vLLM, etc.) need no pull step — just an API key and a reachable `/v1/embeddings` URL.
+
+**2. Configure the embedding model.** Point ATM at the endpoint you just stood up:
 
 ```sh
 atm project set-embedding --project ATM \
@@ -167,7 +178,9 @@ atm project set-embedding --project ATM \
   --threshold 0.55
 ```
 
-**2. Build and inspect the index from the CLI.**
+Match `--model` and `--dim` to the model you pulled. A 404 `model "..." not found` from the embed step means the named model is not present at the endpoint — pull it (Ollama) or fix the model name/provider.
+
+**3. Build and inspect the index from the CLI.**
 
 ```sh
 atm index reindex --project ATM      # one-shot index pass
@@ -178,7 +191,7 @@ atm search --project ATM "query"     # semantic search with text fallback
 atm index --project ATM              # continuous foreground indexing until Ctrl-C
 ```
 
-**3. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
+**4. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
 
 ### Personas And Agent Defaults
 
