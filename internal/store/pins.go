@@ -3,18 +3,11 @@ package store
 import (
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // Pins is the per-project ordered list of pinned board full names, persisted
 // to <store>/projects/<CODE>/pins.json. Missing file == empty state (GetPins
 // returns nil, nil), mirroring Vocabulary.
-type Pins struct {
-	UpdatedAt time.Time `json:"updated_at"`
-	Actor     string    `json:"actor"`
-	Boards    []string  `json:"boards"`
-}
-
 func (s *Store) pinsPath(code string) string {
 	return filepath.Join(s.projectDir(code), "pins.json")
 }

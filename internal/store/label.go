@@ -20,10 +20,6 @@ var (
 	ErrBoardNameCollision = errors.New("board name collides with a namespace name")
 )
 
-type LabelRemoveResult struct {
-	RetainedUsage int `json:"retained_usage"`
-}
-
 // LabelAdd is the explicit "force upsert" path for a label: it always
 // appends a label.upserted event to the project's log, then write-throughs
 // the cache row. If `description` is empty, the existing description on the

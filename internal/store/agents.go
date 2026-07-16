@@ -9,13 +9,6 @@ import (
 // preference: which catalog entry is selected for atm dev / atm manage, and
 // per-entry default passthrough args. It lives at <root>/agents.json, distinct
 // from the per-project config.json.
-type AgentsConfig struct {
-	UpdatedAt string              `json:"updated_at,omitempty"`
-	UpdatedBy string              `json:"updated_by,omitempty"`
-	Selected  string              `json:"selected,omitempty"`
-	Args      map[string][]string `json:"args,omitempty"`
-}
-
 func (s *Store) agentsConfigPath() string {
 	return filepath.Join(s.Root, "agents.json")
 }

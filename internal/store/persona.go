@@ -5,20 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
 
 	"atm/internal/seed"
 )
-
-type Persona struct {
-	Name        string    `json:"name"`
-	Prompt      string    `json:"prompt"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedBy   string    `json:"updated_by"`
-}
 
 func (s *Store) personasDir() string { return filepath.Join(s.Root, "personas") }
 func (s *Store) personaPath(name string) string {

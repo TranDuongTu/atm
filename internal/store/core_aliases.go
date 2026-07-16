@@ -39,3 +39,28 @@ var (
 	ParseExpr = core.ParseExpr
 	Atoms     = core.Atoms
 )
+
+// Domain and read-model types.
+type Task = core.Task
+type Label = core.Label
+type Comment = core.Comment
+type Project = core.Project
+type Persona = core.Persona
+type LabelRemoveResult = core.LabelRemoveResult
+type QueryFilters = core.QueryFilters
+type LabelGroup = core.LabelGroup
+type LogEntry = core.LogEntry
+type Subject = core.Subject
+type HistoryView = core.HistoryView
+type Pins = core.Pins
+type Vocabulary = core.Vocabulary
+type VocabularyTerm = core.VocabularyTerm
+type EmbeddingConfig = core.EmbeddingConfig
+type ProjectConfig = core.ProjectConfig
+type AgentsConfig = core.AgentsConfig
+type SearchParams = core.SearchParams
+type Hit = core.Hit
+type IndexResult = core.IndexResult
+type EmbedFunc = core.EmbedFunc
+type ProgressFunc = core.ProgressFunc
+type VectorMeta = core.VectorMeta

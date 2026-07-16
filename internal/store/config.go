@@ -5,22 +5,6 @@ import (
 	"os"
 )
 
-type EmbeddingConfig struct {
-	Model       string  `json:"model"`
-	Endpoint    string  `json:"endpoint"`
-	QueryPrefix string  `json:"query_prefix,omitempty"`
-	DocPrefix   string  `json:"doc_prefix,omitempty"`
-	Dim         int     `json:"dim"`
-	Threshold   float64 `json:"threshold"`
-}
-
-type ProjectConfig struct {
-	UpdatedAt string            `json:"updated_at,omitempty"`
-	UpdatedBy string            `json:"updated_by,omitempty"`
-	Embedding *EmbeddingConfig  `json:"embedding,omitempty"`
-	Remotes   map[string]string `json:"remotes,omitempty"`
-}
-
 func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 	var c ProjectConfig
 	if err := ReadJSON(s.configPath(code), &c); err != nil {

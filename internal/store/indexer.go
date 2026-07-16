@@ -18,16 +18,6 @@ type IndexDoc struct {
 	Labels   []string
 }
 
-type IndexResult struct {
-	Indexed int
-	Model   string
-	LogSeq  int
-}
-
-type EmbedFunc func(text, role string) ([]float64, error)
-
-type ProgressFunc func(msg string)
-
 func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	meta, err := s.VectorMeta(code, slug)
 	if err != nil {

@@ -3,19 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
-	"time"
 )
-
-type VocabularyTerm struct {
-	Term   string `json:"term"`
-	Weight int    `json:"weight"`
-}
-
-type Vocabulary struct {
-	UpdatedAt time.Time        `json:"updated_at"`
-	Actor     string           `json:"actor"`
-	Terms     []VocabularyTerm `json:"terms"`
-}
 
 func (s *Store) vocabularyPath(code string) string {
 	return filepath.Join(s.projectDir(code), "vocabulary.json")

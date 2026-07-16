@@ -7,26 +7,6 @@ import (
 	"strings"
 )
 
-type Hit struct {
-	ID      string   `json:"id"`
-	Kind    string   `json:"kind"`
-	Score   float64  `json:"score"`
-	Title   string   `json:"title,omitempty"`
-	Snippet string   `json:"snippet"`
-	Labels  []string `json:"labels,omitempty"`
-	Match   string   `json:"match"`
-}
-
-type SearchParams struct {
-	Project     string
-	Model       string
-	QueryVector []float64
-	QueryText   string
-	Kind        string
-	K           int
-	Threshold   float64
-}
-
 func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error) {
 	if p.K <= 0 {
 		p.K = 5

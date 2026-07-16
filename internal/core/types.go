@@ -1,4 +1,4 @@
-package store
+package core
 
 import "time"
 
@@ -51,4 +51,18 @@ type Comment struct {
 	CreatedBy string    `json:"created_by"`
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy string    `json:"updated_by"`
+}
+
+type Persona struct {
+	Name        string    `json:"name"`
+	Prompt      string    `json:"prompt"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedBy   string    `json:"created_by"`
+	UpdatedBy   string    `json:"updated_by"`
+}
+
+type LabelRemoveResult struct {
+	RetainedUsage int `json:"retained_usage"`
 }

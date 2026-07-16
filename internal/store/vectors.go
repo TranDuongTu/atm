@@ -24,14 +24,6 @@ type VectorEntry struct {
 	Labels   []string  `json:"labels,omitempty"`
 }
 
-type VectorMeta struct {
-	Model           string `json:"model"`
-	Dim             int    `json:"dim"`
-	LastLogSeq      int    `json:"last_log_seq"`
-	LastReindexedAt string `json:"last_reindexed_at"`
-	Count           int    `json:"count"`
-}
-
 func (s *Store) ReadVectors(code, slug string) ([]VectorEntry, error) {
 	f, err := os.Open(s.vectorPath(code, slug))
 	if err != nil {
