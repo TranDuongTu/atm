@@ -245,8 +245,8 @@ func TestSelectDefaultReturnsPinFocusToStrip(t *testing.T) {
 }
 
 // TestLoadPinsClampsToMaxPins verifies a pins.json written before the cap
-// dropped to 5 (or edited by hand) is clamped on load rather than rendering
-// or being jumpable past what fits as boxes.
+// dropped to 3 (or edited by hand) is clamped on load rather than rendering
+// or being jumpable past what the fixed slot holds.
 func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -264,8 +264,8 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 		t.Fatalf("write pins: %v", err)
 	}
 	m.boards.refresh()
-	if len(m.boards.pins) != 5 {
-		t.Fatalf("pins after loading 7 stored = %d, want 5 (clamped)", len(m.boards.pins))
+	if len(m.boards.pins) != maxPins {
+		t.Fatalf("pins after loading 7 stored = %d, want %d (clamped)", len(m.boards.pins), maxPins)
 	}
 }
 
@@ -1317,15 +1317,15 @@ func TestFitLineResetsANSIWhenTruncatingSelectedRows(t *testing.T) {
 
 // --- UX refinement follow-up tests (pin cap, description wrapping, hint removal) ---
 
-// TestTogglePinCapsAtFive verifies a 6th pin is ignored rather than evicting
-// an existing pin or growing past what jumpPin/the boxed pin stack can
-// address (maxPins dropped from 10 to 5 for the boxed-pin rework).
-func TestTogglePinCapsAtFive(t *testing.T) {
+// TestTogglePinCapsAtThree verifies a 4th pin is ignored rather than evicting
+// an existing pin or growing past what jumpPin / the fixed pin slot can
+// address (maxPins is 3 for the fixed-slot rework, reachable by Shift-1..3).
+func TestTogglePinCapsAtThree(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	var boards []string
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 4; i++ {
 		name := fmt.Sprintf("ATM:board-%02d", i)
 		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
 			t.Fatal(err)
@@ -1337,18 +1337,18 @@ func TestTogglePinCapsAtFive(t *testing.T) {
 		m.boards.selected = full
 		m.boards.togglePin()
 	}
-	if len(m.boards.pins) != 5 {
-		t.Fatalf("pins after 6 toggles = %d, want 5 (cap)", len(m.boards.pins))
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins after 4 toggles = %d, want 3 (cap)", len(m.boards.pins))
 	}
-	if m.boards.pins[len(m.boards.pins)-1] == boards[5] {
-		t.Errorf("6th board %q was pinned past the cap", boards[5])
+	if m.boards.pins[len(m.boards.pins)-1] == boards[3] {
+		t.Errorf("4th board %q was pinned past the cap", boards[3])
 	}
 	p, err := m.store.GetPins("ATM")
 	if err != nil {
 		t.Fatalf("get pins: %v", err)
 	}
-	if p == nil || len(p.Boards) != 5 {
-		t.Errorf("persisted pins = %+v, want 5", p)
+	if p == nil || len(p.Boards) != 3 {
+		t.Errorf("persisted pins = %+v, want 3", p)
 	}
 }
 

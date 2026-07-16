@@ -151,17 +151,14 @@ func (t *tasksModel) SetSize(w, h int) {
 
 // listContentHeight is the single source of truth for how many lines the
 // scrollable task list gets in the list view, once the fixed board strip and
-// the live pinned stack (3 lines per boxed pin, capped at maxPins) are
-// subtracted. It is computed from the live pin count at render/paging time —
-// not cached at SetSize — so renderListWithStrip and listPageSize always
-// agree, and pgup/pgdown keep landing on the page boundary the renderer
-// actually draws as pins are added or removed.
+// the FIXED pinned slot are subtracted. The pinned slot always reserves
+// 3*maxPins lines (renderPinnedStack draws exactly maxPins boxes, filled or
+// placeholder), so the subtraction is a CONSTANT — the list height never
+// changes as pins are added or removed. renderListWithStrip and listPageSize
+// both derive from this single value, so the renderer and the pgup/pgdown page
+// jumps always agree on the page boundary.
 func (t *tasksModel) listContentHeight() int {
-	pinCount := len(t.m.boards.pins)
-	if pinCount > maxPins {
-		pinCount = maxPins
-	}
-	h := t.contentHeight - stripHeight - 3*pinCount
+	h := t.contentHeight - stripHeight - 3*maxPins
 	if h < 4 {
 		h = 4
 	}
@@ -1000,8 +997,23 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 // TITLE width that absorbs the remaining pane width. The format string used
 // by both the header and data rows is " %-*s %-*s %-*s %*s" (leading space +
 // 3 inter-column spaces = 4 extra columns of padding).
+//
+// idW is sized to the widest ID actually present (clamped to [9, 14]): task
+// IDs are "<CODE>-<hash>" (e.g. DEMO-f7d632, 11 chars), and Go's %-9s does NOT
+// truncate a longer value — an under-sized idW would let every row overflow
+// its column and push the trailing UPDATED value off the pane, clipping it
+// (the "1d ago" -> "1d ag" bug). Sizing to the real IDs keeps the row within
+// the pane; renderFlatList still truncates defensively.
 func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
 	idW, labelsW, updatedW = 9, 18, 8
+	for _, r := range t.rows {
+		if w := len(r.id); w > idW {
+			idW = w
+		}
+	}
+	if idW > 14 {
+		idW = 14
+	}
 	titleW = t.width - idW - labelsW - updatedW - 4
 	if titleW < 16 {
 		titleW = 16
@@ -1032,7 +1044,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		if len(r.labels) > 0 {
 			labels = strings.Join(r.labels, " ")
 		}
-		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, r.id, titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
+		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
 		if i == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -1204,9 +1216,14 @@ func (t *tasksModel) pageWindow(total int) (int, int) {
 	return windowLines(total, t.cursor, t.pageSize)
 }
 
-// groupPageSize returns the number of lines that fit in the grouped/tree
-// list body (the header line + blank line written by renderList are the
-// only fixed overhead; group/row lines are the scrollable body).
+// groupPageSize returns the number of lines that fit in the grouped/tree list
+// body (the header line + blank line written by renderList are the only fixed
+// overhead; group/row lines are the scrollable body). It is called ONLY during
+// render, where renderListWithStrip has already shrunk t.contentHeight to the
+// list sub-height (listContentHeight), so t.contentHeight-2 == listH-2 here.
+// The keypress side (listPageSize) reconstructs the same listH-2 from
+// listContentHeight() directly, since at keypress time t.contentHeight is the
+// full pane height.
 func (t *tasksModel) groupPageSize() int {
 	size := t.contentHeight - 2
 	if size < 1 {
@@ -1215,12 +1232,17 @@ func (t *tasksModel) groupPageSize() int {
 	return size
 }
 
-// listPageSize returns the page size for whichever list mode is active,
-// used by the pgdown / pgup page-jump keys (and matching the size the
-// renderer windows by, so a jump always lands on a page boundary).
+// listPageSize returns the page size for whichever list mode is active, used by
+// the pgdown / pgup page-jump keys. Both modes derive from listContentHeight()
+// (the list sub-height) so a jump always lands on the exact page boundary the
+// renderer draws: the flat body reserves 6 lines of chrome, the grouped body 2.
 func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
-		return t.groupPageSize()
+		size := t.listContentHeight() - 2
+		if size < 1 {
+			size = 1
+		}
+		return size
 	}
 	size := t.listContentHeight() - 6
 	if size < 1 {
@@ -1268,7 +1290,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]in  [Enter]detail  [>]inspect board  [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [>]inspect board  [?]keys"
 }
 
 // --- form openers ---

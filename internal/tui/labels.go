@@ -273,8 +273,8 @@ func (b *boardsModel) selectDefault() {
 
 // loadPins reads the project's pins from the store and prunes any whose board
 // no longer exists. Called on project select and on refresh (cheap read).
-// Also clamps to maxPins so a pins.json written before the cap dropped to 5
-// (or edited by hand) never renders/jumps past what fits as boxes.
+// Also clamps to maxPins so a legacy pins.json written before the cap dropped
+// to 3 (or edited by hand) never renders/jumps past what the fixed slot holds.
 func (b *boardsModel) loadPins() {
 	b.pins = nil
 	if b.m.projectScope == "" {
@@ -299,14 +299,18 @@ func (b *boardsModel) loadPins() {
 	b.syncPinFocus()
 }
 
-// maxPins caps the pinned-boards stack at 5 full-width 3-line boxes — enough
-// to stay reachable by Shift-1..5 without eating too much of the list's
-// vertical space.
-const maxPins = 5
+// maxPins caps the pinned-boards stack at 3 full-width 3-line boxes, reachable
+// by Shift-1..3. The pinned region is a FIXED slot: the task list always
+// reserves 3*maxPins lines for it (see listContentHeight), so its height never
+// changes as pins are added or removed — empty slots render as muted
+// placeholders rather than collapsing.
+const maxPins = 3
 
 // togglePin adds the selected board to the pin list (at the end) if absent, or
-// removes it if present, then persists. Adding past maxPins is ignored rather
-// than evicting an existing pin.
+// removes it if present, then persists. Adding past maxPins (3) is ignored
+// rather than evicting an existing pin. When a pin is the active highlight
+// (pinFocus >= 0), b.selected equals that pin's board, so [p] unpins the
+// focused pin and syncPinFocus resets pinFocus back to the strip.
 func (b *boardsModel) togglePin() {
 	if b.selected == "" || b.m.projectScope == "" {
 		return

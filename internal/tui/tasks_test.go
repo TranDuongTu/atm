@@ -245,6 +245,10 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustCreate("bare", "ATM:urgent")
 	mustCreate("naked")
 	m.projectScope = "ATM"
+	// Give the list ample height: the fixed pinned slot always reserves
+	// 3*maxPins lines, so a default-small terminal would page out the last of
+	// the five tasks and mask the focus-subset assertions.
+	m.SetSize(100, 40)
 
 	// present on status -> grouped, only tasks with a status (others hidden).
 	m.tasks.setFocus(taskFocus{mode: focusPresent, ns: "status"}, "ATM:status:*")
@@ -352,16 +356,17 @@ func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]in  [Enter]detail  [>]inspect board  [?]keys"
+	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [>]inspect board  [?]keys"
 	if got := m.tasks.statusHint(); got != want {
 		t.Errorf("statusHint() = %q, want %q", got, want)
 	}
 }
 
-// TestListViewLayoutOrderListPinsStripBottom verifies change 5's layout
-// inversion: top-to-bottom the list view now stacks task list -> pinned
-// stack -> board strip, so the strip is the LAST stripHeight lines of the
-// rendered pane and the pinned pill sits directly above it.
+// TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
+// top-to-bottom the pane stacks task list -> pinned stack -> board strip, so
+// the strip is the LAST stripHeight lines and the fixed pinned slot
+// (3*maxPins lines) sits directly above it. The pinned open-tasks box lives in
+// the first slot of that region.
 func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -384,18 +389,20 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	if !strings.Contains(stripBlock, "open-tasks") {
 		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
 	}
-	pinBlock := strings.Join(lines[len(lines)-stripHeight-3:len(lines)-stripHeight], "\n")
+	pinBlock := strings.Join(lines[len(lines)-stripHeight-3*maxPins:len(lines)-stripHeight], "\n")
 	if !strings.Contains(pinBlock, "open-tasks") {
-		t.Errorf("3 lines directly above the strip = %q, want the pinned open-tasks box", pinBlock)
+		t.Errorf("fixed pinned slot (%d lines above the strip) = %q, want the pinned open-tasks box", 3*maxPins, pinBlock)
+	}
+	if !strings.Contains(pinBlock, "[Shift-1]") {
+		t.Errorf("pinned slot missing the [Shift-1] jump label:\n%s", pinBlock)
 	}
 }
 
-// TestListPageSizeShrinksAsPinsAdded verifies listPageSize derives from the
-// live pin count (via listContentHeight) rather than a value cached at
-// SetSize, so pgup/pgdown keep landing on the page boundary the renderer
-// actually draws as pins are added. Each pin is a 3-line box, so one pin
-// shrinks the page by 3.
-func TestListPageSizeShrinksAsPinsAdded(t *testing.T) {
+// TestListPageSizeConstantAsPinsAdded verifies the FIXED-slot invariant from
+// the page-jump side: because the pinned region always reserves 3*maxPins
+// lines, listPageSize does NOT change as boards are pinned. Pinning must never
+// shift the page boundary pgup/pgdown lands on.
+func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -410,7 +417,7 @@ func TestListPageSizeShrinksAsPinsAdded(t *testing.T) {
 	before := m.tasks.listPageSize()
 	m.boards.togglePin()
 	after := m.tasks.listPageSize()
-	if after != before-3 {
-		t.Errorf("listPageSize after pinning 1 board = %d, want %d (3 less than unpinned %d)", after, before-3, before)
+	if after != before {
+		t.Errorf("listPageSize after pinning 1 board = %d, want %d (fixed slot, unchanged)", after, before)
 	}
 }

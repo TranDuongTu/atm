@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -43,8 +44,10 @@ func TestRenderStripShowsSelectedOpenTasks(t *testing.T) {
 }
 
 // TestRenderPinnedStackBoxedPerPinWithFullText verifies renderPinnedStack
-// emits one full-width, 3-line rounded box per pinned board (title "[N] name",
-// description as the content line), stacked in pin order.
+// emits a full-width, 3-line rounded box per pinned board (title
+// "[Shift-N] name", description as the content line), stacked in pin order.
+// The stack is a FIXED slot of exactly maxPins boxes; the trailing empty slot
+// renders a muted placeholder rather than collapsing.
 func TestRenderPinnedStackBoxedPerPinWithFullText(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -63,15 +66,19 @@ func TestRenderPinnedStackBoxedPerPinWithFullText(t *testing.T) {
 
 	stack := m.boards.renderPinnedStack(100)
 	lines := strings.Split(stack, "\n")
-	if len(lines) != 6 {
-		t.Fatalf("renderPinnedStack lines = %d, want 6 (3 per pin, 2 pins):\n%s", len(lines), stack)
+	if len(lines) != 3*maxPins {
+		t.Fatalf("renderPinnedStack lines = %d, want %d (3 per slot, %d fixed slots):\n%s", len(lines), 3*maxPins, maxPins, stack)
 	}
 	box1, box2 := strings.Join(lines[0:3], "\n"), strings.Join(lines[3:6], "\n")
-	if !strings.Contains(box1, "[1]") || !strings.Contains(box1, "next-sprint") || !strings.Contains(box1, "work slated for the next sprint") {
-		t.Errorf("pin box 1 = %q, want [1], name, and full description", box1)
+	if !strings.Contains(box1, "[Shift-1]") || !strings.Contains(box1, "next-sprint") || !strings.Contains(box1, "work slated for the next sprint") {
+		t.Errorf("pin box 1 = %q, want [Shift-1], name, and full description", box1)
 	}
-	if !strings.Contains(box2, "[2]") || !strings.Contains(box2, "blocked-items") || !strings.Contains(box2, "tasks currently blocked") {
-		t.Errorf("pin box 2 = %q, want [2], name, and full description", box2)
+	if !strings.Contains(box2, "[Shift-2]") || !strings.Contains(box2, "blocked-items") || !strings.Contains(box2, "tasks currently blocked") {
+		t.Errorf("pin box 2 = %q, want [Shift-2], name, and full description", box2)
+	}
+	box3 := strings.Join(lines[6:9], "\n")
+	if !strings.Contains(box3, "[Shift-3]") || !strings.Contains(box3, "empty") {
+		t.Errorf("pin box 3 = %q, want the [Shift-3] empty placeholder", box3)
 	}
 }
 
@@ -136,14 +143,27 @@ func TestActiveFilterHighlightMovesToPinOnJump(t *testing.T) {
 	}
 }
 
-// TestRenderPinnedStackEmptyWhenNoPins verifies the "" (no lines rendered)
-// contract when nothing is pinned, matching the old renderPinnedRow behavior.
-func TestRenderPinnedStackEmptyWhenNoPins(t *testing.T) {
+// TestRenderPinnedStackPlaceholdersWhenNoPins verifies the FIXED-slot
+// contract: with nothing pinned the stack still renders exactly maxPins
+// placeholder boxes (3*maxPins lines) so the task list height never shifts
+// when the first board is pinned. Each empty slot advertises its Shift-N key
+// and the [p]in affordance.
+func TestRenderPinnedStackPlaceholdersWhenNoPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	m.boards.refresh()
-	if got := m.boards.renderPinnedStack(80); got != "" {
-		t.Errorf("renderPinnedStack with no pins = %q, want empty", got)
+	stack := m.boards.renderPinnedStack(80)
+	lines := strings.Split(stack, "\n")
+	if len(lines) != 3*maxPins {
+		t.Fatalf("renderPinnedStack with no pins = %d lines, want %d (fixed slot):\n%s", len(lines), 3*maxPins, stack)
+	}
+	for n := 1; n <= maxPins; n++ {
+		if !strings.Contains(stack, fmt.Sprintf("[Shift-%d]", n)) {
+			t.Errorf("empty stack missing the [Shift-%d] placeholder slot:\n%s", n, stack)
+		}
+	}
+	if !strings.Contains(stack, "empty") || !strings.Contains(stack, "pin a board with [p]") {
+		t.Errorf("empty slots missing the placeholder text:\n%s", stack)
 	}
 }

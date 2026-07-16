@@ -138,38 +138,50 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 		}
 	}
 	style := b.m.styles.PaneInactive
+	title := r.Name
 	if b.pinFocus == -1 {
+		// This cell IS the active filter and the highlight: advertise that `>`
+		// drills into it. Only here — never on the muted prev/next side cells,
+		// and never while a pin (pinFocus >= 0) holds the highlight instead.
 		style = b.m.styles.PaneActiveStrong
+		title = r.Name + "  · > to inspect"
 	}
-	return titledBoxHeight(style, w, r.Name, inner, h)
+	return titledBoxHeight(style, w, title, inner, h)
 }
 
-// renderPinnedStack renders the pinned-boards stack: one full-width, 3-line
-// rounded box per pinned board (up to maxPins), title "[N] name" with the
-// board's description as its single content line (fitLine-truncated by
-// titledBoxHeight if it overflows paneW). The box at pinFocus — the pin
-// Shift-N jumped to — carries the strong current-filter border; every other
-// box is muted, including all of them while pinFocus == -1 (the strip's
-// SELECTED cell carries the highlight instead; see renderSelectedCell).
-// Returns "" when no pins exist.
+// renderPinnedStack renders the pinned-boards stack as a FIXED slot: always
+// exactly maxPins full-width, 3-line rounded boxes (3*maxPins lines total),
+// regardless of how many boards are pinned. This keeps the task list height
+// stable — pinning or unpinning never resizes the list (see
+// listContentHeight, which subtracts the constant 3*maxPins).
+//
+// A filled slot's title is "[Shift-N] name" (the shifted-digit key that jumps
+// to it) with the board's description as its single content line
+// (fitLine-truncated by titledBoxHeight if it overflows paneW). An empty slot
+// renders a muted "· [Shift-N] empty ·" placeholder inviting a [p]in. The box
+// at pinFocus — the pin Shift-N jumped to — carries the strong current-filter
+// border; every other box is muted, including all of them while pinFocus == -1
+// (the strip's SELECTED cell carries the highlight instead; see
+// renderSelectedCell).
 func (b *boardsModel) renderPinnedStack(paneW int) string {
-	if len(b.pins) == 0 {
-		return ""
-	}
-	n := len(b.pins)
-	if n > maxPins {
-		n = maxPins
-	}
-	boxes := make([]string, n)
-	for i := 0; i < n; i++ {
-		full := b.pins[i]
-		name := strings.TrimPrefix(full, b.m.projectScope+":")
-		title := fmt.Sprintf("[%d] %s", i+1, name)
-		style := b.m.styles.PaneInactive
-		if i == b.pinFocus {
-			style = b.m.styles.PaneActiveStrong
+	boxes := make([]string, maxPins)
+	for i := 0; i < maxPins; i++ {
+		if i < len(b.pins) {
+			full := b.pins[i]
+			name := strings.TrimPrefix(full, b.m.projectScope+":")
+			title := fmt.Sprintf("[Shift-%d] %s", i+1, name)
+			style := b.m.styles.PaneInactive
+			if i == b.pinFocus {
+				style = b.m.styles.PaneActiveStrong
+			}
+			boxes[i] = titledBoxHeight(style, paneW, title, b.pinDescription(full), 3)
+			continue
 		}
-		boxes[i] = titledBoxHeight(style, paneW, title, b.pinDescription(full), 3)
+		// Empty slot: a muted placeholder that holds the slot's height so the
+		// list never shifts, and keeps the [p]in affordance discoverable.
+		title := fmt.Sprintf("· [Shift-%d] empty ·", i+1)
+		body := b.m.styles.Muted.Render("pin a board with [p]")
+		boxes[i] = titledBoxHeight(b.m.styles.PaneInactive, paneW, title, body, 3)
 	}
 	return strings.Join(boxes, "\n")
 }
