@@ -13,7 +13,7 @@ Two ideas carry the whole system:
 
 A project holds tasks. A task carries free-form text (title, description), an append-mostly comment thread, and a set of labels. That is the entire data model.
 
-There is **no status field, no claim entity, no review queue, no links table, no state machine, no priority column, no assignee**. Status, type, priority, ownership, and relationships are all expressed as labels and interpreted by whoever reads them. Workflow lives outside the store — in agent prompts and human habits. The store only keeps the substrate legible.
+There is **no status field, no claim entity, no review queue, no links table, no state machine, no priority column, no assignee**. Status, type, priority, ownership, and relationships are all expressed as labels and interpreted by whoever reads them. Workflow lives in capabilities (`internal/workflow`), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.
 
 This is a deliberate refusal. Every field a task store adds is a decision imposed on every future workflow that uses it. A `status` enum forces every project to agree on what the states are. A `links` table forces every project to agree on what a relationship is. ATM declines to decide, and the cost of that refusal is paid once, in the reader: **an agent must read the labels to understand a task.** The benefit is paid forever: a project can invent whatever vocabulary it needs, and nothing in the store objects.
 

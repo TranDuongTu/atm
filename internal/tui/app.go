@@ -184,7 +184,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	// pre-populated projectScope.
 	if m.projectScope != "" {
 		if err := workflow.EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
-			m.showToast("ensure open-tasks: " + err.Error())
+			m.showToast("ensure workflow boards: " + err.Error())
 		}
 		m.boards.selectDefault()
 	}
