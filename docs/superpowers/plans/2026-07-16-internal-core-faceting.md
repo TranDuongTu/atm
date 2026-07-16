@@ -17,8 +17,8 @@
 - **`internal/core` imports nothing internal.** `go list -deps ./internal/core | grep atm/internal` must print nothing. Standard library only.
 - **`store.Task` does not move.** No package outside `store` gains a dependency on a core domain type. That is step 4 (ATM-b9d83a).
 - **`GroupTasksErr` keeps its signature:** `func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error)`. `internal/cli` must not change.
-- **Bug-for-bug until Task 6.** Tasks 1-5 preserve today's observable behavior exactly, including the duplicate-append bug. Only Task 6 changes behavior.
-- **Goldens are untouched by Tasks 3-5.** If a golden changes there, that is a defect, not a rebaseline.
+- **Only Tasks 5 and 6 change behavior.** Tasks 1-4 preserve today's observable behavior exactly, including the duplicate-append bug. Task 5 carries the dedup fix; Task 6 carries the TUI tree fix. Nothing else may change behavior.
+- **Goldens are untouched by Tasks 3-4.** If a golden changes there, that is a defect, not a rebaseline. Tasks 5 and 6 update them deliberately, and each names exactly which lines may move.
 - **Work happens on branch `worktree-atm-cca7b0-core-faceting`, never `main`.**
 - Run `make verify` (build + test + scripts-test) before the final task's commit. Per-task, `go test ./internal/...` is sufficient.
 - Actor string for all ATM mutations: `developer@claude:opus-4.8`.
@@ -45,13 +45,15 @@
 | Task | Deliverable | Goldens |
 |---|---|---|
 | 1 | Store characterization golden | created |
-| 2 | TUI characterization golden (composed path) | created |
+| 2 | TUI characterization golden (composed path, real store) | created |
 | 3 | `core` label + filter algebra; both packages point at it | untouched |
 | 4 | `core.GroupNested`; TUI's `buildNestedGroups` deleted | untouched |
-| 5 | `core.GroupByWildcard`; store's bucketing deleted | untouched |
-| 6 | The two fixes | **updated** |
+| 5 | `core.GroupByWildcard` **+ dedup fix**; store's bucketing deleted | **both updated** (dedup only) |
+| 6 | TUI tree nests from `wildcards[0]` | **tree updated** (shape only) |
 
-Tasks 3-5 refine the spec's "commit 2" into three reviewable commits; Tasks 1-2 refine its "commit 1" into two. The phase contract is unchanged: pin, then move neutrally, then fix.
+Tasks 3-5 refine the spec's "move" phase into three reviewable commits; Tasks 1-2 refine its "pin" phase into two.
+
+Tasks 3 and 4 are provably neutral — their goldens must not move. Task 5 is not: it carries the dedup fix, so its golden changes. That is deliberate (see the spec's Behavior policy: shipping a knowingly-defective function, and a test asserting defective output, was judged worse than losing a commit-level neutrality proof). Task 5 recovers the attribution with an intermediate checkpoint — port faithfully, confirm the goldens hold, *then* fix.
 
 ---
 
@@ -63,7 +65,7 @@ Tasks 3-5 refine the spec's "commit 2" into three reviewable commits; Tasks 1-2 
 
 **Interfaces:**
 - Consumes: `newTestStore(t *testing.T) *Store` and `const testActor = "admin@cli:test"` from `internal/store/project_test.go`. `s.CreateProject(code, desc, actor)`, `s.CreateTask(code, title, desc string, labels []string, actor string)`, `s.GroupTasksErr(QueryFilters) ([]LabelGroup, []*Task, error)`.
-- Produces: `testdata/facet_flat.golden`, the byte-for-byte record of today's flat faceting. Task 5 must leave it unchanged.
+- Produces: `testdata/facet_flat.golden`, the byte-for-byte record of today's flat faceting. Tasks 3-4 must leave it unchanged; Task 5 updates it when it applies the dedup fix.
 
 **Context the implementer needs:** `store.CreateTask` does not validate that labels exist, so the corpus can use label names freely. Task IDs under the v2 format are content hashes — **never put an ID in the golden**, use titles, which are stable and readable. The corpus deliberately includes `ATM:*` + `ATM:status:*` together: that pins the duplicate-append bug at `query.go:174-185`, and the golden is expected to show a task listed twice in one group. That is not a mistake in the test; it is the defect being recorded.
 
@@ -172,8 +174,8 @@ func dumpFlat(groups []LabelGroup, others []*Task) string {
 
 // TestGroupTasksCharacterization records today's flat faceting behavior
 // bug-for-bug. It is the safety net for the move into internal/core: the
-// golden must not change when the algebra moves (ATM-cca7b0 Tasks 3-5). It is
-// deliberately updated only by the fix task (Task 6).
+// golden must not change when the algebra moves (ATM-cca7b0 Tasks 3-4). Task 5
+// updates it deliberately, when it fixes the duplicate append.
 func TestGroupTasksCharacterization(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "characterization", testActor); err != nil {
@@ -285,12 +287,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Create: `internal/tui/testdata/facet_tree.golden`
 
 **Interfaces:**
-- Consumes: `mkTask(id, title string, labels ...string) *store.Task` and `toRowTest(tk *store.Task) taskRow` from `internal/tui/tasks_test.go`; `buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup`; `wildcardTokens(labels []string) []string`.
-- Produces: `testdata/facet_tree.golden`. Tasks 3-5 must leave it unchanged.
+- Consumes: `toRowTest(tk *store.Task) taskRow` and `const testActor = "developer@claude:test"` from `internal/tui/tasks_test.go` / `app_test.go:21`; `buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup`; `wildcardTokens(labels []string) []string`; and from `internal/store`: `Open(root string, opts ...Option) (*Store, error)`, `(*Store).Init(storePath string) error`, `(*Store).CreateProject`, `(*Store).CreateTask`, `(*Store).GroupTasks`.
+- Produces: `testdata/facet_tree.golden`. Tasks 3-4 must leave it unchanged; Task 5 updates it (dedup) and Task 6 updates it again (tree shape).
 
-**Context the implementer needs:** This test must reproduce **the composition**, not `buildNestedGroups` alone. `internal/tui/tasks.go:142` takes the top level from `store.GroupTasks` (flat, any-wildcard) and passes only `wildcards[1:]` to `buildNestedGroups`. The divergence between the two algorithms lives in that seam, so a test of `buildNestedGroups` in isolation would miss exactly what we need pinned. Reproduce the wiring locally rather than driving the whole Bubble Tea model — the model needs a live `*Model` for `store.Now()`/`relTime`, which is why `toRowTest` exists.
+**Context the implementer needs:** This test must reproduce **the composition**, not `buildNestedGroups` alone. `internal/tui/tasks.go:142` takes the top level from the real `store.GroupTasks` (flat, any-wildcard) and passes only `wildcards[1:]` to `buildNestedGroups`. The divergence between the two algorithms lives in that seam, so a test of `buildNestedGroups` in isolation would miss exactly what we need pinned.
 
-Do **not** import `internal/store`'s test corpus — it is in another package. Copy the literal; the twin comment on each keeps them honest.
+**Drive a real store.** Call `store.GroupTasks` for level 1 — do not transcribe store's bucketing into a local helper. A copy would duplicate a logic block and, worse, could drift from the thing it claims to characterize. Four TUI tests already build real stores this way (`app_test.go:35`, `labels_test.go:469`): `store.Open(t.TempDir())` then `s.Init("")`. `newTestStore` is unexported and lives in package `store`, so it cannot be reused here; `store.Open` + `Init` is exactly what it does.
+
+Reproduce only the **wiring** of `tasks.go:142-156` locally, not a whole Bubble Tea model: the model needs a live `*Model` for `store.Now()`/`relTime`, which is why `toRowTest` exists.
+
+Do **not** import `internal/store`'s test corpus — it is in another package and unexported. Copy the literal; the twin comment on each keeps them honest.
 
 - [ ] **Step 1: Write the characterization test**
 
@@ -361,75 +367,28 @@ func checkGolden(t *testing.T, path, got string) {
 	}
 }
 
-// corpusTasks builds the corpus as store.Task values. IDs are positional and
-// never appear in the golden; titles identify tasks.
-func corpusTasks() []*store.Task {
-	out := make([]*store.Task, 0, len(facetCorpus))
-	for i, e := range facetCorpus {
-		out = append(out, mkTask(fmt.Sprintf("ATM-%04d", i+1), e.Title, e.Labels...))
+// newFacetStore builds a real store holding the corpus. It mirrors
+// newTestStore in package store, which is unexported and so cannot be reused
+// here; store.Open + Init is exactly what that helper does, and four TUI tests
+// already stand up stores this way (app_test.go:35, labels_test.go:469).
+func newFacetStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
 	}
-	return out
-}
-
-// flatGroupsLikeStore reproduces store.GroupTasks' flat bucketing over an
-// in-memory corpus, so this package can characterize the composed render path
-// without standing up a real store. It is a deliberate transcription of
-// store/query.go:172-208 as of 87ff9ae, including the doubled append when two
-// wildcards match one label.
-func flatGroupsLikeStore(tasks []*store.Task, wildcards []string) (groups []struct {
-	Label string
-	Tasks []*store.Task
-}, others []*store.Task) {
-	if len(wildcards) == 0 {
-		return nil, tasks
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
 	}
-	buckets := map[string][]*store.Task{}
-	var order []string
-	for _, tk := range tasks {
-		for _, w := range wildcards {
-			for _, l := range tk.Labels {
-				if labelMatchesWildcardTUI(l, w) {
-					if _, exists := buckets[l]; !exists {
-						order = append(order, l)
-					}
-					buckets[l] = append(buckets[l], tk)
-				}
-			}
+	if _, err := s.CreateProject("ATM", "characterization", testActor); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	for _, e := range facetCorpus {
+		if _, err := s.CreateTask("ATM", e.Title, "", e.Labels, testActor); err != nil {
+			t.Fatalf("create task %s: %v", e.Title, err)
 		}
 	}
-	sortStrings(order)
-	for _, l := range order {
-		groups = append(groups, struct {
-			Label string
-			Tasks []*store.Task
-		}{Label: l, Tasks: buckets[l]})
-	}
-	for _, tk := range tasks {
-		matched := false
-		for _, w := range wildcards {
-			for _, l := range tk.Labels {
-				if labelMatchesWildcardTUI(l, w) {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				break
-			}
-		}
-		if !matched {
-			others = append(others, tk)
-		}
-	}
-	return groups, others
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
+	return s
 }
 
 // dumpTree renders a taskGroup tree deterministically.
@@ -449,22 +408,23 @@ func dumpTree(groups []taskGroup, indent string) string {
 	return b.String()
 }
 
-// TestFacetTreeCharacterization records today's TUI group tree bug-for-bug,
-// reproducing the COMPOSITION at tasks.go:142 — store's flat grouping supplies
-// level 1, buildNestedGroups handles wildcards[1:]. The divergence between the
-// flat and nested algorithms lives in that seam, so characterizing
-// buildNestedGroups alone would miss it.
+// TestFacetTreeCharacterization records today's TUI group tree as rendered,
+// reproducing the COMPOSITION at tasks.go:142 — the real store.GroupTasks
+// supplies a flat level 1, buildNestedGroups handles wildcards[1:]. The
+// divergence between the flat and nested algorithms lives in that seam, so
+// characterizing buildNestedGroups alone would miss it.
 //
 // The golden must not change when the algebra moves into internal/core
-// (ATM-cca7b0 Tasks 3-5). Task 6 updates it deliberately.
+// (ATM-cca7b0 Tasks 3-4). Task 5 updates it (dedup) and Task 6 updates it
+// again (tree shape); both are deliberate.
 func TestFacetTreeCharacterization(t *testing.T) {
-	tasks := corpusTasks()
+	s := newFacetStore(t)
 	var b strings.Builder
 	for _, filters := range facetCases {
 		fmt.Fprintf(&b, "== filter: [%s]\n", strings.Join(filters, " "))
 		wildcards := wildcardTokens(filters)
-		// Mirror tasks.go:142-156 (focusPresent).
-		flat, others := flatGroupsLikeStore(tasks, wildcards)
+		// Mirror tasks.go:142-156 (focusPresent) against the real store.
+		flat, others := s.GroupTasks(store.QueryFilters{Project: "ATM", Labels: filters})
 		var groups []taskGroup
 		for _, g := range flat {
 			rows := make([]taskRow, 0, len(g.Tasks))
@@ -493,6 +453,8 @@ func TestFacetTreeCharacterization(t *testing.T) {
 }
 ```
 
+**Import note:** this file needs `fmt`, `os`, `path/filepath`, `strings`, `testing`, and `atm/internal/store`. It does **not** need `mkTask` — the corpus goes through the real store now.
+
 - [ ] **Step 2: Run the test to watch it fail on the missing golden**
 
 Run: `go test ./internal/tui/ -run TestFacetTreeCharacterization -v 2>&1 | tail -20`
@@ -512,7 +474,7 @@ Run: `cat internal/tui/testdata/facet_tree.golden`
 - Top-level groups include **both** `ATM:status:...` **and** `ATM:type:...` entries. A correct nested tree would show only `status` at the top. This is the composition defect being pinned — it is expected here.
 - Under a top-level `ATM:type:chore` group there are `ATM:type:*` **subgroups** — i.e. type nested under type.
 
-If the top level shows only `status` groups, the composition is not being reproduced; stop and re-check `flatGroupsLikeStore` against `store/query.go:172-208`.
+If the top level shows only `status` groups, the composition is not being reproduced; stop and check that level 1 really comes from `s.GroupTasks` and that only `wildcards[1:]` reaches `buildNestedGroups`.
 
 - [ ] **Step 5: Verify the test passes**
 
@@ -897,15 +859,14 @@ In `internal/tui/tasks_test.go`, **delete** `TestFilterTokenHelpers` (line ~191)
 
 - [ ] **Step 9b: Repair Task 2's characterization test, which this task breaks**
 
-`internal/tui/tasks_grouping_test.go` (Task 2) calls two functions Step 8 just deleted: `wildcardTokens` and `labelMatchesWildcardTUI`. It will not compile. Repair it — **without changing what it characterizes**:
+`internal/tui/tasks_grouping_test.go` (Task 2) calls `wildcardTokens`, which Step 8 just deleted. It will not compile. Repair it — **without changing what it characterizes**:
 
 - In `TestFacetTreeCharacterization`: `wildcards := wildcardTokens(filters)` → `wildcards := core.WildcardTokens(filters)`
-- In `flatGroupsLikeStore`, both occurrences: `labelMatchesWildcardTUI(l, w)` → `core.LabelMatchesWildcard(l, w)`
 - Add `"atm/internal/core"` to the file's imports.
 
-`flatGroupsLikeStore` itself **stays** — it is the deliberate transcription of store's flat bucketing that lets this package reproduce the composed path, and it must keep its doubled append. Task 6 deletes it.
+Nothing else in that file changes: it drives a real store, so it has no local copy of the algebra to update.
 
-The golden must not move. That these are pure renames is the point: same algebra, new home.
+The golden must not move. That this is a pure rename is the point: same algebra, new home.
 
 - [ ] **Step 10: Build and run the full internal suite**
 
@@ -966,7 +927,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   func nodesToGroups(nodes []core.Node[*store.Task], toRow func(*store.Task) taskRow) []taskGroup
   ```
 
-**Context the implementer needs:** `GroupNested` is a **faithful port** of `buildNestedGroups`, not an improvement. It must keep: bucketing by `wildcards[0]` only; alphabetically sorted keys; the `""` (no matching labels) bucket emitted last and only when non-empty; recursion while `len(wildcards) >= 2`; and items attached at the deepest level only. The call site keeps passing `wildcards[1:]` — the composition oddity stays until Task 6. Moving the seam is the whole job here.
+**Context the implementer needs:** `GroupNested` is a **faithful port** of `buildNestedGroups`, not an improvement. It must keep: bucketing by `wildcards[0]` only; alphabetically sorted keys; the `""` (no matching labels) bucket emitted last and only when non-empty; recursion while `len(wildcards) >= 2`; and items attached at the deepest level only. The call site keeps passing `wildcards[1:]` — the composition oddity stays until Task 6, which is the task that fixes it. Moving the seam is the whole job here.
 
 One deliberate difference: the original tracked matched tasks with `map[*store.Task]bool` (pointer identity). `T` is not constrained to `comparable`, so the port tracks by index with `[]bool`. These agree for distinct pointers, which is what the callers pass.
 
@@ -1262,12 +1223,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 5: `core.GroupByWildcard`; delete store's bucketing
+### Task 5: `core.GroupByWildcard` (with the dedup fix); delete store's bucketing
 
 **Files:**
 - Modify: `internal/core/facet.go` (add `Group[T]` and `GroupByWildcard`)
 - Modify: `internal/core/facet_test.go` (add its tests)
 - Modify: `internal/store/query.go:156-209` (`GroupTasksErr` body)
+- Modify: `internal/store/testdata/facet_flat.golden`, `internal/tui/testdata/facet_tree.golden` (**expected** to change — dedup only)
 
 **Interfaces:**
 - Consumes: `core.LabelMatchesWildcard`, `core.WildcardTokens` from Task 3.
@@ -1279,9 +1241,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
       Items []T
   }
   func GroupByWildcard[T any](items []T, labelsOf func(T) []string, wildcards []string) (groups []Group[T], others []T)
+
+  // package store
+  func taskLabels(t *Task) []string
   ```
 
-**Context the implementer needs:** This is a **faithful, bug-for-bug port** of `store/query.go:172-208`. The duplicate append is required to survive: the loop nesting must stay `for item { for wildcard { for label } } }`, so an item whose label matches two wildcards is appended to that one bucket twice. Task 6 fixes it. If you "clean up" the loops here, Task 1's golden will fail and the neutrality proof is lost.
+**Context the implementer needs:** This task moves store's flat bucketing into `core` **and fixes the duplicate-append defect in the same commit**. Both halves matter, and the order is not optional.
+
+The defect: `store/query.go:174-185` nests its loops `for item { for wildcard { for label } }`, so an item whose label matches two wildcards (e.g. `ATM:*` and `ATM:status:*`, or a repeated token) is appended to that one bucket once per matching wildcard. The fix is a loop-nesting swap — labels outer, wildcards inner — so each (item, label) pair is considered exactly once.
+
+**Do the port and the fix as two separate acts, in order** (Steps 3 and 5 below). Port faithfully first and confirm the goldens do **not** move; that check is what tells you the port is right, and it is the only place attribution between "move" and "fix" happens, since the commit carries both. Then apply the dedup and let the goldens change. Do not skip the intermediate check to save a test run — it is the task's main safeguard.
+
+An earlier draft of this plan shipped the buggy port as its own commit so the golden would prove neutrality. That was rejected deliberately: it would put a function documented as defective, and a test asserting defective output, into the branch's history. The check survives without the bad commit.
 
 `GroupTasksErr` keeps its signature and its `ErrBoardNotAFacet` guard; only the bucketing body is replaced. Note `LabelGroup` (`{Label string; Tasks []*Task}`) is `store`'s exported type and part of the CLI's JSON contract — it stays; the code maps `core.Group` onto it.
 
@@ -1328,21 +1299,47 @@ func TestGroupByWildcardOthersAreItemsMatchingNoWildcard(t *testing.T) {
 	}
 }
 
-// TestGroupByWildcardOverlappingWildcardsDuplicate pins the defect ported from
-// store/query.go:174-185: the item/wildcard/label loop nesting appends an item
-// to one bucket once per matching wildcard. ATM:* and ATM:status:* both match
-// ATM:status:open, so "a" lands in that bucket twice.
-//
-// This test asserts the BUG on purpose. ATM-cca7b0 Task 6 fixes it and
-// replaces this test with TestGroupByWildcardDedupesOverlappingWildcards.
-func TestGroupByWildcardOverlappingWildcardsDuplicate(t *testing.T) {
+// TestGroupByWildcardDedupesOverlappingWildcards covers the fix for the defect
+// at store/query.go:174-185, where the item/wildcard/label loop nesting
+// appended an item to one bucket once per matching wildcard. ATM:* and
+// ATM:status:* both match ATM:status:open; "a" must land in that bucket once.
+func TestGroupByWildcardDedupesOverlappingWildcards(t *testing.T) {
 	items := []item{{"a", []string{"ATM:status:open"}}}
 	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:*", "ATM:status:*"})
 	if len(groups) != 1 {
 		t.Fatalf("want 1 group, got %d", len(groups))
 	}
-	if want := []string{"a", "a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
-		t.Errorf("items = %v, want %v (the ported duplicate-append defect)", names(groups[0].Items), want)
+	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
+		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
+	}
+}
+
+// TestGroupByWildcardDedupesRepeatedToken covers the same fix via a repeated
+// filter token rather than two overlapping namespaces.
+func TestGroupByWildcardDedupesRepeatedToken(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open"}}}
+	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*", "ATM:status:*"})
+	if len(groups) != 1 {
+		t.Fatalf("want 1 group, got %d", len(groups))
+	}
+	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
+		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
+	}
+}
+
+// TestGroupByWildcardKeepsMultiMembership guards the dedup against
+// over-reaching: an item carrying two DIFFERENT matching labels still belongs
+// to both buckets.
+func TestGroupByWildcardKeepsMultiMembership(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open", "ATM:status:blocked"}}}
+	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*"})
+	if len(groups) != 2 {
+		t.Fatalf("want 2 groups, got %d", len(groups))
+	}
+	for _, g := range groups {
+		if want := []string{"a"}; !reflect.DeepEqual(names(g.Items), want) {
+			t.Errorf("group %q items = %v, want %v", g.Label, names(g.Items), want)
+		}
 	}
 }
 ```
@@ -1352,7 +1349,9 @@ func TestGroupByWildcardOverlappingWildcardsDuplicate(t *testing.T) {
 Run: `go test ./internal/core/ -run TestGroupByWildcard 2>&1 | tail -5`
 Expected: FAIL — `undefined: GroupByWildcard`.
 
-- [ ] **Step 3: Add `Group` and `GroupByWildcard` to `core/facet.go`**
+- [ ] **Step 3: Add `Group` and the FAITHFUL port to `core/facet.go`**
+
+Transcribe `store/query.go:172-208` as it stands — **including the defect**. This is a temporary state that you will fix in Step 5 before committing; nothing here reaches a commit.
 
 ```go
 // Group is one flat facet bucket: every item carrying Label.
@@ -1363,13 +1362,7 @@ type Group[T any] struct {
 
 // GroupByWildcard buckets items under every concrete label they carry that
 // matches ANY of wildcards — one flat level, keys sorted. Items carrying no
-// matching label are returned in others. With no wildcards there are no groups
-// and every item is an "other".
-//
-// KNOWN DEFECT, ported deliberately from store/query.go as of 87ff9ae: when
-// two wildcards both match one label (e.g. "ATM:*" and "ATM:status:*"), the
-// item is appended to that bucket once per matching wildcard. ATM-cca7b0 Task
-// 6 fixes this; the characterization goldens pin it until then.
+// matching label are returned in others.
 func GroupByWildcard[T any](items []T, labelsOf func(T) []string, wildcards []string) (groups []Group[T], others []T) {
 	if len(wildcards) == 0 {
 		return nil, items
@@ -1377,7 +1370,7 @@ func GroupByWildcard[T any](items []T, labelsOf func(T) []string, wildcards []st
 	buckets := map[string][]T{}
 	var order []string
 	for _, it := range items {
-		for _, w := range wildcards {
+		for _, w := range wildcards { // faithful port: fixed in Step 5
 			for _, l := range labelsOf(it) {
 				if !LabelMatchesWildcard(l, w) {
 					continue
@@ -1422,162 +1415,26 @@ func matchesAny(labels []string, wildcards []string) bool {
 }
 ```
 
-- [ ] **Step 4: Run core's tests**
+- [ ] **Step 4: Rewrite `GroupTasksErr`'s body**
 
-Run: `go test ./internal/core/ -v -run TestGroupByWildcard 2>&1 | tail -8`
-Expected: PASS — all four, including the duplicate-append test.
+See Step 4b below for the exact code. Apply it now, while the port is still faithful.
 
-- [ ] **Step 5: Rewrite `GroupTasksErr`'s body**
+- [ ] **Step 5: NEUTRALITY CHECKPOINT — confirm the port changed nothing**
 
-In `internal/store/query.go`, replace lines ~156-209 (from `func (s *Store) GroupTasksErr` to its closing brace) with:
+Run only the characterization tests (the three dedupe tests from Step 1 are *expected* to fail at this point — the fix is not in yet):
 
-```go
-func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error) {
-	// I5: faceting by a board is meaningless — it has no members.
-	for _, w := range core.WildcardTokens(filters.Labels) {
-		base := strings.TrimSuffix(w, ":*")
-		if l, err := s.LabelShow(base); err == nil && l.Expr != "" {
-			return nil, nil, fmt.Errorf("%w: %s", ErrBoardNotAFacet, base)
-		}
-	}
-	inScope, err := s.ListTasksErr(filters)
-	if err != nil {
-		return nil, nil, err
-	}
-	wildcards := core.WildcardTokens(filters.Labels)
-	if len(wildcards) == 0 {
-		return nil, inScope, nil
-	}
-	groups, others := core.GroupByWildcard(inScope, taskLabels, wildcards)
-	out := make([]LabelGroup, 0, len(groups))
-	for _, g := range groups {
-		out = append(out, LabelGroup{Label: g.Label, Tasks: g.Items})
-	}
-	return out, others, nil
-}
-
-// taskLabels is the core grouping accessor for tasks. It is all core needs to
-// know about a Task — the type itself stays here until ATM-b9d83a.
-func taskLabels(t *Task) []string { return t.Labels }
+```
+go test ./internal/store/ -run TestGroupTasksCharacterization && go test ./internal/tui/ -run TestFacetTreeCharacterization
+git status --porcelain internal/store/testdata/ internal/tui/testdata/
 ```
 
-Note the early `len(wildcards) == 0` return stays: it returns `nil, inScope, nil`, which `core.GroupByWildcard` would also produce, but keeping it preserves the exact `[]LabelGroup(nil)` (not empty-slice) return the golden and the CLI's JSON see.
+Expected: both PASS and `git status` prints **nothing**.
 
-Check `"sort"` is still used in `query.go` (it is — `ListTasksErr` sorts); leave the import.
+**This checkpoint is the task's main safeguard.** The commit carries both a move and a fix, so this is the only moment that isolates them. If a golden moves here, the port is not faithful — fix the port before going on. Do not proceed with a dirty golden, and do not regenerate the goldens here.
 
-- [ ] **Step 6: Verify — everything passes, goldens untouched**
+- [ ] **Step 6: Apply the dedup fix**
 
-Run: `go build ./... && go test ./internal/core/ ./internal/store/ ./internal/tui/ ./internal/cli/ 2>&1 | tail -8`
-Expected: all PASS. `internal/cli` passing matters most — it proves the `--facets` contract held.
-
-Run: `git status --porcelain internal/store/testdata/ internal/tui/testdata/`
-Expected: empty.
-
-Run: `grep -rn "isWildcard(\|labelMatchesWildcard(\|wildcardTokens(\|restrictingTokens(" internal/store/*.go | grep -v "core\." || echo "NO LOCAL COPIES"`
-Expected: `NO LOCAL COPIES`.
-
-- [ ] **Step 7: Confirm the leaf rule still holds**
-
-Run: `go list -deps ./internal/core | grep atm/ || echo "LEAF OK"`
-Expected: `LEAF OK`.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add internal/core/facet.go internal/core/facet_test.go internal/store/query.go
-git commit -m "refactor(ATM-cca7b0): move flat faceting into core.GroupByWildcard
-
-GroupTasksErr keeps its signature, its ErrBoardNotAFacet guard, and its
-LabelGroup return shape — only the bucketing body moves to core. The CLI's
---facets JSON contract is untouched.
-
-Ported bug-for-bug on purpose: the item/wildcard/label loop nesting still
-double-appends when two wildcards match one label. core's own test asserts the
-defect and both characterization goldens are unchanged, which is the proof this
-commit is behavior-neutral. Task 6 fixes it.
-
-This completes the move: the faceting algebra now has exactly one copy.
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
-```
-
----
-
-### Task 6: Fix the duplicate append and the TUI's tree
-
-**Files:**
-- Modify: `internal/core/facet.go` (`GroupByWildcard` loop nesting)
-- Modify: `internal/core/facet_test.go` (replace the defect test)
-- Modify: `internal/tui/tasks.go:141-186` (source the tree from `wildcards[0]`)
-- Modify: `internal/store/testdata/facet_flat.golden`, `internal/tui/testdata/facet_tree.golden` (**expected** to change)
-
-**Interfaces:**
-- Consumes: everything from Tasks 3-5.
-- Produces: no new signatures. `GroupByWildcard`'s contract tightens to "an item appears at most once per bucket".
-
-**Context the implementer needs:** This is the only task in the plan that changes behavior, and it is the reason the goldens exist. Both golden diffs must be **read and understood** before committing — that is the deliverable, not a side effect.
-
-Fix 1 is a loop-nesting swap. Iterating labels outer / wildcards inner considers each (item, label) pair exactly once, which removes the duplicate without a bookkeeping set.
-
-Fix 2: the TUI stops taking level 1 from store's flat grouping and nests from `wildcards[0]`. It keeps calling `GroupTasksErr` — discarding its groups — for two things it still needs: the `others` bucket (used by `focusAbsent`) and the `ErrBoardNotAFacet` guard, which today the TUI inherits by `GroupTasks` swallowing the error and returning `nil, nil`.
-
-- [ ] **Step 1: Replace the defect test with the fixed expectation**
-
-In `internal/core/facet_test.go`, **delete** `TestGroupByWildcardOverlappingWildcardsDuplicate` in full and add:
-
-```go
-// TestGroupByWildcardDedupesOverlappingWildcards covers the fix for the defect
-// ported from store/query.go:174-185. ATM:* and ATM:status:* both match
-// ATM:status:open; the item must land in that bucket exactly once.
-func TestGroupByWildcardDedupesOverlappingWildcards(t *testing.T) {
-	items := []item{{"a", []string{"ATM:status:open"}}}
-	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:*", "ATM:status:*"})
-	if len(groups) != 1 {
-		t.Fatalf("want 1 group, got %d", len(groups))
-	}
-	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
-		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
-	}
-}
-
-// TestGroupByWildcardDedupesRepeatedToken covers the same fix via a repeated
-// filter token rather than two overlapping namespaces.
-func TestGroupByWildcardDedupesRepeatedToken(t *testing.T) {
-	items := []item{{"a", []string{"ATM:status:open"}}}
-	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*", "ATM:status:*"})
-	if len(groups) != 1 {
-		t.Fatalf("want 1 group, got %d", len(groups))
-	}
-	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
-		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
-	}
-}
-
-// TestGroupByWildcardKeepsMultiMembership guards the dedup fix against
-// over-reaching: an item carrying two DIFFERENT matching labels still belongs
-// to both buckets.
-func TestGroupByWildcardKeepsMultiMembership(t *testing.T) {
-	items := []item{{"a", []string{"ATM:status:open", "ATM:status:blocked"}}}
-	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*"})
-	if len(groups) != 2 {
-		t.Fatalf("want 2 groups, got %d", len(groups))
-	}
-	for _, g := range groups {
-		if want := []string{"a"}; !reflect.DeepEqual(names(g.Items), want) {
-			t.Errorf("group %q items = %v, want %v", g.Label, names(g.Items), want)
-		}
-	}
-}
-```
-
-- [ ] **Step 2: Run to verify the new tests fail**
-
-Run: `go test ./internal/core/ -run TestGroupByWildcardDedupes 2>&1 | tail -8`
-Expected: FAIL — `items = [a a], want [a]` for both dedupe tests. `TestGroupByWildcardKeepsMultiMembership` should already PASS.
-
-- [ ] **Step 3: Fix `GroupByWildcard`**
-
-In `internal/core/facet.go`, swap the loop nesting and update the doc comment. Replace the whole function with:
+Now swap the loop nesting and update the doc comment. Replace the whole function:
 
 ```go
 // GroupByWildcard buckets items under every concrete label they carry that
@@ -1621,12 +1478,128 @@ func GroupByWildcard[T any](items []T, labelsOf func(T) []string, wildcards []st
 }
 ```
 
-- [ ] **Step 4: Run core's tests**
+Run: `go test ./internal/core/ -v -run TestGroupByWildcard 2>&1 | tail -8`
+Expected: PASS — all six, including the three dedupe tests that failed at Step 4.
 
-Run: `go test ./internal/core/ -v 2>&1 | tail -14`
+**Reference code for Step 4 — the `GroupTasksErr` body:**
+
+In `internal/store/query.go`, replace lines ~156-209 (from `func (s *Store) GroupTasksErr` to its closing brace) with:
+
+```go
+func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error) {
+	// I5: faceting by a board is meaningless — it has no members.
+	for _, w := range core.WildcardTokens(filters.Labels) {
+		base := strings.TrimSuffix(w, ":*")
+		if l, err := s.LabelShow(base); err == nil && l.Expr != "" {
+			return nil, nil, fmt.Errorf("%w: %s", ErrBoardNotAFacet, base)
+		}
+	}
+	inScope, err := s.ListTasksErr(filters)
+	if err != nil {
+		return nil, nil, err
+	}
+	wildcards := core.WildcardTokens(filters.Labels)
+	if len(wildcards) == 0 {
+		return nil, inScope, nil
+	}
+	groups, others := core.GroupByWildcard(inScope, taskLabels, wildcards)
+	out := make([]LabelGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, LabelGroup{Label: g.Label, Tasks: g.Items})
+	}
+	return out, others, nil
+}
+
+// taskLabels is the core grouping accessor for tasks. It is all core needs to
+// know about a Task — the type itself stays here until ATM-b9d83a.
+func taskLabels(t *Task) []string { return t.Labels }
+```
+
+Note the early `len(wildcards) == 0` return stays: it returns `nil, inScope, nil`, which `core.GroupByWildcard` would also produce, but keeping it preserves the exact `[]LabelGroup(nil)` (not empty-slice) return the golden and the CLI's JSON see.
+
+Check `"sort"` is still used in `query.go` (it is — `ListTasksErr` sorts); leave the import.
+
+- [ ] **Step 7: Regenerate both goldens and read the diff**
+
+The dedup changes what the goldens record, so they must be regenerated now:
+
+```
+ATM_UPDATE_GOLDEN=1 go test ./internal/store/ -run TestGroupTasksCharacterization
+ATM_UPDATE_GOLDEN=1 go test ./internal/tui/ -run TestFacetTreeCharacterization
+git diff internal/store/testdata/facet_flat.golden internal/tui/testdata/facet_tree.golden
+```
+
+**Required review — this is the deliverable.** The diff must contain **only** removals of duplicated titles, and only under the two overlapping-wildcard filters:
+- `== filter: [ATM:* ATM:status:*]`
+- `== filter: [ATM:status:* ATM:status:*]`
+
+Every other filter case must be **byte-identical**, and no group, ordering, or `others` membership may change anywhere. If anything else moved, the port was not faithful — go back to Step 4's checkpoint rather than accepting the new golden.
+
+- [ ] **Step 8: Verify the rest**
+
+Run: `go build ./... && go test ./internal/core/ ./internal/store/ ./internal/tui/ ./internal/cli/ 2>&1 | tail -8`
 Expected: all PASS.
 
-- [ ] **Step 5: Fix the TUI's tree — `focusPresent`/`focusAbsent`**
+Run: `grep -rn "isWildcard(\|labelMatchesWildcard(\|wildcardTokens(\|restrictingTokens(" internal/store/*.go | grep -v "core\." || echo "NO LOCAL COPIES"`
+Expected: `NO LOCAL COPIES`.
+
+- [ ] **Step 9: Confirm the leaf rule still holds**
+
+Run: `go list -deps ./internal/core | grep atm/ || echo "LEAF OK"`
+Expected: `LEAF OK`.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add internal/core/facet.go internal/core/facet_test.go internal/store/query.go \
+        internal/store/testdata/facet_flat.golden internal/tui/testdata/facet_tree.golden
+git commit -m "refactor(ATM-cca7b0): move flat faceting into core; dedupe overlapping facets
+
+GroupTasksErr keeps its signature, its ErrBoardNotAFacet guard, and its
+LabelGroup return shape — only the bucketing body moves to core, completing the
+unification: the faceting algebra now has exactly one copy.
+
+The move carries a fix. store/query.go iterated wildcards inside labels, so an
+item whose label matched two wildcards was appended to that bucket once per
+match — ATM:* plus ATM:status:* listed a task twice in one group. Reachable
+from documented input: the QueryFilters doc comment names ATM:* as a facet.
+Labels outer / wildcards inner considers each (item, label) pair once.
+Multi-membership across DIFFERENT labels is unaffected and now has a regression
+test.
+
+The port was verified faithful before the fix was applied — goldens unchanged
+against the straight transcription — so the golden diff here is the dedup
+alone: duplicate titles removed under the two overlapping-wildcard filters,
+every other case byte-identical.
+
+cli --facets keeps its groups/others JSON shape; its content changes only where
+a task was previously listed twice.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Nest the TUI's tree from `wildcards[0]`
+
+**Files:**
+- Modify: `internal/tui/tasks.go:141-186` (source the tree from `wildcards[0]`)
+- Modify: `internal/tui/tasks_grouping_test.go` (mirror the new wiring)
+- Modify: `internal/tui/testdata/facet_tree.golden` (**expected** to change)
+
+**Interfaces:**
+- Consumes: `core.GroupNested`, `core.GroupByWildcard`, `core.WildcardTokens` (Tasks 3-5); `nodesToGroups`, `taskLabels` (Task 4).
+- Produces: no new signatures.
+
+**Context the implementer needs:** This is the last behavior change in the series, and the TUI golden exists for it. The golden diff must be **read and understood** before committing — that is the deliverable, not a side effect.
+
+Today the TUI takes its top level from `store.GroupTasks` (flat, bucketing by *any* matching wildcard) and passes only `wildcards[1:]` to the nested pass. A two-wildcard filter therefore facets the top level by every namespace at once and hangs `type:*` subgroups under the `type:` groups themselves. It should nest from `wildcards[0]`, which is what `buildNestedGroups`' original doc comment and mockup Screen 7 always described.
+
+The TUI keeps calling `GroupTasksErr` — **discarding its groups** — for two things it still needs: the `others` bucket (used by `focusAbsent` and `focusOff`) and the `ErrBoardNotAFacet` guard, which today it inherits by `GroupTasks` swallowing the error and returning `nil, nil`. Dropping that call would silently start faceting by boards.
+
+`internal/store` is not touched by this task.
+
+- [ ] **Step 1: Fix the TUI's tree — `focusPresent`/`focusAbsent`**
 
 In `internal/tui/tasks.go`, replace the `case focusPresent, focusAbsent:` body's grouping half (lines ~141-161, from `filters := t.parseFilter()` to the end of that case) with:
 
@@ -1651,7 +1624,7 @@ In `internal/tui/tasks.go`, replace the `case focusPresent, focusAbsent:` body's
 		}
 ```
 
-- [ ] **Step 6: Fix the TUI's tree — `focusOff`**
+- [ ] **Step 2: Fix the TUI's tree — `focusOff`**
 
 Replace the `default: // focusOff` body (lines ~162-187) with:
 
@@ -1677,7 +1650,7 @@ Replace the `default: // focusOff` body (lines ~162-187) with:
 	}
 ```
 
-- [ ] **Step 7: Update the TUI characterization test to the new wiring**
+- [ ] **Step 3: Update the TUI characterization test to the new wiring**
 
 `TestFacetTreeCharacterization` in `internal/tui/tasks_grouping_test.go` reproduces the **old** composition, so it must now mirror the new one. Replace its per-case body (inside the `for _, filters := range facetCases` loop) with:
 
@@ -1698,30 +1671,29 @@ Replace the `default: // focusOff` body (lines ~162-187) with:
 		}
 ```
 
-Delete `flatGroupsLikeStore` and `sortStrings` — the old composition they transcribed no longer exists, and nothing else calls them. The `core` import is already present from Task 3 Step 9b; drop any imports that fall unused (`sort` was never imported here, but check `strings`/`fmt` are still needed — they are).
+The `store` import stays — `newFacetStore` still uses it. Drop any import that falls unused.
 
-- [ ] **Step 8: Regenerate both goldens**
+- [ ] **Step 4: Regenerate the TUI golden**
 
-Run: `ATM_UPDATE_GOLDEN=1 go test ./internal/store/ -run TestGroupTasksCharacterization && ATM_UPDATE_GOLDEN=1 go test ./internal/tui/ -run TestFacetTreeCharacterization`
+Only the tree changes in this task; the store golden must not move.
 
-- [ ] **Step 9: Read the golden diffs — the deliverable**
+Run: `ATM_UPDATE_GOLDEN=1 go test ./internal/tui/ -run TestFacetTreeCharacterization`
 
-Run: `git diff internal/store/testdata/facet_flat.golden internal/tui/testdata/facet_tree.golden`
+- [ ] **Step 5: Read the golden diff — the deliverable**
+
+Run: `git status --porcelain internal/store/testdata/`
+Expected: **empty**. This task does not touch `internal/store`; if its golden moved, something is wrong — stop.
+
+Run: `git diff internal/tui/testdata/facet_tree.golden`
 
 **Required review.** The diff must show exactly these changes and nothing else:
-
-*In `facet_flat.golden`:*
-- Under `== filter: [ATM:* ATM:status:*]` and `== filter: [ATM:status:* ATM:status:*]`, previously-doubled titles now appear once.
-- Every other filter case is **unchanged** — the dedup must not touch cases with non-overlapping wildcards.
-
-*In `facet_tree.golden`:*
 - Under two- and three-wildcard filters, the top level now lists **only** `ATM:status:...` groups (plus the `(no matching labels)` bucket) — no `ATM:type:...` at the top.
 - No group is nested under a group of its own namespace.
-- The single-wildcard and zero-wildcard cases are **unchanged**.
+- The single-wildcard and zero-wildcard cases are **unchanged** — nesting from `wildcards[0]` is identical to the old path when there is only one wildcard.
 
 If anything else moved, stop and investigate before committing.
 
-- [ ] **Step 10: Full verification**
+- [ ] **Step 6: Full verification**
 
 Run: `make verify 2>&1 | tail -20`
 Expected: build, test, and scripts-test all green.
@@ -1734,69 +1706,56 @@ Confirm no string surgery on `:*` tokens is left in the TUI:
 Run: `grep -rn 'HasSuffix\|TrimSuffix' internal/tui/*.go | grep -v _test.go | grep '\*' || echo "NO WILDCARD SURGERY IN TUI"`
 Expected: `NO WILDCARD SURGERY IN TUI`. (`hasWildcard` and `grouped` survive by name — they are focus-mode policy and delegate to `core`. A bare grep for `wildcard` is not the criterion.)
 
-- [ ] **Step 11: Confirm the CLI contract held**
+- [ ] **Step 7: Confirm the CLI contract across the whole series**
 
-The spec's criterion is that `atm task list --facets` JSON is byte-identical across the move. Two pieces of evidence, both already in hand — do not build duplicate binaries to re-derive it:
-
-1. `internal/store/testdata/facet_flat.golden` was byte-identical across Tasks 3-5. `cli/task.go:108-119` only serializes `GroupTasksErr`'s return through `groupsToJSON`/`tasksToJSON`, so an unchanged golden *is* an unchanged `--facets` payload for the move.
-2. `internal/cli`'s own tests pass.
+`cli/task.go:108-119` only serializes `GroupTasksErr`'s return through `groupsToJSON`/`tasksToJSON`, so `facet_flat.golden` *is* the `--facets` payload. Its history therefore tells you whether the contract held — do not build duplicate binaries to re-derive it.
 
 Run: `go test ./internal/cli/ 2>&1 | tail -3`
 Expected: PASS.
 
-Then confirm the golden's history shows churn only in this task:
-
 Run: `git log --oneline -- internal/store/testdata/facet_flat.golden`
-Expected: exactly two commits — Task 1 (created) and Task 6 (fixed). Any commit from Tasks 3-5 touching it means neutrality was broken and the series needs re-examining before this commit lands.
+Expected: exactly **two** commits — Task 1 (created) and Task 5 (dedup). If a commit from Task 3, 4, or 6 appears, a task changed behavior it had no business changing; investigate before this lands.
 
-Note the `--facets` payload **does** change in this task, for overlapping-wildcard filters only: that is fix 1, and it is intended. The unchanged-across-the-move claim covers Tasks 3-5, not Task 6.
+The `--facets` **shape** never changed. Its content changed once, in Task 5, and only where a task was previously listed twice.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add internal/core/facet.go internal/core/facet_test.go internal/tui/tasks.go \
-        internal/tui/tasks_grouping_test.go \
-        internal/store/testdata/facet_flat.golden internal/tui/testdata/facet_tree.golden
-git commit -m "fix(ATM-cca7b0): dedupe overlapping facets; nest the TUI tree from wildcards[0]
+git add internal/tui/tasks.go internal/tui/tasks_grouping_test.go \
+        internal/tui/testdata/facet_tree.golden
+git commit -m "fix(ATM-cca7b0): nest the TUI facet tree from wildcards[0]
 
-Two defects the unification exposed, fixed now that one copy of the algebra
-exists and the goldens can show the change.
+The TUI took its top level from store's flat grouping and nested only
+wildcards[1:], so a filter with two or more wildcards faceted the top level by
+every namespace at once and hung type subgroups under the type groups
+themselves. It now calls core.GroupNested from wildcards[0] — the tree
+buildNestedGroups' own doc comment and mockup Screen 7 always described.
 
-1. GroupByWildcard iterated wildcards inside labels, appending an item to one
-   bucket once per matching wildcard — so ATM:* plus ATM:status:* listed a task
-   twice in the same group. Reachable from documented input: the QueryFilters
-   doc comment names ATM:* as a facet. Labels outer / wildcards inner considers
-   each (item, label) pair once. Multi-membership across DIFFERENT labels is
-   unaffected and now has a regression test.
+GroupTasksErr is still called, with its groups discarded, for the two things
+the TUI still needs from it: the others bucket and the board-as-facet guard,
+which it previously inherited by GroupTasks swallowing the error.
 
-2. The TUI took its top level from store's flat grouping and nested only
-   wildcards[1:], so a two-wildcard filter faceted the top level by every
-   namespace at once and hung type subgroups under type groups. It now calls
-   core.GroupNested from wildcards[0] — the tree its doc comment and mockup
-   Screen 7 always described. GroupTasksErr is still called for the others
-   bucket and the board-as-facet guard.
-
-Both goldens are updated here and nowhere else in the series: the diff IS the
-behavior change. cli --facets keeps calling the flat grouping and its
-groups/others JSON contract is unchanged.
+Only the tree golden moves, and only for multi-wildcard filters; single- and
+zero-wildcard rendering is byte-identical. internal/store and the cli --facets
+contract are untouched by this commit.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 13: Record completion on the ledger**
+- [ ] **Step 9: Record completion on the ledger**
 
 ```bash
 atm task comment add --task ATM-cca7b0 --actor 'developer@claude:opus-4.8' \
   --label ATM:comment:progress \
-  --body 'Step 3 complete on worktree-atm-cca7b0-core-faceting. internal/core exists as a pure leaf (go list -deps shows no atm/internal). Faceting/wildcard algebra has exactly one copy; store/query.go and tui/tasks_grouping.go both delegate. make verify green. Two defects found during the move are fixed in the final commit with their golden diffs visible: the duplicate append (ATM:* + ATM:status:*) and the TUI top-level flat/nested mismatch. cli --facets JSON contract unchanged throughout. Task type did NOT move — that stays ATM-b9d83a (step 4).'
+  --body 'Step 3 complete on worktree-atm-cca7b0-core-faceting. internal/core exists as a pure leaf (go list -deps shows no atm/internal). Faceting/wildcard algebra has exactly one copy; store/query.go and tui/tasks_grouping.go both delegate. make verify green. Two defects found during the move are fixed with their golden diffs visible: the duplicate append (ATM:* + ATM:status:*) lands with the flat-grouping move, and the TUI top-level flat/nested mismatch lands last. cli --facets JSON shape unchanged throughout; its content changed once, where a task was previously listed twice. Task type did NOT move — that stays ATM-b9d83a (step 4).'
 ```
 
 ---
 
 ## Notes for the reviewer
 
-**What "neutral" means here.** Tasks 3-5 must leave `internal/store/testdata/facet_flat.golden` and `internal/tui/testdata/facet_tree.golden` byte-identical. They do change `internal/tui/tasks_test.go` — four tests whose subjects move into `core` — which is expected and not a neutrality violation. Test churn is fine; golden churn is not.
+**What "neutral" means here.** Tasks 3 and 4 must leave `internal/store/testdata/facet_flat.golden` and `internal/tui/testdata/facet_tree.golden` byte-identical. They do change `internal/tui/tasks_test.go` — four tests whose subjects move into `core` — which is expected and not a neutrality violation. Test churn is fine; golden churn is not.
 
-**Deliberately ugly code.** `core.GroupByWildcard` ships broken in Task 5 and correct in Task 6. Its Task 5 doc comment says so. Reviewers should not ask for the fix earlier: the whole point is that the golden proves the move did nothing before the fix changes anything.
+**Task 5 mixes a move with a fix, deliberately.** An earlier draft ported `GroupByWildcard` bug-for-bug in Task 5 and fixed it in Task 6, so an unchanged golden would prove the move neutral. That was rejected: it puts a function documented as defective — and a test asserting defective output — into the branch history, where a reviewer cannot distinguish a deliberate port from a mistake. Task 5 instead checks neutrality *before* applying the fix (its Step 5) and commits once. If you are reviewing Task 5, the golden diff should contain only duplicate-title removals under the two overlapping-wildcard filters; anything more means the port was not faithful.
 
-**If Task 6 proves contentious** it can be dropped entirely. Tasks 1-5 stand alone as a complete, behavior-neutral refactor, and the two defects would then be re-filed as their own ATM tasks.
+**If Task 6 proves contentious** it can be dropped entirely. Tasks 1-5 stand alone: `core` exists, the duplication is gone, and the dedup bug is fixed. Only the TUI tree shape would remain to re-file.

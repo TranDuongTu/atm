@@ -117,14 +117,18 @@ The four walkers reason about flattened cursor indices and collapse state — Bu
 
 ## Behavior policy
 
-Current behavior is pinned first, bug-for-bug. The fixes then land inside step 3 as a separate, final commit with their test updates — so the move is provably neutral and the behavior change is isolated to a diff of its own.
+Current behavior is pinned first. The fixes then land inside step 3, each in the commit where it belongs, with its golden updates in the same diff.
 
-Two fixes, both in commit 3:
+Two fixes:
 
-1. **Dedup.** `GroupByWildcard` appends a given item at most once per bucket. Affects `--facets` and the TUI; strictly a bugfix, no intended output shape changes.
-2. **The TUI's tree.** `tui` stops sourcing level 1 from store's flat grouping and calls `core.GroupNested` from `wildcards[0]`, producing the tree its doc comment and mockup Screen 7 always described.
+1. **Dedup.** `GroupByWildcard` appends a given item at most once per bucket. Affects `--facets` and the TUI; strictly a bugfix, no intended output shape changes. **Lands with the flat-grouping move**, not after it.
+2. **The TUI's tree.** `tui` stops sourcing level 1 from store's flat grouping and calls `core.GroupNested` from `wildcards[0]`, producing the tree its doc comment and mockup Screen 7 always described. Lands last, alone.
 
-`cli --facets` keeps calling the flat grouping, so its published `groups`/`others` JSON contract is untouched. The one user-visible change in the whole step is the TUI's group tree under a filter with two or more wildcards.
+**Why the dedup is not deferred.** An earlier draft ported `GroupByWildcard` bug-for-bug and fixed it a commit later, so that an unchanged golden would prove the move neutral. That would have meant committing a function documented as defective, plus a test asserting the defective output — a known bug on the branch, and a reviewer cannot tell a deliberate port from an accident. The neutrality check survives without the buggy commit: the implementer ports faithfully, confirms the goldens do not move, and only then applies the dedup, committing once. The check happens; the bug never lands.
+
+The cost is real and accepted: the flat-move commit is no longer *provably* neutral from its diff alone, because its golden changes. Attribution rests on the intermediate check rather than on the commit history.
+
+`cli --facets` keeps calling the flat grouping, so its `groups`/`others` JSON **shape** is untouched — but its content changes for overlapping-wildcard filters (a task previously listed twice now appears once). That is fix 1, and it is intended. The other user-visible change is the TUI's group tree under a filter with two or more wildcards.
 
 ## Testing
 
@@ -135,7 +139,9 @@ The brief says "parity tests exercising BOTH existing implementations". That phr
 - `internal/store/query_facet_test.go` drives `GroupTasksErr` over the corpus via the existing `newTestStore(t)` fixture, dumping `groups`/`others` to `testdata/facet_flat.golden`.
 - `internal/tui/tasks_grouping_test.go` drives the **composed** render path (`store.GroupTasks` → `buildNestedGroups`, as `tasks.go:142` wires it), dumping the tree to `testdata/facet_tree.golden`. The divergence lives in the composition, so testing `buildNestedGroups` in isolation would miss it.
 
-Golden files rather than inline assertions, because commit 3's diff then *shows the behavior change directly*. `internal/cli/testdata` is the existing precedent for the pattern.
+Both tests drive a **real store** — `store.Open(t.TempDir())` + `Init("")`, the pattern four existing TUI tests already use (`app_test.go:35`, `labels_test.go:469`). The TUI test therefore calls the real `store.GroupTasks` for its level 1 rather than transcribing store's bucketing into a helper. It characterizes the actual composition instead of a copy of it, and no duplicated logic block enters the tree.
+
+Golden files rather than inline assertions, because a fix's diff then *shows the behavior change directly*. `internal/cli/testdata` is the existing precedent for the pattern.
 
 The corpus is a ~15-line Go literal, written once per package with a comment cross-referencing its twin. Sharing it across two packages needs a new test-only package, which costs more than the duplication saves.
 
@@ -151,13 +157,15 @@ Commit 2 adds direct table-driven unit tests for `core` — it is new API and de
 
 Work happens on a worktree branch off `main`, never on `main` directly.
 
-Three phases. The implementation plan — `docs/superpowers/plans/2026-07-16-internal-core-faceting.md` — refines them into six commits, splitting phase 1 by package and phase 2 by algebra (label/filter, nested, flat) so each lands its own reviewable, independently testable diff. The phase contract below is what matters and is unchanged by that split.
+Three phases. The implementation plan — `docs/superpowers/plans/2026-07-16-internal-core-faceting.md` — refines them into six commits, splitting phase 1 by package and phase 2 by algebra (label/filter, nested, flat) so each lands its own reviewable, independently testable diff.
 
 | Phase | Commits | Golden files |
 |---|---|---|
-| 1 — pin | Characterization tests, one per package. No production changes. | created |
-| 2 — move | Create `core`; move the algebra; point `store` and `tui` at it; delete both copies. Add `core` unit tests. | **untouched** — passing unchanged is the proof of neutrality |
-| 3 — fix | The two fixes. | updated in the same diff |
+| 1 — pin | Characterization tests, one per package, both driving a real store. No production changes. | created |
+| 2 — move | Create `core`; move the algebra; point `store` and `tui` at it; delete both copies. Add `core` unit tests. | **untouched**, except the last commit of the phase, which carries the dedup fix and updates them |
+| 3 — fix | The TUI tree fix. | updated in the same diff |
+
+The label/filter and nested-grouping moves are provably neutral: their goldens must not move. The flat-grouping move carries fix 1 with it, for the reason given under Behavior policy.
 
 Phase 2 necessarily edits `internal/tui/tasks_test.go`: four existing tests (`TestBuildNestedGroupsTwoWildcards`, `TestBuildNestedGroupsThreeWildcards`, `TestFilterTokenHelpers`, `TestTaskHasBareTag`) have subjects that move into `core`. Test churn there is expected and is not a neutrality violation — the neutrality claim rests on the goldens alone.
 
@@ -176,9 +184,10 @@ Verified by running, not asserted:
 
 | Risk | Mitigation |
 |---|---|
-| Commit 3 changes the TUI group tree under 2+ wildcard filters | The only user-visible change in the step. Commits 1-2 stand alone; commit 3 can be dropped without touching them if it proves contentious. |
+| The final commit changes the TUI group tree under 2+ wildcard filters | Phases 1-2 stand alone; phase 3 can be dropped without touching them if it proves contentious. |
 | Generic API is awkward at a call site | Both call sites are one-liners; the accessor closure is three tokens. |
-| Golden churn hides a real regression in commit 2 | Commit 2 is required to leave goldens byte-identical. Any churn there is a defect, not a rebaseline. |
+| Golden churn hides a real regression during the move | Every move commit except the flat-grouping one must leave goldens byte-identical; any churn there is a defect, not a rebaseline. |
+| The flat-grouping commit mixes move with fix, so its golden diff cannot by itself distinguish the two | The implementer runs the goldens against the faithful port **before** applying the dedup and confirms they do not move. The golden diff in the commit must then contain only duplicate-title removals under overlapping-wildcard filters; anything else means the port was not faithful. |
 
 ## Out of scope
 
