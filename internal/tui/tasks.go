@@ -1217,15 +1217,17 @@ func (t *tasksModel) pageWindow(total int) (int, int) {
 }
 
 // groupPageSize returns the number of lines that fit in the grouped/tree list
-// body (the header line + blank line written by renderList are the only fixed
-// overhead; group/row lines are the scrollable body). It is called ONLY during
-// render, where renderListWithStrip has already shrunk t.contentHeight to the
-// list sub-height (listContentHeight), so t.contentHeight-2 == listH-2 here.
-// The keypress side (listPageSize) reconstructs the same listH-2 from
-// listContentHeight() directly, since at keypress time t.contentHeight is the
-// full pane height.
+// body. Fixed overhead is 3 lines: the header line + blank line written by
+// renderList, PLUS the "showing X of Y" footer renderGroupedList writes after
+// the body. Reserving only 2 makes the body one line too tall, so padToHeight
+// truncates the footer (and the pinned stack then renders where it would be).
+// Called ONLY during render, where renderListWithStrip has already shrunk
+// t.contentHeight to the list sub-height (listContentHeight), so
+// t.contentHeight-3 == listH-3 here. The keypress side (listPageSize)
+// reconstructs the same listH-3 from listContentHeight() directly, since at
+// keypress time t.contentHeight is the full pane height.
 func (t *tasksModel) groupPageSize() int {
-	size := t.contentHeight - 2
+	size := t.contentHeight - 3
 	if size < 1 {
 		size = 1
 	}
@@ -1235,10 +1237,11 @@ func (t *tasksModel) groupPageSize() int {
 // listPageSize returns the page size for whichever list mode is active, used by
 // the pgdown / pgup page-jump keys. Both modes derive from listContentHeight()
 // (the list sub-height) so a jump always lands on the exact page boundary the
-// renderer draws: the flat body reserves 6 lines of chrome, the grouped body 2.
+// renderer draws: the flat body reserves 6 lines of chrome, the grouped body 3
+// (header + blank + "showing" footer).
 func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
-		size := t.listContentHeight() - 2
+		size := t.listContentHeight() - 3
 		if size < 1 {
 			size = 1
 		}
