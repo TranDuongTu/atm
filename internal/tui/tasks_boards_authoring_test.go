@@ -94,7 +94,7 @@ func TestTasksPaneDKeyAtChartTargetsCursorMember(t *testing.T) {
 		}
 		m.boards.cycleBoard(1)
 	}
-	update(t, m, ">") // drill into the namespace chart
+	update(t, m, "shift+right") // drill into the namespace chart
 	if m.boards.level != lLevelChart {
 		t.Fatalf("expected chart level after drill-in, got %v", m.boards.level)
 	}
@@ -106,7 +106,7 @@ func TestTasksPaneDKeyAtChartTargetsCursorMember(t *testing.T) {
 	wantSuffix := strings.TrimPrefix(rows[1].full, "ATM:")
 	otherSuffix := strings.TrimPrefix(rows[0].full, "ATM:")
 
-	update(t, m, "}") // move the chart cursor to row index 1
+	update(t, m, "shift+down") // move the chart cursor to row index 1
 	update(t, m, "d") // describe the cursor member
 
 	if m.form == nil || m.formKind != formLabelDescribe {

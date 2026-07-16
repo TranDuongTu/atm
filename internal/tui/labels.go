@@ -372,6 +372,13 @@ func (b *boardsModel) jumpPin(n int) bool {
 	return true
 }
 
+// focusCenter is the inverse of jumpPin: it moves the strong current-filter
+// highlight from a pin box back to the strip's SELECTED (center) board,
+// touching only pinFocus — b.selected and the task filter are untouched.
+func (b *boardsModel) focusCenter() {
+	b.pinFocus = -1
+}
+
 // resetDrill returns the SELECTED thumbnail to L0 so a board switch never
 // leaks a stale chart/detail/cursor into the newly selected board.
 func (b *boardsModel) resetDrill() {
@@ -490,7 +497,7 @@ func (b *boardsModel) drillOut() {
 }
 
 // chartCursorMove moves the SELECTED thumbnail's chart cursor (the member row
-// that >, d, l target). Only meaningful at the chart level; no-op elsewhere.
+// that d, l target). Only meaningful at the chart level; no-op elsewhere.
 func (b *boardsModel) chartCursorMove(dir int) {
 	if b.level != lLevelChart {
 		return

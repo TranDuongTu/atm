@@ -48,8 +48,9 @@ func newTestModelWithActor(t *testing.T, actor string) *Model {
 
 // keyMsg constructs a tea.KeyMsg from a key string. Rune keys use KeyRunes;
 // the special-key strings bubbletea expects (enter, esc, backspace, space,
-// down, up, pgdown, pgup, tab) map to their KeyType. The returned KeyMsg's
-// String() matches what the TUI handlers switch on.
+// down, up, shift+up, shift+down, shift+left, shift+right, pgdown, pgup, tab)
+// map to their KeyType. The returned KeyMsg's String() matches what the TUI
+// handlers switch on.
 func keyMsg(s string) tea.KeyMsg {
 	switch s {
 	case "enter":
@@ -64,6 +65,14 @@ func keyMsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyDown}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
+	case "shift+up":
+		return tea.KeyMsg{Type: tea.KeyShiftUp}
+	case "shift+down":
+		return tea.KeyMsg{Type: tea.KeyShiftDown}
+	case "shift+left":
+		return tea.KeyMsg{Type: tea.KeyShiftLeft}
+	case "shift+right":
+		return tea.KeyMsg{Type: tea.KeyShiftRight}
 	case "pgdown":
 		return tea.KeyMsg{Type: tea.KeyPgDown}
 	case "pgup":

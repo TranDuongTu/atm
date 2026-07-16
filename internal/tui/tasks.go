@@ -515,17 +515,17 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "pgup":
 		t.cursor -= t.listPageSize()
 		t.clampCursor()
-	case ">", "<":
+	case "shift+right", "shift+left":
 		// Drill the SELECTED thumbnail in / out via boardsModel's level navigation.
-		if k.String() == ">" {
+		if k.String() == "shift+right" {
 			t.m.boards.drillIn()
 		} else {
 			t.m.boards.drillOut()
 		}
-	case "{", "}":
-		// Move the SELECTED thumbnail's chart cursor (the member that >, d, l target).
+	case "shift+up", "shift+down":
+		// Move the SELECTED thumbnail's chart cursor (the member that d, l target).
 		dir := -1
-		if k.String() == "}" {
+		if k.String() == "shift+down" {
 			dir = 1
 		}
 		t.m.boards.chartCursorMove(dir)
@@ -534,6 +534,10 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "!", "@", "#", "$", "%", "^", "&", "*", "(":
 		n := shiftDigitToInt(k.String())
 		t.m.boards.jumpPin(n)
+	case ")":
+		// Shift+0: return the strong current-filter highlight from a pin box
+		// to the strip's SELECTED (center) board, the inverse of Shift-1..9.
+		t.m.boards.focusCenter()
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % 3
@@ -1293,7 +1297,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [>]inspect board  [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [shift+←/→]drill  [shift+↑/↓]member  [shift+0..3]focus  [?]keys"
 }
 
 // --- form openers ---

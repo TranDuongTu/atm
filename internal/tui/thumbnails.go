@@ -140,11 +140,12 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	style := b.m.styles.PaneInactive
 	title := r.Name
 	if b.pinFocus == -1 {
-		// This cell IS the active filter and the highlight: advertise that `>`
-		// drills into it. Only here — never on the muted prev/next side cells,
-		// and never while a pin (pinFocus >= 0) holds the highlight instead.
+		// This cell IS the active filter and the highlight: advertise that
+		// shift+right drills into it. Only here — never on the muted
+		// prev/next side cells, and never while a pin (pinFocus >= 0) holds
+		// the highlight instead.
 		style = b.m.styles.PaneActiveStrong
-		title = r.Name + "  · > to inspect"
+		title = r.Name + "  · Shift+→ to inspect"
 	}
 	return titledBoxHeight(style, w, title, inner, h)
 }

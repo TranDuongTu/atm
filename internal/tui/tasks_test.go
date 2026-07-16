@@ -336,6 +336,74 @@ func TestBracketKeysSwitchBoard(t *testing.T) {
 	}
 }
 
+// TestShiftArrowsDrillAndMoveChartCursor verifies the shift+arrow rebind:
+// shift+right/shift+left drill the SELECTED thumbnail in/out (replacing
+// >/<), and once at the chart level, shift+down/shift+up move the chart
+// cursor (replacing }/{).
+func TestShiftArrowsDrillAndMoveChartCursor(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+	for i := 0; m.boards.selected != "ATM:status:*"; i++ {
+		if i > len(m.boards.rows) {
+			t.Fatalf("status namespace never became selected; rows=%v", m.boards.rowNames())
+		}
+		m.boards.cycleBoard(1)
+	}
+
+	m.tasks.handleKey(keyMsg("shift+right"))
+	if m.boards.level != lLevelChart {
+		t.Fatalf("shift+right did not drill in: level = %v, want lLevelChart", m.boards.level)
+	}
+
+	before := m.boards.cursor
+	m.tasks.handleKey(keyMsg("shift+down"))
+	if m.boards.cursor != before+1 {
+		t.Errorf("shift+down cursor = %d, want %d", m.boards.cursor, before+1)
+	}
+	m.tasks.handleKey(keyMsg("shift+up"))
+	if m.boards.cursor != before {
+		t.Errorf("shift+up cursor = %d, want %d", m.boards.cursor, before)
+	}
+
+	m.tasks.handleKey(keyMsg("shift+left"))
+	if m.boards.level != lLevelTable {
+		t.Errorf("shift+left did not drill out: level = %v, want lLevelTable", m.boards.level)
+	}
+}
+
+// TestCloseParenFocusesCenterBoard verifies ")" (Shift+0) moves the strong
+// current-filter highlight from a pin box back to the strip's SELECTED
+// (center) board, without touching b.selected or the filter.
+func TestCloseParenFocusesCenterBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	selected := m.boards.selected
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	if m.boards.pinFocus != 0 {
+		t.Fatalf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+
+	m.tasks.handleKey(keyMsg(")"))
+
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after ) = %d, want -1 (center board focused)", m.boards.pinFocus)
+	}
+	if m.boards.selected != selected {
+		t.Errorf(") must not change b.selected: got %q, want %q", m.boards.selected, selected)
+	}
+}
+
 func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -350,13 +418,13 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 
 // TestListHintOrderPutsNavFirstAndInspectLast verifies the reordered [2] pane
 // list-view hint: task/board nav and the everyday actions come first, with
-// the ">" drill relegated to last since it is a hint-only reflection of the
-// existing "> / <" keys (no new key introduced).
+// the shift+arrow drill/member hint relegated to last (a hint-only reflection
+// of the shift+arrow keys, no new drill/member key introduced).
 func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [>]inspect board  [?]keys"
+	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [shift+←/→]drill  [shift+↑/↓]member  [shift+0..3]focus  [?]keys"
 	if got := m.tasks.statusHint(); got != want {
 		t.Errorf("statusHint() = %q, want %q", got, want)
 	}
