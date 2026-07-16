@@ -217,3 +217,60 @@ func TestWorkflowStartAlreadyInProgressIsNoop(t *testing.T) {
 		t.Fatalf("no-op message should not read like a transition: %q", out)
 	}
 }
+
+func TestBacklogBoardSurfacesNakedJotting(t *testing.T) {
+	// The driver: a task created with no labels carries no status:* label, so
+	// it is invisible under every board in the ring. The backlog board
+	// (NOT status:*) is what surfaces it again. This asserts board MEMBERSHIP
+	// resolves, not merely that the label row exists.
+	h := newGoldenHarness(t)
+	sp := seedWorkflowProject(t, h)
+	jotting := createTaskWithLabels(t, h, sp, "quick jotting")           // no labels
+	tracked := createTaskWithLabels(t, h, sp, "tracked", "ATM:status:open")
+
+	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:backlog")
+	if code != 0 {
+		t.Fatalf("task list --label ATM:backlog exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, jotting) {
+		t.Errorf("naked jotting %s missing from the backlog board: %s", jotting, out)
+	}
+	if strings.Contains(out, tracked) {
+		t.Errorf("task %s carries status:open and must NOT be in backlog (NOT status:*): %s", tracked, out)
+	}
+
+	out, _, code = h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:open-tasks")
+	if code != 0 {
+		t.Fatalf("task list --label ATM:open-tasks exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if strings.Contains(out, jotting) {
+		t.Errorf("naked jotting %s must NOT appear under open-tasks (status:open): %s", jotting, out)
+	}
+	if !strings.Contains(out, tracked) {
+		t.Errorf("task %s carries status:open and must appear under open-tasks: %s", tracked, out)
+	}
+}
+
+func TestInProgressBoardMembership(t *testing.T) {
+	// The in-progress-tasks board is the other new ring member. Assert it
+	// resolves, and that `atm workflow start` moves a task onto it -- the
+	// capability's verbs and its boards agreeing end to end.
+	h := newGoldenHarness(t)
+	sp := seedWorkflowProject(t, h)
+	id := createTaskWithLabels(t, h, sp, "t", "ATM:status:open")
+
+	if _, _, code := h.run("workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset"); code != 0 {
+		t.Fatalf("workflow start exit=%d stderr=%s", code, h.stderr.String())
+	}
+	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:in-progress-tasks")
+	if code != 0 {
+		t.Fatalf("task list exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, id) {
+		t.Errorf("task %s is in-progress and must appear under in-progress-tasks: %s", id, out)
+	}
+	out, _, _ = h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:open-tasks")
+	if strings.Contains(out, id) {
+		t.Errorf("task %s left status:open and must no longer appear under open-tasks: %s", id, out)
+	}
+}
