@@ -121,14 +121,18 @@ Current behavior is pinned first. The fixes then land inside step 3, each in the
 
 Two fixes:
 
-1. **Dedup.** `GroupByWildcard` appends a given item at most once per bucket. Affects `--facets` and the TUI; strictly a bugfix, no intended output shape changes. **Lands with the flat-grouping move**, not after it.
+1. **Dedup.** `GroupByWildcard` appends a given item at most once per bucket. Strictly a bugfix, no intended output shape changes. **Lands with the flat-grouping move**, not after it. Its only live consumer once the branch is complete is `cli --facets`: fix 2 stops the TUI consuming store's flat groups, and every TUI focus passes exactly one wildcard, where the dedup cannot fire.
 2. **The TUI's tree.** `tui` stops sourcing level 1 from store's flat grouping and calls `core.GroupNested` from `wildcards[0]`, producing the tree its doc comment and mockup Screen 7 always described. Lands last, alone.
 
 **Why the dedup is not deferred.** An earlier draft ported `GroupByWildcard` bug-for-bug and fixed it a commit later, so that an unchanged golden would prove the move neutral. That would have meant committing a function documented as defective, plus a test asserting the defective output — a known bug on the branch, and a reviewer cannot tell a deliberate port from an accident. The neutrality check survives without the buggy commit: the implementer ports faithfully, confirms the goldens do not move, and only then applies the dedup, committing once. The check happens; the bug never lands.
 
 The cost is real and accepted: the flat-move commit is no longer *provably* neutral from its diff alone, because its golden changes. Attribution rests on the intermediate check rather than on the commit history.
 
-`cli --facets` keeps calling the flat grouping, so its `groups`/`others` JSON **shape** is untouched — but its content changes for overlapping-wildcard filters (a task previously listed twice now appears once). That is fix 1, and it is intended. The other user-visible change is the TUI's group tree under a filter with two or more wildcards.
+`cli --facets` keeps calling the flat grouping, so its `groups`/`others` JSON **shape** is untouched — but its content changes for overlapping-wildcard filters (a task previously listed twice now appears once). That is fix 1, and it is intended.
+
+**Fix 1 is the only user-visible change in this step.** Verified end to end against real binaries on a real store: at `87ff9ae`, `atm task list --project ATM --label 'ATM:*' --label 'ATM:status:*' --facets` reports `ATM:status:open (2)` and lists the task twice; after the branch it reports `(1)`. Single-wildcard `--facets` output is byte-identical.
+
+Fix 2 is **latent**. The live TUI cannot currently produce a filter with two or more wildcards: every `setFocus` site passes `""`, a single `FacetToken`, or a concrete label, and `FilterAddToken`/`FilterRemoveToken` have no production callers (they were already dead at `87ff9ae`). So the flat/nested divergence was never reachable in the shipped TUI. Fix 2 is worth landing anyway — it makes the tree correct by construction for whenever a multi-wildcard filter does become reachable, and it removes the mismatched composition the architecture doc forbids — but it changes nothing a user can see today, and should not be described as though it does.
 
 ## Testing
 
