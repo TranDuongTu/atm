@@ -56,6 +56,7 @@ func TestErrorPredicatesMatchWrapped(t *testing.T) {
 		{fmt.Errorf("task %q: %w", "ATM-1", ErrNotFound), IsNotFound},
 		{fmt.Errorf("stale: %w", ErrConflict), IsConflict},
 		{fmt.Errorf("log: %w", ErrIntegrity), IsIntegrity},
+		{fmt.Errorf("bad flag: %w", ErrUsage), IsUsage},
 	}
 	for i, c := range cases {
 		if !c.pred(c.err) {
@@ -64,6 +65,19 @@ func TestErrorPredicatesMatchWrapped(t *testing.T) {
 		if c.pred(errors.New("other")) {
 			t.Fatalf("case %d: predicate matched unrelated error", i)
 		}
+	}
+}
+
+// The CLI maps ErrUsage to exit code 2 (cli/errors.go CodeForError). This
+// pins both the wrap and the exact message the TUI persona form renders.
+func TestValidatePersonaNameWrapsErrUsage(t *testing.T) {
+	err := ValidatePersonaName("Bad Name")
+	if !IsUsage(err) {
+		t.Fatal("must wrap ErrUsage so the CLI maps it to exit 2")
+	}
+	want := `usage: invalid persona name "Bad Name" (want ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$)`
+	if err.Error() != want {
+		t.Fatalf("message drift:\n got %q\nwant %q", err.Error(), want)
 	}
 }
 ```
@@ -149,12 +163,16 @@ var (
 	ErrNotFound  = errors.New("not found")
 	ErrConflict  = errors.New("conflict")
 	ErrIntegrity = errors.New("integrity")
+	ErrUsage     = errors.New("usage")
 )
 
 func IsNotFound(err error) bool  { return errors.Is(err, ErrNotFound) }
 func IsConflict(err error) bool  { return errors.Is(err, ErrConflict) }
 func IsIntegrity(err error) bool { return errors.Is(err, ErrIntegrity) }
+func IsUsage(err error) bool     { return errors.Is(err, ErrUsage) }
 ```
+
+**Why `ErrUsage` is here** (this supersedes an earlier draft that kept it in store): core owns the vocabulary rules — `ValidatePersonaName` now, `ValidateLabelName`/`ValidateProjectCode` later — and every one of them expresses a violation by wrapping `ErrUsage`, so core cannot own vocabulary rules without owning that error kind. `cli/errors.go`'s `CodeForError` gates exit code 2 on `errors.Is(err, store.ErrUsage)`; the store alias holds the same pointer, so identity — and the exit code — is preserved. All 38 of store's `fmt.Errorf("%w: ...", ErrUsage, ...)` sites keep compiling untouched.
 
 `internal/core/convention.go` — new file. Move these declarations **verbatim** from `internal/store/store.go`: `RFC3339UTC`, `Now` (the package-level function, NOT the `(s *Store) Now` method — that stays), `TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID` (each with its doc comment), the shared private helper `numericOrZero` (moved, NOT copied — delete it from store), and from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`. File skeleton:
 
@@ -190,7 +208,7 @@ Expected: PASS
 
 - [ ] **Step 5: Delete moved decls from store; add the alias file**
 
-Delete from `internal/store/store.go`: `RFC3339UTC`, package-level `Now`, `TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID`, `numericOrZero`, `IsNamespaceName`, and inside the `var (...)` block the `ErrNotFound`/`ErrConflict` lines plus `IsNotFound`/`IsConflict` (KEEP `ErrUsage`/`IsUsage` — they stay in store). Delete from `internal/store/log.go`: `var ErrIntegrity ...` and `func IsIntegrity ...`. Delete from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`.
+Delete from `internal/store/store.go`: `RFC3339UTC`, package-level `Now`, `TaskIDRe`, `ParseTaskID`, `CommentIDRe`, `ParseCommentID`, `numericOrZero`, `IsNamespaceName`, and the whole `var (...)` sentinel block (`ErrNotFound`/`ErrConflict`/`ErrUsage`) plus `IsNotFound`/`IsConflict`/`IsUsage`. Delete from `internal/store/log.go`: `var ErrIntegrity ...` and `func IsIntegrity ...`. Delete from `internal/store/persona.go`: `personaNameRe`, `ValidatePersonaName`.
 
 Create `internal/store/core_aliases.go`:
 
@@ -207,12 +225,14 @@ var (
 	ErrNotFound  = core.ErrNotFound
 	ErrConflict  = core.ErrConflict
 	ErrIntegrity = core.ErrIntegrity
+	ErrUsage     = core.ErrUsage
 )
 
 var (
 	IsNotFound          = core.IsNotFound
 	IsConflict          = core.IsConflict
 	IsIntegrity         = core.IsIntegrity
+	IsUsage             = core.IsUsage
 	Now                 = core.Now
 	RFC3339UTC          = core.RFC3339UTC
 	TaskIDRe            = core.TaskIDRe
