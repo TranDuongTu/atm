@@ -8,9 +8,11 @@ const StatusNamespace = "status"
 
 // Status values are the seeded lifecycle states the workflow capability
 // transitions between. They match internal/seed's status:* labels.
+// Note: status:todo is deliberately absent from the seed (see
+// internal/seed/seed_test.go TestDroppedNamespacesAbsent), so there is no
+// StatusTodo and no queue verb.
 const (
 	StatusOpen       = "open"
-	StatusTodo       = "todo"
 	StatusInProgress = "in-progress"
 	StatusBlocked    = "blocked"
 	StatusDone       = "done"
