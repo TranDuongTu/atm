@@ -84,15 +84,15 @@ func splitUnmatchedTop(nodes []core.Node[*store.Task], tasks []*store.Task, wild
 	}
 	var unmatched []*store.Task
 	for _, tk := range tasks {
-		if !matchesAny(tk.Labels, wildcards[0]) {
+		if !anyLabelMatches(tk.Labels, wildcards[0]) {
 			unmatched = append(unmatched, tk)
 		}
 	}
 	return nodes[:n-1], unmatched
 }
 
-// matchesAny reports whether any label matches the wildcard.
-func matchesAny(labels []string, wildcard string) bool {
+// anyLabelMatches reports whether any label matches the wildcard.
+func anyLabelMatches(labels []string, wildcard string) bool {
 	for _, l := range labels {
 		if core.LabelMatchesWildcard(l, wildcard) {
 			return true

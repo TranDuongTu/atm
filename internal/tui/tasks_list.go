@@ -398,7 +398,9 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 	}
 	if t.focus.mode == focusOff {
 		// (no matching labels) bucket is legacy focusOff behavior. It stays
-		// flat (no nesting): these tasks matched no wildcard.
+		// flat (no nesting): t.others holds tasks carrying no label that
+		// matches wildcards[0] (splitUnmatchedTop), a strict superset of the
+		// store's own others once the filter carries 2+ wildcards.
 		header := t.m.styles.GroupHeader.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
 		if idx == t.cursor {
 			header = t.m.styles.RowCursor.Render(header)
