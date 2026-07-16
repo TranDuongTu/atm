@@ -189,7 +189,15 @@ func newWorkflowSeedCmd(st *cliState) *cobra.Command {
 			}
 			return st.emit(st.stdout(), map[string]any{
 				"project": project,
-				"boards":  []string{project + ":backlog", project + ":open-tasks", project + ":in-progress-tasks"},
+				// Board names come from the capability's helpers, never rebuilt
+				// here: internal/workflow owns these names exclusively, and a
+				// hand-built string would silently drift from what
+				// EnsureVocabulary actually seeds if a board is ever renamed.
+				"boards": []string{
+					workflow.BoardBacklog(project),
+					workflow.BoardOpenTasks(project),
+					workflow.BoardInProgressTasks(project),
+				},
 			}, func() {
 				fmt.Fprintf(st.stdout(), "ensured workflow boards for %s\n", project)
 			})

@@ -71,9 +71,18 @@ func TestWorkflowStatusReporter(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
 	}
-	// JSON: {"task":"...","status":"done"}
-	if !strings.Contains(out, "done") {
-		t.Fatalf("status output missing 'done': %s", out)
+	// Parse the envelope rather than substring-matching: a bare
+	// strings.Contains(out, "done") would also pass on a task id containing
+	// "done".
+	var env struct {
+		Task   string `json:"task"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("unmarshal %q: %v", out, err)
+	}
+	if env.Status != "done" {
+		t.Fatalf("status = %q, want \"done\"", env.Status)
 	}
 }
 
@@ -110,7 +119,9 @@ func TestWorkflowStatusReporterIsReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LastLogSeq before: %v", err)
 	}
-	h.run("workflow", "status", "--store", sp, "--task", id)
+	if _, _, code := h.run("workflow", "status", "--store", sp, "--task", id); code != 0 {
+		t.Fatalf("status exit=%d stderr=%s", code, h.stderr.String())
+	}
 	after, err := h.store.LastLogSeq("ATM")
 	if err != nil {
 		t.Fatalf("LastLogSeq after: %v", err)
@@ -137,7 +148,9 @@ func TestWorkflowSeedEnsuresAllThreeBoards(t *testing.T) {
 func TestWorkflowSeedIdempotent(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := seedWorkflowProject(t, h)
-	h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
+	if _, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset"); code != 0 {
+		t.Fatalf("first seed exit=%d stderr=%s", code, h.stderr.String())
+	}
 	_, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatal("second seed exited non-zero")
