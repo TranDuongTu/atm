@@ -2,7 +2,7 @@
 GO ?= go
 BIN := bin
 BINARY := $(BIN)/atm
-PKG := ./...
+PKG := ./... ./libs/eventsource/...
 
 .PHONY: all build test lint vet fmt clean install help dogfood \
         scripts-test release release-upload release-smoke install-smoke \
