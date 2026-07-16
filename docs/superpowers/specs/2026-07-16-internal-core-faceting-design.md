@@ -151,11 +151,15 @@ Commit 2 adds direct table-driven unit tests for `core` — it is new API and de
 
 Work happens on a worktree branch off `main`, never on `main` directly.
 
-| # | Commit | Golden files |
+Three phases. The implementation plan — `docs/superpowers/plans/2026-07-16-internal-core-faceting.md` — refines them into six commits, splitting phase 1 by package and phase 2 by algebra (label/filter, nested, flat) so each lands its own reviewable, independently testable diff. The phase contract below is what matters and is unchanged by that split.
+
+| Phase | Commits | Golden files |
 |---|---|---|
-| 1 | Characterization tests. No production changes. | created |
-| 2 | Create `core`; move the algebra; point `store` and `tui` at it; delete both copies. Add `core` unit tests. | **untouched** — passing unchanged is the proof of neutrality |
-| 3 | The two fixes. | updated in the same diff |
+| 1 — pin | Characterization tests, one per package. No production changes. | created |
+| 2 — move | Create `core`; move the algebra; point `store` and `tui` at it; delete both copies. Add `core` unit tests. | **untouched** — passing unchanged is the proof of neutrality |
+| 3 — fix | The two fixes. | updated in the same diff |
+
+Phase 2 necessarily edits `internal/tui/tasks_test.go`: four existing tests (`TestBuildNestedGroupsTwoWildcards`, `TestBuildNestedGroupsThreeWildcards`, `TestFilterTokenHelpers`, `TestTaskHasBareTag`) have subjects that move into `core`. Test churn there is expected and is not a neutrality violation — the neutrality claim rests on the goldens alone.
 
 Commit 2 must **preserve the composition it inherits**, oddities included. `core.GroupNested` is a faithful port of `buildNestedGroups`, and the TUI keeps calling it with `wildcards[1:]` on top of store's flat level 1 — exactly as `tasks.go:142` wires it today. Neutrality means the seam moves, not the shape. Commit 3 is where the call site becomes `core.GroupNested(tasks, labelsOf, wildcards)` from `wildcards[0]` and the flat level-1 source is dropped.
 
