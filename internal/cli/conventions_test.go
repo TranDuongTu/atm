@@ -134,3 +134,41 @@ func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
 		t.Fatalf("conventions still makes atm agents select the primary path:\n%s", out)
 	}
 }
+
+func TestConventionsMentionWorkflowVerbs(t *testing.T) {
+	for _, verb := range []string{
+		"atm workflow start", "atm workflow open",
+		"atm workflow block", "atm workflow complete", "atm workflow status",
+		"atm workflow seed",
+	} {
+		if !strings.Contains(conventionsText, verb) {
+			t.Errorf("conventions text missing %q", verb)
+		}
+	}
+	js := conventionsStructured()
+	wv, _ := js["workflow_verbs"].(string)
+	for _, verb := range []string{"atm workflow start", "atm workflow complete", "atm workflow status"} {
+		if !strings.Contains(wv, verb) {
+			t.Errorf("workflow_verbs JSON missing %q", verb)
+		}
+	}
+}
+
+func TestConventionsMentionBacklogBoard(t *testing.T) {
+	if !strings.Contains(conventionsText, "backlog") {
+		t.Error("conventions text must reference the backlog board")
+	}
+	js := conventionsStructured()
+	seq, _ := js["agent_first_contact_sequence"].([]string)
+	joined := strings.Join(seq, " ")
+	if !strings.Contains(joined, "backlog") {
+		t.Error("agent_first_contact_sequence must reference the backlog board")
+	}
+}
+
+func TestConventionsSoftenedWorkflowWording(t *testing.T) {
+	// The store stays neutral; the paved road lives in a capability.
+	if !strings.Contains(conventionsText, "capability") {
+		t.Error("conventions text must mention that workflow lives in a capability")
+	}
+}
