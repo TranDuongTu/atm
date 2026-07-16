@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // rebuildProjectFromV2 re-derives the project's cache rows from the v2 event

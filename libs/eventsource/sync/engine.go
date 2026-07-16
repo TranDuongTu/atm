@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // PlanResult is the outcome of diffing a local event set against a

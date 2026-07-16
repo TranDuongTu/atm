@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 type RebuildReport struct {

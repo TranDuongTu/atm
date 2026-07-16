@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/eventsource"
 	"atm/internal/seed"
+	"atm/libs/eventsource"
 )
 
 var (

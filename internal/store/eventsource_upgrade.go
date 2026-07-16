@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // UpgradeReport is the per-project outcome of an upgrade to v2 media.

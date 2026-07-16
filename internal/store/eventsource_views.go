@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // V2LogView is one row of `store log` for a v2-active project: the v2 event

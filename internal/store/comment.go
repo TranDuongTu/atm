@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {

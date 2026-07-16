@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"atm/internal/eventsource"
-	"atm/internal/eventsync"
+	"atm/libs/eventsource"
+	eventsync "atm/libs/eventsource/sync"
 )
 
 // These tests drive the REAL end-to-end sync stack -- eventsync.Sync over an

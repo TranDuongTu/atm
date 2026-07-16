@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // DirTarget is a SyncTarget whose remote is a plain directory tree: each

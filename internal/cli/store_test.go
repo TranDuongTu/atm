@@ -201,7 +201,7 @@ func runArgsStdoutOut(t *testing.T, h *testCLI, args ...string) string {
 // package's black-box CLI harness.
 func plantV1LogCLI(t *testing.T, s *store.Store, code string) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "eventsource", "testdata", "v1-log.jsonl"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "libs", "eventsource", "testdata", "v1-log.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}

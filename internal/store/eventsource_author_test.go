@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // authorTask/authorComment run the minting helpers under the project lock,

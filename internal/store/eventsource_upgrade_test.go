@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// v1RawLogFixture returns the raw bytes of internal/eventsource/testdata/v1-log.jsonl,
+// v1RawLogFixture returns the raw bytes of libs/eventsource/testdata/v1-log.jsonl,
 // the same fixture internal/eventsource's own upgrade tests replay. Its
 // project.created subject code is "ATM". The born-v2 flip made the public
 // Create* API v2-only, so a v1-active project fixture can no longer be built
 // by calling CreateTask; it must be planted as raw v1 log bytes instead.
 func v1RawLogFixture(t *testing.T) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "eventsource", "testdata", "v1-log.jsonl"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "libs", "eventsource", "testdata", "v1-log.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}

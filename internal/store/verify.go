@@ -3,7 +3,7 @@ package store
 import (
 	"sort"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 type VerifyReport struct {

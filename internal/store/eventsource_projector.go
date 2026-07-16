@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"sort"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // reprojectV2Locked re-reads events.v2.jsonl (strictly — a v2 mutator has

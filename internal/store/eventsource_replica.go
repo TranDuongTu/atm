@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // localInstanceMarker is written to the store root (NOT store.json, and NOT

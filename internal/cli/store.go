@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"atm/internal/eventsync"
 	"atm/internal/store"
+	eventsync "atm/libs/eventsource/sync"
 
 	"github.com/spf13/cobra"
 )

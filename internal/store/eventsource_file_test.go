@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 func testV2Event(t *testing.T, action string) *eventsource.Event {

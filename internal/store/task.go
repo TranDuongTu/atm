@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 func (s *Store) CreateTask(projectCode, title, description string, labels []string, actor string) (*Task, error) {

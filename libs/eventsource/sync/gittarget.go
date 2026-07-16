@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // GitTarget is a SyncTarget whose remote is a git repository: each

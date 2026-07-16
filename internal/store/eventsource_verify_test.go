@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // resetCacheForRebuild deletes cache.db and clears the Store's memoized

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // syncPeer bootstraps a fresh peer store from base (an origin's snapshot at

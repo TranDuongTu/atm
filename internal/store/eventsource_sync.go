@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // ErrSyncNeedsV2 is returned when a sync operation targets a project whose

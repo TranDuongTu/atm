@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 type V2FileSnapshot struct {

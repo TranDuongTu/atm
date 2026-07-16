@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // fakeStore is a map-backed LocalStore that records whether its mutating

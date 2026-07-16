@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 type V2Draft struct {

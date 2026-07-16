@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 func TestV2ActiveTaskMutationWritesOnlyEventsV2(t *testing.T) {

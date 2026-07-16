@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {

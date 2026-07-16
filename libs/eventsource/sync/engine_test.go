@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // StoreFormat identifies which on-disk event log format a project's writes

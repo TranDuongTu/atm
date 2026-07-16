@@ -14,7 +14,7 @@ import (
 	"slices"
 	"testing"
 
-	"atm/internal/eventsource"
+	"atm/libs/eventsource"
 )
 
 // TestFoldOfUpgradeMatchesReplay is the milestone's central claim: for a real

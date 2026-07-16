@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"atm/internal/eventsource"
 	"atm/internal/seed"
+	"atm/libs/eventsource"
 )
 
 // projectMediaExists reports ErrConflict when EITHER format's media is on
