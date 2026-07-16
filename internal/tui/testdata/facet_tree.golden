@@ -38,14 +38,6 @@
     group (no matching labels)
       multi-status
       mixed-bare
-  group ATM:type:bug
-    group ATM:type:bug
-      open-bug
-      type-only
-  group ATM:type:chore
-    group ATM:type:chore
-      open-chore
-      done-chore
   others
     bare-tag
     unlabeled
@@ -80,29 +72,6 @@
         multi-status
         mixed-bare
       group ATM:urgent
-        mixed-bare
-  group ATM:type:bug
-    group ATM:type:bug
-      group ATM:status:open
-        open-bug
-      group ATM:type:bug
-        open-bug
-        type-only
-  group ATM:type:chore
-    group ATM:type:chore
-      group ATM:status:done
-        done-chore
-      group ATM:status:open
-        open-chore
-      group ATM:type:chore
-        open-chore
-        done-chore
-  group ATM:urgent
-    group (no matching labels)
-      group ATM:status:open
-        mixed-bare
-      group ATM:urgent
-        bare-tag
         mixed-bare
   others
     unlabeled

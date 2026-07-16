@@ -104,11 +104,11 @@ func dumpTree(groups []taskGroup, indent string) string {
 	return b.String()
 }
 
-// TestFacetTreeCharacterization records today's TUI group tree as rendered,
-// reproducing the COMPOSITION at tasks.go:142 — the real store.GroupTasks
-// supplies a flat level 1, core.GroupNested handles wildcards[1:]. The
-// divergence between the flat and nested algorithms lives in that seam, so
-// characterizing core.GroupNested alone would miss it.
+// TestFacetTreeCharacterization records the TUI group tree as rendered,
+// reproducing the COMPOSITION at tasks.go's focusPresent case — core.GroupNested
+// builds the whole tree from wildcards[0], and the others bucket comes
+// alongside it. The tasks are drawn from the real store, so the query half of
+// the seam stays covered.
 //
 // The golden must not change when the algebra moves into internal/core
 // (ATM-cca7b0 Tasks 3-4). Task 5 updates it (dedup) and Task 6 updates it
@@ -118,22 +118,10 @@ func TestFacetTreeCharacterization(t *testing.T) {
 	var b strings.Builder
 	for _, filters := range facetCases {
 		fmt.Fprintf(&b, "== filter: [%s]\n", strings.Join(filters, " "))
+		tasks := s.ListTasks(store.QueryFilters{Project: "ATM", Labels: filters})
 		wildcards := core.WildcardTokens(filters)
-		// Mirror tasks.go:142-156 (focusPresent) against the real store.
-		flat, others := s.GroupTasks(store.QueryFilters{Project: "ATM", Labels: filters})
-		var groups []taskGroup
-		for _, g := range flat {
-			rows := make([]taskRow, 0, len(g.Tasks))
-			for _, tk := range g.Tasks {
-				rows = append(rows, toRowTest(tk))
-			}
-			tg := taskGroup{label: g.Label, rows: rows}
-			if len(wildcards) >= 2 {
-				tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), toRowTest)
-				tg.rows = nil
-			}
-			groups = append(groups, tg)
-		}
+		groups := nodesToGroups(dropUnmatchedTop(core.GroupNested(tasks, taskLabels, wildcards)), toRowTest)
+		_, others := core.GroupByWildcard(tasks, taskLabels, wildcards)
 		if len(groups) == 0 {
 			b.WriteString("  (no groups)\n")
 		}

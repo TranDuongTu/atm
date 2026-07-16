@@ -140,21 +140,18 @@ func (t *tasksModel) refresh() {
 			break
 		}
 		filters := t.parseFilter()
-		groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
+		wildcards := core.WildcardTokens(filters)
+		// GroupTasksErr is still the source of the others bucket and of the
+		// board-as-facet guard (a board has no members). Its groups are
+		// discarded: the tree below nests from wildcards[0] rather than
+		// taking a flat level 1.
+		_, others, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters})
+		if gerr != nil {
+			break // matches the old GroupTasks, which swallowed the error and rendered nothing
+		}
 		if t.focus.mode == focusPresent {
-			wildcards := core.WildcardTokens(filters)
-			for _, g := range groups {
-				rows := make([]taskRow, 0, len(g.Tasks))
-				for _, tk := range g.Tasks {
-					rows = append(rows, t.toRow(tk))
-				}
-				tg := taskGroup{label: g.Label, rows: rows}
-				if len(wildcards) >= 2 {
-					tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), t.toRow)
-					tg.rows = nil
-				}
-				t.groups = append(t.groups, tg)
-			}
+			inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
+			t.groups = nodesToGroups(dropUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards)), t.toRow)
 		} else {
 			for _, tk := range t.applySort(others) {
 				t.rows = append(t.rows, t.toRow(tk))
@@ -162,28 +159,21 @@ func (t *tasksModel) refresh() {
 		}
 	default: // focusOff
 		filters := t.parseFilter()
-		ts := t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters}))
-		if wildcards := core.WildcardTokens(filters); len(wildcards) > 0 {
-			groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
-			for _, g := range groups {
-				rows := make([]taskRow, 0, len(g.Tasks))
-				for _, tk := range g.Tasks {
-					rows = append(rows, t.toRow(tk))
-				}
-				tg := taskGroup{label: g.Label, rows: rows}
-				if len(wildcards) >= 2 {
-					tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), t.toRow)
-					tg.rows = nil
-				}
-				t.groups = append(t.groups, tg)
-			}
-			for _, tk := range others {
-				t.others = append(t.others, t.toRow(tk))
-			}
-		} else {
-			for _, tk := range ts {
+		wildcards := core.WildcardTokens(filters)
+		if len(wildcards) == 0 {
+			for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})) {
 				t.rows = append(t.rows, t.toRow(tk))
 			}
+			break
+		}
+		_, others, gerr := t.m.store.GroupTasksErr(store.QueryFilters{Project: scope, Labels: filters})
+		if gerr != nil {
+			break
+		}
+		inScope := t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters})
+		t.groups = nodesToGroups(dropUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards)), t.toRow)
+		for _, tk := range others {
+			t.others = append(t.others, t.toRow(tk))
 		}
 	}
 	t.clampCursor()

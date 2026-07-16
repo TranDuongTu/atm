@@ -52,6 +52,23 @@ func (t *tasksModel) grouped() bool {
 // until ATM-b9d83a.
 func taskLabels(t *store.Task) []string { return t.Labels }
 
+// dropUnmatchedTop removes the top-level `(no matching labels)` node from a
+// core.GroupNested tree. At the top level that bucket is exactly the store's
+// others, which the TUI renders under its own policy — hidden under a present
+// focus, flat under focusOff (tasks_list.go's focusOff bucket). Leaving the
+// node in would render those tasks twice under focusOff and surface them under
+// focusPresent, which hides them by design. Nested `(no matching labels)`
+// buckets are kept: nothing else represents them.
+//
+// GroupNested emits the bucket last and only when non-empty, so this drops at
+// most the final node.
+func dropUnmatchedTop(nodes []core.Node[*store.Task]) []core.Node[*store.Task] {
+	if n := len(nodes); n > 0 && nodes[n-1].Label == "" {
+		return nodes[:n-1]
+	}
+	return nodes
+}
+
 // nodesToGroups adapts core's rendering-agnostic facet tree into the TUI's
 // taskGroup, attaching rows via toRow. Leaf rows live only at the deepest
 // level, mirroring core.GroupNested's Items placement; collapsed defaults to
