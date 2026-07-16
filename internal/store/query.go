@@ -171,45 +171,17 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 	if len(wildcards) == 0 {
 		return nil, inScope, nil
 	}
-	buckets := map[string][]*Task{}
-	order := []string{}
-	for _, t := range inScope {
-		for _, w := range wildcards {
-			for _, l := range t.Labels {
-				if core.LabelMatchesWildcard(l, w) {
-					if _, exists := buckets[l]; !exists {
-						order = append(order, l)
-					}
-					buckets[l] = append(buckets[l], t)
-				}
-			}
-		}
+	groups, others := core.GroupByWildcard(inScope, taskLabels, wildcards)
+	out := make([]LabelGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, LabelGroup{Label: g.Label, Tasks: g.Items})
 	}
-	sort.Strings(order)
-	var groups []LabelGroup
-	for _, l := range order {
-		groups = append(groups, LabelGroup{Label: l, Tasks: buckets[l]})
-	}
-	var others []*Task
-	for _, t := range inScope {
-		matched := false
-		for _, w := range wildcards {
-			for _, l := range t.Labels {
-				if core.LabelMatchesWildcard(l, w) {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				break
-			}
-		}
-		if !matched {
-			others = append(others, t)
-		}
-	}
-	return groups, others, nil
+	return out, others, nil
 }
+
+// taskLabels is the core grouping accessor for tasks. It is all core needs to
+// know about a Task — the type itself stays here until ATM-b9d83a.
+func taskLabels(t *Task) []string { return t.Labels }
 
 func (s *Store) listTaskIDs(code string) []string {
 	db, err := s.cacheDB()

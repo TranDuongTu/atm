@@ -44,28 +44,18 @@
 == filter: [ATM:status:* ATM:type:* ATM:*]
   group ATM:status:blocked
     multi-status
-    multi-status
   group ATM:status:done
-    done-chore
     done-chore
   group ATM:status:open
     open-chore
-    open-chore
-    open-bug
     open-bug
     multi-status
-    multi-status
-    mixed-bare
     mixed-bare
   group ATM:type:bug
     open-bug
-    open-bug
-    type-only
     type-only
   group ATM:type:chore
     open-chore
-    open-chore
-    done-chore
     done-chore
   group ATM:urgent
     bare-tag
@@ -75,18 +65,12 @@
 == filter: [ATM:* ATM:status:*]
   group ATM:status:blocked
     multi-status
-    multi-status
   group ATM:status:done
-    done-chore
     done-chore
   group ATM:status:open
     open-chore
-    open-chore
-    open-bug
     open-bug
     multi-status
-    multi-status
-    mixed-bare
     mixed-bare
   group ATM:type:bug
     open-bug
@@ -102,18 +86,12 @@
 == filter: [ATM:status:* ATM:status:*]
   group ATM:status:blocked
     multi-status
-    multi-status
   group ATM:status:done
-    done-chore
     done-chore
   group ATM:status:open
     open-chore
-    open-chore
-    open-bug
     open-bug
     multi-status
-    multi-status
-    mixed-bare
     mixed-bare
   others
     type-only

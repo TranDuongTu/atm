@@ -100,3 +100,85 @@ func TestGroupNestedEmptyInput(t *testing.T) {
 		t.Errorf("empty input must yield nil, got %v", got)
 	}
 }
+
+func TestGroupByWildcardNoWildcardsReturnsAllAsOthers(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open"}}, {"b", nil}}
+	groups, others := GroupByWildcard(items, itemLabels, nil)
+	if groups != nil {
+		t.Errorf("no wildcards must yield no groups, got %v", groups)
+	}
+	if want := []string{"a", "b"}; !reflect.DeepEqual(names(others), want) {
+		t.Errorf("others = %v, want %v", names(others), want)
+	}
+}
+
+func TestGroupByWildcardIsFlatAcrossAllWildcards(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open", "ATM:type:bug"}}}
+	groups, others := GroupByWildcard(items, itemLabels, []string{"ATM:status:*", "ATM:type:*"})
+	if len(groups) != 2 {
+		t.Fatalf("want 2 flat groups, got %d", len(groups))
+	}
+	// Sorted keys.
+	if groups[0].Label != "ATM:status:open" || groups[1].Label != "ATM:type:bug" {
+		t.Errorf("groups = %q, %q", groups[0].Label, groups[1].Label)
+	}
+	if others != nil {
+		t.Errorf("others must be empty, got %v", names(others))
+	}
+}
+
+func TestGroupByWildcardOthersAreItemsMatchingNoWildcard(t *testing.T) {
+	items := []item{
+		{"has", []string{"ATM:status:open"}},
+		{"hasnt", []string{"ATM:type:bug"}},
+		{"bare", nil},
+	}
+	_, others := GroupByWildcard(items, itemLabels, []string{"ATM:status:*"})
+	if want := []string{"hasnt", "bare"}; !reflect.DeepEqual(names(others), want) {
+		t.Errorf("others = %v, want %v", names(others), want)
+	}
+}
+
+// TestGroupByWildcardDedupesOverlappingWildcards covers the fix for the defect
+// at store/query.go:174-185, where the item/wildcard/label loop nesting
+// appended an item to one bucket once per matching wildcard. ATM:* and
+// ATM:status:* both match ATM:status:open; "a" must land in that bucket once.
+func TestGroupByWildcardDedupesOverlappingWildcards(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open"}}}
+	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:*", "ATM:status:*"})
+	if len(groups) != 1 {
+		t.Fatalf("want 1 group, got %d", len(groups))
+	}
+	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
+		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
+	}
+}
+
+// TestGroupByWildcardDedupesRepeatedToken covers the same fix via a repeated
+// filter token rather than two overlapping namespaces.
+func TestGroupByWildcardDedupesRepeatedToken(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open"}}}
+	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*", "ATM:status:*"})
+	if len(groups) != 1 {
+		t.Fatalf("want 1 group, got %d", len(groups))
+	}
+	if want := []string{"a"}; !reflect.DeepEqual(names(groups[0].Items), want) {
+		t.Errorf("items = %v, want %v", names(groups[0].Items), want)
+	}
+}
+
+// TestGroupByWildcardKeepsMultiMembership guards the dedup against
+// over-reaching: an item carrying two DIFFERENT matching labels still belongs
+// to both buckets.
+func TestGroupByWildcardKeepsMultiMembership(t *testing.T) {
+	items := []item{{"a", []string{"ATM:status:open", "ATM:status:blocked"}}}
+	groups, _ := GroupByWildcard(items, itemLabels, []string{"ATM:status:*"})
+	if len(groups) != 2 {
+		t.Fatalf("want 2 groups, got %d", len(groups))
+	}
+	for _, g := range groups {
+		if want := []string{"a"}; !reflect.DeepEqual(names(g.Items), want) {
+			t.Errorf("group %q items = %v, want %v", g.Label, names(g.Items), want)
+		}
+	}
+}

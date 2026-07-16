@@ -56,6 +56,72 @@ func GroupNested[T any](items []T, labelsOf func(T) []string, wildcards []string
 	return out
 }
 
+// Group is one flat facet bucket: every item carrying Label.
+type Group[T any] struct {
+	Label string
+	Items []T
+}
+
+// GroupByWildcard buckets items under every concrete label they carry that
+// matches ANY of wildcards — one flat level, keys sorted. Items carrying no
+// matching label are returned in others. With no wildcards there are no groups
+// and every item is an "other".
+//
+// An item appears at most once per bucket, however many wildcards match that
+// label. It still appears in every bucket it keys: an item carrying two
+// different matching labels belongs to both (multi-membership).
+func GroupByWildcard[T any](items []T, labelsOf func(T) []string, wildcards []string) (groups []Group[T], others []T) {
+	if len(wildcards) == 0 {
+		return nil, items
+	}
+	buckets := map[string][]T{}
+	var order []string
+	for _, it := range items {
+		// Labels outer, wildcards inner (inside labelMatchesAny): each
+		// (item, label) pair is considered exactly once, so a label matched by
+		// several wildcards buckets the item once rather than once per wildcard.
+		for _, l := range labelsOf(it) {
+			if !labelMatchesAny(l, wildcards) {
+				continue
+			}
+			if _, exists := buckets[l]; !exists {
+				order = append(order, l)
+			}
+			buckets[l] = append(buckets[l], it)
+		}
+	}
+	sort.Strings(order)
+	for _, l := range order {
+		groups = append(groups, Group[T]{Label: l, Items: buckets[l]})
+	}
+	for _, it := range items {
+		if !matchesAny(labelsOf(it), wildcards) {
+			others = append(others, it)
+		}
+	}
+	return groups, others
+}
+
+// labelMatchesAny reports whether label falls under any of wildcards.
+func labelMatchesAny(label string, wildcards []string) bool {
+	for _, w := range wildcards {
+		if LabelMatchesWildcard(label, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAny reports whether any of labels falls under any of wildcards.
+func matchesAny(labels []string, wildcards []string) bool {
+	for _, l := range labels {
+		if labelMatchesAny(l, wildcards) {
+			return true
+		}
+	}
+	return false
+}
+
 // newNode builds one node: an interior node recurses on the remaining
 // wildcards, a leaf carries the items.
 func newNode[T any](label string, items []T, labelsOf func(T) []string, wildcards []string) Node[T] {
