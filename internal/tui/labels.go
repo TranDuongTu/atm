@@ -296,6 +296,7 @@ func (b *boardsModel) loadPins() {
 			break
 		}
 	}
+	b.syncPinFocus()
 }
 
 // maxPins caps the pinned-boards stack at 5 full-width 3-line boxes — enough
@@ -331,6 +332,24 @@ func (b *boardsModel) togglePin() {
 	}
 	b.pins = out
 	b.persistPins()
+	b.syncPinFocus()
+}
+
+// syncPinFocus re-derives the highlighted-pin index after b.pins changes, so
+// the strong highlight stays on the active filter (b.selected). When the
+// focused board is no longer pinned, pinFocus falls back to -1 and the strip's
+// SELECTED cell reclaims the highlight (b.selected still drives the filter).
+func (b *boardsModel) syncPinFocus() {
+	if b.pinFocus < 0 {
+		return
+	}
+	b.pinFocus = -1
+	for i, full := range b.pins {
+		if full == b.selected {
+			b.pinFocus = i
+			return
+		}
+	}
 }
 
 // jumpPin moves the ring selection to the nth pinned board (1-based). Returns

@@ -269,6 +269,149 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	}
 }
 
+// --- pinFocus repair on b.pins shrinkage (highlight-exclusivity invariant) ---
+
+// TestUnpinFocusedPinResetsFocusToStrip covers unpinning the very board that
+// is currently focused (jumped to via Shift-N): b.selected drops out of
+// b.pins entirely, so the strong highlight must fall back to the strip
+// (pinFocus == -1) rather than staying at a now-out-of-range or
+// wrongly-shifted index.
+func TestUnpinFocusedPinResetsFocusToStrip(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins = %v, want 2", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 2 pins")
+	}
+	focused := m.boards.selected
+	if m.boards.pinFocus != 0 {
+		t.Fatalf("pinFocus after jumpPin(1) = %d, want 0", m.boards.pinFocus)
+	}
+
+	// Unpin the focused board itself.
+	m.boards.togglePin()
+
+	if m.boards.selected != focused {
+		t.Errorf("selected = %q, want unchanged %q (unpin must not move the filter)", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus after unpinning the focused board = %d, want -1 (strip reclaims the highlight)", m.boards.pinFocus)
+	}
+}
+
+// TestUnpinLowerIndexPinKeepsFocusOnSameBoard covers b.pins shrinking below
+// the focused index while the focused board itself stays pinned and its
+// label/board stays alive (unlike TestLoadPinsPruneKeepsFocusOnSameBoard,
+// where the underlying board is deleted): another session drops a
+// lower-index pin straight from the persisted pin list, and the next
+// loadPins-driven refresh must still re-derive pinFocus so the highlight
+// follows the focused BOARD, not the slot.
+func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins = %v, want 3", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+		t.Fatal("jumpPin(3) returned false with 3 pins")
+	}
+	focused := m.boards.selected // "ATM:gamma"
+	if m.boards.pinFocus != 2 {
+		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
+	}
+
+	// Another session unpins alpha (index 0, below the focused index)
+	// straight through the store; alpha's label/board stays alive, only the
+	// persisted pin list shrinks.
+	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: []string{"ATM:beta", "ATM:gamma"}}); err != nil {
+		t.Fatalf("write pins: %v", err)
+	}
+	m.boards.refresh()
+
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins after external unpin = %v, want 2", m.boards.pins)
+	}
+	if m.boards.selected != focused {
+		t.Fatalf("selected = %q, want unchanged %q", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus < 0 || m.boards.pinFocus >= len(m.boards.pins) || m.boards.pins[m.boards.pinFocus] != focused {
+		t.Errorf("pins=%v pinFocus=%d, want pinFocus to still point at %q", m.boards.pins, m.boards.pinFocus, focused)
+	}
+}
+
+// TestLoadPinsPruneKeepsFocusOnSameBoard covers loadPins pruning a
+// lower-index pinned board (its label removed from the store) while a
+// higher-index pin stays focused: refresh must re-derive pinFocus so it
+// still points at the focused board, not a shifted slot.
+func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	for _, n := range []string{"alpha", "beta", "gamma"} {
+		m.boards.selected = "ATM:" + n
+		m.boards.togglePin()
+	}
+	if len(m.boards.pins) != 3 {
+		t.Fatalf("pins = %v, want 3", m.boards.pins)
+	}
+
+	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+		t.Fatal("jumpPin(3) returned false with 3 pins")
+	}
+	focused := m.boards.selected // "ATM:gamma"
+	if m.boards.pinFocus != 2 {
+		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
+	}
+
+	// Remove alpha's label entirely so loadPins prunes it as no-longer-live.
+	if _, err := m.store.LabelRemove("ATM:alpha", m.actor); err != nil {
+		t.Fatalf("LabelRemove: %v", err)
+	}
+	m.boards.refresh()
+
+	if len(m.boards.pins) != 2 {
+		t.Fatalf("pins after prune = %v, want 2", m.boards.pins)
+	}
+	if m.boards.selected != focused {
+		t.Fatalf("selected = %q, want unchanged %q (gamma still exists)", m.boards.selected, focused)
+	}
+	if m.boards.pinFocus < 0 || m.boards.pinFocus >= len(m.boards.pins) || m.boards.pins[m.boards.pinFocus] != focused {
+		t.Errorf("pins=%v pinFocus=%d, want pinFocus to still point at %q", m.boards.pins, m.boards.pinFocus, focused)
+	}
+}
+
 // --- Boards pane tests ---
 
 // newTestStore opens a fresh temp-dir store for direct store-API tests that
