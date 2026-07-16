@@ -1215,15 +1215,78 @@ The existing call sites already invoke `workflow.EnsureVocabulary`, which Task 2
 
 > **Amendment 2026-07-16 (found during Task 2):** this plan originally assumed `go test ./...` would simply PASS here. It does not. `atm project create` (`internal/cli/project.go:46`) calls `EnsureVocabulary`, which now emits **two extra label-seed events** per project creation. ATM derives task ids and event `seq` from mutation history, so those two events shift every downstream id and seq in a freshly-created store — invalidating ~18 `internal/cli` golden/determinism fixtures that hardcode them. This is intended behavior, not a bug: the fixtures were stale. They were regenerated in a dedicated commit right after Task 2, with the regenerated diff reviewed to confirm it contained ONLY the two new boards and mechanical id/seq shifts. If you still see golden failures here, do not blind-regenerate — read the diff first.
 
-- [ ] **Step 1: Run the TUI tests**
+- [ ] **Step 1 (added 2026-07-16): assert the feature's driver — a naked jotting appears under `backlog` and NOT under `open-tasks`**
+
+> **Why this was added:** the whole point of this feature is that a task created with no labels carries no `status:*` label and therefore vanishes from every board in the ring. `backlog` (`NOT status:*`) is the fix. Nothing in the plan actually asserted that behavior: the plan's self-review claimed it was covered by "Task 8 smoke + Task 5 CLI test", but Task 8's smoke is an optional manual bash script and Task 5's `TestWorkflowSeedEnsuresAllThreeBoards` only checks that the label rows exist — not that board membership resolves. The feature's central promise was untested.
+
+Append to `internal/cli/workflow_test.go`:
+
+```go
+func TestBacklogBoardSurfacesNakedJotting(t *testing.T) {
+	// The driver: a task created with no labels carries no status:* label, so
+	// it is invisible under every board in the ring. The backlog board
+	// (NOT status:*) is what surfaces it again. This asserts board MEMBERSHIP
+	// resolves, not merely that the label row exists.
+	h := newGoldenHarness(t)
+	sp := seedWorkflowProject(t, h)
+	jotting := createTaskWithLabels(t, h, sp, "quick jotting")           // no labels
+	tracked := createTaskWithLabels(t, h, sp, "tracked", "ATM:status:open")
+
+	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:backlog")
+	if code != 0 {
+		t.Fatalf("task list --label ATM:backlog exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, jotting) {
+		t.Errorf("naked jotting %s missing from the backlog board: %s", jotting, out)
+	}
+	if strings.Contains(out, tracked) {
+		t.Errorf("task %s carries status:open and must NOT be in backlog (NOT status:*): %s", tracked, out)
+	}
+
+	out, _, code = h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:open-tasks")
+	if code != 0 {
+		t.Fatalf("task list --label ATM:open-tasks exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if strings.Contains(out, jotting) {
+		t.Errorf("naked jotting %s must NOT appear under open-tasks (status:open): %s", jotting, out)
+	}
+	if !strings.Contains(out, tracked) {
+		t.Errorf("task %s carries status:open and must appear under open-tasks: %s", tracked, out)
+	}
+}
+
+func TestInProgressBoardMembership(t *testing.T) {
+	// The in-progress-tasks board is the other new ring member. Assert it
+	// resolves, and that `atm workflow start` moves a task onto it -- the
+	// capability's verbs and its boards agreeing end to end.
+	h := newGoldenHarness(t)
+	sp := seedWorkflowProject(t, h)
+	id := createTaskWithLabels(t, h, sp, "t", "ATM:status:open")
+
+	if _, _, code := h.run("workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset"); code != 0 {
+		t.Fatalf("workflow start exit=%d stderr=%s", code, h.stderr.String())
+	}
+	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:in-progress-tasks")
+	if code != 0 {
+		t.Fatalf("task list exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, id) {
+		t.Errorf("task %s is in-progress and must appear under in-progress-tasks: %s", id, out)
+	}
+	out, _, _ = h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:open-tasks")
+	if strings.Contains(out, id) {
+		t.Errorf("task %s left status:open and must no longer appear under open-tasks: %s", id, out)
+	}
+}
+```
+
+Run: `go test ./internal/cli/ -run 'TestBacklogBoardSurfacesNakedJotting|TestInProgressBoardMembership' -v`
+Expected: PASS.
+
+- [ ] **Step 2: Run the TUI tests**
 
 Run: `go test ./internal/tui/`
 Expected: PASS. If any test asserts the exact board-ring membership count or order, it will need updating to account for `backlog` and `in-progress-tasks` — update those assertions to match the new ring (they are normal members, sorted by display name by `buildBoardRows`).
-
-- [ ] **Step 2: Run the full test suite**
-
-Run: `go test ./...`
-Expected: PASS.
 
 - [ ] **Step 3: If any TUI test needed an assertion update, commit it**
 
