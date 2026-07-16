@@ -299,11 +299,12 @@ func (b *boardsModel) loadPins() {
 	b.syncPinFocus()
 }
 
-// maxPins caps the pinned-boards stack at 3 full-width 3-line boxes, reachable
-// by Shift-1..3. The pinned region is a FIXED slot: the task list always
-// reserves 3*maxPins lines for it (see listContentHeight), so its height never
-// changes as pins are added or removed — empty slots render as muted
-// placeholders rather than collapsing.
+// maxPins caps the pinned boards at 3, reachable by Shift-1..3 and surfaced as
+// the Shift-1..3 tabs of the single tabbed pinned box (see renderPinnedTabs).
+// The pinned region is a FIXED slot: the task list reserves a constant
+// pinnedBoxHeight lines for it (see listContentHeight), so its height never
+// changes as pins are added or removed — an empty slot's tab just renders
+// dimmed rather than collapsing.
 const maxPins = 3
 
 // togglePin adds the selected board to the pin list (at the end) if absent, or
@@ -373,10 +374,29 @@ func (b *boardsModel) jumpPin(n int) bool {
 }
 
 // focusCenter is the inverse of jumpPin: it moves the strong current-filter
-// highlight from a pin box back to the strip's SELECTED (center) board,
-// touching only pinFocus — b.selected and the task filter are untouched.
+// highlight from a pin box back to the strip's SELECTED (center) board. Beyond
+// restoring pinFocus, it also ENTERS the center board for immediate
+// navigation: a namespace board (Expandable) sitting at L0 drills straight into
+// its chart, so Shift-↑/↓ move among members right away without a preceding
+// Shift-→. A leaf board (no chart) just takes the focus. b.selected and the
+// task filter are otherwise untouched (enterChart re-applies the same facet).
 func (b *boardsModel) focusCenter() {
 	b.pinFocus = -1
+	if b.selected == "" || b.m.projectScope == "" {
+		return
+	}
+	// Only enter from L0; if the board is already drilled (chart/detail) there
+	// is nothing to enter, and we must not disturb the current level.
+	if b.level != lLevelTable {
+		return
+	}
+	idx := b.ringIndex()
+	if idx < 0 {
+		return
+	}
+	if r := b.rows[idx]; r.Expandable {
+		b.enterChart(r.Name)
+	}
 }
 
 // resetDrill returns the SELECTED thumbnail to L0 so a board switch never

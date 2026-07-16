@@ -140,7 +140,7 @@ func (t *tasksModel) SetSize(w, h int) {
 	// board strip reserved in the list view. This is only a placeholder value
 	// for t.pageSize until the first render — listPageSize() and
 	// renderListWithStrip() both recompute the real page size from
-	// listContentHeight(), which also accounts for the live pinned stack
+	// listContentHeight(), which also accounts for the fixed tabbed pinned box
 	// (SetSize never re-runs on a pin toggle and would otherwise leave this
 	// value stale).
 	t.pageSize = h - stripHeight - 6
@@ -151,14 +151,14 @@ func (t *tasksModel) SetSize(w, h int) {
 
 // listContentHeight is the single source of truth for how many lines the
 // scrollable task list gets in the list view, once the fixed board strip and
-// the FIXED pinned slot are subtracted. The pinned slot always reserves
-// 3*maxPins lines (renderPinnedStack draws exactly maxPins boxes, filled or
-// placeholder), so the subtraction is a CONSTANT — the list height never
-// changes as pins are added or removed. renderListWithStrip and listPageSize
-// both derive from this single value, so the renderer and the pgup/pgdown page
-// jumps always agree on the page boundary.
+// the FIXED pinned slot are subtracted. The pinned slot is a single tabbed box
+// that always reserves pinnedBoxHeight lines (renderPinnedTabs draws exactly
+// that many, regardless of how many boards are pinned), so the subtraction is a
+// CONSTANT — the list height never changes as pins are added or removed.
+// renderListWithStrip and listPageSize both derive from this single value, so
+// the renderer and the pgup/pgdown page jumps always agree on the page boundary.
 func (t *tasksModel) listContentHeight() int {
-	h := t.contentHeight - stripHeight - 3*maxPins
+	h := t.contentHeight - stripHeight - pinnedBoxHeight
 	if h < 4 {
 		h = 4
 	}
@@ -901,7 +901,7 @@ func (t *tasksModel) View() string {
 }
 
 // renderListWithStrip renders the list view top to bottom: the task list
-// (fills), then the pinned-boards stack, then the board thumbnail strip at
+// (fills), then the single tabbed pinned box, then the board thumbnail strip at
 // the bottom (the detail view keeps the full pane since the strip is
 // contextual to browsing). It reuses the existing renderList() by temporarily
 // shrinking t.contentHeight/t.pageSize to the list's sub-height (from
@@ -920,7 +920,7 @@ func (t *tasksModel) renderListWithStrip() string {
 	listOut := t.renderList()
 	t.contentHeight, t.pageSize = savedH, savedPageSize
 
-	pinned := t.m.boards.renderPinnedStack(t.width)
+	pinned := t.m.boards.renderPinnedTabs(t.width)
 	strip := t.m.boards.renderStrip(t.width, stripHeight)
 
 	var b strings.Builder
@@ -1297,7 +1297,7 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [shift+←/→]drill  [shift+↑/↓]member  [shift+0..3]focus  [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
 }
 
 // --- form openers ---

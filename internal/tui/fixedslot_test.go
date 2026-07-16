@@ -11,9 +11,8 @@ import (
 
 // TestListContentHeightConstantAcrossPins is the core fixed-slot invariant: the
 // scrollable task list height must NOT change as boards are pinned or
-// unpinned. The pinned region always reserves 3*maxPins lines (filled or
-// placeholder), so listContentHeight subtracts a constant. Proven across
-// 0..maxPins pins.
+// unpinned. The single tabbed pinned box always reserves pinnedBoxHeight lines,
+// so listContentHeight subtracts a constant. Proven across 0..maxPins pins.
 func TestListContentHeightConstantAcrossPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -31,9 +30,9 @@ func TestListContentHeightConstantAcrossPins(t *testing.T) {
 
 	want := m.tasks.listContentHeight() // 0 pins
 	// The reservation is a constant: pane content height minus the strip minus
-	// the fixed 3*maxPins pinned slot.
-	if exp := m.tasks.contentHeight - stripHeight - 3*maxPins; want != exp {
-		t.Fatalf("listContentHeight (0 pins) = %d, want %d (contentHeight - strip - 3*maxPins)", want, exp)
+	// the fixed pinnedBoxHeight tabbed slot.
+	if exp := m.tasks.contentHeight - stripHeight - pinnedBoxHeight; want != exp {
+		t.Fatalf("listContentHeight (0 pins) = %d, want %d (contentHeight - strip - pinnedBoxHeight)", want, exp)
 	}
 	for i, full := range boards {
 		m.boards.selected = full
@@ -95,7 +94,7 @@ func TestTaskColumnWidthsClampsIdWidth(t *testing.T) {
 }
 
 // TestSelectedCellShowsInspectHintWhenHighlighted verifies the highlighted
-// SELECTED board (pinFocus == -1) advertises "> to inspect" in its title, and
+// SELECTED board (pinFocus == -1) advertises "to inspect" in its title, and
 // that the hint disappears once a pin takes the highlight (Shift-N jump).
 func TestSelectedCellShowsInspectHintWhenHighlighted(t *testing.T) {
 	m := newTestModel(t)

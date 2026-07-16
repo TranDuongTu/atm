@@ -43,12 +43,12 @@ func TestRenderStripShowsSelectedOpenTasks(t *testing.T) {
 	}
 }
 
-// TestRenderPinnedStackBoxedPerPinWithFullText verifies renderPinnedStack
-// emits a full-width, 3-line rounded box per pinned board (title
-// "[Shift-N] name", description as the content line), stacked in pin order.
-// The stack is a FIXED slot of exactly maxPins boxes; the trailing empty slot
-// renders a muted placeholder rather than collapsing.
-func TestRenderPinnedStackBoxedPerPinWithFullText(t *testing.T) {
+// TestRenderPinnedTabsShowsTabsAndActiveDescription verifies the single tabbed
+// pinned box: a fixed-height (pinnedBoxHeight) box whose top border carries the
+// four KEY tabs (Shift-0 = center board, Shift-1..3 = pins) and whose body line
+// names the ACTIVE board and shows its description. With pinFocus == -1 the
+// active board is the center (b.selected).
+func TestRenderPinnedTabsShowsTabsAndActiveDescription(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -63,33 +63,74 @@ func TestRenderPinnedStackBoxedPerPinWithFullText(t *testing.T) {
 	m.boards.togglePin()
 	m.boards.selected = "ATM:blocked-items"
 	m.boards.togglePin()
+	// Focus the center board (the ring selection), not a pin.
+	m.boards.selected = "ATM:next-sprint"
+	m.boards.pinFocus = -1
 
-	stack := m.boards.renderPinnedStack(100)
-	lines := strings.Split(stack, "\n")
-	if len(lines) != 3*maxPins {
-		t.Fatalf("renderPinnedStack lines = %d, want %d (3 per slot, %d fixed slots):\n%s", len(lines), 3*maxPins, maxPins, stack)
+	box := m.boards.renderPinnedTabs(100)
+	lines := strings.Split(box, "\n")
+	if len(lines) != pinnedBoxHeight {
+		t.Fatalf("renderPinnedTabs lines = %d, want %d (single fixed box):\n%s", len(lines), pinnedBoxHeight, box)
 	}
-	box1, box2 := strings.Join(lines[0:3], "\n"), strings.Join(lines[3:6], "\n")
-	if !strings.Contains(box1, "[Shift-1]") || !strings.Contains(box1, "next-sprint") || !strings.Contains(box1, "work slated for the next sprint") {
-		t.Errorf("pin box 1 = %q, want [Shift-1], name, and full description", box1)
+	for n := 0; n <= maxPins; n++ {
+		if !strings.Contains(box, fmt.Sprintf("Shift-%d", n)) {
+			t.Errorf("tabbed box missing the Shift-%d tab:\n%s", n, box)
+		}
 	}
-	if !strings.Contains(box2, "[Shift-2]") || !strings.Contains(box2, "blocked-items") || !strings.Contains(box2, "tasks currently blocked") {
-		t.Errorf("pin box 2 = %q, want [Shift-2], name, and full description", box2)
+	if !strings.Contains(box, "next-sprint") {
+		t.Errorf("tabbed box body should name the active board:\n%s", box)
 	}
-	box3 := strings.Join(lines[6:9], "\n")
-	if !strings.Contains(box3, "[Shift-3]") || !strings.Contains(box3, "empty") {
-		t.Errorf("pin box 3 = %q, want the [Shift-3] empty placeholder", box3)
+	if !strings.Contains(box, "work slated for the next sprint") {
+		t.Errorf("tabbed box body should show the active board's description:\n%s", box)
 	}
 }
 
-// TestActiveFilterHighlightOnStripWhenPinFocusIsStrip verifies the
-// current-filter highlight (the strong, bold accent border) sits on the
-// strip's SELECTED cell while pinFocus == -1, and that pinned boxes render
-// muted (no bold) in that state.
-func TestActiveFilterHighlightOnStripWhenPinFocusIsStrip(t *testing.T) {
+// TestPinnedTabsHighlightsCenterTabWhenPinFocusIsStrip verifies exactly one tab
+// carries the strong (bold accent) style: with pinFocus == -1 it is the Shift-0
+// (center-board) tab, and the pin tabs are NOT strong-highlighted. The strip's
+// SELECTED cell no longer carries the strong border (the tab bar is the sole
+// active-filter indicator).
+func TestPinnedTabsHighlightsCenterTabWhenPinFocusIsStrip(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := m.store.LabelAdd("ATM:next-sprint", "work slated for the next sprint", "status:open", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	m.boards.selected = "ATM:next-sprint"
+	m.boards.togglePin()
+	m.boards.pinFocus = -1 // center board is the active filter
+
+	box := m.boards.renderPinnedTabs(100)
+	if !strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-0")) {
+		t.Errorf("Shift-0 tab should carry the strong highlight while pinFocus == -1:\n%s", box)
+	}
+	if strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-1")) {
+		t.Errorf("Shift-1 tab must NOT be strong-highlighted while pinFocus == -1:\n%s", box)
+	}
+
+	// The strip's SELECTED cell must not carry the strong (bold) border: the
+	// highlight now lives on the tab bar, not the strip.
+	sel := m.boards.renderSelectedCell(40, stripHeight, m.boards.rows[m.boards.ringIndex()])
+	top := strings.SplitN(sel, "\n", 2)[0]
+	if strings.Contains(top, "\x1b[1") {
+		t.Errorf("strip SELECTED cell top border should not be strong/bold:\n%q", top)
+	}
+	if !strings.Contains(sel, "[Shift-0]") {
+		t.Errorf("strip SELECTED cell should still carry the [Shift-0] label:\n%s", sel)
+	}
+}
+
+// TestSelectedCellAlwaysShowsShiftZeroLabel verifies the strip's SELECTED
+// cell carries a permanent "[Shift-0]" label — the key that (re)focuses it —
+// mirroring the pinned boxes' permanent "[Shift-N]" labels. Unlike the
+// "to inspect" hint, this label must show regardless of pinFocus: it
+// documents the key, not the current highlight state.
+func TestSelectedCellAlwaysShowsShiftZeroLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -98,26 +139,71 @@ func TestActiveFilterHighlightOnStripWhenPinFocusIsStrip(t *testing.T) {
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
-	m.boards.selectDefault() // pinFocus == -1
-	m.boards.togglePin()     // pin the SELECTED board (open-tasks)
+	m.boards.selectDefault() // pinFocus == -1: the SELECTED cell holds the highlight
 
 	strip := m.boards.renderStrip(80, stripHeight)
-	pinned := m.boards.renderPinnedStack(80)
-
-	if !strings.Contains(strip, "\x1b[1") {
-		t.Errorf("strip missing the strong (bold) highlight while pinFocus == -1:\n%s", strip)
+	if !strings.Contains(strip, "[Shift-0]") {
+		t.Errorf("SELECTED cell missing the [Shift-0] label while pinFocus == -1:\n%s", strip)
 	}
-	if strings.Contains(pinned, "\x1b[1") {
-		t.Errorf("pinned box should be muted while pinFocus == -1:\n%s", pinned)
+
+	// Jump focus to a pin: the label must still show on the (now muted)
+	// SELECTED cell — it names the key, independent of the highlight.
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) {
+		t.Fatal("jumpPin(1) returned false with 1 pin")
+	}
+	strip = m.boards.renderStrip(80, stripHeight)
+	if !strings.Contains(strip, "[Shift-0]") {
+		t.Errorf("SELECTED cell lost the [Shift-0] label once a pin holds the highlight:\n%s", strip)
 	}
 }
 
-// TestActiveFilterHighlightMovesToPinOnJump verifies Shift-N moves the strong
-// highlight from the strip onto the jumped-to pin box.
-func TestActiveFilterHighlightMovesToPinOnJump(t *testing.T) {
+// TestPinnedTabsMovesHighlightToPinTabOnJump verifies Shift-N moves the strong
+// highlight onto the jumped-to pin's tab (and the body shows that pin's
+// description); the center and the other Shift-N tabs are no longer strong.
+func TestPinnedTabsMovesHighlightToPinTabOnJump(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := m.store.LabelAdd("ATM:next-sprint", "work slated for the next sprint", "status:open", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:blocked-items", "tasks currently blocked", "status:blocked", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	m.boards.selected = "ATM:next-sprint"
+	m.boards.togglePin()
+	m.boards.selected = "ATM:blocked-items"
+	m.boards.togglePin()
+	if !m.boards.jumpPin(1) { // pinFocus == 0, active board == pins[0]
+		t.Fatal("jumpPin(1) returned false with 2 pins")
+	}
+
+	box := m.boards.renderPinnedTabs(100)
+	if !strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-1")) {
+		t.Errorf("Shift-1 tab should carry the strong highlight after jumpPin(1):\n%s", box)
+	}
+	if strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-2")) {
+		t.Errorf("Shift-2 tab must NOT be strong-highlighted after jumpPin(1):\n%s", box)
+	}
+	if strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-0")) {
+		t.Errorf("Shift-0 (center) tab must NOT be strong-highlighted after a pin jump:\n%s", box)
+	}
+	if !strings.Contains(box, "work slated for the next sprint") {
+		t.Errorf("body should show the jumped-to pin's description:\n%s", box)
+	}
+}
+
+// TestRenderPinnedTabsFixedHeightWhenNoPins verifies the FIXED-slot contract:
+// with nothing pinned the box still renders exactly pinnedBoxHeight lines and
+// still shows the Shift-0 (center) tab plus the three Shift-1..3 pin-slot tabs
+// (dimmed, available), so the task list height never shifts when the first
+// board is pinned.
+func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -127,43 +213,18 @@ func TestActiveFilterHighlightMovesToPinOnJump(t *testing.T) {
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
 	m.boards.selectDefault()
-	m.boards.togglePin()
-	if !m.boards.jumpPin(1) {
-		t.Fatal("jumpPin(1) returned false with 1 pin")
-	}
 
-	strip := m.boards.renderStrip(80, stripHeight)
-	pinned := m.boards.renderPinnedStack(80)
-
-	if strings.Contains(strip, "\x1b[1") {
-		t.Errorf("strip should be muted once a pin is the active filter:\n%s", strip)
+	box := m.boards.renderPinnedTabs(80)
+	lines := strings.Split(box, "\n")
+	if len(lines) != pinnedBoxHeight {
+		t.Fatalf("renderPinnedTabs with no pins = %d lines, want %d (fixed slot):\n%s", len(lines), pinnedBoxHeight, box)
 	}
-	if !strings.Contains(pinned, "\x1b[1") {
-		t.Errorf("pinned box missing the strong (bold) highlight for the jumped-to pin:\n%s", pinned)
-	}
-}
-
-// TestRenderPinnedStackPlaceholdersWhenNoPins verifies the FIXED-slot
-// contract: with nothing pinned the stack still renders exactly maxPins
-// placeholder boxes (3*maxPins lines) so the task list height never shifts
-// when the first board is pinned. Each empty slot advertises its Shift-N key
-// and the [p]in affordance.
-func TestRenderPinnedStackPlaceholdersWhenNoPins(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	m.boards.refresh()
-	stack := m.boards.renderPinnedStack(80)
-	lines := strings.Split(stack, "\n")
-	if len(lines) != 3*maxPins {
-		t.Fatalf("renderPinnedStack with no pins = %d lines, want %d (fixed slot):\n%s", len(lines), 3*maxPins, stack)
-	}
-	for n := 1; n <= maxPins; n++ {
-		if !strings.Contains(stack, fmt.Sprintf("[Shift-%d]", n)) {
-			t.Errorf("empty stack missing the [Shift-%d] placeholder slot:\n%s", n, stack)
+	for n := 0; n <= maxPins; n++ {
+		if !strings.Contains(box, fmt.Sprintf("Shift-%d", n)) {
+			t.Errorf("empty tabbed box missing the Shift-%d tab:\n%s", n, box)
 		}
 	}
-	if !strings.Contains(stack, "empty") || !strings.Contains(stack, "pin a board with [p]") {
-		t.Errorf("empty slots missing the placeholder text:\n%s", stack)
+	if !strings.Contains(box, "open-tasks") {
+		t.Errorf("empty tabbed box body missing the center board name:\n%s", box)
 	}
 }

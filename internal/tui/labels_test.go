@@ -168,6 +168,54 @@ func TestJumpPinResetsDrillState(t *testing.T) {
 	}
 }
 
+// TestFocusCenterEntersNamespaceChartForImmediateNav verifies Shift-0
+// (focusCenter) doesn't just restore the highlight — it ENTERS the center
+// board so member navigation works right away. On a namespace board at L0 it
+// drills into the chart (level == lLevelChart) so Shift-up/down (chartCursorMove)
+// move among members with no intervening Shift-right.
+func TestFocusCenterEntersNamespaceChartForImmediateNav(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "done one", "ATM:status:done")
+	m.boards.refresh()
+
+	var statusFull string
+	for _, r := range m.boards.rows {
+		if r.Name == "status" {
+			statusFull = r.FullName
+		}
+	}
+	if statusFull == "" {
+		t.Fatalf("expected a status namespace board, got rows: %v", m.boards.rowNames())
+	}
+	m.boards.selected = statusFull
+	m.boards.applyFocus()
+	if m.boards.level != lLevelTable {
+		t.Fatalf("precondition: level = %v, want lLevelTable before focusCenter", m.boards.level)
+	}
+
+	m.boards.focusCenter() // Shift-0
+	if m.boards.pinFocus != -1 {
+		t.Errorf("pinFocus = %d after focusCenter, want -1", m.boards.pinFocus)
+	}
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v after focusCenter on a namespace board, want lLevelChart (should enter the chart)", m.boards.level)
+	}
+
+	// Shift-down moves the chart cursor immediately — no Shift-right first.
+	rows := m.boards.chartRows()
+	if len(rows) < 2 {
+		t.Fatalf("expected >= 2 chart rows for status, got %d", len(rows))
+	}
+	before := m.boards.cursor
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor == before {
+		t.Errorf("chartCursorMove(1) did not move the cursor (was %d) after focusCenter", before)
+	}
+}
+
 // --- pinFocus (current-filter highlight location) tests ---
 
 // TestPinFocusDefaultsToStrip verifies pinFocus starts at -1 (the strip's

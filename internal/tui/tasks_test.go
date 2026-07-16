@@ -245,9 +245,9 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustCreate("bare", "ATM:urgent")
 	mustCreate("naked")
 	m.projectScope = "ATM"
-	// Give the list ample height: the fixed pinned slot always reserves
-	// 3*maxPins lines, so a default-small terminal would page out the last of
-	// the five tasks and mask the focus-subset assertions.
+	// Give the list ample height: the fixed pinned box always reserves
+	// pinnedBoxHeight lines, so a default-small terminal would page out the last
+	// of the five tasks and mask the focus-subset assertions.
 	m.SetSize(100, 40)
 
 	// present on status -> grouped, only tasks with a status (others hidden).
@@ -416,25 +416,26 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	mustNotContain(t, v, "showing 1-1 of 1")
 }
 
-// TestListHintOrderPutsNavFirstAndInspectLast verifies the reordered [2] pane
-// list-view hint: task/board nav and the everyday actions come first, with
-// the shift+arrow drill/member hint relegated to last (a hint-only reflection
-// of the shift+arrow keys, no new drill/member key introduced).
+// TestListHintOrderPutsNavFirstAndInspectLast verifies the [2] pane list-view
+// hint drops the shift+arrow drill/member/focus keys entirely: that
+// information is already shown inline in the pane itself (the "[Shift-N]" /
+// "[Shift-0]" box labels and the SELECTED cell's "Shift+-> to inspect" hint),
+// so the status bar stays terse rather than duplicating it.
 func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [shift+←/→]drill  [shift+↑/↓]member  [shift+0..3]focus  [?]keys"
+	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
 	if got := m.tasks.statusHint(); got != want {
 		t.Errorf("statusHint() = %q, want %q", got, want)
 	}
 }
 
 // TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
-// top-to-bottom the pane stacks task list -> pinned stack -> board strip, so
-// the strip is the LAST stripHeight lines and the fixed pinned slot
-// (3*maxPins lines) sits directly above it. The pinned open-tasks box lives in
-// the first slot of that region.
+// top-to-bottom the pane stacks task list -> tabbed pinned box -> board strip,
+// so the strip is the LAST stripHeight lines and the fixed pinned box
+// (pinnedBoxHeight lines) sits directly above it. The pinned open-tasks board
+// surfaces as the Shift-1 tab, with its name in the box body.
 func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -457,12 +458,12 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	if !strings.Contains(stripBlock, "open-tasks") {
 		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
 	}
-	pinBlock := strings.Join(lines[len(lines)-stripHeight-3*maxPins:len(lines)-stripHeight], "\n")
+	pinBlock := strings.Join(lines[len(lines)-stripHeight-pinnedBoxHeight:len(lines)-stripHeight], "\n")
 	if !strings.Contains(pinBlock, "open-tasks") {
-		t.Errorf("fixed pinned slot (%d lines above the strip) = %q, want the pinned open-tasks box", 3*maxPins, pinBlock)
+		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned open-tasks board named in the body", pinnedBoxHeight, pinBlock)
 	}
-	if !strings.Contains(pinBlock, "[Shift-1]") {
-		t.Errorf("pinned slot missing the [Shift-1] jump label:\n%s", pinBlock)
+	if !strings.Contains(pinBlock, "Shift-1") {
+		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)
 	}
 }
 
