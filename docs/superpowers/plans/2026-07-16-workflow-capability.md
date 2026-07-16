@@ -1113,6 +1113,8 @@ git commit -m "feat(cli): add atm workflow command tree"
 
 The existing call sites already invoke `workflow.EnsureVocabulary`, which Task 2 extended to seed all three boards. No source change is required here. This task verifies that the broader test suite still passes and that the TUI ring picks up the new boards as normal members.
 
+> **Amendment 2026-07-16 (found during Task 2):** this plan originally assumed `go test ./...` would simply PASS here. It does not. `atm project create` (`internal/cli/project.go:46`) calls `EnsureVocabulary`, which now emits **two extra label-seed events** per project creation. ATM derives task ids and event `seq` from mutation history, so those two events shift every downstream id and seq in a freshly-created store — invalidating ~18 `internal/cli` golden/determinism fixtures that hardcode them. This is intended behavior, not a bug: the fixtures were stale. They were regenerated in a dedicated commit right after Task 2, with the regenerated diff reviewed to confirm it contained ONLY the two new boards and mechanical id/seq shifts. If you still see golden failures here, do not blind-regenerate — read the diff first.
+
 - [ ] **Step 1: Run the TUI tests**
 
 Run: `go test ./internal/tui/`
