@@ -1533,11 +1533,14 @@ ATM_UPDATE_GOLDEN=1 go test ./internal/tui/ -run TestFacetTreeCharacterization
 git diff internal/store/testdata/facet_flat.golden internal/tui/testdata/facet_tree.golden
 ```
 
-**Required review — this is the deliverable.** The diff must contain **only** removals of duplicated titles, and only under the two overlapping-wildcard filters:
-- `== filter: [ATM:* ATM:status:*]`
-- `== filter: [ATM:status:* ATM:status:*]`
+**Required review — this is the deliverable.** The diff must contain **only** removals of duplicated titles (pure deletions; zero insertions), and only under filters whose wildcards **overlap** — i.e. where two tokens can match the same label. There are three such cases in the corpus:
+- `== filter: [ATM:* ATM:status:*]` — `ATM:*` overlaps `ATM:status:*`
+- `== filter: [ATM:status:* ATM:status:*]` — a token overlaps itself
+- `== filter: [ATM:status:* ATM:type:* ATM:*]` — `ATM:*` overlaps **both** other tokens
 
-Every other filter case must be **byte-identical**, and no group, ordering, or `others` membership may change anywhere. If anything else moved, the port was not faithful — go back to Step 4's checkpoint rather than accepting the new golden.
+The control that proves the port faithful: `== filter: [ATM:status:* ATM:type:*]` has two wildcards but they are **disjoint**, so it must be byte-identical. Likewise every single-facet case. If a disjoint or single-facet case moved, the port is not faithful — go back to Step 5's checkpoint rather than accepting the new golden.
+
+No group, ordering, or `others` membership may change anywhere, and the TUI tree **shape** must not change (that is Task 6).
 
 - [ ] **Step 8: Verify the rest**
 
