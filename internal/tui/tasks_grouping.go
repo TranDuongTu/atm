@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"sort"
-
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -49,77 +47,34 @@ func (t *tasksModel) grouped() bool {
 	}
 }
 
-// buildNestedGroups buckets `tasks` by the concrete labels they carry that
-// match the given wildcards, recursing for each remaining wildcard. This is
-// the TUI-side nesting pass that turns the store's flat per-concrete-label
-// groups into the nested facet tree (mockup Screen 7, two-wildcard case).
-//
-// Multi-membership: a task appears in every sub-group whose key it carries.
-// Tasks matching no label for the current wildcard land in a sub-
-// `(no matching labels)` bucket (label == ""), consistent with the top-level
-// pattern. At the deepest level (no remaining wildcards), the caller already
-// holds the leaf rows; this helper only recurses while wildcards remain.
-func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*store.Task) taskRow) []taskGroup {
-	if len(wildcards) == 0 {
+// taskLabels is the core.GroupNested accessor for store tasks. It is the only
+// thing core needs to know about a Task — the type itself stays in store
+// until ATM-b9d83a.
+func taskLabels(t *store.Task) []string { return t.Labels }
+
+// nodesToGroups adapts core's rendering-agnostic facet tree into the TUI's
+// taskGroup, attaching rows via toRow. Leaf rows live only at the deepest
+// level, mirroring core.GroupNested's Items placement; collapsed defaults to
+// false (expanded).
+func nodesToGroups(nodes []core.Node[*store.Task], toRow func(*store.Task) taskRow) []taskGroup {
+	if len(nodes) == 0 {
 		return nil
 	}
-	w := wildcards[0]
-	// Bucket tasks by each concrete label they carry matching w, preserving
-	// discovery order then alphabetical (store.GroupTasks already sorts;
-	// we sort here for determinism independent of input order).
-	buckets := map[string][]*store.Task{}
-	var keys []string
-	matched := map[*store.Task]bool{}
-	for _, t := range tasks {
-		for _, l := range t.Labels {
-			if core.LabelMatchesWildcard(l, w) {
-				if _, exists := buckets[l]; !exists {
-					keys = append(keys, l)
-				}
-				buckets[l] = append(buckets[l], t)
-				matched[t] = true
+	out := make([]taskGroup, 0, len(nodes))
+	for _, n := range nodes {
+		g := taskGroup{label: n.Label}
+		if len(n.Children) > 0 {
+			g.subgroups = nodesToGroups(n.Children, toRow)
+		} else {
+			rows := make([]taskRow, 0, len(n.Items))
+			for _, tk := range n.Items {
+				rows = append(rows, toRow(tk))
 			}
-		}
-	}
-	sort.Strings(keys)
-	// (no matching labels) sub-bucket: tasks matching no label for w.
-	var noneMatched []*store.Task
-	for _, t := range tasks {
-		if !matched[t] {
-			noneMatched = append(noneMatched, t)
-		}
-	}
-	var groups []taskGroup
-	for _, k := range keys {
-		rows := make([]taskRow, 0, len(buckets[k]))
-		for _, tk := range buckets[k] {
-			rows = append(rows, toRow(tk))
-		}
-		g := taskGroup{label: k}
-		if len(wildcards) >= 2 {
-			g.subgroups = buildNestedGroups(buckets[k], wildcards[1:], toRow)
-			// Leaf rows live only at the deepest level.
-			g.rows = nil
-		} else {
 			g.rows = rows
 		}
-		groups = append(groups, g)
+		out = append(out, g)
 	}
-	// Sub-`(no matching labels)` bucket, rendered last within this level.
-	if len(noneMatched) > 0 {
-		rows := make([]taskRow, 0, len(noneMatched))
-		for _, tk := range noneMatched {
-			rows = append(rows, toRow(tk))
-		}
-		g := taskGroup{label: ""} // "" == (no matching labels)
-		if len(wildcards) >= 2 {
-			g.subgroups = buildNestedGroups(noneMatched, wildcards[1:], toRow)
-		} else {
-			g.rows = rows
-		}
-		groups = append(groups, g)
-	}
-	return groups
+	return out
 }
 
 // groupLineCount returns the logical lines contributed by one group and its

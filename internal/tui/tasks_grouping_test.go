@@ -106,9 +106,9 @@ func dumpTree(groups []taskGroup, indent string) string {
 
 // TestFacetTreeCharacterization records today's TUI group tree as rendered,
 // reproducing the COMPOSITION at tasks.go:142 — the real store.GroupTasks
-// supplies a flat level 1, buildNestedGroups handles wildcards[1:]. The
+// supplies a flat level 1, core.GroupNested handles wildcards[1:]. The
 // divergence between the flat and nested algorithms lives in that seam, so
-// characterizing buildNestedGroups alone would miss it.
+// characterizing core.GroupNested alone would miss it.
 //
 // The golden must not change when the algebra moves into internal/core
 // (ATM-cca7b0 Tasks 3-4). Task 5 updates it (dedup) and Task 6 updates it
@@ -129,7 +129,7 @@ func TestFacetTreeCharacterization(t *testing.T) {
 			}
 			tg := taskGroup{label: g.Label, rows: rows}
 			if len(wildcards) >= 2 {
-				tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], toRowTest)
+				tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), toRowTest)
 				tg.rows = nil
 			}
 			groups = append(groups, tg)

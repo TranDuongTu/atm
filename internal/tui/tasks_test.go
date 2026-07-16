@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 	"atm/internal/workflow"
 )
@@ -25,7 +26,7 @@ func mkTask(id, title string, labels ...string) *store.Task {
 
 // TestBuildNestedGroupsTwoWildcards verifies the TUI-side nesting pass for a
 // two-wildcard filter (mockup Screen 7). The store returns flat per-concrete-
-// label buckets; buildNestedGroups must turn them into a two-level tree with
+// label buckets; core.GroupNested must turn them into a two-level tree with
 // multi-membership preserved and a per-level (no matching labels) sub-bucket.
 func TestBuildNestedGroupsTwoWildcards(t *testing.T) {
 	// Top-level group "ATM:status:open" tasks (as GroupTasks would bucket them).
@@ -39,7 +40,7 @@ func TestBuildNestedGroupsTwoWildcards(t *testing.T) {
 		mkTask("ATM-0020", "Status only", "ATM:status:open"),
 	}
 	wildcards := []string{"ATM:type:*"}
-	subs := buildNestedGroups(openTasks, wildcards, toRowTest)
+	subs := nodesToGroups(core.GroupNested(openTasks, taskLabels, wildcards), toRowTest)
 
 	// Expect three concrete sub-groups (alphabetical) + one
 	// (no matching labels) sub-bucket last:
@@ -94,7 +95,7 @@ func TestBuildNestedGroupsThreeWildcards(t *testing.T) {
 		mkTask("ATM-0003", "c", "ATM:status:open", "ATM:type:task", "ATM:prio:high"),
 	}
 	wildcards := []string{"ATM:type:*", "ATM:prio:*"}
-	subs := buildNestedGroups(tasks, wildcards, toRowTest)
+	subs := nodesToGroups(core.GroupNested(tasks, taskLabels, wildcards), toRowTest)
 
 	// Top level (ATM:type:*) : bug (2), task (1)
 	if len(subs) != 2 {

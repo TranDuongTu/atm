@@ -150,7 +150,7 @@ func (t *tasksModel) refresh() {
 				}
 				tg := taskGroup{label: g.Label, rows: rows}
 				if len(wildcards) >= 2 {
-					tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+					tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), t.toRow)
 					tg.rows = nil
 				}
 				t.groups = append(t.groups, tg)
@@ -172,7 +172,7 @@ func (t *tasksModel) refresh() {
 				}
 				tg := taskGroup{label: g.Label, rows: rows}
 				if len(wildcards) >= 2 {
-					tg.subgroups = buildNestedGroups(g.Tasks, wildcards[1:], t.toRow)
+					tg.subgroups = nodesToGroups(core.GroupNested(g.Tasks, taskLabels, wildcards[1:]), t.toRow)
 					tg.rows = nil
 				}
 				t.groups = append(t.groups, tg)
