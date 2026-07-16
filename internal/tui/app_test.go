@@ -508,6 +508,10 @@ func TestProjectCreateFormInvalidCode(t *testing.T) {
 // submitting creates the project and the list shows it.
 func TestProjectCreateFormValidCreates(t *testing.T) {
 	m := newTestModel(t)
+	// Use a width where the Projects pane can show the full project name in
+	// its NAME column (the column now truncates to fit the pane rather than
+	// overflowing and clipping the UPDATED column — see ATM-46f820).
+	m.SetSize(160, 30)
 	update(t, m, "a")
 	for _, r := range "ATM" {
 		update(t, m, string(r))
@@ -573,6 +577,10 @@ func TestProjectCreateFormNoActor(t *testing.T) {
 // is replaced by the dim shade (not visible through the modal).
 func TestOverlayRendersDimmedBackdropWithModal(t *testing.T) {
 	m := newTestModel(t)
+	// Use a width where the Projects pane can show the full project name in
+	// its NAME column (the column now truncates to fit the pane rather than
+	// overflowing and clipping the UPDATED column — see ATM-46f820).
+	m.SetSize(160, 30)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	base := m.View()
 	mustContain(t, base, "Acme Task Manager")
