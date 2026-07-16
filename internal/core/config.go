@@ -18,6 +18,10 @@ type ProjectConfig struct {
 	Remotes   map[string]string `json:"remotes,omitempty"`
 }
 
+// AgentsConfig is the global (store-root) record of the user's host-agent
+// preference: which catalog entry is selected for atm dev / atm manage, and
+// per-entry default passthrough args. It lives at <root>/agents.json, distinct
+// from the per-project config.json.
 type AgentsConfig struct {
 	UpdatedAt string              `json:"updated_at,omitempty"`
 	UpdatedBy string              `json:"updated_by,omitempty"`
@@ -25,6 +29,9 @@ type AgentsConfig struct {
 	Args      map[string][]string `json:"args,omitempty"`
 }
 
+// Pins is the per-project ordered list of pinned board full names, persisted
+// to <store>/projects/<CODE>/pins.json. Missing file == empty state (GetPins
+// returns nil, nil), mirroring Vocabulary.
 type Pins struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Actor     string    `json:"actor"`

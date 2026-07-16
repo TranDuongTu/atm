@@ -5,10 +5,6 @@ import (
 	"path/filepath"
 )
 
-// AgentsConfig is the global (store-root) record of the user's host-agent
-// preference: which catalog entry is selected for atm dev / atm manage, and
-// per-entry default passthrough args. It lives at <root>/agents.json, distinct
-// from the per-project config.json.
 func (s *Store) agentsConfigPath() string {
 	return filepath.Join(s.Root, "agents.json")
 }
