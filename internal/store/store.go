@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -43,6 +44,9 @@ type Store struct {
 	replicaEntropy io.Reader        // nil => rand.Reader (defaulted in Open)
 	nowFn          func() time.Time // nil => time.Now().UTC (defaulted in Open)
 }
+
+// Store satisfies core's service seam structurally (refactor step 4).
+var _ core.Service = (*Store)(nil)
 
 // logSnapshot holds the parsed log entries for one project plus the
 // last_log_seq value the snapshot was built against. When LastLogSeq(code)
