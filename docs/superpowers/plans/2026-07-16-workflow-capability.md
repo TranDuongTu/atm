@@ -4,7 +4,7 @@
 
 **Goal:** Promote `internal/workflow` from vocabulary-only into a full capability that owns status-transition verbs (`atm workflow start/open/block/complete/status/seed`), ensures three boards (`backlog`, `open-tasks`, `in-progress-tasks`), and updates conventions to point agents at the paved road.
 
-**Architecture:** `internal/workflow` mirrors `internal/contextmap`'s recorder/reporter split. Recorder mutates via existing store calls (`TaskLabelAdd`/`TaskLabelRemove`/`GetTask`/`LabelSeed`) only; the swap removes all `status:*` labels then adds the target. Reporter is pure (store byte-identical before/after). A new `atm workflow` CLI command tree parallels `atm context`. The store gains nothing — the capability is a paved road, not a fence.
+**Architecture:** `internal/workflow` mirrors `internal/contextmap`'s recorder/reporter split. Recorder mutates via existing store calls (`TaskLabelAdd`/`TaskLabelRemove`/`GetTask`/`LabelSeed`) only; the swap adds the target then removes every other `status:*` label (add-before-remove, so a failure never strips a task's status). Reporter is pure (store byte-identical before/after). A new `atm workflow` CLI command tree parallels `atm context`. The store gains nothing — the capability is a paved road, not a fence.
 
 **Tech Stack:** Go 1.22+, cobra (CLI), the existing `internal/store` API.
 
@@ -497,11 +497,52 @@ func TestRecorderSetStatusRemovesMultipleStatusLabels(t *testing.T) {
 	_ = s.TaskLabelAdd(tk.ID, "ATM:status:open", "admin@cli:unset")
 	_ = s.TaskLabelAdd(tk.ID, "ATM:status:done", "admin@cli:unset")
 	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
-	if _, err := r.SetStatus(tk.ID, StatusInProgress); err != nil {
+	prior, err := r.SetStatus(tk.ID, StatusInProgress)
+	if err != nil {
 		t.Fatalf("SetStatus: %v", err)
+	}
+	// prior is the lexicographically first non-target status. The store returns
+	// labels sorted, so "done" precedes "open".
+	if prior != StatusDone {
+		t.Errorf("prior = %q, want %q (lexicographically first non-target)", prior, StatusDone)
 	}
 	if n := countStatusLabels(s.GetTaskOrFatal(t, tk.ID), "ATM"); n != 1 {
 		t.Errorf("status label count = %d, want 1 (after collapsing hand-edit)", n)
+	}
+}
+
+func TestRecorderSetStatusCollapsesWhenTargetAlreadyPresent(t *testing.T) {
+	// The highest-risk branch: the target is ALREADY one of several status
+	// labels. The recorder must keep the target and drop the others -- never
+	// remove the target and fail to re-add it, which would leave the task with
+	// no status at all. Seeded [open, done] with target=done so that the
+	// alreadyHasTarget path is exercised; TestRecorderSetStatusRemovesMultiple
+	// only covers a target that is absent from the existing set.
+	s := newTestStore(t)
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := s.TaskLabelAdd(tk.ID, "ATM:status:open", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	if err := s.TaskLabelAdd(tk.ID, "ATM:status:done", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed done: %v", err)
+	}
+	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
+	prior, err := r.SetStatus(tk.ID, StatusDone)
+	if err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	if prior != StatusOpen {
+		t.Errorf("prior = %q, want %q (lexicographically first non-target)", prior, StatusOpen)
+	}
+	got := getTaskOrFatal(t, s, tk.ID)
+	if n := countStatusLabels(got, "ATM"); n != 1 {
+		t.Errorf("status label count = %d, want 1", n)
+	}
+	if v, _ := (&Reporter{Store: s}).Status(tk.ID); v != StatusDone {
+		t.Errorf("status = %q, want %q (target must survive)", v, StatusDone)
 	}
 }
 
@@ -588,12 +629,21 @@ type Recorder struct {
 	Actor string
 }
 
-// SetStatus swaps the task's status label to target. It removes every
-// existing <code>:status:* label on the task (a hand-edited task may carry
-// several), then adds the target. When the task already carries target as
-// its sole status, it is a no-op. Returns the prior status value (e.g.
-// "open") or "" if the task was untriaged. When the task had multiple
-// status labels, prior is the first non-target one removed.
+// SetStatus swaps the task's status label to target. It adds the target,
+// then removes every other <code>:status:* label on the task (a hand-edited
+// task may carry several). When the task already carries target as its sole
+// status, it is a no-op and no store call is made.
+//
+// Add-before-remove is deliberate: the store has no transactions, so
+// remove-first would leave the task with no status at all if the add failed.
+// This ordering bounds the worst case to a recoverable extra label.
+//
+// Returns the prior status value (e.g. "open") or "" if the task was
+// untriaged. When the task had multiple status labels, prior is the
+// lexicographically first non-target one (the store returns labels sorted;
+// see internal/store/cache.go ORDER BY label) - NOT necessarily the most
+// recently set. On error, prior is still returned so callers can report what
+// the task was.
 func (r *Recorder) SetStatus(taskID, target string) (prior string, err error) {
 	tk, err := r.Store.GetTask(taskID)
 	if err != nil {
@@ -606,47 +656,47 @@ func (r *Recorder) SetStatus(taskID, target string) (prior string, err error) {
 	prefix := code + ":" + StatusNamespace + ":"
 	targetLabel := prefix + target
 
-	// Collect all existing status:* labels and the prior value.
+	// Collect all existing status:* labels, note whether the target is among
+	// them, and pick the prior value in one pass.
 	var existing []string
+	alreadyHasTarget := false
 	for _, l := range tk.Labels {
-		if strings.HasPrefix(l, prefix) {
-			existing = append(existing, l)
+		if !strings.HasPrefix(l, prefix) {
+			continue
+		}
+		existing = append(existing, l)
+		if l == targetLabel {
+			alreadyHasTarget = true
+		} else if prior == "" {
+			prior = strings.TrimPrefix(l, prefix)
 		}
 	}
 
-	// No-op when the target is already the sole status.
-	if len(existing) == 1 && existing[0] == targetLabel {
+	// No-op when the target is already the sole status: zero store calls, so
+	// the event log cannot advance.
+	if len(existing) == 1 && alreadyHasTarget {
 		return target, nil
 	}
 
-	// Pick the prior value: the first existing label that is not the target.
-	for _, l := range existing {
-		if l != targetLabel {
-			prior = strings.TrimPrefix(l, prefix)
-			break
-		}
-	}
-
-	// Remove every existing status label.
-	for _, l := range existing {
-		if l == targetLabel {
-			continue // will be (re)asserted below; removing+adding is wasteful
-		}
-		if err := r.Store.TaskLabelRemove(taskID, l, r.Actor); err != nil {
-			return "", fmt.Errorf("remove %s: %w", l, err)
-		}
-	}
-
-	// Add the target if it is not already present.
-	alreadyHasTarget := false
-	for _, l := range existing {
-		if l == targetLabel {
-			alreadyHasTarget = true
-		}
-	}
+	// Add the target BEFORE removing anything. The store has no transactions,
+	// and TaskLabelAdd validates only once called — so remove-then-add would
+	// leave a task with NO status label if the add failed, silently dropping it
+	// off every board. Add-first bounds the worst case to a leftover label.
 	if !alreadyHasTarget {
 		if err := r.Store.TaskLabelAdd(taskID, targetLabel, r.Actor); err != nil {
-			return "", fmt.Errorf("add %s: %w", targetLabel, err)
+			return prior, fmt.Errorf("add %s: %w", targetLabel, err)
+		}
+	}
+
+	// Then remove every other status label. If one of these fails the task
+	// carries the target plus a leftover: the exactly-one invariant is
+	// violated, but no status is lost and re-running the verb converges.
+	for _, l := range existing {
+		if l == targetLabel {
+			continue
+		}
+		if err := r.Store.TaskLabelRemove(taskID, l, r.Actor); err != nil {
+			return prior, fmt.Errorf("remove %s: %w", l, err)
 		}
 	}
 	return prior, nil

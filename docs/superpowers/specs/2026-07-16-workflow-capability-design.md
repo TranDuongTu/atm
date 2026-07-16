@@ -36,7 +36,9 @@ A new top-level command `atm workflow`, paralleling `atm context`. The core `atm
 
 ### Mutating verbs (scrum intent, swap semantics)
 
-Each verb resolves the task's project, computes the prefixed target label (`<CODE>:status:<value>`), removes any existing `<CODE>:status:*` label(s) on the task, then adds the target — a swap via existing store calls. The store permits multiple `status:*` labels on a hand-edited task, so the recorder scans and removes **all** matching `<CODE>:status:*` labels before adding the target, restoring the exactly-one invariant. No-op (and an "already <status>" message) when the task already carries the target status as its sole status.
+Each verb resolves the task's project, computes the prefixed target label (`<CODE>:status:<value>`), **adds the target, then removes every other** `<CODE>:status:*` label on the task — a swap via existing store calls. The store permits multiple `status:*` labels on a hand-edited task, so the recorder scans and removes **all** other matching `<CODE>:status:*` labels, restoring the exactly-one invariant.
+
+**Amendment 2026-07-16 (add-before-remove).** An earlier draft specified remove-then-add. Review found that ordering unsafe: the store has no transactions, and `TaskLabelAdd` runs its own validation *after* the removes would already have landed — so a failed add (bad target, or a genuine I/O error) deterministically left the task with **no status label at all**, silently dropping it off every board. Add-before-remove has a strictly better failure mode: if the add fails, nothing was removed and the task keeps its original status; if a later remove fails, the task carries the target plus a leftover — the exactly-one invariant is violated but no status is lost, and re-running the verb converges. This buys the safety without the enum-validation surface the Non-Goals rule out. Decision: project owner, 2026-07-16. No-op (and an "already <status>" message) when the task already carries the target status as its sole status.
 
 | Verb | Target status | One-line intent |
 |---|---|---|
@@ -122,15 +124,16 @@ type Recorder struct {
 }
 
 // SetStatus swaps the task's status label to target. No-op when already there.
-// Removes any existing <code>:status:* label first, then adds the target.
+// Adds the target first, then removes every other <code>:status:* label, so a
+// failure never leaves the task without a status.
 // Returns the prior status value (bare, e.g. "open") or "" if untriaged.
 func (r *Recorder) SetStatus(taskID, target string) (prior string, err error)
 ```
 
 - Resolves the task's project code via `Store.GetTask` + the id prefix.
-- Scans the task's labels for **all** matching `<code>:status:*` (a hand-edited task may carry several); removes every one (one `TaskLabelRemove` per match) and records `prior` as the sole/last removed value (or, if multiple, the one that is not the target). On a well-formed single-status task this is a single remove.
-- If the target is already present as the sole status, returns `prior == target` and does nothing.
-- Adds `<code>:status:<target>` via `TaskLabelAdd`.
+- Scans the task's labels for **all** matching `<code>:status:*` (a hand-edited task may carry several) and records `prior` as the first non-target one. The store returns labels sorted lexicographically (`internal/store/cache.go` `ORDER BY label`), so `prior` is the alphabetically-first non-target status — **not** necessarily the most recently set one.
+- If the target is already present as the sole status, returns `prior == target` and does nothing (zero store calls; the log must not advance).
+- Adds `<code>:status:<target>` via `TaskLabelAdd` **first** (skipped when already present), then removes every other matching label (one `TaskLabelRemove` per match). On a well-formed single-status task this is one add and one remove.
 - `prior` is the bare value removed (e.g. `"open"`), or `""` if the task was untriaged. The CLI uses it for the `<id>: status <prior> -> <target>` line. When the task had multiple status labels (hand-edited), `prior` is the first non-target removed; the swap line reports the transition from that value.
 
 The four scrum verbs are thin wrappers:
@@ -162,7 +165,7 @@ The existing `workflow.EnsureVocabulary` call sites (`cli/project.go:46`, `cli/l
 
 ### What stays out of core
 
-The store gains nothing. `TaskLabelAdd` / `TaskLabelRemove` / `GetTask` / `LabelSeed` are the entire surface the capability uses. The swap is two store calls in the recorder; the "exactly one status" invariant is maintained by the capability, never enforced by the store. A human using raw `atm task label add --label ATM:status:done` on an in-progress task still produces two status labels — the store permits it; only `workflow`'s verbs guarantee the swap. This is the paved-road-not-a-fence contract.
+The store gains nothing. `TaskLabelAdd` / `TaskLabelRemove` / `GetTask` / `LabelSeed` are the entire surface the capability uses. The swap is two store calls in the recorder (add, then remove); the "exactly one status" invariant is maintained by the capability, never enforced by the store. The recorder is not atomic — the store has no transactions — but add-before-remove bounds the worst case to a recoverable extra label rather than a lost status. A human using raw `atm task label add --label ATM:status:done` on an in-progress task still produces two status labels — the store permits it; only `workflow`'s verbs guarantee the swap. This is the paved-road-not-a-fence contract.
 
 ## Conventions update
 
