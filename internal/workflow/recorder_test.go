@@ -175,6 +175,35 @@ func TestRecorderScrumVerbsMapToCorrectStatus(t *testing.T) {
 	}
 }
 
+func TestRecorderSetStatusFailedAddDoesNotStripStatus(t *testing.T) {
+	// Pins add-before-remove -- the ordering this recorder deliberately uses.
+	// Under remove-then-add, a failed add leaves the task with NO status label,
+	// silently dropping it off every board. Every other recorder test exercises
+	// only the happy path, where the two orderings are observationally
+	// identical; without this test the ordering could be reverted with the
+	// whole suite still green.
+	//
+	// store.ValidateLabelName rejects an uppercase value segment, and
+	// TaskLabelAdd calls it as its first statement (internal/store/task.go),
+	// so the add fails deterministically with zero mutation.
+	s := newTestStore(t)
+	tk, err := s.CreateTask("ATM", "t", "", []string{"ATM:status:open"}, "admin@cli:unset")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
+	prior, err := r.SetStatus(tk.ID, "BOGUS")
+	if err == nil {
+		t.Fatal("expected an error for an invalid status target")
+	}
+	if prior != StatusOpen {
+		t.Errorf("prior = %q, want %q -- callers must be able to report what the task was", prior, StatusOpen)
+	}
+	if v, _ := (&Reporter{Store: s}).Status(tk.ID); v != StatusOpen {
+		t.Fatalf("status = %q, want %q -- a failed add must not strip the task's status", v, StatusOpen)
+	}
+}
+
 func TestRecorderSetStatusUnknownTask(t *testing.T) {
 	s := newTestStore(t)
 	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
