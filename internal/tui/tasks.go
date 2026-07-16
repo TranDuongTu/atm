@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"atm/internal/core"
 	"atm/internal/store"
 	"github.com/charmbracelet/bubbletea"
 )
@@ -131,7 +132,7 @@ func (t *tasksModel) refresh() {
 	case focusPresent, focusAbsent:
 		if t.focus.bareTags {
 			for _, tk := range t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope})) {
-				has := taskHasBareTag(scope, tk)
+				has := core.HasBareTag(scope, tk.Labels)
 				if (t.focus.mode == focusPresent) == has {
 					t.rows = append(t.rows, t.toRow(tk))
 				}
@@ -141,7 +142,7 @@ func (t *tasksModel) refresh() {
 		filters := t.parseFilter()
 		groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
 		if t.focus.mode == focusPresent {
-			wildcards := wildcardTokens(filters)
+			wildcards := core.WildcardTokens(filters)
 			for _, g := range groups {
 				rows := make([]taskRow, 0, len(g.Tasks))
 				for _, tk := range g.Tasks {
@@ -162,7 +163,7 @@ func (t *tasksModel) refresh() {
 	default: // focusOff
 		filters := t.parseFilter()
 		ts := t.applySort(t.m.store.ListTasks(store.QueryFilters{Project: scope, Labels: filters}))
-		if wildcards := wildcardTokens(filters); len(wildcards) > 0 {
+		if wildcards := core.WildcardTokens(filters); len(wildcards) > 0 {
 			groups, others := t.m.store.GroupTasks(store.QueryFilters{Project: scope, Labels: filters})
 			for _, g := range groups {
 				rows := make([]taskRow, 0, len(g.Tasks))

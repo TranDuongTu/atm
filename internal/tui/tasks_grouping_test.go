@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -117,7 +118,7 @@ func TestFacetTreeCharacterization(t *testing.T) {
 	var b strings.Builder
 	for _, filters := range facetCases {
 		fmt.Fprintf(&b, "== filter: [%s]\n", strings.Join(filters, " "))
-		wildcards := wildcardTokens(filters)
+		wildcards := core.WildcardTokens(filters)
 		// Mirror tasks.go:142-156 (focusPresent) against the real store.
 		flat, others := s.GroupTasks(store.QueryFilters{Project: "ATM", Labels: filters})
 		var groups []taskGroup

@@ -188,49 +188,6 @@ func TestGroupLeafCountNested(t *testing.T) {
 	}
 }
 
-func TestFilterTokenHelpers(t *testing.T) {
-	if got := facetToken("ATM", "status"); got != "ATM:status:*" {
-		t.Fatalf("facetToken = %q want ATM:status:*", got)
-	}
-	if !filterHasToken("ATM:status:* ATM:type:*", "ATM:type:*") {
-		t.Fatalf("filterHasToken should find ATM:type:*")
-	}
-	if filterHasToken("ATM:status:*", "ATM:type:*") {
-		t.Fatalf("filterHasToken should not find absent token")
-	}
-	if got := filterAddToken("ATM:status:*", "ATM:type:*"); got != "ATM:status:* ATM:type:*" {
-		t.Fatalf("filterAddToken = %q want two tokens", got)
-	}
-	if got := filterAddToken("ATM:status:*", "ATM:status:*"); got != "ATM:status:*" {
-		t.Fatalf("filterAddToken should not duplicate, got %q", got)
-	}
-	if got := filterAddToken("", "ATM:status:*"); got != "ATM:status:*" {
-		t.Fatalf("filterAddToken onto empty = %q want ATM:status:*", got)
-	}
-	if got := filterRemoveToken("ATM:status:* ATM:type:*", "ATM:status:*"); got != "ATM:type:*" {
-		t.Fatalf("filterRemoveToken = %q want ATM:type:*", got)
-	}
-	if got := filterRemoveToken("ATM:status:*", "ATM:status:*"); got != "" {
-		t.Fatalf("filterRemoveToken last token = %q want empty", got)
-	}
-}
-
-func TestTaskHasBareTag(t *testing.T) {
-	mk := func(labels ...string) *store.Task { return &store.Task{ID: "ATM-0001", Labels: labels} }
-	if taskHasBareTag("ATM", mk("ATM:status:open")) {
-		t.Error("namespaced label must not count as a bare tag")
-	}
-	if !taskHasBareTag("ATM", mk("ATM:urgent")) {
-		t.Error("unnamespaced label must count as a bare tag")
-	}
-	if taskHasBareTag("ATM", mk()) {
-		t.Error("no labels means no bare tag")
-	}
-	if !taskHasBareTag("ATM", mk("ATM:status:open", "ATM:urgent")) {
-		t.Error("mixed labels with one bare tag must count")
-	}
-}
-
 func TestTasksFocusRendersSubset(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")

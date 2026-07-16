@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"atm/internal/core"
 )
 
 type QueryFilters struct {
@@ -40,7 +42,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 			codes = append(codes, p.Code)
 		}
 	}
-	restricting := restrictingTokens(filters.Labels)
+	restricting := core.RestrictingTokens(filters.Labels)
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
@@ -155,7 +157,7 @@ func (s *Store) GroupTasks(filters QueryFilters) ([]LabelGroup, []*Task) {
 
 func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error) {
 	// I5: faceting by a board is meaningless — it has no members.
-	for _, w := range wildcardTokens(filters.Labels) {
+	for _, w := range core.WildcardTokens(filters.Labels) {
 		base := strings.TrimSuffix(w, ":*")
 		if l, err := s.LabelShow(base); err == nil && l.Expr != "" {
 			return nil, nil, fmt.Errorf("%w: %s", ErrBoardNotAFacet, base)
@@ -165,7 +167,7 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	wildcards := wildcardTokens(filters.Labels)
+	wildcards := core.WildcardTokens(filters.Labels)
 	if len(wildcards) == 0 {
 		return nil, inScope, nil
 	}
@@ -174,7 +176,7 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 	for _, t := range inScope {
 		for _, w := range wildcards {
 			for _, l := range t.Labels {
-				if labelMatchesWildcard(l, w) {
+				if core.LabelMatchesWildcard(l, w) {
 					if _, exists := buckets[l]; !exists {
 						order = append(order, l)
 					}
@@ -193,7 +195,7 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 		matched := false
 		for _, w := range wildcards {
 			for _, l := range t.Labels {
-				if labelMatchesWildcard(l, w) {
+				if core.LabelMatchesWildcard(l, w) {
 					matched = true
 					break
 				}
@@ -207,33 +209,6 @@ func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, erro
 		}
 	}
 	return groups, others, nil
-}
-
-func restrictingTokens(labels []string) []string {
-	var out []string
-	for _, l := range labels {
-		if !isWildcard(l) {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-func wildcardTokens(labels []string) []string {
-	var out []string
-	for _, l := range labels {
-		if isWildcard(l) {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-func isWildcard(l string) bool { return strings.HasSuffix(l, ":*") }
-
-func labelMatchesWildcard(label, wildcard string) bool {
-	prefix := strings.TrimSuffix(wildcard, "*")
-	return strings.HasPrefix(label, prefix)
 }
 
 func (s *Store) listTaskIDs(code string) []string {

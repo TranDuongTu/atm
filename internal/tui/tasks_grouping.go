@@ -2,8 +2,8 @@ package tui
 
 import (
 	"sort"
-	"strings"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -23,29 +23,11 @@ type taskGroup struct {
 
 // parseFilter splits the filter string on spaces; tokens ending `:*` are
 // wildcards (facets), others are exact restrictors.
-func (t *tasksModel) parseFilter() []string {
-	s := strings.TrimSpace(t.filter)
-	if s == "" {
-		return nil
-	}
-	return strings.Fields(s)
-}
-
-// taskHasBareTag reports whether t carries at least one unnamespaced (bare)
-// label — a label whose suffix after the "<scope>:" prefix contains no colon.
-func taskHasBareTag(scope string, t *store.Task) bool {
-	for _, full := range t.Labels {
-		suffix := strings.TrimPrefix(full, scope+":")
-		if !strings.Contains(suffix, ":") {
-			return true
-		}
-	}
-	return false
-}
+func (t *tasksModel) parseFilter() []string { return core.ParseFilter(t.filter) }
 
 func (t *tasksModel) hasWildcard() bool {
 	for _, tok := range t.parseFilter() {
-		if isWildcardTUI(tok) {
+		if core.IsWildcard(tok) {
 			return true
 		}
 	}
@@ -65,57 +47,6 @@ func (t *tasksModel) grouped() bool {
 	default:
 		return false
 	}
-}
-
-func isWildcardTUI(l string) bool { return strings.HasSuffix(l, ":*") }
-
-// facetToken returns the full wildcard label used to facet the Tasks pane by
-// a namespace, e.g. facetToken("ATM","status") == "ATM:status:*".
-func facetToken(scope, ns string) string { return scope + ":" + ns + ":*" }
-
-// filterHasToken reports whether token is one of the space-separated fields of
-// filter.
-func filterHasToken(filter, token string) bool {
-	for _, f := range strings.Fields(filter) {
-		if f == token {
-			return true
-		}
-	}
-	return false
-}
-
-// filterAddToken appends token to filter (single-space separated) unless it is
-// already present.
-func filterAddToken(filter, token string) string {
-	if filterHasToken(filter, token) {
-		return filter
-	}
-	if strings.TrimSpace(filter) == "" {
-		return token
-	}
-	return filter + " " + token
-}
-
-// filterRemoveToken removes every occurrence of token from filter and rejoins
-// the remaining fields with single spaces.
-func filterRemoveToken(filter, token string) string {
-	var kept []string
-	for _, f := range strings.Fields(filter) {
-		if f != token {
-			kept = append(kept, f)
-		}
-	}
-	return strings.Join(kept, " ")
-}
-
-func wildcardTokens(labels []string) []string {
-	var out []string
-	for _, l := range labels {
-		if isWildcardTUI(l) {
-			out = append(out, l)
-		}
-	}
-	return out
 }
 
 // buildNestedGroups buckets `tasks` by the concrete labels they carry that
@@ -141,7 +72,7 @@ func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*stor
 	matched := map[*store.Task]bool{}
 	for _, t := range tasks {
 		for _, l := range t.Labels {
-			if labelMatchesWildcardTUI(l, w) {
+			if core.LabelMatchesWildcard(l, w) {
 				if _, exists := buckets[l]; !exists {
 					keys = append(keys, l)
 				}
@@ -189,14 +120,6 @@ func buildNestedGroups(tasks []*store.Task, wildcards []string, toRow func(*stor
 		groups = append(groups, g)
 	}
 	return groups
-}
-
-// labelMatchesWildcardTUI reports whether label matches the wildcard (e.g.
-// "ATM:status:open" matches "ATM:status:*"). Mirrors store.labelMatchesWildcard
-// without exposing the unexported helper.
-func labelMatchesWildcardTUI(label, wildcard string) bool {
-	prefix := strings.TrimSuffix(wildcard, "*")
-	return strings.HasPrefix(label, prefix)
 }
 
 // groupLineCount returns the logical lines contributed by one group and its
