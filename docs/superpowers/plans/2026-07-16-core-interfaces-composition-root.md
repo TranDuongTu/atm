@@ -934,11 +934,35 @@ func TestVersionImportsNoInternalPackage(t *testing.T) {
 	}
 }
 
-func TestTUIImportsOnlyCore(t *testing.T) {
+// TestTUIDoesNotImportStore is refactor step 4's actual boundary win: the TUI
+// no longer knows the concrete persistence adapter, it consumes core.Service.
+//
+// The architecture doc's table says tui may import "core, tui/components —
+// nothing else". That is the TARGET, and it does not hold yet: tui production
+// files also import internal/{workflow, activity, seed, embed}. Relocating a
+// capability (workflow) belongs to step 5 (ATM-08db6e); the satellites
+// (activity, seed, embed) are acknowledged thin leaves the doc keeps in place.
+// Purging them is out of step 4's scope, so this test asserts the edge step 4
+// actually removes rather than a rule the tree does not satisfy. Tighten it
+// when steps 5-6 land.
+func TestTUIDoesNotImportStore(t *testing.T) {
 	for f, imps := range internalImports(t, "internal/tui") {
 		for _, p := range imps {
-			if p != "atm/internal/core" {
-				t.Errorf("%s imports %q; internal/tui production files may import only atm/internal/core", f, p)
+			if p == "atm/internal/store" {
+				t.Errorf("%s imports %q; internal/tui production files must consume core.Service, not the concrete store", f, p)
+			}
+		}
+	}
+}
+
+// TestWorkflowDoesNotImportStore pins the step-4 side effect of putting
+// workflow.EnsureVocabulary on core.LabelService: the capability now depends
+// on the domain leaf, not the persistence adapter.
+func TestWorkflowDoesNotImportStore(t *testing.T) {
+	for f, imps := range internalImports(t, "internal/workflow") {
+		for _, p := range imps {
+			if p == "atm/internal/store" {
+				t.Errorf("%s imports %q; internal/workflow must depend on core, not the store", f, p)
 			}
 		}
 	}
@@ -958,11 +982,13 @@ func TestCLIDoesNotImportTUI(t *testing.T) {
 - [ ] **Step 2: Run it — must pass on the finished tree**
 
 Run: `go test ./tests/arch/ -v`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 3: Prove it bites**
 
-Temporarily add `_ "atm/internal/store"` to `internal/tui/styles.go` imports, run `go test ./tests/arch/ -run TestTUIImportsOnlyCore` — Expected: FAIL naming `styles.go`. Revert the edit (`git checkout -- internal/tui/styles.go`) and re-run — Expected: PASS.
+Temporarily add `_ "atm/internal/store"` to `internal/tui/styles.go` imports, run `go test ./tests/arch/ -run TestTUIDoesNotImportStore` — Expected: FAIL naming `styles.go`. Revert the edit (`git checkout -- internal/tui/styles.go`) and re-run — Expected: PASS.
+
+A test that cannot fail is not a gate; this step is what proves it is one.
 
 - [ ] **Step 4: Full verify and commit**
 
@@ -988,9 +1014,12 @@ Expected: PASS. Also re-run the boundary greps from Task 6 Step 5 — all clean.
 - [ ] **Step 2: Acceptance-criteria checklist against ATM-b9d83a**
 
 - Build and tests green — from Step 1.
-- `internal/tui` production imports only core — `tests/arch` proves it.
+- `internal/tui` production files do not import `internal/store` — `tests/arch` proves it.
+- `internal/workflow` does not import `internal/store` — `tests/arch` proves it.
 - `internal/version` imports no internal package — `tests/arch` proves it.
-- Import-rules table holds — `tests/arch` covers tui/cli/version/core rows.
+- `internal/core` imports nothing internal; `internal/cli` does not import `internal/tui` — `tests/arch` proves both.
+
+**Criterion amended during execution (user-approved).** ATM-b9d83a as written says "internal/tui imports only core and tui/components". That is the architecture doc's target and step 4 cannot reach it: tui production files also import `internal/{workflow, activity, seed, embed}`. `workflow` is a capability whose relocation belongs to step 5 (ATM-08db6e); `activity`, `seed`, and `embed` are satellites the doc explicitly keeps as thin leaves. Purging them is out of scope here, so the criterion is narrowed to the edge step 4 genuinely removes — the TUI no longer depending on the concrete persistence adapter — and the remaining edges are carried to steps 5-6 rather than silently asserted. Step 3 below records this on the ledger.
 
 - [ ] **Step 3: Record completion in the ledger**
 
