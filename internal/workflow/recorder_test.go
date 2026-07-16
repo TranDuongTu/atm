@@ -102,11 +102,52 @@ func TestRecorderSetStatusRemovesMultipleStatusLabels(t *testing.T) {
 	_ = s.TaskLabelAdd(tk.ID, "ATM:status:open", "admin@cli:unset")
 	_ = s.TaskLabelAdd(tk.ID, "ATM:status:done", "admin@cli:unset")
 	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
-	if _, err := r.SetStatus(tk.ID, StatusInProgress); err != nil {
+	prior, err := r.SetStatus(tk.ID, StatusInProgress)
+	if err != nil {
 		t.Fatalf("SetStatus: %v", err)
+	}
+	// prior is the lexicographically first non-target status. The store returns
+	// labels sorted, so "done" precedes "open".
+	if prior != StatusDone {
+		t.Errorf("prior = %q, want %q (lexicographically first non-target)", prior, StatusDone)
 	}
 	if n := countStatusLabels(getTaskOrFatal(t, s, tk.ID), "ATM"); n != 1 {
 		t.Errorf("status label count = %d, want 1 (after collapsing hand-edit)", n)
+	}
+}
+
+func TestRecorderSetStatusCollapsesWhenTargetAlreadyPresent(t *testing.T) {
+	// The highest-risk branch: the target is ALREADY one of several status
+	// labels. The recorder must keep the target and drop the others -- never
+	// remove the target and fail to re-add it, which would leave the task with
+	// no status at all. Seeded [open, done] with target=done so that the
+	// alreadyHasTarget path is exercised; TestRecorderSetStatusRemovesMultiple
+	// only covers a target that is absent from the existing set.
+	s := newTestStore(t)
+	tk, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := s.TaskLabelAdd(tk.ID, "ATM:status:open", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	if err := s.TaskLabelAdd(tk.ID, "ATM:status:done", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed done: %v", err)
+	}
+	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
+	prior, err := r.SetStatus(tk.ID, StatusDone)
+	if err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	if prior != StatusOpen {
+		t.Errorf("prior = %q, want %q (lexicographically first non-target)", prior, StatusOpen)
+	}
+	got := getTaskOrFatal(t, s, tk.ID)
+	if n := countStatusLabels(got, "ATM"); n != 1 {
+		t.Errorf("status label count = %d, want 1", n)
+	}
+	if v, _ := (&Reporter{Store: s}).Status(tk.ID); v != StatusDone {
+		t.Errorf("status = %q, want %q (target must survive)", v, StatusDone)
 	}
 }
 
