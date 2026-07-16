@@ -14,7 +14,11 @@
 
 ## Global Constraints
 
-- **`internal/core` imports nothing internal.** `go list -deps ./internal/core | grep atm/internal` must print nothing. Standard library only.
+- **`internal/core` imports nothing internal.** Verify with:
+  `go list -deps ./internal/core | grep '^atm/' | grep -v '^atm/internal/core$' || echo "LEAF OK"`
+  Note the second grep: `go list -deps` lists the package ITSELF among its output, so a bare
+  `grep atm/` always matches `atm/internal/core` and reports a false violation. Exclude it.
+  Standard library only.
 - **`store.Task` does not move.** No package outside `store` gains a dependency on a core domain type. That is step 4 (ATM-b9d83a).
 - **`GroupTasksErr` keeps its signature:** `func (s *Store) GroupTasksErr(filters QueryFilters) ([]LabelGroup, []*Task, error)`. `internal/cli` must not change.
 - **Only Tasks 5 and 6 change behavior.** Tasks 1-4 preserve today's observable behavior exactly, including the duplicate-append bug. Task 5 carries the dedup fix; Task 6 carries the TUI tree fix. Nothing else may change behavior.
@@ -804,7 +808,7 @@ Expected: PASS — all of `TestIsWildcard`, `TestLabelMatchesWildcard`, `TestWil
 
 - [ ] **Step 6: Verify the leaf rule mechanically**
 
-Run: `go list -deps ./internal/core | grep atm/ || echo "LEAF OK"`
+Run: `go list -deps ./internal/core | grep '^atm/' | grep -v '^atm/internal/core$' || echo "LEAF OK"`
 Expected: `LEAF OK`.
 
 - [ ] **Step 7: Point `store` at core**
@@ -1545,7 +1549,7 @@ Expected: `NO LOCAL COPIES`.
 
 - [ ] **Step 9: Confirm the leaf rule still holds**
 
-Run: `go list -deps ./internal/core | grep atm/ || echo "LEAF OK"`
+Run: `go list -deps ./internal/core | grep '^atm/' | grep -v '^atm/internal/core$' || echo "LEAF OK"`
 Expected: `LEAF OK`.
 
 - [ ] **Step 10: Commit**
@@ -1698,7 +1702,7 @@ If anything else moved, stop and investigate before committing.
 Run: `make verify 2>&1 | tail -20`
 Expected: build, test, and scripts-test all green.
 
-Run: `go list -deps ./internal/core | grep atm/ || echo "LEAF OK"`
+Run: `go list -deps ./internal/core | grep '^atm/' | grep -v '^atm/internal/core$' || echo "LEAF OK"`
 Expected: `LEAF OK`.
 
 Confirm no string surgery on `:*` tokens is left in the TUI:

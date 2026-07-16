@@ -177,7 +177,7 @@ Verified by running, not asserted:
 
 - `make verify` green after each of the three commits.
 - No wildcard *matching* remains in `internal/tui`: `grep -rn 'HasSuffix\|TrimSuffix\|HasPrefix' internal/tui/*.go` returns no line that manipulates a `:*` token. The surviving `hasWildcard`/`grouped` methods are focus-mode policy and must contain no string surgery — each delegates to `core`. A bare grep for `wildcard` is *not* the criterion; those two names are expected to stay.
-- `go list -deps ./internal/core | grep atm/internal` is empty — the leaf rule holds mechanically.
+- `go list -deps ./internal/core | grep '^atm/' | grep -v '^atm/internal/core$'` is empty — the leaf rule holds mechanically. (The trailing exclusion matters: `go list -deps` includes the queried package itself, so a bare grep reports a false violation.)
 - `atm task list --facets` JSON is byte-identical across commit 2.
 
 ## Risks
