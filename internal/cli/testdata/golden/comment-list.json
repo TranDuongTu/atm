@@ -5,10 +5,10 @@
       "created_at": "TIMESTAMP",
       "created_by": "admin@cli:unset",
       "history": [],
-      "id": "ATM-db27b1-c4181",
+      "id": "ATM-06b24c-c930d",
       "labels": [],
       "ordinal": 1,
-      "task_id": "ATM-db27b1",
+      "task_id": "ATM-06b24c",
       "updated_at": "TIMESTAMP",
       "updated_by": "admin@cli:unset"
     },
@@ -17,12 +17,12 @@
       "created_at": "TIMESTAMP",
       "created_by": "admin@cli:unset",
       "history": [],
-      "id": "ATM-db27b1-c74d5",
+      "id": "ATM-06b24c-c6714",
       "labels": [
         "ATM:comment:clarification"
       ],
       "ordinal": 2,
-      "task_id": "ATM-db27b1",
+      "task_id": "ATM-06b24c",
       "updated_at": "TIMESTAMP",
       "updated_by": "admin@cli:unset"
     }

@@ -22,7 +22,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		return tui.Run(s, actor)
+		return tui.Run(s, actor, reg)
 	}
 	os.Exit(cli.Execute(cli.Deps{RunTUI: runTUI, Registry: reg}))
 }

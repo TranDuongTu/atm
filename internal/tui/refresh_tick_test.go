@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"atm/internal/capability"
+	"atm/internal/capability/workflow"
 	"atm/internal/store"
 )
 
@@ -24,7 +26,7 @@ func TestRefreshTickSurfacesExternalMutation(t *testing.T) {
 	// One task exists before the TUI starts.
 	_, _ = s.CreateTask("ATM", "pre-existing", "", []string{"ATM:status:open"}, "admin@cli:test")
 
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "admin@tui:unset"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "admin@tui:unset", Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		t.Fatal(err)
 	}

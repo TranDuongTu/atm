@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
 	"atm/internal/capability/workflow"
 	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
@@ -480,7 +481,7 @@ func newTestStore(t *testing.T) *store.Store {
 // for direct row assertions without driving the full key harness.
 func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel {
 	t.Helper()
-	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor})
+	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}

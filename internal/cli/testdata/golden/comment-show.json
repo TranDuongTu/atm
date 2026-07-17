@@ -8,13 +8,13 @@
         "action": "comment.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 26
+        "seq": 30
       }
     ],
-    "id": "ATM-db27b1-cd39d",
+    "id": "ATM-06b24c-c5e7d",
     "labels": [],
     "ordinal": 1,
-    "task_id": "ATM-db27b1",
+    "task_id": "ATM-06b24c",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
