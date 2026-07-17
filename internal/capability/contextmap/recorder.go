@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 // Recorder holds the four mutating verbs. Each ensures the capability's
 // vocabulary before using it, so none requires a seeded project.
 type Recorder struct {
-	Store    *store.Store
+	Store    Service
 	Resolver *Resolver
 	Actor    string
 }
@@ -126,7 +126,7 @@ func isGone(err error) bool { return errors.Is(err, errGone) }
 // LatestStamp returns the newest provenance stamp on a task. ok is false when
 // the pointer was never stamped -- check reports that as UNVERIFIED, never as an
 // error: a human may have written the pointer by hand.
-func LatestStamp(s *store.Store, taskID, code string) (Stamp, bool, error) {
+func LatestStamp(s core.CommentService, taskID, code string) (Stamp, bool, error) {
 	comments, err := s.ListComments(taskID)
 	if err != nil {
 		return Stamp{}, false, err

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"atm/internal/contextmap"
+	"atm/internal/capability/contextmap"
 
 	"github.com/spf13/cobra"
 )
