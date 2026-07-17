@@ -306,3 +306,68 @@ func TestFoldUpdatedMetaTracksWinningWriter(t *testing.T) {
 		t.Errorf("creation meta must not move: %s @ %v", task.CreatedBy, task.CreatedAt)
 	}
 }
+
+// TestFoldCommentActivityBumpsTaskUpdatedMeta reproduces ATM-fe669c: under
+// the v2 fold, commenting never touched the parent task's UpdatedAt/UpdatedBy
+// (comment.created writes only comment slots, and Pass 3 only looked at the
+// task's own slots). The fix: a task's effective activity timestamp is the
+// max of its own last write and its live comments' last writes — a pure
+// read-time function of the event set (D4-safe), so it inherits the
+// maximal-writer determinism of the rest of the fold.
+func TestFoldCommentActivityBumpsTaskUpdatedMeta(t *testing.T) {
+	ca, cb := testClock(1000), testClock(2000)
+	created := testEvent(t, ca, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-1", "title": "v0"})
+	comment, _, err := NewCommentCreated(cb, replicaB, []string{created.ID}, CommentCreateDraft{
+		TaskAlias: "T-1",
+		TaskRef:   created.ID,
+		At:        time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC),
+		Actor:     "developer@claude:test",
+		Body:      "a comment after creation",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := fold(t, created, comment)
+	task := st.Tasks[created.ID]
+	if !task.UpdatedAt.Equal(comment.At) {
+		t.Errorf("task.UpdatedAt = %v, want comment time %v (comment activity must bump parent task)",
+			task.UpdatedAt, comment.At)
+	}
+	if task.UpdatedBy != comment.Actor {
+		t.Errorf("task.UpdatedBy = %q, want %q (comment actor must propagate to parent task)",
+			task.UpdatedBy, comment.Actor)
+	}
+}
+
+// TestFoldCommentActivityBumpsTaskUpdatedMetaTombstonedExcluded verifies the
+// tombstone carve-out: a tombstoned comment is inert (D5/decision 10) and
+// must not bump the parent task's activity. The task's UpdatedAt stays at
+// its own last write.
+func TestFoldCommentActivityBumpsTaskUpdatedMetaTombstonedExcluded(t *testing.T) {
+	ca := testClock(1000)
+	created := testEvent(t, ca, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-1", "title": "v0"})
+	comment, _, err := NewCommentCreated(ca, replicaA, []string{created.ID}, CommentCreateDraft{
+		TaskAlias: "T-1",
+		TaskRef:   created.ID,
+		At:        time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC),
+		Actor:     "developer@claude:test",
+		Body:      "later removed",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := testEvent(t, ca, replicaA, []string{comment.ID}, ActionCommentRemoved,
+		Subject{Kind: "comment", ID: comment.ID}, nil)
+	st := fold(t, created, comment, removed)
+	task := st.Tasks[created.ID]
+	if !task.UpdatedAt.Equal(created.At) {
+		t.Errorf("task.UpdatedAt = %v, want creation time %v (tombstoned comment must not bump parent)",
+			task.UpdatedAt, created.At)
+	}
+	if task.UpdatedBy != created.Actor {
+		t.Errorf("task.UpdatedBy = %q, want %q (tombstoned comment must not propagate actor)",
+			task.UpdatedBy, created.Actor)
+	}
+}

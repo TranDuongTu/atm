@@ -233,7 +233,7 @@ No tag storage, no tombstone accumulation, no GC. The OR-Set is a *read* of the 
 | `task.label-added` / `-removed`, `comment.label-added` / `-removed` | Membership slot; add-wins. |
 | `project.removed`, `task.removed`, `comment.removed`, `label.removed` | Existence slot; tombstone. A **concurrent** edit cannot resurrect (D4). |
 | **`task.restored`** *(new)* | Existence slot; resurrection. See below. |
-| `task.meta-changed` | **Retired.** It existed only to bump `NextCommentN` (`internal/store/comment.go:53,84`), which no longer exists. v1 instances ride through the D6 upgrade and are inert — preserved, never dropped (D5). |
+| `task.meta-changed` | **Retired.** It existed only to bump `NextCommentN` (`internal/store/comment.go:53,84`), which no longer exists, and to propagate comment activity into the parent task's `updated_at`/`updated_by`. v1 instances ride through the D6 upgrade and are inert — preserved, never dropped (D5). The `NextCommentN` bump is gone for good (no successor). The `updated_at`/`updated_by` propagation was restored as a **read-time derivation** in the fold (Pass 4: a task's effective activity is the max of its own last write and its live comments' last writes), not as a stored event — see ATM-fe669c. A stored bump would have re-added whole-record payloads and log noise and created spurious contested slots on concurrent comments; deriving at read time is D4-safe. |
 
 ## `task.restored` (new action)
 

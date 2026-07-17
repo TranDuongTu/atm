@@ -378,6 +378,46 @@ func Fold(d *DAG) *State {
 			st.Labels[entity].UpdatedAt, st.Labels[entity].UpdatedBy = e.At, e.Actor
 		}
 	}
+
+	// Pass 4 — task activity from comment writes (ATM-fe669c). v1 AddComment
+	// bumped the parent task via task.meta-changed; ATM-0106 retired that
+	// event and the bump went with it, so under v2 a discussion-heavy task
+	// looked stale. Restoring a stored bump would re-add whole-record
+	// payloads and log noise and create spurious contested slots on
+	// concurrent comments. Instead derive activity at read time: a task's
+	// effective activity timestamp is the max of its own last write and
+	// its live comments' last writes. This is a pure function of the event
+	// set (D4-safe) — it reuses the same maximal-writer `lastWrite` map and
+	// the HLC total order, so it inherits the determinism of the rest of the
+	// fold. Tombstoned comments are inert (D5/decision 10) and do not
+	// contribute. Iterating sorted task and comment ids per the global
+	// constraint that fold output never reads map order.
+	taskIDs := make([]string, 0, len(st.Tasks))
+	for id := range st.Tasks {
+		taskIDs = append(taskIDs, id)
+	}
+	sort.Strings(taskIDs)
+	for _, taskID := range taskIDs {
+		task := st.Tasks[taskID]
+		winning := lastWrite[taskID]
+		commentIDs := make([]string, 0, len(st.Comments))
+		for cid, c := range st.Comments {
+			if c.TaskRef == taskID && !c.Tombstoned {
+				commentIDs = append(commentIDs, cid)
+			}
+		}
+		sort.Strings(commentIDs)
+		for _, cid := range commentIDs {
+			if cw := lastWrite[cid]; cw != nil {
+				if winning == nil || CompareEvents(winning, cw) < 0 {
+					winning = cw
+				}
+			}
+		}
+		if winning != nil {
+			task.UpdatedAt, task.UpdatedBy = winning.At, winning.Actor
+		}
+	}
 	return st
 }
 
