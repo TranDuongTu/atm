@@ -86,11 +86,11 @@ func WithReplicaEntropy(r io.Reader) Option { return func(s *Store) { s.replicaE
 // time.Now().UTC().
 func WithNow(f func() time.Time) Option { return func(s *Store) { s.nowFn = f } }
 
-// Now returns the current time as seen by this Store instance, honoring
-// WithNow if set. Production stores (opened with no options) get
-// time.Now().UTC(). v2 authoring stamps event `at` fields through this
-// method so tests can pin it via WithNow; everything else in the store
-// continues to use core.Now() directly.
+// Now satisfies core.MaintenanceService and returns the current time as seen
+// by this Store instance, honoring WithNow if set (production stores, opened
+// with no options, get time.Now().UTC()). It reads the SAME nowFn the eventlog
+// engine stamps event `at` fields with — both are handed s.nowFn at Open — so
+// tests pinning WithNow move the store facade and v2 authoring together.
 func (s *Store) Now() time.Time { return s.nowFn() }
 
 var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)

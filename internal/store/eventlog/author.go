@@ -9,10 +9,11 @@ import (
 )
 
 // Action enum — closed. These are the write-side action strings the engine
-// stamps on authored events. They mirror the read-side store.Action* constants
-// (internal/store/log.go still renders history from the same strings); the two
-// sets carry identical literals across the carve seam and Task 9 reconciles
-// them once nothing outside the engine authors events.
+// stamps on authored events. The engine keeps its own unexported copies here;
+// store's exported store.Action* constants (internal/store/log.go) carry the
+// identical literals and serve the history views and store tests that render
+// from the same strings. The two sets are deliberately independent across the
+// carve seam — the engine no longer reaches into the store package for them.
 const (
 	actionProjectCreated      = "project.created"
 	actionProjectNameChanged  = "project.name-changed"

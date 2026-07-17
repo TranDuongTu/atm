@@ -9,9 +9,9 @@ import (
 )
 
 // localInstanceMarker is written to the store root (NOT store.json, and NOT
-// governed by the store-meta lock's "only mutateStoreMeta writes store.json"
+// governed by the store-meta lock's "only MutateStoreMeta writes store.json"
 // rule below -- it is a separate file) after every call to
-// ensureReplicaForWriteLocked. It records the identity this engine
+// EnsureReplicaForWriteLocked. It records the identity this engine
 // believed it owned the last time it authored an event, plus the
 // filesystem path it was writing from.
 //
@@ -26,7 +26,7 @@ import (
 // KNOWN LIMITATION (carried forward from the ATM-0107 Task 10 plan): a copy
 // restored at the IDENTICAL path -- e.g. an in-place backup/restore, or a
 // second machine deliberately mirroring the original's directory layout --
-// defeats this check. The marker's StorePath equals the copy's s.Root, so
+// defeats this check. The marker's StorePath equals the copy's e.root, so
 // the mismatch never fires and the copy silently reuses the original's
 // replica id. Closing this gap needs an identity signal that does NOT
 // travel with a copied directory: machine identity (e.g. /etc/machine-id),
@@ -67,7 +67,7 @@ func (e *Engine) localInstanceMarkerPath() string {
 	return filepath.Join(e.root, ".atm-local-instance.json")
 }
 
-// ensureReplicaForWriteLocked returns the replica id this engine
+// EnsureReplicaForWriteLocked returns the replica id this engine
 // should stamp on the NEXT authored event, re-minting it first if
 // localInstanceMarker's detection rule (see its doc comment, including the
 // documented identical-path limitation) says this store root looks like a
@@ -75,10 +75,10 @@ func (e *Engine) localInstanceMarkerPath() string {
 // store.json's replica/instance ids.
 //
 // Caller must already hold this engine's PROJECT lock -- v2 authoring's lock
-// order is project -> store-meta (eventsource_meta.go:100-101). This
-// function itself takes the store-meta lock via mutateStoreMeta, which is a
-// DIFFERENT lock name and therefore safe to nest: WithLock is only
-// non-reentrant on the SAME name (lock.go:22-39). The whole
+// order is project -> store-meta (meta.go). This function itself takes the
+// store-meta lock via MutateStoreMeta, which is a DIFFERENT lock name and
+// therefore safe to nest: WithLock is only non-reentrant on the SAME name
+// (fsio/fsio.go). The whole
 // detect-and-possibly-remint-and-persist sequence -- reading store.json,
 // reading the marker, deciding, writing store.json, writing the marker --
 // runs inside that single store-meta critical section, so two projects on
