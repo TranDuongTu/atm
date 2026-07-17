@@ -1,11 +1,10 @@
 package version
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
-
-	"atm/internal/store"
 )
 
 // Info returns the full version info map used by both formatters.
@@ -34,13 +33,17 @@ func FormatText(info map[string]string) string {
 	return fmt.Sprintf("atm %s (%s)", info["version"], strings.Join(segs, ", "))
 }
 
-// EmitJSON renders the deterministic JSON object via the store's sorted
-// marshaller so key order is stable: arch, commit, date, os, version
-// (alphabetical, matching every other JSON-emitting CLI subcommand).
+// EmitJSON renders the deterministic JSON object: encoding/json marshals
+// map keys in sorted order (arch, commit, date, os, version), two-space
+// indent, no HTML escaping, no trailing newline — byte-identical to the
+// store-backed marshaller this replaced.
 func EmitJSON(info map[string]any) string {
-	data, err := store.MarshalSorted(info)
-	if err != nil {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(info); err != nil {
 		return "{}\n"
 	}
-	return string(data)
+	return strings.TrimSuffix(buf.String(), "\n")
 }
