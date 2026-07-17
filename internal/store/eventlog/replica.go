@@ -1,4 +1,4 @@
-package store
+package eventlog
 
 import (
 	"encoding/json"
@@ -63,8 +63,8 @@ type localInstanceMarker struct {
 // ABSENCE (a fresh store, or a marker deleted out from under this store)
 // never blocks authoring; it just means detection is skipped for that
 // write, which is the same as never having had a marker at all.
-func (s *Store) localInstanceMarkerPath() string {
-	return filepath.Join(s.Root, ".atm-local-instance.json")
+func (e *Engine) localInstanceMarkerPath() string {
+	return filepath.Join(e.root, ".atm-local-instance.json")
 }
 
 // ensureReplicaForWriteLocked returns the replica id this Store instance
@@ -100,18 +100,18 @@ func (s *Store) localInstanceMarkerPath() string {
 //     corrupt anything by itself, but the two copies WILL author future
 //     events under the same replica id, which is the condition this
 //     function exists to prevent -- see the KNOWN LIMITATION above.
-func (s *Store) ensureReplicaForWriteLocked() (string, error) {
+func (e *Engine) EnsureReplicaForWriteLocked() (string, error) {
 	var replicaID string
-	err := s.mutateStoreMeta(func(m *StoreMeta) error {
+	err := e.MutateStoreMeta(func(m *StoreMeta) error {
 		if m.StoreInstanceID == "" {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
 			m.StoreInstanceID = minted
 		}
 		if m.ReplicaID == "" {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
@@ -119,15 +119,15 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 		}
 
 		var marker localInstanceMarker
-		if raw, readErr := os.ReadFile(s.localInstanceMarkerPath()); readErr == nil {
+		if raw, readErr := os.ReadFile(e.localInstanceMarkerPath()); readErr == nil {
 			// Best-effort: a missing or malformed marker cannot prove a
 			// copy happened, so it never blocks authoring -- it just
 			// means the zero-value marker below never matches m below,
 			// and detection is silently skipped for this write.
 			_ = json.Unmarshal(raw, &marker)
 		}
-		if marker.StoreInstanceID != "" && marker.StoreInstanceID == m.StoreInstanceID && marker.StorePath != s.Root {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+		if marker.StoreInstanceID != "" && marker.StoreInstanceID == m.StoreInstanceID && marker.StorePath != e.root {
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
@@ -137,14 +137,14 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 		next := localInstanceMarker{
 			StoreInstanceID: m.StoreInstanceID,
 			ReplicaID:       m.ReplicaID,
-			StorePath:       s.Root,
+			StorePath:       e.root,
 		}
 		out, err := json.MarshalIndent(next, "", "  ")
 		if err != nil {
 			return err
 		}
 		out = append(out, '\n')
-		if err := os.WriteFile(s.localInstanceMarkerPath(), out, 0o644); err != nil {
+		if err := os.WriteFile(e.localInstanceMarkerPath(), out, 0o644); err != nil {
 			return err
 		}
 

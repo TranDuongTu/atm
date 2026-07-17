@@ -1,4 +1,4 @@
-package store
+package eventlog
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"atm/internal/core"
 	"atm/libs/eventsource"
 )
 
@@ -17,12 +18,12 @@ type V2FileSnapshot struct {
 	Frontier       []string
 }
 
-// readV2FileAt reads a v2 event file. The commit point is a complete,
+// ReadFileAt reads a v2 event file. The commit point is a complete,
 // newline-terminated line (L3-7): every byte after the last '\n' is an
 // uncommitted partial tail — even if it happens to parse as JSON. A
 // bufio.Scanner would hide that distinction (it yields an unterminated
 // tail as a normal line), so the split is done on the raw bytes.
-func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, error) {
+func (e *Engine) ReadFileAt(path string, repairTail bool) (*V2FileSnapshot, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return &V2FileSnapshot{}, nil
@@ -38,7 +39,7 @@ func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, err
 	}
 	if tail > 0 {
 		if !repairTail {
-			return nil, fmt.Errorf("%w: %s has %d bytes of uncommitted partial tail", ErrIntegrity, path, tail)
+			return nil, fmt.Errorf("%w: %s has %d bytes of uncommitted partial tail", core.ErrIntegrity, path, tail)
 		}
 		if err := os.Truncate(path, int64(len(body))); err != nil {
 			return nil, err
@@ -55,14 +56,14 @@ func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, err
 		if err != nil {
 			// A complete line that fails to parse is an integrity error,
 			// never a repair target (spec crash-recovery rules).
-			return nil, fmt.Errorf("%w: %s:%d: %v", ErrIntegrity, path, i+1, err)
+			return nil, fmt.Errorf("%w: %s:%d: %v", core.ErrIntegrity, path, i+1, err)
 		}
 		events = append(events, ev)
 	}
 
 	dag, err := eventsource.BuildDAG(events)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s DAG: %v", ErrIntegrity, path, err)
+		return nil, fmt.Errorf("%w: %s DAG: %v", core.ErrIntegrity, path, err)
 	}
 	return &V2FileSnapshot{
 		Events:         events,
@@ -73,18 +74,18 @@ func (s *Store) readV2FileAt(path string, repairTail bool) (*V2FileSnapshot, err
 	}, nil
 }
 
-func (s *Store) readV2File(code string, repairTail bool) (*V2FileSnapshot, error) {
-	return s.readV2FileAt(s.eventsV2Path(code), repairTail)
+func (e *Engine) ReadV2File(code string, repairTail bool) (*V2FileSnapshot, error) {
+	return e.ReadFileAt(e.EventsV2Path(code), repairTail)
 }
 
-// verifyV2File is the strict read: parse, recompute ids, validate parents,
+// VerifyFile is the strict read: parse, recompute ids, validate parents,
 // build the DAG — and never repair.
-func (s *Store) verifyV2File(code string) (*V2FileSnapshot, error) {
-	return s.readV2File(code, false)
+func (e *Engine) VerifyFile(code string) (*V2FileSnapshot, error) {
+	return e.ReadV2File(code, false)
 }
 
-func (s *Store) appendV2EventLineLocked(code string, raw []byte) error {
-	path := s.eventsV2Path(code)
+func (e *Engine) AppendEventLineLocked(code string, raw []byte) error {
+	path := e.EventsV2Path(code)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

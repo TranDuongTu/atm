@@ -260,12 +260,3 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 	}
 	return ev, alias, s.commitV2AuthorLocked(code, ev)
 }
-
-// currentReplicaIDLocked returns the replica id to stamp on the next
-// authored event. It defers entirely to ensureReplicaForWriteLocked
-// (eventsource_replica.go), which mints on first use AND re-mints on every
-// call if the store root looks like a copy of another instance -- see that
-// function's doc comment for the detection rule and its known limitation.
-func (s *Store) currentReplicaIDLocked() (string, error) {
-	return s.ensureReplicaForWriteLocked()
-}

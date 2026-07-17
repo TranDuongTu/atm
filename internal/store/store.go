@@ -2,6 +2,7 @@ package store
 
 import (
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -43,6 +44,11 @@ type Store struct {
 	clockNow       func() int64     // nil => eventsource.NewClock uses wall clock
 	replicaEntropy io.Reader        // nil => rand.Reader (defaulted in Open)
 	nowFn          func() time.Time // nil => time.Now().UTC (defaulted in Open)
+
+	// eng is the event-log write-engine (internal/store/eventlog). Hooks are
+	// wired in Task 6; until then engine-internal projection paths are still
+	// facade methods.
+	eng *eventlog.Engine
 }
 
 // Store satisfies core's service seam structurally (refactor step 4).
@@ -177,6 +183,11 @@ func Open(root string, opts ...Option) (*Store, error) {
 	if s.nowFn == nil {
 		s.nowFn = func() time.Time { return time.Now().UTC() }
 	}
+	s.eng = eventlog.New(abs, eventlog.Options{
+		ClockNow:       s.clockNow,
+		ReplicaEntropy: s.replicaEntropy,
+		Now:            s.nowFn,
+	})
 	return s, nil
 }
 
@@ -240,24 +251,13 @@ func (s *Store) inquiryLogPath(code string) string {
 	return filepath.Join(s.projectDir(code), "inquiry-log.jsonl")
 }
 
-// projectCodesOnDisk enumerates project codes by the projects/<CODE>/
-// directory structure (which holds log.jsonl), independent of cache.db.
-// Used by Verify/Rebuild so a missing or fully-wiped cache.db doesn't hide
-// projects that still have logs on disk.
-func (s *Store) projectCodesOnDisk() ([]string, error) {
-	entries, err := os.ReadDir(s.projectsDir())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var codes []string
-	for _, e := range entries {
-		if e.IsDir() {
-			codes = append(codes, e.Name())
-		}
-	}
-	sort.Strings(codes)
-	return codes, nil
-}
+// storeMetaPath is the store.json path. The engine (internal/store/eventlog)
+// owns the reads and writes of store.json now; this facade helper survives
+// only for store-package tests that materialize a corrupt store.json to
+// exercise error paths. Kept in sync with eventlog.Engine.storeMetaPath.
+func (s *Store) storeMetaPath() string { return filepath.Join(s.Root, "store.json") }
+
+// projectCodesOnDisk delegates to the event-log engine, which owns the
+// projects/<CODE>/ enumeration (moved there in refactor step 6). Verify/
+// Rebuild still call it through the facade.
+func (s *Store) projectCodesOnDisk() ([]string, error) { return s.eng.ProjectCodesOnDisk() }

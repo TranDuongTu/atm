@@ -13,19 +13,6 @@ func testStore(t *testing.T) *Store {
 	return newTestStore(t)
 }
 
-func TestEventsourcePaths(t *testing.T) {
-	s := testStore(t)
-	if got, want := s.eventsV2Path("ATM"), filepath.Join(s.StorePath(), "projects", "ATM", "events.v2.jsonl"); got != want {
-		t.Fatalf("eventsV2Path = %q, want %q", got, want)
-	}
-	if got, want := s.eventsourceMetaPath("ATM"), filepath.Join(s.StorePath(), "projects", "ATM", "eventsource.json"); got != want {
-		t.Fatalf("eventsourceMetaPath = %q, want %q", got, want)
-	}
-	if got, want := s.storeMetaPath(), filepath.Join(s.StorePath(), "store.json"); got != want {
-		t.Fatalf("storeMetaPath = %q, want %q", got, want)
-	}
-}
-
 func TestProjectFormatDefaultsToV1(t *testing.T) {
 	s := testStore(t)
 	f, err := s.projectFormat("ATM")
