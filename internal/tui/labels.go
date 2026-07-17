@@ -246,7 +246,7 @@ func (b *boardsModel) refresh() {
 	}
 }
 
-// selectDefault selects the Open Tasks board if present, else the first ring
+// selectDefault selects the All Tasks board if present, else the first ring
 // board. Called on project select after EnsureVocabulary, and from refresh()
 // when the previously selected board vanished mid-session — that fallback can
 // fire while a chart/detail is drilled into the now-vanished board, so this
@@ -255,7 +255,7 @@ func (b *boardsModel) refresh() {
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
-	want := workflow.BoardOpenTasks(b.m.projectScope)
+	want := workflow.BoardAllTasks(b.m.projectScope)
 	for _, r := range b.rows {
 		if r.FullName == want {
 			b.selected = want

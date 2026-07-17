@@ -13,7 +13,7 @@ import (
 
 // --- Board ring / default selection tests ---
 
-func TestSelectDefaultPicksOpenTasksBoard(t *testing.T) {
+func TestSelectDefaultPicksAllTasksBoard(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -23,8 +23,39 @@ func TestSelectDefaultPicksOpenTasksBoard(t *testing.T) {
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
 	m.boards.selectDefault()
-	if m.boards.selected != workflow.BoardOpenTasks("ATM") {
-		t.Errorf("selected = %q, want ATM:open-tasks", m.boards.selected)
+	if m.boards.selected != workflow.BoardAllTasks("ATM") {
+		t.Errorf("selected = %q, want ATM:all-tasks", m.boards.selected)
+	}
+}
+
+// TestSelectDefaultOpenTasksRemainsSelectableInRing guards the demote-
+// not-remove decision: all-tasks becomes the default, but open-tasks stays
+// in the board ring as a normal selectable member. A single [ press from
+// the all-tasks default must be able to reach it.
+func TestSelectDefaultOpenTasksRemainsSelectableInRing(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected != workflow.BoardAllTasks("ATM") {
+		t.Fatalf("precondition: selected = %q, want ATM:all-tasks", m.boards.selected)
+	}
+	// Cycle the ring until open-tasks is selected; it MUST be present.
+	found := false
+	for i := 0; i < len(m.boards.rows); i++ {
+		m.boards.cycleBoard(1)
+		if m.boards.selected == workflow.BoardOpenTasks("ATM") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("open-tasks not reachable by cycling from all-tasks; ring = %v", m.boards.rowNames())
 	}
 }
 
@@ -1332,7 +1363,7 @@ func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
-	m.boards.selectDefault() // SELECTED = ATM:open-tasks (leaf board)
+	m.boards.selectDefault() // SELECTED = ATM:all-tasks (leaf board)
 	m.boards.drillIn()       // leaf board -> its detail
 	if m.boards.level != lLevelDetail {
 		t.Fatalf("level = %v, want lLevelDetail", m.boards.level)
@@ -1344,8 +1375,8 @@ func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
 	// The task list must still be filtered by the SELECTED board (assert via
 	// the tasks pane's focus caption / filter — check the exact accessor in
 	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
-	if got := m.tasks.focusCaption(); !strings.Contains(got, "open-tasks") {
-		t.Errorf("focus caption = %q, want it to reference open-tasks after drillOut", got)
+	if got := m.tasks.focusCaption(); !strings.Contains(got, "all-tasks") {
+		t.Errorf("focus caption = %q, want it to reference all-tasks after drillOut", got)
 	}
 }
 
