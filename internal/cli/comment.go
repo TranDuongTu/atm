@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -94,8 +94,8 @@ func newCommentShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			code, _, _, _ := store.ParseCommentID(id)
-			hv, err := s.HistoryE(code, store.Subject{Kind: "comment", ID: c.ID})
+			code, _, _, _ := core.ParseCommentID(id)
+			hv, err := s.HistoryE(code, core.Subject{Kind: "comment", ID: c.ID})
 			if err != nil {
 				return err
 			}

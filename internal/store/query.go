@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) ListTasks(filters QueryFilters) []*Task {
@@ -31,7 +32,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		return nil, err
 	}
 	var out []*Task
-	formats := make(map[string]StoreFormat, len(codes))
+	formats := make(map[string]eventlog.StoreFormat, len(codes))
 	for _, code := range codes {
 		// The project-scoped list read has no freshness gate of its own: under
 		// v1 every mutator write-throughs the cache inside the project lock, so
@@ -45,20 +46,20 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		// (and its freshness gate), and serves stale cache rows with a nil
 		// error -- the same silent v2 -> ungated-v1 degradation textSearch and
 		// ReindexOnce already refuse.
-		f, err := s.projectFormat(code)
+		f, err := s.eng.ProjectFormat(code)
 		if err != nil {
 			return nil, err
 		}
 		formats[code] = f
-		if f == StoreFormatV2 {
+		if f == eventlog.StoreFormatV2 {
 			if err := s.ensureV2CacheFresh(code); err != nil {
 				// An integrity error is on-disk truth, not a cache-DB hiccup:
-				// surface it (matching store show's ErrIntegrity) rather than
+				// surface it (matching store show's core.ErrIntegrity) rather than
 				// silently reporting "no tasks". The lenient continue below
 				// is reserved for the error class it was actually written
 				// for -- see the human ruling on Task 5 Findings 1/2 for the
 				// integrity/non-integrity split this mirrors.
-				if IsIntegrity(err) {
+				if core.IsIntegrity(err) {
 					return nil, err
 				}
 				continue // match the existing per-code lenient error posture
@@ -78,7 +79,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 			nodes = append(nodes, &AtomNode{Name: strings.TrimPrefix(tok, code+":")})
 		}
 		if filters.Expr != "" {
-			n, err := ParseExpr(filters.Expr)
+			n, err := core.ParseExpr(filters.Expr)
 			if err != nil {
 				return nil, err
 			}
@@ -102,8 +103,8 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		ci, ni, _ := ParseTaskID(out[i].ID)
-		cj, nj, _ := ParseTaskID(out[j].ID)
+		ci, ni, _ := core.ParseTaskID(out[i].ID)
+		cj, nj, _ := core.ParseTaskID(out[j].ID)
 		if ci != cj {
 			return ci < cj
 		}
@@ -115,7 +116,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		// them by hex luck. The projector stamps Task.Ordinal with the fold's
 		// creation ordinal (TasksByCreation, i.e. the HLC creation stamp), which
 		// the spec names as the true creation order; use it.
-		if formats[ci] == StoreFormatV2 {
+		if formats[ci] == eventlog.StoreFormatV2 {
 			if out[i].Ordinal != out[j].Ordinal {
 				return out[i].Ordinal < out[j].Ordinal
 			}

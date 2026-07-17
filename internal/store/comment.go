@@ -4,27 +4,28 @@ import (
 	"fmt"
 	"sort"
 
-	"atm/libs/eventsource"
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
 	if body == "" {
-		return nil, fmt.Errorf("%w: body is required", ErrUsage)
+		return nil, fmt.Errorf("%w: body is required", core.ErrUsage)
 	}
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	code, _, ok := ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, taskID)
 	}
 	if replyTo != "" {
 		rtask, ok := commentTaskAlias(replyTo)
 		if !ok {
-			return nil, fmt.Errorf("%w: invalid reply-to %q", ErrUsage, replyTo)
+			return nil, fmt.Errorf("%w: invalid reply-to %q", core.ErrUsage, replyTo)
 		}
 		if rtask != taskID {
-			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", ErrUsage, replyTo, taskID)
+			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", core.ErrUsage, replyTo, taskID)
 		}
 	}
 	for _, l := range labels {
@@ -44,12 +45,12 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 // commentProjectFormat parses a comment alias for its project code and
 // resolves the project's EFFECTIVE format. v2 comment aliases carry hex
 // segments, so this keys on the full alias string (Task 2b).
-func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
-	code, _, _, ok := ParseCommentID(id)
+func (s *Store) commentProjectFormat(id string) (string, eventlog.StoreFormat, error) {
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return "", "", fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return "", "", fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
-	f, err := s.dispatchFormat(code)
+	f, err := s.eng.DispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -57,43 +58,35 @@ func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
 }
 
 // createCommentV2 writes comment.created (plus any label.upserted
-// auto-registration) to events.v2.jsonl. Both the alias and the task/reply-to
-// identity references come from the eventsource helper, which resolves them
-// from the fold — L3 never mints an alias or resolves an identity itself
-// (ATM-0125). There is no v1 task.meta-changed counterpart: the v1 per-comment
-// counter was bookkeeping and has no meaning under v2's hash aliases.
+// auto-registration) to events.v2.jsonl through the engine's write
+// transaction. Both the alias and the task/reply-to identity references come
+// from the engine, which resolves them from the fold — the facade never mints
+// an alias or resolves an identity itself (ATM-0125).
+//
+// The task (and reply-to) reference is resolved BEFORE anything is appended:
+// an event append is DURABLE, so discovering after a label.upserted commit
+// that the task does not exist would leave those events behind with the error
+// path skipping the reprojection. cs.ResolveTask/cs.ResolveComment are that
+// pre-flight guard — the same rule v1's CreateComment and createTaskV2 follow.
 func (s *Store) createCommentV2(code, taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
 	var created *Comment
-	err := s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		// Resolve the task (and reply-to) reference BEFORE appending anything.
-		// appendV2CommentCreatedLocked resolves them too — that is where the
-		// values actually used come from — but an event append is DURABLE, so
-		// discovering there that the task does not exist would already have
-		// committed the label.upserted events below, and the error path skips
-		// reprojectV2Locked, leaving cache.db and the v2 freshness count behind
-		// the file. v1's CreateComment (getTaskLocked first) and createTaskV2
-		// (resolveProjectRef + label validation first) both validate first;
-		// this is the same rule.
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
-			return err
-		}
-		if _, err := ctx.resolveTaskRef(taskID); err != nil {
+	err := s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.ResolveTask(taskID); err != nil {
 			return err
 		}
 		if replyTo != "" {
-			if _, err := ctx.resolveCommentRef(replyTo); err != nil {
+			if err := cs.ResolveComment(replyTo); err != nil {
 				return err
 			}
 		}
-		if err := s.appendV2LabelUpsertsLocked(code, labels, actor); err != nil {
+		if err := cs.EnsureLabels(labels, actor); err != nil {
 			return err
 		}
-		_, alias, err := s.appendV2CommentCreatedLocked(code, taskID, body, labels, replyTo, actor)
+		alias, err := cs.CreateComment(core.CommentDraft{TaskID: taskID, ReplyTo: replyTo, Body: body, Labels: labels}, actor)
 		if err != nil {
 			return err
 		}
-		if err := s.reprojectV2Locked(code); err != nil {
+		if err := s.reprojectTxn(code, cs); err != nil {
 			return err
 		}
 		db, err := s.cacheDB()
@@ -105,7 +98,7 @@ func (s *Store) createCommentV2(code, taskID, body string, labels []string, repl
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("%w: comment %q", ErrNotFound, alias)
+			return fmt.Errorf("%w: comment %q", core.ErrNotFound, alias)
 		}
 		created = c
 		return nil
@@ -113,67 +106,32 @@ func (s *Store) createCommentV2(code, taskID, body string, labels []string, repl
 	return created, err
 }
 
-// mutateCommentV2 appends one v2 comment event against the comment's IDENTITY
-// and reprojects.
-func (s *Store) mutateCommentV2(code, id, action, actor string, payload map[string]any) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
-			return err
-		}
-		ref, err := ctx.resolveCommentRef(id)
-		if err != nil {
-			return err
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  action,
-			Subject: eventsource.Subject{Kind: "comment", ID: ref},
-			Payload: payload,
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
-	})
-}
-
-// commentLabelAddV2 auto-registers the label (v1 parity) and asserts membership.
+// commentLabelAddV2 auto-registers the label (v1 parity) and asserts
+// membership. Order preserved: resolve → no-op check → ensure → append.
 func (s *Store) commentLabelAddV2(code, id, label, actor string) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.ResolveComment(id); err != nil {
 			return err
 		}
-		ref, err := ctx.resolveCommentRef(id)
-		if err != nil {
+		if has, err := cs.CommentHasLabel(id, label); err != nil {
+			return err
+		} else if has {
+			return nil
+		}
+		if err := cs.EnsureLabels([]string{label}, actor); err != nil {
 			return err
 		}
-		if c, ok := ctx.state.Comments[ref]; ok {
-			for _, l := range c.Labels {
-				if l == label {
-					return nil
-				}
-			}
-		}
-		if err := s.appendV2LabelUpsertsLocked(code, []string{label}, actor); err != nil {
+		if err := cs.AddCommentLabel(id, label, actor); err != nil {
 			return err
 		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionCommentLabelAdded,
-			Subject: eventsource.Subject{Kind: "comment", ID: ref},
-			Payload: map[string]any{"label": label},
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
 func (s *Store) GetComment(id string) (*Comment, error) {
-	code, _, _, ok := ParseCommentID(id)
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
@@ -189,9 +147,9 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 // GetComment in that situation would re-enter the (non-reentrant) mutex and
 // deadlock.
 func (s *Store) getCommentLocked(id string) (*Comment, error) {
-	code, _, _, ok := ParseCommentID(id)
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
 		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
@@ -208,24 +166,24 @@ func (s *Store) getCommentLocked(id string) (*Comment, error) {
 // getProjectWithRebuild's doc comment for why a comment's project can still
 // legitimately resolve to a non-v2 format (a fully removed project, or a
 // cache row written directly ahead of format registration) and why the
-// correct response is to serve the cache row as-is (or ErrNotFound if
+// correct response is to serve the cache row as-is (or core.ErrNotFound if
 // absent) without ever attempting a rebuild.
 func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		c, found, err := cacheGetComment(db, id)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: comment %q", core.ErrNotFound, id)
 		}
 		return c, nil
 	}
@@ -251,16 +209,16 @@ func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*C
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: comment %q", core.ErrNotFound, id)
 		}
 	}
 	return c, nil
 }
 
 func (s *Store) ListComments(taskID string) ([]*Comment, error) {
-	code, _, ok := ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, taskID)
 	}
 	// Same freshness gap ListTasksErr closes: under v2 an external append (a
 	// second process, or a writer that died between the append commit point
@@ -272,11 +230,11 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	// The lookup error is PROPAGATED, not swallowed: a swallowed lookup leaves
 	// f == "", skips the v2 branch (and its freshness gate), and serves stale
 	// cache rows with a nil error. Same reasoning as ListTasksErr / textSearch.
-	f, err := s.projectFormat(code)
+	f, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if f == StoreFormatV2 {
+	if f == eventlog.StoreFormatV2 {
 		if err := s.ensureV2CacheFresh(code); err != nil {
 			return nil, err
 		}
@@ -292,7 +250,7 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	if out == nil {
 		out = []*Comment{}
 	}
-	if f == StoreFormatV2 {
+	if f == eventlog.StoreFormatV2 {
 		// cacheListComments returns id-asc. Under v1 that IS thread order (the
 		// -cNNNN segment is a zero-padded per-task creation counter), but a v2
 		// comment alias is a content hash, so id-asc renders the narrative in
@@ -313,27 +271,17 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 
 func (s *Store) SetCommentBody(id, body, actor string) error {
 	if body == "" {
-		return fmt.Errorf("%w: body is required", ErrUsage)
+		return fmt.Errorf("%w: body is required", core.ErrUsage)
 	}
-	if err := s.validateActor(actor); err != nil {
-		return err
-	}
-	return s.mutateComment(id, actor, ActionCommentBodyChanged, map[string]any{"body": body})
+	return s.mutateComment(id, actor, func(cs core.ChangeSet) error { return cs.SetCommentBody(id, body, actor) })
 }
 
 func (s *Store) CommentLabelRemove(id, label, actor string) error {
-	return s.mutateComment(id, actor, ActionCommentLabelRemoved, map[string]any{"label": label})
+	return s.mutateComment(id, actor, func(cs core.ChangeSet) error { return cs.RemoveCommentLabel(id, label, actor) })
 }
 
 func (s *Store) RemoveComment(id, actor string) error {
-	if err := s.validateActor(actor); err != nil {
-		return err
-	}
-	code, _, err := s.commentProjectFormat(id)
-	if err != nil {
-		return err
-	}
-	return s.mutateCommentV2(code, id, ActionCommentRemoved, actor, nil)
+	return s.mutateComment(id, actor, func(cs core.ChangeSet) error { return cs.RemoveComment(id, actor) })
 }
 
 func (s *Store) CommentLabelAdd(id, label, actor string) error {
@@ -353,11 +301,11 @@ func (s *Store) CommentLabelAdd(id, label, actor string) error {
 	return s.commentLabelAddV2(code, id, label, actor)
 }
 
-// mutateComment is the shared entry point for non-delete comment mutations;
-// every project is v2-active (D-Task5b removed the v1 write arm), so it
-// resolves the project code and delegates to mutateCommentV2 with the given
-// action and payload.
-func (s *Store) mutateComment(id, actor, action string, v2Payload map[string]any) error {
+// mutateComment is the shared entry point for comment mutations: it validates
+// the actor, resolves the comment's project code, then runs the given intent
+// inside the engine's write transaction and reprojects. Every project is
+// v2-active (D-Task5b removed the v1 write arm), so there is no format branch.
+func (s *Store) mutateComment(id, actor string, do func(cs core.ChangeSet) error) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
@@ -365,5 +313,10 @@ func (s *Store) mutateComment(id, actor, action string, v2Payload map[string]any
 	if err != nil {
 		return err
 	}
-	return s.mutateCommentV2(code, id, action, actor, v2Payload)
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := do(cs); err != nil {
+			return err
+		}
+		return s.reprojectTxn(code, cs)
+	})
 }

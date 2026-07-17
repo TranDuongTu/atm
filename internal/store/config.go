@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"fmt"
 	"os"
 )
@@ -24,7 +25,7 @@ func (s *Store) SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor strin
 		return err
 	}
 	if cfg.Model == "" || cfg.Endpoint == "" {
-		return ErrUsage
+		return core.ErrUsage
 	}
 	return s.WithLock(code, func() error {
 		existing, err := s.GetProjectConfig(code)
@@ -36,7 +37,7 @@ func (s *Store) SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor strin
 			merged = existing
 		}
 		merged.Embedding = &cfg
-		merged.UpdatedAt = RFC3339UTC(Now())
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)
 	})
@@ -49,7 +50,7 @@ func (s *Store) SetProjectRemote(code, name, url, actor string) error {
 		return err
 	}
 	if name == "" || url == "" {
-		return ErrUsage
+		return core.ErrUsage
 	}
 	return s.WithLock(code, func() error {
 		existing, err := s.GetProjectConfig(code)
@@ -64,14 +65,14 @@ func (s *Store) SetProjectRemote(code, name, url, actor string) error {
 			merged.Remotes = map[string]string{}
 		}
 		merged.Remotes[name] = url
-		merged.UpdatedAt = RFC3339UTC(Now())
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)
 	})
 }
 
 // RemoveProjectRemote deletes a named sync remote from the project's config.
-// Returns ErrNotFound if the name is not present.
+// Returns core.ErrNotFound if the name is not present.
 func (s *Store) RemoveProjectRemote(code, name, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
@@ -82,13 +83,13 @@ func (s *Store) RemoveProjectRemote(code, name, actor string) error {
 			return err
 		}
 		if existing == nil || existing.Remotes == nil {
-			return fmt.Errorf("%w: remote %q", ErrNotFound, name)
+			return fmt.Errorf("%w: remote %q", core.ErrNotFound, name)
 		}
 		if _, ok := existing.Remotes[name]; !ok {
-			return fmt.Errorf("%w: remote %q", ErrNotFound, name)
+			return fmt.Errorf("%w: remote %q", core.ErrNotFound, name)
 		}
 		delete(existing.Remotes, name)
-		existing.UpdatedAt = RFC3339UTC(Now())
+		existing.UpdatedAt = core.RFC3339UTC(core.Now())
 		existing.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), existing)
 	})

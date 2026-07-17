@@ -1,32 +1,15 @@
 package store
 
-// Temporary re-exports of symbols that moved to internal/core in refactor
-// step 4 (ATM-b9d83a). They keep store's internals and the CLI compiling
-// unchanged while the adapters migrate; step 6 (ATM-3b873c) removes them.
+// Type aliases re-exporting the domain, read-model, and board-expression
+// types that moved to internal/core in refactor step 4 (ATM-b9d83a). The
+// error sentinels and function shims that once lived alongside them were
+// removed in step 6 (ATM-3b873c); store internals now name core.X directly.
+// These pure type aliases remain as the package's public vocabulary: store's
+// own signatures, its tests, and the few external callers that still spell a
+// return type `store.Task` resolve through them without a churny qualifier
+// sweep across every field, receiver, and composite literal.
 
 import "atm/internal/core"
-
-var (
-	ErrNotFound  = core.ErrNotFound
-	ErrConflict  = core.ErrConflict
-	ErrIntegrity = core.ErrIntegrity
-	ErrUsage     = core.ErrUsage
-)
-
-var (
-	IsNotFound          = core.IsNotFound
-	IsConflict          = core.IsConflict
-	IsIntegrity         = core.IsIntegrity
-	IsUsage             = core.IsUsage
-	Now                 = core.Now
-	RFC3339UTC          = core.RFC3339UTC
-	TaskIDRe            = core.TaskIDRe
-	ParseTaskID         = core.ParseTaskID
-	CommentIDRe         = core.CommentIDRe
-	ParseCommentID      = core.ParseCommentID
-	ValidatePersonaName = core.ValidatePersonaName
-	IsNamespaceName     = core.IsNamespaceName
-)
 
 // Board-expression AST (renamed on the move: Node -> Expr).
 type Node = core.Expr
@@ -34,11 +17,6 @@ type AtomNode = core.ExprAtom
 type NotNode = core.ExprNot
 type AndNode = core.ExprAnd
 type OrNode = core.ExprOr
-
-var (
-	ParseExpr = core.ParseExpr
-	Atoms     = core.Atoms
-)
 
 // Domain and read-model types.
 type Task = core.Task

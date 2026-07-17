@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"atm/internal/core"
 	"atm/internal/manager"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -275,7 +275,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		ATMBin:             atmBin,
 		Actor:              actor,
 		RunID:              runID,
-		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
+		Timestamp:          core.RFC3339UTC(time.Now().UTC()),
 		Persona:            effectivePersona,
 		PersonaPrompt:      mp.Prompt,
 		PersonaDescription: mp.Description,

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/store/eventlog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,44 +14,31 @@ func testStore(t *testing.T) *Store {
 	return newTestStore(t)
 }
 
-func TestEventsourcePaths(t *testing.T) {
-	s := testStore(t)
-	if got, want := s.eventsV2Path("ATM"), filepath.Join(s.StorePath(), "projects", "ATM", "events.v2.jsonl"); got != want {
-		t.Fatalf("eventsV2Path = %q, want %q", got, want)
-	}
-	if got, want := s.eventsourceMetaPath("ATM"), filepath.Join(s.StorePath(), "projects", "ATM", "eventsource.json"); got != want {
-		t.Fatalf("eventsourceMetaPath = %q, want %q", got, want)
-	}
-	if got, want := s.storeMetaPath(), filepath.Join(s.StorePath(), "store.json"); got != want {
-		t.Fatalf("storeMetaPath = %q, want %q", got, want)
-	}
-}
-
 func TestProjectFormatDefaultsToV1(t *testing.T) {
 	s := testStore(t)
-	f, err := s.projectFormat("ATM")
+	f, err := s.eng.ProjectFormat("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f != StoreFormatV1 {
+	if f != eventlog.StoreFormatV1 {
 		t.Fatalf("format = %q, want v1", f)
 	}
 }
 
 func TestSetProjectFormatPersists(t *testing.T) {
 	s := testStore(t)
-	if err := s.setProjectFormat("ATM", StoreFormatV2); err != nil {
+	if err := s.eng.SetProjectFormat("ATM", eventlog.StoreFormatV2); err != nil {
 		t.Fatal(err)
 	}
 	again, err := Open(s.StorePath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := again.projectFormat("ATM")
+	f, err := again.eng.ProjectFormat("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f != StoreFormatV2 {
+	if f != eventlog.StoreFormatV2 {
 		t.Fatalf("format after reopen = %q, want v2", f)
 	}
 	if _, err := os.Stat(filepath.Join(s.StorePath(), "store.json")); err != nil {
@@ -63,19 +51,19 @@ func TestSetActiveFormatV2RefusesWhileProjectsLackEntries(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.removeProjectFormat("ATM"); err != nil { // simulate a legacy entry-less project
+	if err := s.eng.RemoveProjectFormat("ATM"); err != nil { // simulate a legacy entry-less project
 		t.Fatal(err)
 	}
-	if err := s.SetActiveFormat(StoreFormatV2); err == nil {
+	if err := s.SetActiveFormat(eventlog.StoreFormatV2); err == nil {
 		t.Fatal("SetActiveFormat(v2) must refuse while ATM lacks an explicit ProjectFormats entry")
 	}
-	if err := s.setProjectFormat("ATM", StoreFormatV1); err != nil {
+	if err := s.eng.SetProjectFormat("ATM", eventlog.StoreFormatV1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+	if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil {
 		t.Fatalf("SetActiveFormat(v2) with all entries explicit: %v", err)
 	}
-	if err := s.SetActiveFormat(StoreFormatV1); err != nil {
+	if err := s.SetActiveFormat(eventlog.StoreFormatV1); err != nil {
 		t.Fatalf("SetActiveFormat(v1) must always be allowed: %v", err)
 	}
 }

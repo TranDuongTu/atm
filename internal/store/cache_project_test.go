@@ -1,10 +1,43 @@
 package store
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"atm/libs/eventsource"
 )
+
+// projectEvents writes events as code's v2 media and projects the engine's
+// strict snapshot into the cache. It is the in-package stand-in for the
+// removed eventlog.ConvertState shim: it drives the same fold→convert path
+// Engine.Snapshot uses (which is exactly what the projector consumes in
+// production), reading the events back off disk rather than converting a
+// hand-held fold. It overwrites any existing media so a test can re-project a
+// disjoint second fold over the same code (simulating a re-upgrade).
+func projectEvents(t *testing.T, s *Store, code string, events []*eventsource.Event) {
+	t.Helper()
+	path := s.eng.EventsV2Path(code)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	for _, e := range events {
+		buf.Write(e.Raw)
+		buf.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := s.eng.Snapshot(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.projectSnapshot(code, snap); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {
 	s := testStore(t)
@@ -27,13 +60,7 @@ func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := eventsource.FoldEvents([]*eventsource.Event{project, task})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", state, 2); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{project, task})
 	p, err := s.GetProject("ATM")
 	if err != nil {
 		t.Fatal(err)
@@ -105,13 +132,7 @@ func TestCacheProjectFromV2StateDeletesStaleRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state, err := eventsource.FoldEvents([]*eventsource.Event{project, taskA, taskB, removeB})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", state, 4); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{project, taskA, taskB, removeB})
 
 	db, err := s.cacheDB()
 	if err != nil {
@@ -149,13 +170,7 @@ func TestCacheProjectFromV2StateDeletesStaleRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	freshState, err := eventsource.FoldEvents([]*eventsource.Event{freshProject, taskC})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", freshState, 2); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{freshProject, taskC})
 
 	if _, ok, err := cacheGetTask(db, "ATM-aaaaaa"); err != nil {
 		t.Fatal(err)
@@ -204,13 +219,7 @@ func TestCacheProjectFromV2StateDeletesStaleLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state, err := eventsource.FoldEvents([]*eventsource.Event{project, labelA})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", state, 2); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{project, labelA})
 
 	db, err := s.cacheDB()
 	if err != nil {
@@ -250,13 +259,7 @@ func TestCacheProjectFromV2StateDeletesStaleLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	freshState, err := eventsource.FoldEvents([]*eventsource.Event{freshProject, labelC})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", freshState, 2); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{freshProject, labelC})
 
 	if _, ok, err := cacheGetLabel(db, "ATM:status:open"); err != nil {
 		t.Fatal(err)
@@ -334,13 +337,7 @@ func TestCacheProjectFromV2StateDropsDanglingReplyToForTombstonedParent(t *testi
 		t.Fatal(err)
 	}
 
-	state, err := eventsource.FoldEvents([]*eventsource.Event{project, task, parent, removeParent, reply})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.cacheProjectFromV2State("ATM", state, 5); err != nil {
-		t.Fatal(err)
-	}
+	projectEvents(t, s, "ATM", []*eventsource.Event{project, task, parent, removeParent, reply})
 
 	db, err := s.cacheDB()
 	if err != nil {

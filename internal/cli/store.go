@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 
-	"atm/internal/store"
-
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +15,7 @@ func newStoreCmd(st *cliState) *cobra.Command {
 		Use:   "path",
 		Short: "Print the resolved store path",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root, st.storeOpts...)
+			s, err := st.openStore()
 			if err != nil {
 				return err
 			}

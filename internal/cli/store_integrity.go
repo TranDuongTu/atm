@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -16,7 +16,7 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 		Short: "Stream the project's audit log",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
@@ -24,11 +24,11 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 			to, _ := cmd.Flags().GetInt("to")
 			// A project's truth is events.v2.jsonl; --from/--to filter the
 			// DISPLAY ordinal.
-			events, err := s.ReadV2LogForDisplay(args[0])
+			events, err := s.ReadChangeLog(args[0])
 			if err != nil {
 				return err
 			}
-			filtered := make([]store.V2LogView, 0, len(events))
+			filtered := make([]core.LogView, 0, len(events))
 			for _, e := range events {
 				if from != 0 && e.Ordinal < from {
 					continue
@@ -42,7 +42,7 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 				return writeJSON(st.stdout(), filtered)
 			}
 			for _, e := range filtered {
-				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, store.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
+				fmt.Fprintf(st.stdout(), "%d\t%s\t%s\t%s\t%s\t%s\n", e.Ordinal, core.RFC3339UTC(e.At), e.Actor, e.Action, e.Subject, e.ID)
 			}
 			return nil
 		},
@@ -55,38 +55,38 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 		Short: "Replay logs against caches and report divergence",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
 			repair, _ := cmd.Flags().GetBool("repair")
 			if len(args) == 1 {
-				r, err := s.VerifyProject(args[0])
+				r, err := s.VerifyStorageProject(args[0])
 				if err != nil {
 					return err
 				}
 				if repair && r.Diverged {
-					_, _ = s.Rebuild()
-					r2, _ := s.VerifyProject(args[0])
+					_, _ = s.RebuildDerived()
+					r2, _ := s.VerifyStorageProject(args[0])
 					r = r2
 				}
 				if err := st.emitVerify(r); err != nil {
 					return err
 				}
-				return reportIntegrityError([]store.VerifyReport{*r})
+				return reportIntegrityError([]core.VerifyReport{*r})
 			}
-			reports, err := s.Verify()
+			reports, err := s.VerifyStorage()
 			if err != nil {
 				return err
 			}
 			if repair {
 				for _, r := range reports {
 					if r.Diverged {
-						_, _ = s.Rebuild()
+						_, _ = s.RebuildDerived()
 						break
 					}
 				}
-				reports, _ = s.Verify()
+				reports, _ = s.VerifyStorage()
 			}
 			if err := st.emitVerifyAll(reports); err != nil {
 				return err
@@ -101,11 +101,11 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 		Short: "Regenerate all cache files from the logs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
-			rep, err := s.Rebuild()
+			rep, err := s.RebuildDerived()
 			if err != nil {
 				return err
 			}
@@ -119,7 +119,7 @@ func newStoreIntegrityCmds(st *cliState) []*cobra.Command {
 	return []*cobra.Command{logCmd, verifyCmd, rebuildCmd}
 }
 
-func (st *cliState) emitVerify(r *store.VerifyReport) error {
+func (st *cliState) emitVerify(r *core.VerifyReport) error {
 	if st.isJSON() {
 		return writeJSON(st.stdout(), r)
 	}
@@ -130,7 +130,7 @@ func (st *cliState) emitVerify(r *store.VerifyReport) error {
 	return nil
 }
 
-func (st *cliState) emitVerifyAll(rs []store.VerifyReport) error {
+func (st *cliState) emitVerifyAll(rs []core.VerifyReport) error {
 	if st.isJSON() {
 		return writeJSON(st.stdout(), rs)
 	}
@@ -142,10 +142,10 @@ func (st *cliState) emitVerifyAll(rs []store.VerifyReport) error {
 	return nil
 }
 
-func reportIntegrityError(reports []store.VerifyReport) error {
+func reportIntegrityError(reports []core.VerifyReport) error {
 	for _, r := range reports {
 		if r.Diverged || !r.LogOK {
-			return fmt.Errorf("%w: project %s has integrity issues (diverged=%v, log_ok=%v)", store.ErrIntegrity, r.Project, r.Diverged, r.LogOK)
+			return fmt.Errorf("%w: project %s has integrity issues (diverged=%v, log_ok=%v)", core.ErrIntegrity, r.Project, r.Diverged, r.LogOK)
 		}
 	}
 	return nil

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"errors"
 	"fmt"
 	"strings"
@@ -69,7 +70,7 @@ func (r *resolver) eval(t *Task, n Node, visiting map[string]bool) (bool, error)
 func (r *resolver) evalAtom(t *Task, atom string, visiting map[string]bool) (bool, error) {
 	// The bare '*' tautology atom: matches every task, including unlabeled
 	// ones. MUST short-circuit before qualify — qualify("*") yields
-	// "<CODE>:*", which IsNamespaceName reads as the namespace predicate
+	// "<CODE>:*", which core.IsNamespaceName reads as the namespace predicate
 	// "has any label" and so misses naked unlabeled jottings. See
 	// docs/superpowers/specs/2026-07-17-all-tasks-board-design.md.
 	if atom == "*" {
@@ -78,7 +79,7 @@ func (r *resolver) evalAtom(t *Task, atom string, visiting map[string]bool) (boo
 	full := r.qualify(atom)
 
 	// Namespace predicate: task carries ANY label in the namespace.
-	if IsNamespaceName(full) {
+	if core.IsNamespaceName(full) {
 		prefix := strings.TrimSuffix(full, "*")
 		for _, l := range t.Labels {
 			if strings.HasPrefix(l, prefix) {
@@ -99,7 +100,7 @@ func (r *resolver) evalAtom(t *Task, atom string, visiting map[string]bool) (boo
 		n, ok := r.parsed[full]
 		if !ok {
 			var err error
-			if n, err = ParseExpr(l.Expr); err != nil {
+			if n, err = core.ParseExpr(l.Expr); err != nil {
 				return false, fmt.Errorf("board %s: %w", full, err)
 			}
 			r.parsed[full] = n

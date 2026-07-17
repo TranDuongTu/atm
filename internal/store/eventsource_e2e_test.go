@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/store/eventlog"
 	"fmt"
 	"sort"
 	"testing"
@@ -24,7 +25,7 @@ func TestEventsourceV2EndToEndUpgradeWriteRebuildVerify(t *testing.T) {
 	}
 	if r, err := s.VerifyProject("ATM"); err != nil {
 		t.Fatal(err)
-	} else if r.Diverged || !r.LogOK || r.Format != StoreFormatV2 {
+	} else if r.Diverged || !r.LogOK || r.Format != string(eventlog.StoreFormatV2) {
 		t.Fatalf("verify after v2 write = %#v", r)
 	}
 	// The whole system runs on v2 now: sequence probe, history, activity

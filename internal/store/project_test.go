@@ -1,6 +1,9 @@
 package store
 
 import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
+	"bytes"
 	"os"
 	"testing"
 )
@@ -20,7 +23,7 @@ func TestCreateProjectRejectsDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.CreateProject("ATM", "second", testActor)
-	if !IsConflict(err) {
+	if !core.IsConflict(err) {
 		t.Fatalf("expected conflict, got %v", err)
 	}
 }
@@ -43,7 +46,7 @@ func TestRemoveProjectZeroTaskGuard(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	_, _ = s.CreateTask("ATM", "t", "", nil, testActor)
-	if err := s.RemoveProject("ATM", testActor); !IsConflict(err) {
+	if err := s.RemoveProject("ATM", testActor); !core.IsConflict(err) {
 		t.Fatalf("expected conflict (has tasks), got %v", err)
 	}
 }
@@ -129,8 +132,8 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Project file and log file are gone (project directory removed).
-	if _, err := s.GetProject("ATM"); !IsNotFound(err) {
-		t.Fatalf("GetProject after remove: %v want ErrNotFound", err)
+	if _, err := s.GetProject("ATM"); !core.IsNotFound(err) {
+		t.Fatalf("GetProject after remove: %v want core.ErrNotFound", err)
 	}
 	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
 		t.Fatalf("log.jsonl must be deleted with the project dir, got %v", err)
@@ -159,7 +162,7 @@ func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject("ATM", "second", testActor); !IsConflict(err) {
+	if _, err := s.CreateProject("ATM", "second", testActor); !core.IsConflict(err) {
 		t.Fatalf("expected conflict recreating %q after cache-only loss, got %v", "ATM", err)
 	}
 }
@@ -176,6 +179,83 @@ func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
 		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
 	}
 }
+// TestCreateProjectDuplicateDoesNotCorruptExplicitV1Entry pins the birth
+// preflight ordering: a duplicate CreateProject against a legacy v1 project
+// (an explicit "v1" ProjectFormats entry plus a log.jsonl on disk — these
+// exist in the wild; the removed `store rollback` command wrote such entries)
+// must fail with ErrConflict WITHOUT touching store.json. Flipping the entry
+// to "v2" would make the v1 log read as an empty v2 project (data hidden) and
+// fork the next write into a fresh events.v2.jsonl.
+func TestCreateProjectDuplicateDoesNotCorruptExplicitV1Entry(t *testing.T) {
+	s := newTestStore(t)
+	// Warm persona seeding (first-mutation lazy seed) so the failing
+	// CreateProject below performs no incidental store.json write of its own.
+	if _, err := s.CreateProject("OTH", "warm", testActor); err != nil {
+		t.Fatal(err)
+	}
+	const code = "LEG"
+	if err := s.eng.SetProjectFormat(code, eventlog.StoreFormatV1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.logPath(code), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Capture store.json exactly as the fixture left it.
+	before, err := os.ReadFile(s.storeMetaPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject(code, "dup", testActor); !core.IsConflict(err) {
+		t.Fatalf("CreateProject on existing v1 media: got %v, want ErrConflict", err)
+	}
+	// The entry must still be "v1" (present, not flipped, not deleted)...
+	m, err := s.eng.ReadStoreMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := m.ProjectFormats[code]; !ok || f != eventlog.StoreFormatV1 {
+		t.Fatalf("ProjectFormats[%s] = (%q, present=%v) after failed duplicate create, want (v1, true)", code, f, ok)
+	}
+	// ...and store.json must be byte-identical (no UpdatedAt churn either).
+	after, err := os.ReadFile(s.storeMetaPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("store.json changed on failed duplicate create:\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+// TestCreateProjectDuplicateV2MediaWithoutEntryWritesNoEntry guards the plain
+// case: v2 media on disk but no explicit ProjectFormats entry. The duplicate
+// create must fail on the media check and leave no stray entry behind.
+func TestCreateProjectDuplicateV2MediaWithoutEntryWritesNoEntry(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("OTH", "warm", testActor); err != nil {
+		t.Fatal(err)
+	}
+	const code = "ORP"
+	if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.eng.EventsV2Path(code), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProject(code, "dup", testActor); !core.IsConflict(err) {
+		t.Fatalf("CreateProject on existing v2 media: got %v, want ErrConflict", err)
+	}
+	m, err := s.eng.ReadStoreMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := m.ProjectFormats[code]; ok {
+		t.Fatalf("failed duplicate create left ProjectFormats[%s] = %q, want no entry", code, f)
+	}
+}
+
 func TestGetProjectLazyMissRebuildsFromLog(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)

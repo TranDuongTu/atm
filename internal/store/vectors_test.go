@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,8 +91,8 @@ func TestWriteVectorBatchModelMismatchRejected(t *testing.T) {
 	}
 	entries := []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "other", Dim: 2, Vector: []float64{0.1, 0.2}}}
 	err := s.WriteVectorBatch("ATM", "m", entries, 1)
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage", err)
 	}
 }
 
@@ -105,8 +106,8 @@ func TestWriteVectorBatchDimMismatchRejected(t *testing.T) {
 		{ID: "ATM-0002", Kind: "task", Model: "m", Dim: 4, Vector: []float64{0.1, 0.2, 0.3, 0.4}},
 	}
 	err := s.WriteVectorBatch("ATM", "m", entries, 2)
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage", err)
 	}
 }
 
@@ -125,8 +126,8 @@ func TestDropVectors(t *testing.T) {
 		t.Errorf("ReadVectors after drop: %v, want nil", got)
 	}
 	err := s.DropVectors("ATM", "m")
-	if !IsNotFound(err) {
-		t.Errorf("DropVectors missing = %v, want ErrNotFound", err)
+	if !core.IsNotFound(err) {
+		t.Errorf("DropVectors missing = %v, want core.ErrNotFound", err)
 	}
 }
 

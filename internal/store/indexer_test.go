@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"context"
 	"errors"
 	"fmt"
@@ -150,8 +151,8 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
 	_, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage (no embedding config)", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (no embedding config)", err)
 	}
 }
 
@@ -202,7 +203,7 @@ func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
 	if !found {
 		t.Fatalf("vectors = %#v, want one under the task's hash alias %s", vecs, tk.ID)
 	}
-	count, err := s.v2EventCount("ATM")
+	count, err := s.eng.ChangeCount("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}

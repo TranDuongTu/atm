@@ -27,7 +27,9 @@ cmd/atm ─────────────── composition root: construc
 |---|---|---|
 | `cmd/atm` | `main` and the composition root. Constructs the concrete store, the capability registry, and hands them to the adapters. | Contain domain or presentation logic. |
 | `internal/core` | The domain leaf. Task/Label/Comment/Project types, the label algebra (wildcards, faceting, grouping, board expressions), vocabulary rules, and the narrow service + repository interfaces the adapters consume. | Import any other internal package or any I/O library. Know that persistence is event-sourced. |
-| `internal/store` | The persistence adapter. Implements `core`'s repository interfaces using the event log (author → project → sqlite cache). The **only** package that knows events exist. | Export event-sourcing concepts upward; grow UI- or CLI-shaped helpers. |
+| `internal/store` | The persistence adapter. Implements `core.Service` and `core.StorageAdmin` (sqlite cache, projection, query, domain services, plain-JSON side stores), delegating event-log authoring and reads to `internal/store/eventlog`. | Export event-sourcing concepts upward; grow UI- or CLI-shaped helpers. |
+| `internal/store/eventlog` | The event-log engine. The **only** package that knows events exist and the only importer of `libs/eventsource`. Owns `events.v2.jsonl` I/O, `store.json` format metadata, sync, and v1→v2 upgrade; exposes `core.ChangeSet`/`core.Journal` as the seam, with `OnProject`/`OnMediaReplaced` hooks back into the facade. | Import `internal/store`; leak event/replica/HLC concepts past its core-typed return values. |
+| `internal/store/fsio` | Leaf: the file-lock primitive and atomic-JSON write helper shared by `store` and `store/eventlog`. | Import `store` or `store/eventlog`. |
 | `internal/cli` | The terminal adapter. Cobra command tree: parse flags → call core services → emit text/JSON. Mounts the capability registry's commands; the registry itself is assembled by `cmd/atm`. | Contain business logic; be imported by anything except `cmd/atm`. |
 | `internal/tui` | The interactive adapter. Bubble Tea panes over the core service interface, with live features (watch, reindex) via that interface. | Import `cli` or the concrete store type; reimplement core algebra (faceting, wildcard matching). |
 | `internal/capability/*` | One package per capability command (first: `contextmap`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
@@ -42,12 +44,14 @@ These rules are the enforceable heart of this document. A change that violates o
 | Package | May import (internal) |
 |---|---|
 | `cmd/atm` | anything — it is the composition root |
-| `internal/cli` | `core`, `capability` (registry only), satellites; `store` only until step 6 moves the remaining admin surface behind interfaces |
+| `internal/cli` | `core`, `capability` (registry only), satellites |
 | `internal/tui` | `core`, `capability` (registry only), `tui/components` — plus the acknowledged satellites until they are purged |
 | `internal/capability/*` | `capability`, `core` |
 | `internal/capability` | nothing internal but `core` |
 | `internal/core` | nothing internal (pure leaf) |
-| `internal/store` | `core`, `libs/eventsource`, `seed` |
+| `internal/store` | `core`, `store/eventlog`, `store/fsio`, `seed` |
+| `internal/store/eventlog` | `core`, `store/fsio`, `libs/eventsource` |
+| `internal/store/fsio` | `core` |
 | `libs/eventsource` | nothing from this repo |
 
 Direction of knowledge: `core` defines interfaces in domain terms; `store` implements them (the `eventsync.LocalStore` pattern, generalized). Nobody above `store` may name an event, a replica, an HLC, or a projector.

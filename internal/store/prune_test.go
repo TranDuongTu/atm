@@ -1,13 +1,14 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 // newV1ActiveProject plants a raw v1 log with no ProjectFormats entry, so the
-// project reads as v1-active through the fresh-store default (StoreFormatV1)
+// project reads as v1-active through the fresh-store default (eventlog.StoreFormatV1)
 // and is NOT upgraded. prune-v1 must refuse to touch it: it is still
 // legitimately v1, not a leftover from an upgrade.
 func newV1ActiveProject(t *testing.T) (*Store, string) {
@@ -113,8 +114,8 @@ func TestPruneV1_RefusesDivergedProject(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error on diverged project, got rep=%+v", rep)
 	}
-	if !IsIntegrity(err) {
-		t.Fatalf("err = %v, want ErrIntegrity", err)
+	if !core.IsIntegrity(err) {
+		t.Fatalf("err = %v, want core.ErrIntegrity", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "projects", "ATM", "log.jsonl")); err != nil {
 		t.Fatalf("log.jsonl should survive a refused prune: %v", err)

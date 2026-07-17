@@ -1,6 +1,8 @@
 package store
 
 import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"context"
 	"errors"
 	"fmt"
@@ -32,11 +34,11 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	// hash, which is exact and content-addressed; the LogSeq <= lastIndexed fast
 	// path stays harmless (creation ordinals are always <= the stored event
 	// count) and the hash check does the real work.
-	f, err := s.projectFormat(code)
+	f, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if f != StoreFormatV2 {
+	if f != eventlog.StoreFormatV2 {
 		return nil, nil
 	}
 	tasks, comments, err := s.v2CompatEntities(code)
@@ -84,7 +86,7 @@ func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, l
 		return IndexResult{}, err
 	}
 	if cfg == nil || cfg.Embedding == nil {
-		return IndexResult{}, fmt.Errorf("%w: no embedding configured for project %q; run 'atm project set-embedding' first", ErrUsage, code)
+		return IndexResult{}, fmt.Errorf("%w: no embedding configured for project %q; run 'atm project set-embedding' first", core.ErrUsage, code)
 	}
 	slug := cfg.Embedding.Model
 	pending, err := s.PendingIndex(code, slug)

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -48,6 +49,56 @@ func cacheGetV2Freshness(db *sql.DB, code string) (int, bool, error) {
 		return 0, false, err
 	}
 	return v, true, nil
+}
+
+// v2CacheFresh reports whether the project's cache rows were projected from the
+// event file as it stands now, by comparing the freshness row
+// (cacheGetV2Freshness — the event count of the file the cache was last
+// projected from) against the current event count. A missing freshness row
+// means "never projected from a v2 file" and is never fresh, so it can be told
+// apart from a genuine projection at count 0.
+//
+// The v1 last_log_seq freshness key is meaningless here: a v2 cache row's
+// Ordinal holds a creation ordinal from the fold, unrelated to any v1 log seq.
+func (s *Store) v2CacheFresh(code string) (bool, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return false, err
+	}
+	got, ok, err := cacheGetV2Freshness(db, code)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	n, err := s.eng.ChangeCount(code)
+	if err != nil {
+		return false, err
+	}
+	return got == n, nil
+}
+
+// ensureV2CacheFresh rebuilds the project's cache rows from the v2 snapshot iff
+// the freshness probe says the cache is behind the event file. It takes the
+// project lock; NEVER call it from a *Locked context (point reads use
+// v2CacheFresh plus their format-aware rebuild closure instead, which preserves
+// the locked / unlocked split the *WithRebuild bodies are parameterized on).
+func (s *Store) ensureV2CacheFresh(code string) error {
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return err
+	} else if fresh {
+		return nil
+	}
+	return s.WithLock(code, func() error {
+		// Re-probe under the lock: another process may have projected the cache
+		// while this reader waited, and reprojecting is a full delete+insert of
+		// every row in the project.
+		if fresh, err := s.v2CacheFresh(code); err != nil || fresh {
+			return err
+		}
+		return s.rebuildProjectFromV2(code)
+	})
 }
 
 // cacheDB returns the store's single shared *sql.DB, opening and migrating it
@@ -128,7 +179,7 @@ func cacheUpsertProject(db *sql.DB, p *Project) error {
 		ON CONFLICT(code) DO UPDATE SET
 			name=excluded.name, ordinal=excluded.ordinal,
 			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		p.Code, p.Name, p.Ordinal, RFC3339UTC(p.CreatedAt), p.CreatedBy, RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
+		p.Code, p.Name, p.Ordinal, core.RFC3339UTC(p.CreatedAt), p.CreatedBy, core.RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
 	return err
 }
 
@@ -184,7 +235,7 @@ func cacheUpsertTask(db *sql.DB, t *Task) error {
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, description=excluded.description, ordinal=excluded.ordinal,
 			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, RFC3339UTC(t.CreatedAt), t.CreatedBy, RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
+		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, core.RFC3339UTC(t.CreatedAt), t.CreatedBy, core.RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
 	if err != nil {
 		return err
 	}
@@ -343,8 +394,8 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 // widening the store API.
 func SortTaskIDsByFunc(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		ci, ni, _ := ParseTaskID(tasks[i].ID)
-		cj, nj, _ := ParseTaskID(tasks[j].ID)
+		ci, ni, _ := core.ParseTaskID(tasks[i].ID)
+		cj, nj, _ := core.ParseTaskID(tasks[j].ID)
 		if ci != cj {
 			return ci < cj
 		}
@@ -555,7 +606,7 @@ func cacheUpsertComment(db *sql.DB, c *Comment) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			body=excluded.body, ordinal=excluded.ordinal, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		c.ID, c.TaskID, c.ReplyTo, c.Body, c.Ordinal, RFC3339UTC(c.CreatedAt), c.CreatedBy, RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
+		c.ID, c.TaskID, c.ReplyTo, c.Body, c.Ordinal, core.RFC3339UTC(c.CreatedAt), c.CreatedBy, core.RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
 	if err != nil {
 		return err
 	}

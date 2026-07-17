@@ -1,4 +1,4 @@
-package store
+package eventlog
 
 import (
 	"encoding/json"
@@ -9,9 +9,9 @@ import (
 )
 
 // localInstanceMarker is written to the store root (NOT store.json, and NOT
-// governed by the store-meta lock's "only mutateStoreMeta writes store.json"
+// governed by the store-meta lock's "only MutateStoreMeta writes store.json"
 // rule below -- it is a separate file) after every call to
-// ensureReplicaForWriteLocked. It records the identity this Store instance
+// EnsureReplicaForWriteLocked. It records the identity this engine
 // believed it owned the last time it authored an event, plus the
 // filesystem path it was writing from.
 //
@@ -19,14 +19,14 @@ import (
 // a cloned VM disk, ...) carries the marker file along with it. If the
 // marker's StoreInstanceID still matches store.json's StoreInstanceID but
 // the marker's StorePath no longer matches the store root actually being
-// opened, this Store instance is a copy of the one that wrote the marker --
+// opened, this engine is a copy of the one that wrote the marker --
 // re-mint the replica id before authoring anything, so the two copies never
 // stamp events under the same replica id.
 //
 // KNOWN LIMITATION (carried forward from the ATM-0107 Task 10 plan): a copy
 // restored at the IDENTICAL path -- e.g. an in-place backup/restore, or a
 // second machine deliberately mirroring the original's directory layout --
-// defeats this check. The marker's StorePath equals the copy's s.Root, so
+// defeats this check. The marker's StorePath equals the copy's e.root, so
 // the mismatch never fires and the copy silently reuses the original's
 // replica id. Closing this gap needs an identity signal that does NOT
 // travel with a copied directory: machine identity (e.g. /etc/machine-id),
@@ -60,25 +60,25 @@ type localInstanceMarker struct {
 // localInstanceMarkerPath is store-local, per-directory state, not
 // store-wide state: it never participates in the byte-identical v1 log or
 // the eventsource frontier, and it is fully derived at write time -- its
-// ABSENCE (a fresh store, or a marker deleted out from under this store)
+// ABSENCE (a fresh store, or a marker deleted out from under this engine)
 // never blocks authoring; it just means detection is skipped for that
 // write, which is the same as never having had a marker at all.
-func (s *Store) localInstanceMarkerPath() string {
-	return filepath.Join(s.Root, ".atm-local-instance.json")
+func (e *Engine) localInstanceMarkerPath() string {
+	return filepath.Join(e.root, ".atm-local-instance.json")
 }
 
-// ensureReplicaForWriteLocked returns the replica id this Store instance
+// EnsureReplicaForWriteLocked returns the replica id this engine
 // should stamp on the NEXT authored event, re-minting it first if
 // localInstanceMarker's detection rule (see its doc comment, including the
 // documented identical-path limitation) says this store root looks like a
-// copy of another instance that already authored under the current
+// copy of another engine that already authored under the current
 // store.json's replica/instance ids.
 //
-// Caller must already hold this store's PROJECT lock -- v2 authoring's lock
-// order is project -> store-meta (eventsource_meta.go:100-101). This
-// function itself takes the store-meta lock via mutateStoreMeta, which is a
-// DIFFERENT lock name and therefore safe to nest: WithLock is only
-// non-reentrant on the SAME name (lock.go:22-39). The whole
+// Caller must already hold this engine's PROJECT lock -- v2 authoring's lock
+// order is project -> store-meta (meta.go). This function itself takes the
+// store-meta lock via MutateStoreMeta, which is a DIFFERENT lock name and
+// therefore safe to nest: WithLock is only non-reentrant on the SAME name
+// (fsio/fsio.go). The whole
 // detect-and-possibly-remint-and-persist sequence -- reading store.json,
 // reading the marker, deciding, writing store.json, writing the marker --
 // runs inside that single store-meta critical section, so two projects on
@@ -100,18 +100,18 @@ func (s *Store) localInstanceMarkerPath() string {
 //     corrupt anything by itself, but the two copies WILL author future
 //     events under the same replica id, which is the condition this
 //     function exists to prevent -- see the KNOWN LIMITATION above.
-func (s *Store) ensureReplicaForWriteLocked() (string, error) {
+func (e *Engine) EnsureReplicaForWriteLocked() (string, error) {
 	var replicaID string
-	err := s.mutateStoreMeta(func(m *StoreMeta) error {
+	err := e.MutateStoreMeta(func(m *StoreMeta) error {
 		if m.StoreInstanceID == "" {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
 			m.StoreInstanceID = minted
 		}
 		if m.ReplicaID == "" {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
@@ -119,15 +119,15 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 		}
 
 		var marker localInstanceMarker
-		if raw, readErr := os.ReadFile(s.localInstanceMarkerPath()); readErr == nil {
+		if raw, readErr := os.ReadFile(e.localInstanceMarkerPath()); readErr == nil {
 			// Best-effort: a missing or malformed marker cannot prove a
 			// copy happened, so it never blocks authoring -- it just
 			// means the zero-value marker below never matches m below,
 			// and detection is silently skipped for this write.
 			_ = json.Unmarshal(raw, &marker)
 		}
-		if marker.StoreInstanceID != "" && marker.StoreInstanceID == m.StoreInstanceID && marker.StorePath != s.Root {
-			minted, err := eventsource.MintReplicaID(s.replicaEntropy)
+		if marker.StoreInstanceID != "" && marker.StoreInstanceID == m.StoreInstanceID && marker.StorePath != e.root {
+			minted, err := eventsource.MintReplicaID(e.opts.ReplicaEntropy)
 			if err != nil {
 				return err
 			}
@@ -137,14 +137,14 @@ func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 		next := localInstanceMarker{
 			StoreInstanceID: m.StoreInstanceID,
 			ReplicaID:       m.ReplicaID,
-			StorePath:       s.Root,
+			StorePath:       e.root,
 		}
 		out, err := json.MarshalIndent(next, "", "  ")
 		if err != nil {
 			return err
 		}
 		out = append(out, '\n')
-		if err := os.WriteFile(s.localInstanceMarkerPath(), out, 0o644); err != nil {
+		if err := os.WriteFile(e.localInstanceMarkerPath(), out, 0o644); err != nil {
 			return err
 		}
 

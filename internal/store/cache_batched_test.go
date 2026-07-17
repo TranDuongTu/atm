@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"sort"
 	"testing"
 )
@@ -11,7 +12,7 @@ import (
 func TestCacheListTasksForProjectBatchedMatchesN1(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	now := Now()
+	now := core.Now()
 	db, _ := s.cacheDB()
 	// Seed a mix: no labels, one label, two labels (out of order insertion).
 	tasks := []*Task{

@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -15,17 +15,17 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 		Use:   "upgrade",
 		Short: "Upgrade v1 project logs to side-by-side EventSource v2 storage",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
 			project, _ := cmd.Flags().GetString("project")
 			all, _ := cmd.Flags().GetBool("all")
 			if all == (project != "") {
-				return fmt.Errorf("%w: pass exactly one of --project or --all", store.ErrUsage)
+				return fmt.Errorf("%w: pass exactly one of --project or --all", core.ErrUsage)
 			}
 			if all {
-				reps, err := s.UpgradeAllToV2()
+				reps, err := s.UpgradeAllStorage()
 				if err != nil {
 					return err
 				}
@@ -47,7 +47,7 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 				fmt.Fprintln(st.stdout(), "active format: v2")
 				return nil
 			}
-			rep, err := s.UpgradeProjectToV2(project)
+			rep, err := s.UpgradeStorage(project)
 			if err != nil {
 				return err
 			}
@@ -65,7 +65,7 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 		Use:   "prune-v1",
 		Short: "Retire upgraded projects' frozen v1 log.jsonl (archive by default)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
@@ -73,11 +73,15 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 			all, _ := cmd.Flags().GetBool("all")
 			del, _ := cmd.Flags().GetBool("delete")
 			if all == (project != "") {
-				return fmt.Errorf("%w: pass exactly one of --project or --all", store.ErrUsage)
+				return fmt.Errorf("%w: pass exactly one of --project or --all", core.ErrUsage)
 			}
 			codes := []string{project}
 			if all {
-				codes, err = s.ProjectCodes()
+				svc, err := st.openStore()
+				if err != nil {
+					return err
+				}
+				codes, err = svc.ProjectCodes()
 				if err != nil {
 					return err
 				}
@@ -88,10 +92,10 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 			// behind a mid-batch failure would make a successful `--all` prune
 			// look like it did nothing. Print what was collected so far, then
 			// return the error.
-			reps := make([]*store.PruneReport, 0, len(codes))
+			reps := make([]*core.PruneReport, 0, len(codes))
 			var loopErr error
 			for _, c := range codes {
-				rep, err := s.PruneProjectV1(c, del)
+				rep, err := s.PruneLegacy(c, del)
 				if err != nil {
 					loopErr = fmt.Errorf("project %q: %w", c, err)
 					break
@@ -125,12 +129,12 @@ func newStoreMigrateCmds(st *cliState) []*cobra.Command {
 		Use:   "set-format",
 		Short: "Set the store default format (governs project birth and the legacy default only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := st.openStore()
+			s, err := st.openAdmin()
 			if err != nil {
 				return err
 			}
 			format, _ := cmd.Flags().GetString("format")
-			if err := s.SetActiveFormat(store.StoreFormat(format)); err != nil {
+			if err := s.SetStorageFormat(format); err != nil {
 				return err
 			}
 			if st.isJSON() {

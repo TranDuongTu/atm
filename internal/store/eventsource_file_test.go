@@ -29,11 +29,11 @@ func TestAppendAndReadV2File(t *testing.T) {
 	s := testStore(t)
 	ev := testV2Event(t, "project.created")
 	if err := s.WithLock("ATM", func() error {
-		return s.appendV2EventLineLocked("ATM", ev.Raw)
+		return s.eng.AppendEventLineLocked("ATM", ev.Raw)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	snap, err := s.readV2File("ATM", false)
+	snap, err := s.eng.ReadV2File("ATM", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,23 +48,23 @@ func TestAppendAndReadV2File(t *testing.T) {
 func TestReadV2FileTruncatesPartialTailOnlyWhenRepairRequested(t *testing.T) {
 	s := testStore(t)
 	ev := testV2Event(t, "project.created")
-	if err := os.MkdirAll(filepath.Dir(s.eventsV2Path("ATM")), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.eng.EventsV2Path("ATM")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.eventsV2Path("ATM"), append(append([]byte{}, ev.Raw...), []byte("\n{\"partial\"")...), 0o644); err != nil {
+	if err := os.WriteFile(s.eng.EventsV2Path("ATM"), append(append([]byte{}, ev.Raw...), []byte("\n{\"partial\"")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.readV2File("ATM", false); err == nil {
+	if _, err := s.eng.ReadV2File("ATM", false); err == nil {
 		t.Fatal("expected integrity error without repairTail")
 	}
-	snap, err := s.readV2File("ATM", true)
+	snap, err := s.eng.ReadV2File("ATM", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snap.TruncatedBytes == 0 {
 		t.Fatal("expected truncated byte count")
 	}
-	raw, err := os.ReadFile(s.eventsV2Path("ATM"))
+	raw, err := os.ReadFile(s.eng.EventsV2Path("ATM"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestReadV2FileTreatsCompleteButUnterminatedTailAsUncommitted(t *testing.T) 
 		t.Fatalf("tail event does not parse on its own, test is meaningless: %v", err)
 	}
 
-	path := s.eventsV2Path("ATM")
+	path := s.eng.EventsV2Path("ATM")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,11 +128,11 @@ func TestReadV2FileTreatsCompleteButUnterminatedTailAsUncommitted(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if _, err := s.readV2File("ATM", false); err == nil {
+	if _, err := s.eng.ReadV2File("ATM", false); err == nil {
 		t.Fatal("expected integrity error for unterminated tail without repairTail")
 	}
 
-	snap, err := s.readV2File("ATM", true)
+	snap, err := s.eng.ReadV2File("ATM", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestReadV2FileTreatsSingleUnterminatedCompleteEventAsUncommitted(t *testing
 	s := testStore(t)
 	ev := testV2Event(t, "project.created")
 
-	path := s.eventsV2Path("ATM")
+	path := s.eng.EventsV2Path("ATM")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -177,11 +177,11 @@ func TestReadV2FileTreatsSingleUnterminatedCompleteEventAsUncommitted(t *testing
 		t.Fatal(err)
 	}
 
-	if _, err := s.readV2File("ATM", false); err == nil {
+	if _, err := s.eng.ReadV2File("ATM", false); err == nil {
 		t.Fatal("expected integrity error for unterminated single event without repairTail")
 	}
 
-	snap, err := s.readV2File("ATM", true)
+	snap, err := s.eng.ReadV2File("ATM", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,13 +203,13 @@ func TestReadV2FileTreatsSingleUnterminatedCompleteEventAsUncommitted(t *testing
 
 func TestReadV2FileRejectsMalformedCompleteLine(t *testing.T) {
 	s := testStore(t)
-	if err := os.MkdirAll(filepath.Dir(s.eventsV2Path("ATM")), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.eng.EventsV2Path("ATM")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.eventsV2Path("ATM"), []byte("{not-json}\n"), 0o644); err != nil {
+	if err := os.WriteFile(s.eng.EventsV2Path("ATM"), []byte("{not-json}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.readV2File("ATM", true); err == nil {
+	if _, err := s.eng.ReadV2File("ATM", true); err == nil {
 		t.Fatal("expected malformed complete line to fail")
 	}
 }

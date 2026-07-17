@@ -28,7 +28,8 @@ type testCLI struct {
 func newTestCLI(t *testing.T) *testCLI {
 	t.Helper()
 	dir := t.TempDir()
-	st := &cliState{flags: globalFlags{output: outputText}}
+	openService, openAdmin := storeOpeners()
+	st := &cliState{flags: globalFlags{output: outputText}, openServiceFn: openService, openAdminFn: openAdmin}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/libs/eventsource"
 )
 
 var (
@@ -41,21 +41,21 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 		}
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
-	// Only the fields being SET go into the payload (the writesOf action
-	// table): an omitted key writes no slot, so the label's existing
-	// description/expr survives — exactly the v1 "empty means keep" rule,
-	// expressed in the event model instead of by re-reading the cache.
-	payload := map[string]any{}
+	// Only the fields being SET are asserted (the writesOf action table): a nil
+	// field writes no slot, so the label's existing description/expr survives —
+	// exactly the v1 "empty means keep" rule, expressed in the event model
+	// instead of by re-reading the cache.
+	f := core.LabelFields{}
 	if description != "" {
-		payload["description"] = description
+		f.Description = &description
 	}
 	if expr != "" {
-		payload["expr"] = expr
+		f.Expr = &expr
 	}
-	return s.labelUpsertV2(code, name, actor, payload)
+	return s.labelUpsertV2(code, name, actor, f)
 }
 
 // validateExpr parses expr, rejects a name collision, and walks the board
@@ -67,14 +67,14 @@ func (s *Store) validateExpr(name, expr string) error {
 
 	// I3 - a board may not shadow a namespace.
 	for _, l := range s.LabelList(code, "") {
-		if IsNamespaceName(l.Name) && strings.TrimSuffix(l.Name, ":*") == name {
+		if core.IsNamespaceName(l.Name) && strings.TrimSuffix(l.Name, ":*") == name {
 			return fmt.Errorf("%w: %s vs %s", ErrBoardNameCollision, name, l.Name)
 		}
 	}
 
-	n, err := ParseExpr(expr)
+	n, err := core.ParseExpr(expr)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUsage, err)
+		return fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
 
 	// I2 (write half) - walk references depth-first from this label.
@@ -87,7 +87,7 @@ func (s *Store) validateExpr(name, expr string) error {
 	visiting := map[string]bool{}
 	var walk func(full string, node Node) error
 	walk = func(full string, node Node) error {
-		for _, atom := range Atoms(node) {
+		for _, atom := range core.Atoms(node) {
 			ref := code + ":" + atom
 			l, ok := live[ref]
 			if !ok || l.Expr == "" {
@@ -97,7 +97,7 @@ func (s *Store) validateExpr(name, expr string) error {
 				return fmt.Errorf("%w: %s", ErrCyclicExpr, ref)
 			}
 			visiting[ref] = true
-			sub, err := ParseExpr(l.Expr)
+			sub, err := core.ParseExpr(l.Expr)
 			if err != nil {
 				return fmt.Errorf("board %s: %w", ref, err)
 			}
@@ -125,7 +125,7 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 		return err
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
 	return s.labelSeedV2(code, name, description, expr, actor)
@@ -151,7 +151,7 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 		return nil, err
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return nil, err
 	}
 	return s.labelRemoveV2(code, name, actor)
@@ -159,46 +159,31 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 
 // ---- v2 label mutators ----
 
-// labelUpsertV2 emits label.upserted. A label's NAME is its identity in the
-// fold, so the subject carries the name and there is nothing to resolve.
-func (s *Store) labelUpsertV2(code, name, actor string, payload map[string]any) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-			Payload: payload,
-		}); err != nil {
+// labelUpsertV2 emits label.upserted through the engine's write transaction.
+// A label's NAME is its identity in the fold, so there is nothing to resolve.
+func (s *Store) labelUpsertV2(code, name, actor string, f core.LabelFields) error {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.UpsertLabel(name, f, actor); err != nil {
 			return err
 		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
-// labelSeedV2 is LabelSeed's v2 body: a no-op when the label is already live
-// in the fold (the fold, not cache.db, is the authority for a v2 project).
+// labelSeedV2 is LabelSeed's v2 body. cs.SeedLabel is itself the no-op guard:
+// it folds under the lock and appends nothing when the label is already live,
+// so it carries the exact begin/observe sequence (and therefore the exact HLC
+// trajectory) the pre-carve labelSeedV2 had — a separate LabelLive pre-check
+// here would insert an extra begin, whose per-event Observe advances the shared
+// HLC clock and shifts every downstream event's stamp. The trailing
+// reprojectTxn is clock-free (a strict re-read + cache rewrite, no append), so
+// running it even on the no-op path never changes event bytes.
 func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.SeedLabel(name, description, expr, actor); err != nil {
 			return err
 		}
-		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
-			return nil
-		}
-		payload := map[string]any{"description": description}
-		if expr != "" {
-			payload["expr"] = expr
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-			Payload: payload,
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
@@ -208,22 +193,11 @@ func (s *Store) labelRemoveV2(code, name, actor string) (*LabelRemoveResult, err
 		return nil, err
 	}
 	var result *LabelRemoveResult
-	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	err = s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.RemoveLabel(name, actor); err != nil {
 			return err
 		}
-		if l, ok := ctx.state.Labels[name]; !ok || l.Tombstoned {
-			return fmt.Errorf("%w: label %q", ErrNotFound, name)
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelRemoved,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-		}); err != nil {
-			return err
-		}
-		if err := s.reprojectV2Locked(code); err != nil {
+		if err := s.reprojectTxn(code, cs); err != nil {
 			return err
 		}
 		// Retained usage: entities still carrying the (now unregistered) name.
@@ -258,7 +232,7 @@ func (s *Store) labelProjectExistsV2Locked(name, code string) error {
 	if _, ok, err := cacheGetProject(db, lc); err != nil {
 		return err
 	} else if !ok {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, lc, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, lc, name)
 	}
 	return nil
 }
@@ -285,7 +259,7 @@ func (s *Store) LabelShow(name string) (Label, error) {
 		return Label{}, err
 	}
 	if !ok {
-		return Label{}, fmt.Errorf("%w: label %q", ErrNotFound, name)
+		return Label{}, fmt.Errorf("%w: label %q", core.ErrNotFound, name)
 	}
 	return l, nil
 }
@@ -305,7 +279,7 @@ func (s *Store) Namespaces(code string) []string {
 func (s *Store) labelProjectExists(name string) error {
 	code := labelProject(name)
 	if _, err := s.GetProject(code); err != nil {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, code, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, code, name)
 	}
 	return nil
 }
@@ -320,7 +294,7 @@ func (s *Store) labelProjectExists(name string) error {
 func (s *Store) labelProjectExistsLocked(name string) error {
 	code := labelProject(name)
 	if _, err := s.getProjectLocked(code); err != nil {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, code, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, code, name)
 	}
 	return nil
 }

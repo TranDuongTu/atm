@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"atm/libs/eventsource"
 )
 
@@ -30,7 +32,7 @@ func resetCacheForRebuild(t *testing.T, s *Store) {
 // LabelAdd's caller-facing validation does.
 func appendRawV2LabelEvent(t *testing.T, s *Store, code, name string, tick int64) {
 	t.Helper()
-	snap, err := s.readV2File(code, false)
+	snap, err := s.eng.ReadV2File(code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func appendRawV2LabelEvent(t *testing.T, s *Store, code, name string, tick int64
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WithLock(code, func() error { return s.appendV2EventLineLocked(code, ev.Raw) }); err != nil {
+	if err := s.WithLock(code, func() error { return s.eng.AppendEventLineLocked(code, ev.Raw) }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -57,7 +59,7 @@ func TestVerifyProjectReportsV2Format(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Format != StoreFormatV2 {
+	if r.Format != string(eventlog.StoreFormatV2) {
 		t.Fatalf("Format = %q, want v2", r.Format)
 	}
 	if r.V2Events == 0 {
@@ -125,7 +127,7 @@ func TestRebuildToleratesCorruptV2ProjectAndRebuildsHealthyOnes(t *testing.T) {
 	// A complete-but-unparseable line is an integrity error (never a repair
 	// target), per readV2FileAt's contract — see
 	// TestReadV2FileRejectsMalformedCompleteLine.
-	if err := os.WriteFile(s.eventsV2Path("AAA"), []byte("{not-json}\n"), 0o644); err != nil {
+	if err := os.WriteFile(s.eng.EventsV2Path("AAA"), []byte("{not-json}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	resetCacheForRebuild(t, s)
@@ -160,7 +162,7 @@ func TestVerifyProjectV2SurfacesNonIntegrityErrorInstead(t *testing.T) {
 	if _, err := s.CreateTask("AAA", "t", "", nil, "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	path := s.eventsV2Path("AAA")
+	path := s.eng.EventsV2Path("AAA")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,7 @@ func TestVerifyProjectV2SurfacesNonIntegrityErrorInstead(t *testing.T) {
 	if err == nil {
 		t.Fatalf("VerifyProject with an unreadable v2 log = (%#v, nil), want a real error", report)
 	}
-	if IsIntegrity(err) {
+	if core.IsIntegrity(err) {
 		t.Fatalf("VerifyProject wrapped a permission error as an integrity error: %v", err)
 	}
 	if report != nil {

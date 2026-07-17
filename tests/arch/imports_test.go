@@ -64,9 +64,11 @@ func TestVersionImportsNoInternalPackage(t *testing.T) {
 // files also import internal/{workflow, activity, seed, embed}. Step 5
 // (ATM-08db6e) relocated the capabilities and put the TUI on the registry;
 // the satellites (activity, seed, embed) remain acknowledged thin leaves.
-// Purging them is out of step 4's scope, so this test asserts the edge step 4
-// actually removes rather than a rule the tree does not satisfy. Tighten it
-// when steps 5-6 land.
+// Purging them is out of scope, so this test asserts the edge that was
+// actually removed rather than a rule the tree does not satisfy. Step 6
+// (ATM-3b873c) has since landed: TestCLIDoesNotImportStore below pins the
+// matching cli->store cut, and TestOnlyEventlogImportsEventsourceLib pins the
+// event-sourcing library behind internal/store/eventlog.
 func TestTUIDoesNotImportStore(t *testing.T) {
 	for f, imps := range internalImports(t, "internal/tui") {
 		for _, p := range imps {
@@ -125,6 +127,41 @@ func TestCLIDoesNotImportTUI(t *testing.T) {
 		for _, p := range imps {
 			if p == "atm/internal/tui" {
 				t.Errorf("%s imports the tui package; the runner seam (Deps.RunTUI) is the only allowed edge", f)
+			}
+		}
+	}
+}
+
+// TestCLIDoesNotImportStore is refactor step 6's boundary: the CLI consumes
+// core.Service + core.StorageAdmin, both injected by cmd/atm. Neither the
+// concrete store nor any of its subpackages may be named by cli production
+// files.
+func TestCLIDoesNotImportStore(t *testing.T) {
+	for f, imps := range internalImports(t, "internal/cli") {
+		for _, p := range imps {
+			if p == "atm/internal/store" || strings.HasPrefix(p, "atm/internal/store/") {
+				t.Errorf("%s imports %q; internal/cli consumes core interfaces injected by the composition root", f, p)
+			}
+		}
+	}
+}
+
+// TestOnlyEventlogImportsEventsourceLib pins the carve: the event-sourcing
+// library is an implementation detail of internal/store/eventlog. Nothing
+// else in the module — the store facade included — may name it.
+func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
+	for _, dir := range []string{
+		"cmd/atm", "internal/activity", "internal/actor", "internal/agent",
+		"internal/capability", "internal/capability/contextmap", "internal/capability/workflow",
+		"internal/cli", "internal/core", "internal/developing", "internal/embed",
+		"internal/manager", "internal/seed", "internal/store", "internal/store/fsio",
+		"internal/tui", "internal/tui/components", "internal/version",
+	} {
+		for f, imps := range internalImports(t, dir) {
+			for _, p := range imps {
+				if strings.HasPrefix(p, "atm/libs/eventsource") {
+					t.Errorf("%s imports %q; only internal/store/eventlog may import the eventsource library", f, p)
+				}
 			}
 		}
 	}

@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"atm/internal/core"
+	"testing"
+)
 
 func TestValidateLabelNameAcceptsNamespaceAndBoardNames(t *testing.T) {
 	ok := []string{"ATM:stale", "ATM:next-sprint", "ATM:status:open", "ATM:status:*"}
@@ -18,10 +21,10 @@ func TestValidateLabelNameAcceptsNamespaceAndBoardNames(t *testing.T) {
 }
 
 func TestIsNamespaceName(t *testing.T) {
-	if !IsNamespaceName("ATM:status:*") {
+	if !core.IsNamespaceName("ATM:status:*") {
 		t.Error("ATM:status:* should be a namespace name")
 	}
-	if IsNamespaceName("ATM:status:open") || IsNamespaceName("ATM:next-sprint") {
+	if core.IsNamespaceName("ATM:status:open") || core.IsNamespaceName("ATM:next-sprint") {
 		t.Error("non-:* names are not namespace names")
 	}
 }

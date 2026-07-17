@@ -132,13 +132,13 @@ func TestTwoStoreConvergenceByteIdenticalFold(t *testing.T) {
 	}
 
 	// A publishes the initial project to the remote.
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A initial sync: %v", err)
 	}
 
 	// B bootstraps from the remote (project absent locally until this sync).
 	b := e2eStore(t, 2)
-	rep, err := eventsync.Sync(ctx, b, target, code, eventsync.Options{})
+	rep, err := eventsync.Sync(ctx, b.eng, target, code, eventsync.Options{})
 	if err != nil {
 		t.Fatalf("B bootstrap sync: %v", err)
 	}
@@ -159,13 +159,13 @@ func TestTwoStoreConvergenceByteIdenticalFold(t *testing.T) {
 
 	// Three passes settle both directions: A pushes its edit; B pulls it and
 	// pushes its comment; A pulls the comment.
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A sync pass: %v", err)
 	}
-	if _, err := eventsync.Sync(ctx, b, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, b.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("B sync pass: %v", err)
 	}
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A final sync pass: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestThreeReplicaRandomizedConvergence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range stores {
-		if _, err := eventsync.Sync(ctx, s, target, code, eventsync.Options{}); err != nil {
+		if _, err := eventsync.Sync(ctx, s.eng, target, code, eventsync.Options{}); err != nil {
 			t.Fatalf("initial bootstrap sync: %v", err)
 		}
 	}
@@ -244,7 +244,7 @@ func TestThreeReplicaRandomizedConvergence(t *testing.T) {
 		s := stores[rng.Intn(len(stores))]
 		switch rng.Intn(5) {
 		case 0: // sync
-			if _, err := eventsync.Sync(ctx, s, target, code, eventsync.Options{}); err != nil {
+			if _, err := eventsync.Sync(ctx, s.eng, target, code, eventsync.Options{}); err != nil {
 				t.Fatalf("iter %d sync: %v", i, err)
 			}
 		case 1: // create task
@@ -279,7 +279,7 @@ func TestThreeReplicaRandomizedConvergence(t *testing.T) {
 	// the now-complete union into every replica.
 	for round := 0; round < 2; round++ {
 		for _, s := range stores {
-			if _, err := eventsync.Sync(ctx, s, target, code, eventsync.Options{}); err != nil {
+			if _, err := eventsync.Sync(ctx, s.eng, target, code, eventsync.Options{}); err != nil {
 				t.Fatalf("settle round %d sync: %v", round, err)
 			}
 		}
@@ -313,7 +313,7 @@ func TestConflictCopyRecoveryByUnion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A publish base: %v", err)
 	}
 	base := mustSnapshot(t, a, code)
@@ -332,7 +332,7 @@ func TestConflictCopyRecoveryByUnion(t *testing.T) {
 	if err := a.SetTitle(tk.ID, "A main-fork title", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A main-fork sync: %v", err)
 	}
 
@@ -340,7 +340,7 @@ func TestConflictCopyRecoveryByUnion(t *testing.T) {
 	// base and adds a comment; that event's raw line is appended straight onto
 	// the .conflict file, simulating the other side of the file-sync fork.
 	b := e2eStore(t, 22)
-	if err := b.SyncBootstrap(code, base); err != nil {
+	if err := b.eng.SyncBootstrap(code, base); err != nil {
 		t.Fatalf("B bootstrap: %v", err)
 	}
 	cm, err := b.CreateComment(tk.ID, "B conflict-fork comment", nil, "", testActor)
@@ -360,13 +360,13 @@ func TestConflictCopyRecoveryByUnion(t *testing.T) {
 	appendBytes(t, mainPath, conflictBytes)
 
 	// Sync converges everyone off the deduped union.
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A recovery sync: %v", err)
 	}
-	if _, err := eventsync.Sync(ctx, b, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, b.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("B recovery sync: %v", err)
 	}
-	if _, err := eventsync.Sync(ctx, a, target, code, eventsync.Options{}); err != nil {
+	if _, err := eventsync.Sync(ctx, a.eng, target, code, eventsync.Options{}); err != nil {
 		t.Fatalf("A final recovery sync: %v", err)
 	}
 

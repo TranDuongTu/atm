@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"atm/internal/core"
 	"atm/internal/developing"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -96,7 +96,7 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 		ATMBin:             atmBin,
 		Actor:              actor,
 		RunID:              runID,
-		Timestamp:          store.RFC3339UTC(time.Now().UTC()),
+		Timestamp:          core.RFC3339UTC(time.Now().UTC()),
 		Persona:            effectivePersona,
 		PersonaPrompt:      personaPrompt,
 		PersonaDescription: personaDescription,

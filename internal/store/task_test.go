@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"errors"
 	"testing"
 )
@@ -109,8 +110,8 @@ func TestRemoveTaskAppendsTombstoneDeletesCache(t *testing.T) {
 	if after != before+1 {
 		t.Fatalf("seq jumped %d → %d, want %d (task.removed tombstone)", before, after, before+1)
 	}
-	if _, err := s.GetTask(tk.ID); !IsNotFound(err) {
-		t.Fatalf("GetTask after remove: %v want ErrNotFound", err)
+	if _, err := s.GetTask(tk.ID); !core.IsNotFound(err) {
+		t.Fatalf("GetTask after remove: %v want core.ErrNotFound", err)
 	}
 	db, _ := s.cacheDB()
 	if _, ok, _ := cacheGetTask(db, tk.ID); ok {

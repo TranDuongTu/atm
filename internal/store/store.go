@@ -2,6 +2,7 @@ package store
 
 import (
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -43,6 +44,12 @@ type Store struct {
 	clockNow       func() int64     // nil => eventsource.NewClock uses wall clock
 	replicaEntropy io.Reader        // nil => rand.Reader (defaulted in Open)
 	nowFn          func() time.Time // nil => time.Now().UTC (defaulted in Open)
+
+	// eng is the event-log write-engine (internal/store/eventlog). Its
+	// OnProject/OnMediaReplaced hooks (wired in Open) let engine-internal
+	// projection paths (sync ingest/bootstrap, upgrade) write through the
+	// facade's read-model cache under the project lock.
+	eng *eventlog.Engine
 }
 
 // Store satisfies core's service seam structurally (refactor step 4).
@@ -63,7 +70,7 @@ type logSnapshot struct {
 type Option func(*Store)
 
 // WithClock fixes the millisecond source feeding the v2 HLC clock used by
-// v2 authoring (eventsource_author.go's beginV2AuthorLocked). Production
+// v2 authoring (the eventlog engine's beginAuthorLocked). Production
 // omits it, leaving eventsource.NewClock to read the wall clock. Tests pass
 // a counter so successive HLC ticks -- and therefore minted hex aliases --
 // are reproducible.
@@ -79,19 +86,18 @@ func WithReplicaEntropy(r io.Reader) Option { return func(s *Store) { s.replicaE
 // time.Now().UTC().
 func WithNow(f func() time.Time) Option { return func(s *Store) { s.nowFn = f } }
 
-// Now returns the current time as seen by this Store instance, honoring
-// WithNow if set. Production stores (opened with no options) get
-// time.Now().UTC(), identical to the package-level Now() below. v2 authoring
-// stamps event `at` fields through this method so tests can pin it via
-// WithNow; everything else in the store continues to use the package-level
-// Now().
+// Now satisfies core.MaintenanceService and returns the current time as seen
+// by this Store instance, honoring WithNow if set (production stores, opened
+// with no options, get time.Now().UTC()). It reads the SAME nowFn the eventlog
+// engine stamps event `at` fields with — both are handed s.nowFn at Open — so
+// tests pinning WithNow move the store facade and v2 authoring together.
 func (s *Store) Now() time.Time { return s.nowFn() }
 
 var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 func ValidateProjectCode(code string) error {
 	if !projectCodeRe.MatchString(code) {
-		return fmt.Errorf("%w: invalid project code %q (want ^[A-Z]{3,6}$)", ErrUsage, code)
+		return fmt.Errorf("%w: invalid project code %q (want ^[A-Z]{3,6}$)", core.ErrUsage, code)
 	}
 	return nil
 }
@@ -114,8 +120,8 @@ func RenderTaskID(code string, n int) string {
 
 func SortTaskIDs(ids []string) {
 	sort.SliceStable(ids, func(i, j int) bool {
-		ci, ni, _ := ParseTaskID(ids[i])
-		cj, nj, _ := ParseTaskID(ids[j])
+		ci, ni, _ := core.ParseTaskID(ids[i])
+		cj, nj, _ := core.ParseTaskID(ids[j])
 		if ci != cj {
 			return ci < cj
 		}
@@ -131,7 +137,7 @@ func SortTaskIDs(ids []string) {
 // because v1 RenderCommentID and v2 MintCommentAlias both build the comment
 // id as <task-alias>-c<suffix>.
 func commentTaskAlias(id string) (string, bool) {
-	m := CommentIDRe.FindStringSubmatch(id)
+	m := core.CommentIDRe.FindStringSubmatch(id)
 	if m == nil {
 		return "", false
 	}
@@ -177,6 +183,16 @@ func Open(root string, opts ...Option) (*Store, error) {
 	if s.nowFn == nil {
 		s.nowFn = func() time.Time { return time.Now().UTC() }
 	}
+	s.eng = eventlog.New(abs, eventlog.Options{
+		ClockNow:       s.clockNow,
+		ReplicaEntropy: s.replicaEntropy,
+		Now:            s.nowFn,
+		OnProject:      func(code string, snap *core.ProjectSnapshot) error { return s.projectSnapshot(code, snap) },
+		OnMediaReplaced: func(code string) {
+			_ = os.RemoveAll(s.vectorsDir(code))
+			s.invalidateLogSnapshot(code)
+		},
+	})
 	return s, nil
 }
 
@@ -203,7 +219,7 @@ func (s *Store) Init(storePath string) error {
 	}
 	// Materialize store.json (defaults included) under the store-scoped lock:
 	// an init racing a concurrent writer must not clobber its update.
-	return s.mutateStoreMeta(func(*StoreMeta) error { return nil })
+	return s.eng.MutateStoreMeta(func(*eventlog.StoreMeta) error { return nil })
 }
 
 func (s *Store) StorePath() string { return s.Root }
@@ -240,24 +256,13 @@ func (s *Store) inquiryLogPath(code string) string {
 	return filepath.Join(s.projectDir(code), "inquiry-log.jsonl")
 }
 
-// projectCodesOnDisk enumerates project codes by the projects/<CODE>/
-// directory structure (which holds log.jsonl), independent of cache.db.
-// Used by Verify/Rebuild so a missing or fully-wiped cache.db doesn't hide
-// projects that still have logs on disk.
-func (s *Store) projectCodesOnDisk() ([]string, error) {
-	entries, err := os.ReadDir(s.projectsDir())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var codes []string
-	for _, e := range entries {
-		if e.IsDir() {
-			codes = append(codes, e.Name())
-		}
-	}
-	sort.Strings(codes)
-	return codes, nil
-}
+// storeMetaPath is the store.json path. The engine (internal/store/eventlog)
+// owns the reads and writes of store.json now; this facade helper survives
+// only for store-package tests that materialize a corrupt store.json to
+// exercise error paths. Kept in sync with eventlog.Engine.storeMetaPath.
+func (s *Store) storeMetaPath() string { return filepath.Join(s.Root, "store.json") }
+
+// projectCodesOnDisk delegates to the event-log engine, which owns the
+// projects/<CODE>/ enumeration (moved there in refactor step 6). Verify/
+// Rebuild still call it through the facade.
+func (s *Store) projectCodesOnDisk() ([]string, error) { return s.eng.ProjectCodesOnDisk() }

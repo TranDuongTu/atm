@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,14 +11,14 @@ import (
 func TestPersonaCRUD(t *testing.T) {
 	s := newTestStore(t)
 
-	if _, err := s.CreatePersona("Staff", "p", "", testActor); !IsUsage(err) {
-		t.Fatalf("uppercase name should be ErrUsage, got %v", err)
+	if _, err := s.CreatePersona("Staff", "p", "", testActor); !core.IsUsage(err) {
+		t.Fatalf("uppercase name should be core.ErrUsage, got %v", err)
 	}
 	if _, err := s.CreatePersona("staff-engineer", "high bar", "reviewer", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreatePersona("staff-engineer", "dup", "", testActor); !IsConflict(err) {
-		t.Fatalf("duplicate should be ErrConflict, got %v", err)
+	if _, err := s.CreatePersona("staff-engineer", "dup", "", testActor); !core.IsConflict(err) {
+		t.Fatalf("duplicate should be core.ErrConflict, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(s.Root, "personas", "staff-engineer.json")); err != nil {
 		t.Fatalf("persona file missing: %v", err)
@@ -36,30 +37,30 @@ func TestPersonaCRUD(t *testing.T) {
 	if got.Prompt != "even higher bar" || got.Description != "reviewer" {
 		t.Fatalf("edit left wrong state: %+v", got)
 	}
-	if _, err := s.EditPersona("ghost", &newPrompt, nil, testActor); !IsNotFound(err) {
-		t.Fatalf("edit missing should be ErrNotFound, got %v", err)
+	if _, err := s.EditPersona("ghost", &newPrompt, nil, testActor); !core.IsNotFound(err) {
+		t.Fatalf("edit missing should be core.ErrNotFound, got %v", err)
 	}
 
 	if err := s.RemovePersona("staff-engineer"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetPersona("staff-engineer"); !IsNotFound(err) {
-		t.Fatalf("get after remove should be ErrNotFound, got %v", err)
+	if _, err := s.GetPersona("staff-engineer"); !core.IsNotFound(err) {
+		t.Fatalf("get after remove should be core.ErrNotFound, got %v", err)
 	}
 }
 
 func TestPersonaNameTraversalRejected(t *testing.T) {
 	s := newTestStore(t)
 
-	if _, err := s.GetPersona("../evil"); !IsUsage(err) {
-		t.Fatalf("GetPersona traversal should be ErrUsage, got %v", err)
+	if _, err := s.GetPersona("../evil"); !core.IsUsage(err) {
+		t.Fatalf("GetPersona traversal should be core.ErrUsage, got %v", err)
 	}
 	newPrompt := "pwned"
-	if _, err := s.EditPersona("../evil", &newPrompt, nil, testActor); !IsUsage(err) {
-		t.Fatalf("EditPersona traversal should be ErrUsage, got %v", err)
+	if _, err := s.EditPersona("../evil", &newPrompt, nil, testActor); !core.IsUsage(err) {
+		t.Fatalf("EditPersona traversal should be core.ErrUsage, got %v", err)
 	}
-	if err := s.RemovePersona("../evil"); !IsUsage(err) {
-		t.Fatalf("RemovePersona traversal should be ErrUsage, got %v", err)
+	if err := s.RemovePersona("../evil"); !core.IsUsage(err) {
+		t.Fatalf("RemovePersona traversal should be core.ErrUsage, got %v", err)
 	}
 }
 
@@ -69,8 +70,8 @@ func TestRemovePersonaRejectsBuiltins(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	for _, name := range []string{"developer", "manager", "admin"} {
-		if err := s.RemovePersona(name); !errors.Is(err, ErrUsage) {
-			t.Errorf("RemovePersona(%q) = %v, want ErrUsage", name, err)
+		if err := s.RemovePersona(name); !errors.Is(err, core.ErrUsage) {
+			t.Errorf("RemovePersona(%q) = %v, want core.ErrUsage", name, err)
 		}
 		if _, err := s.GetPersona(name); err != nil {
 			t.Errorf("built-in %q was removed: %v", name, err)

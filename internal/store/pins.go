@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 )
@@ -29,7 +30,7 @@ func (s *Store) WritePins(code string, p *Pins) error {
 	if err := s.validateActor(p.Actor); err != nil {
 		return err
 	}
-	p.UpdatedAt = Now()
+	p.UpdatedAt = core.Now()
 	return s.WithLock(code, func() error {
 		if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
 			return err

@@ -3,12 +3,13 @@ package store
 import (
 	"fmt"
 
-	"atm/libs/eventsource"
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) CreateTask(projectCode, title, description string, labels []string, actor string) (*Task, error) {
 	if title == "" {
-		return nil, fmt.Errorf("%w: title is required", ErrUsage)
+		return nil, fmt.Errorf("%w: title is required", core.ErrUsage)
 	}
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
@@ -20,12 +21,12 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 // taskProjectFormat parses a task alias for its project code and resolves the
 // project's EFFECTIVE format. Keying on the full alias string (never on a
 // numeric segment) is mandatory: a v2 alias's segment is hex (Task 2b).
-func (s *Store) taskProjectFormat(id string) (string, StoreFormat, error) {
-	code, _, ok := ParseTaskID(id)
+func (s *Store) taskProjectFormat(id string) (string, eventlog.StoreFormat, error) {
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return "", "", fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return "", "", fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
-	f, err := s.dispatchFormat(code)
+	f, err := s.eng.DispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -47,7 +48,7 @@ func (s *Store) validateTaskLabelsV2Locked(code string, labels []string) error {
 		if err := s.labelProjectExistsV2Locked(l, code); err != nil {
 			return err
 		}
-		if IsNamespaceName(l) {
+		if core.IsNamespaceName(l) {
 			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
 		}
 		if lb, ok, err := cacheGetLabel(db, l); err != nil {
@@ -60,29 +61,28 @@ func (s *Store) validateTaskLabelsV2Locked(code string, labels []string) error {
 }
 
 // createTaskV2 writes task.created (plus any label.upserted auto-registration)
-// to events.v2.jsonl. The alias is minted by the eventsource helper from the
-// event identity — L3 never mints one itself (ATM-0125).
+// to events.v2.jsonl through the engine's write transaction. The alias is
+// minted by the engine from the event identity — the facade never mints one
+// itself (ATM-0125). Validation, guard order and the post-write cache read are
+// preserved: RequireProject and the label validation both run before the first
+// append, so a failed create commits nothing.
 func (s *Store) createTaskV2(projectCode, title, description string, labels []string, actor string) (*Task, error) {
 	var created *Task
-	err := s.withProjectFormatLock(projectCode, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(projectCode)
-		if err != nil {
-			return err
-		}
-		if _, err := ctx.resolveProjectRef(projectCode); err != nil {
+	err := s.eng.WithProjectWrite(projectCode, func(cs core.ChangeSet) error {
+		if err := cs.RequireProject(); err != nil {
 			return err
 		}
 		if err := s.validateTaskLabelsV2Locked(projectCode, labels); err != nil {
 			return err
 		}
-		if err := s.appendV2LabelUpsertsLocked(projectCode, labels, actor); err != nil {
+		if err := cs.EnsureLabels(labels, actor); err != nil {
 			return err
 		}
-		_, alias, err := s.appendV2TaskCreatedLocked(projectCode, title, description, labels, actor)
+		alias, err := cs.CreateTask(core.TaskDraft{Title: title, Description: description, Labels: labels}, actor)
 		if err != nil {
 			return err
 		}
-		if err := s.reprojectV2Locked(projectCode); err != nil {
+		if err := s.reprojectTxn(projectCode, cs); err != nil {
 			return err
 		}
 		db, err := s.cacheDB()
@@ -94,7 +94,7 @@ func (s *Store) createTaskV2(projectCode, title, description string, labels []st
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("%w: task %q", ErrNotFound, alias)
+			return fmt.Errorf("%w: task %q", core.ErrNotFound, alias)
 		}
 		created = t
 		return nil
@@ -102,70 +102,35 @@ func (s *Store) createTaskV2(projectCode, title, description string, labels []st
 	return created, err
 }
 
-// mutateTaskV2 appends one v2 task event against the task's IDENTITY (the fold
-// keys every slot write off subject.id, never the alias) and reprojects.
-func (s *Store) mutateTaskV2(code, id, action, actor string, payload map[string]any) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
-			return err
-		}
-		ref, err := ctx.resolveTaskRef(id)
-		if err != nil {
-			return err
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  action,
-			Subject: eventsource.Subject{Kind: "task", ID: ref},
-			Payload: payload,
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
-	})
-}
-
 // taskLabelAddV2 auto-registers the label (v1 parity) and asserts membership.
+// The order is preserved: resolve → validate → no-op check → ensure → append.
 func (s *Store) taskLabelAddV2(code, id, label, actor string) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
-			return err
-		}
-		ref, err := ctx.resolveTaskRef(id)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.ResolveTask(id); err != nil {
 			return err
 		}
 		if err := s.validateTaskLabelsV2Locked(code, []string{label}); err != nil {
 			return err
 		}
-		if t, ok := ctx.state.Tasks[ref]; ok {
-			for _, l := range t.Labels {
-				if l == label {
-					return nil
-				}
-			}
+		if has, err := cs.TaskHasLabel(id, label); err != nil {
+			return err
+		} else if has {
+			return nil
 		}
-		if err := s.appendV2LabelUpsertsLocked(code, []string{label}, actor); err != nil {
+		if err := cs.EnsureLabels([]string{label}, actor); err != nil {
 			return err
 		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionTaskLabelAdded,
-			Subject: eventsource.Subject{Kind: "task", ID: ref},
-			Payload: map[string]any{"label": label},
-		}); err != nil {
+		if err := cs.AddTaskLabel(id, label, actor); err != nil {
 			return err
 		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
 func (s *Store) GetTask(id string) (*Task, error) {
-	code, _, ok := ParseTaskID(id)
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
@@ -180,9 +145,9 @@ func (s *Store) GetTask(id string) (*Task, error) {
 // running inside their own s.WithLock(code, ...) closure) — calling GetTask
 // in that situation would re-enter the (non-reentrant) mutex and deadlock.
 func (s *Store) getTaskLocked(id string) (*Task, error) {
-	code, _, ok := ParseTaskID(id)
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
 		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
@@ -199,24 +164,24 @@ func (s *Store) getTaskLocked(id string) (*Task, error) {
 // getProjectWithRebuild's doc comment for why a task's project can still
 // legitimately resolve to a non-v2 format (a fully removed project, or a
 // cache row written directly ahead of format registration) and why the
-// correct response is to serve the cache row as-is (or ErrNotFound if
+// correct response is to serve the cache row as-is (or core.ErrNotFound if
 // absent) without ever attempting a rebuild.
 func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		t, found, err := cacheGetTask(db, id)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: task %q", core.ErrNotFound, id)
 		}
 		return t, nil
 	}
@@ -243,7 +208,7 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: task %q", core.ErrNotFound, id)
 		}
 	}
 	return t, nil
@@ -251,13 +216,13 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 
 func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
-		return fmt.Errorf("%w: title is required", ErrUsage)
+		return fmt.Errorf("%w: title is required", core.ErrUsage)
 	}
-	return s.mutateTask(id, actor, ActionTaskTitleChanged, map[string]any{"title": title})
+	return s.mutateTask(id, actor, func(cs core.ChangeSet) error { return cs.SetTaskTitle(id, title, actor) })
 }
 
 func (s *Store) SetDescription(id, description, actor string) error {
-	return s.mutateTask(id, actor, ActionTaskDescChanged, map[string]any{"description": description})
+	return s.mutateTask(id, actor, func(cs core.ChangeSet) error { return cs.SetTaskDescription(id, description, actor) })
 }
 
 // Design note: the spec says both "auto-registers any supplied labels" (upsert)
@@ -288,25 +253,18 @@ func (s *Store) TaskLabelAdd(id, label, actor string) error {
 }
 
 func (s *Store) TaskLabelRemove(id, label, actor string) error {
-	return s.mutateTask(id, actor, ActionTaskLabelRemoved, map[string]any{"label": label})
+	return s.mutateTask(id, actor, func(cs core.ChangeSet) error { return cs.RemoveTaskLabel(id, label, actor) })
 }
 
 func (s *Store) RemoveTask(id, actor string) error {
-	if err := s.validateActor(actor); err != nil {
-		return err
-	}
-	code, _, err := s.taskProjectFormat(id)
-	if err != nil {
-		return err
-	}
-	return s.mutateTaskV2(code, id, ActionTaskRemoved, actor, nil)
+	return s.mutateTask(id, actor, func(cs core.ChangeSet) error { return cs.RemoveTask(id, actor) })
 }
 
-// mutateTask is the shared entry point for non-delete task mutations; every
-// project is v2-active (D-Task5b removed the v1 write arm), so it resolves
-// the project code and delegates to mutateTaskV2 with the given action and
-// payload.
-func (s *Store) mutateTask(id, actor, action string, v2Payload map[string]any) error {
+// mutateTask is the shared entry point for task mutations: it validates the
+// actor, resolves the task's project code, then runs the given intent inside
+// the engine's write transaction and reprojects. Every project is v2-active
+// (D-Task5b removed the v1 write arm), so there is no format branch.
+func (s *Store) mutateTask(id, actor string, do func(cs core.ChangeSet) error) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
@@ -314,5 +272,10 @@ func (s *Store) mutateTask(id, actor, action string, v2Payload map[string]any) e
 	if err != nil {
 		return err
 	}
-	return s.mutateTaskV2(code, id, action, actor, v2Payload)
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := do(cs); err != nil {
+			return err
+		}
+		return s.reprojectTxn(code, cs)
+	})
 }

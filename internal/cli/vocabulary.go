@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -39,7 +39,7 @@ func newVocabularyShowCmd(st *cliState) *cobra.Command {
 					fmt.Fprintln(st.stdout(), "no vocabulary yet")
 					return
 				}
-				fmt.Fprintf(st.stdout(), "updated: %s  actor: %s\n", store.RFC3339UTC(vocab.UpdatedAt), vocab.Actor)
+				fmt.Fprintf(st.stdout(), "updated: %s  actor: %s\n", core.RFC3339UTC(vocab.UpdatedAt), vocab.Actor)
 				for _, term := range vocab.Terms {
 					fmt.Fprintf(st.stdout(), "%3d  %s\n", term.Weight, term.Term)
 				}
@@ -61,7 +61,7 @@ func newVocabularyWriteCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var terms []store.VocabularyTerm
+			var terms []core.VocabularyTerm
 			if err := json.Unmarshal([]byte(termsJSON), &terms); err != nil {
 				return fmt.Errorf("%w: --terms must be JSON array of {term,weight}: %v", ErrUsage, err)
 			}
@@ -72,14 +72,14 @@ func newVocabularyWriteCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
 			}
-			v := &store.Vocabulary{Actor: actor, Terms: terms}
+			v := &core.Vocabulary{Actor: actor, Terms: terms}
 			if err := s.WriteVocabulary(project, v); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{
 				"project":    project,
 				"terms":      len(terms),
-				"updated_at": store.RFC3339UTC(v.UpdatedAt),
+				"updated_at": core.RFC3339UTC(v.UpdatedAt),
 			}, func() {
 				fmt.Fprintf(st.stdout(), "wrote %d terms to vocabulary for %s\n", len(terms), project)
 			})

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"atm/internal/core"
 	"atm/internal/seed"
 )
 
@@ -15,7 +16,7 @@ func (s *Store) personaPath(name string) string {
 }
 
 func (s *Store) CreatePersona(name, prompt, description, actor string) (*Persona, error) {
-	if err := ValidatePersonaName(name); err != nil {
+	if err := core.ValidatePersonaName(name); err != nil {
 		return nil, err
 	}
 	if err := s.validateActor(actor); err != nil {
@@ -31,11 +32,11 @@ func (s *Store) createPersonaLocked(name, prompt, description, actor string) (*P
 	var created *Persona
 	err := s.WithLock("personas", func() error {
 		if _, err := os.Stat(s.personaPath(name)); err == nil {
-			return fmt.Errorf("%w: persona %q already exists", ErrConflict, name)
+			return fmt.Errorf("%w: persona %q already exists", core.ErrConflict, name)
 		} else if !os.IsNotExist(err) {
 			return err
 		}
-		now := Now()
+		now := core.Now()
 		p := &Persona{
 			Name: name, Prompt: prompt, Description: description,
 			CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor,
@@ -50,13 +51,13 @@ func (s *Store) createPersonaLocked(name, prompt, description, actor string) (*P
 }
 
 func (s *Store) GetPersona(name string) (*Persona, error) {
-	if err := ValidatePersonaName(name); err != nil {
+	if err := core.ValidatePersonaName(name); err != nil {
 		return nil, err
 	}
 	var p Persona
 	if err := ReadJSON(s.personaPath(name), &p); err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: persona %q", ErrNotFound, name)
+			return nil, fmt.Errorf("%w: persona %q", core.ErrNotFound, name)
 		}
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func (s *Store) ListPersonas() []*Persona {
 }
 
 func (s *Store) EditPersona(name string, prompt, description *string, actor string) (*Persona, error) {
-	if err := ValidatePersonaName(name); err != nil {
+	if err := core.ValidatePersonaName(name); err != nil {
 		return nil, err
 	}
 	if err := s.validateActor(actor); err != nil {
@@ -101,7 +102,7 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 		if description != nil {
 			p.Description = *description
 		}
-		p.UpdatedAt = Now()
+		p.UpdatedAt = core.Now()
 		p.UpdatedBy = actor
 		if err := WriteFileAtomic(s.personaPath(name), p); err != nil {
 			return err
@@ -113,12 +114,12 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 }
 
 func (s *Store) RemovePersona(name string) error {
-	if err := ValidatePersonaName(name); err != nil {
+	if err := core.ValidatePersonaName(name); err != nil {
 		return err
 	}
 	for _, b := range seedPersonas() {
 		if b == name {
-			return fmt.Errorf("%w: cannot remove built-in persona %q", ErrUsage, name)
+			return fmt.Errorf("%w: cannot remove built-in persona %q", core.ErrUsage, name)
 		}
 	}
 	return s.WithLock("personas", func() error {
@@ -140,7 +141,7 @@ func (s *Store) SeedPersonas(actor string) ([]string, error) {
 			added = append(added, sp.Name)
 			continue
 		}
-		if IsConflict(err) {
+		if core.IsConflict(err) {
 			continue // already exists — leave it untouched
 		}
 		return added, err

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"fmt"
 	"strings"
 )
@@ -15,15 +16,15 @@ func (s *Store) validateActor(raw string) error {
 	}
 	persona, rest, ok := strings.Cut(raw, "@")
 	if !ok {
-		return fmt.Errorf("%w: actor must be persona@agent:model (got %q)", ErrUsage, raw)
+		return fmt.Errorf("%w: actor must be persona@agent:model (got %q)", core.ErrUsage, raw)
 	}
 	agent, model, ok := strings.Cut(rest, ":")
 	if !ok || persona == "" || agent == "" || model == "" {
-		return fmt.Errorf("%w: actor must be persona@agent:model (got %q)", ErrUsage, raw)
+		return fmt.Errorf("%w: actor must be persona@agent:model (got %q)", core.ErrUsage, raw)
 	}
 	if _, err := s.GetPersona(persona); err != nil {
-		if IsNotFound(err) {
-			return fmt.Errorf("%w: unknown persona %q; create it first with 'atm persona create'", ErrUsage, persona)
+		if core.IsNotFound(err) {
+			return fmt.Errorf("%w: unknown persona %q; create it first with 'atm persona create'", core.ErrUsage, persona)
 		}
 		return err
 	}

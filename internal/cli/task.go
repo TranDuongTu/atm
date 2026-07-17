@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -100,11 +100,11 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			if expr != "" {
-				if _, err := store.ParseExpr(expr); err != nil {
+				if _, err := core.ParseExpr(expr); err != nil {
 					return err
 				}
 			}
-			filters := store.QueryFilters{Project: project, Labels: labels, Expr: expr}
+			filters := core.QueryFilters{Project: project, Labels: labels, Expr: expr}
 			if facets {
 				groups, others, gerr := s.GroupTasksErr(filters)
 				if gerr != nil {
@@ -152,7 +152,7 @@ func newTaskShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hv, err := s.HistoryE(t.ProjectCode, store.Subject{Kind: "task", ID: t.ID})
+			hv, err := s.HistoryE(t.ProjectCode, core.Subject{Kind: "task", ID: t.ID})
 			if err != nil {
 				return err
 			}
@@ -350,7 +350,7 @@ func newTaskRemoveCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func groupsToJSON(gs []store.LabelGroup) []jsonLabelGroup {
+func groupsToJSON(gs []core.LabelGroup) []jsonLabelGroup {
 	out := make([]jsonLabelGroup, 0, len(gs))
 	for _, g := range gs {
 		out = append(out, jsonLabelGroup{Label: g.Label, Tasks: tasksToJSON(g.Tasks)})

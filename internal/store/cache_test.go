@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"atm/internal/core"
+	"testing"
+)
 
 func TestCacheProjectUpsertGetRoundTrip(t *testing.T) {
 	s := newTestStore(t)
@@ -8,7 +11,7 @@ func TestCacheProjectUpsertGetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := Now()
+	now := core.Now()
 	p := &Project{Code: "ATM", Name: "x", Ordinal: 5, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	if err := cacheUpsertProject(db, p); err != nil {
 		t.Fatal(err)
@@ -34,7 +37,7 @@ func TestCacheProjectGetMissing(t *testing.T) {
 func TestCacheProjectUpsertOverwrites(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	p := &Project{Code: "ATM", Name: "x", Ordinal: 1, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	_ = cacheUpsertProject(db, p)
 	p.Ordinal = 9
@@ -48,7 +51,7 @@ func TestCacheProjectUpsertOverwrites(t *testing.T) {
 func TestCacheDeleteProject(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertProject(db, &Project{Code: "ATM", Name: "x", CreatedAt: now, UpdatedAt: now})
 	if err := cacheDeleteProject(db, "ATM"); err != nil {
 		t.Fatal(err)
@@ -62,7 +65,7 @@ func TestCacheDeleteProject(t *testing.T) {
 func TestCacheListProjectCodesSorted(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertProject(db, &Project{Code: "ZZZ", CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertProject(db, &Project{Code: "AAA", CreatedAt: now, UpdatedAt: now})
 	codes, err := cacheListProjectCodes(db)
@@ -77,7 +80,7 @@ func TestCacheListProjectCodesSorted(t *testing.T) {
 func TestCacheTaskUpsertGetRoundTripWithLabels(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	tk := &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", Labels: []string{"ATM:type:bug", "ATM:status:open"},
 		Ordinal: 3, CreatedAt: now, CreatedBy: "c", UpdatedAt: now, UpdatedBy: "c"}
 	if err := cacheUpsertTask(db, tk); err != nil {
@@ -95,7 +98,7 @@ func TestCacheTaskUpsertGetRoundTripWithLabels(t *testing.T) {
 func TestCacheTaskUpsertReplacesLabels(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	tk := &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now}
 	_ = cacheUpsertTask(db, tk)
 	tk.Labels = []string{"ATM:status:open"}
@@ -109,7 +112,7 @@ func TestCacheTaskUpsertReplacesLabels(t *testing.T) {
 func TestCacheDeleteTaskRemovesLabels(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	tk := &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now}
 	_ = cacheUpsertTask(db, tk)
 	if err := cacheDeleteTask(db, "ATM-0001"); err != nil {
@@ -127,7 +130,7 @@ func TestCacheDeleteTaskRemovesLabels(t *testing.T) {
 func TestCacheListTaskIDsScopedByProjectAndSorted(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "b", CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "a", CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertTask(db, &Task{ID: "OTH-0001", ProjectCode: "OTH", Title: "c", CreatedAt: now, UpdatedAt: now})
@@ -180,7 +183,7 @@ func TestCacheListLabelsFiltersByProjectAndNamespace(t *testing.T) {
 func TestCacheLabelUsageCountsOnlyMatchingProject(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "a", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0002", ProjectCode: "ATM", Title: "b", Labels: []string{"ATM:type:bug"}, CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0003", ProjectCode: "ATM", Title: "c", CreatedAt: now, UpdatedAt: now})
@@ -240,7 +243,7 @@ func TestCachePresentLabels(t *testing.T) {
 func TestCacheCommentUpsertGetWithLabels(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", CreatedAt: now, UpdatedAt: now})
 	c := &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "hi", Labels: []string{"ATM:tag:x"}, CreatedAt: now, UpdatedAt: now}
 	if err := cacheUpsertComment(db, c); err != nil {
@@ -255,7 +258,7 @@ func TestCacheCommentUpsertGetWithLabels(t *testing.T) {
 func TestCacheDeleteCommentRemovesLabels(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	c := &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "hi", Labels: []string{"ATM:tag:x"}, CreatedAt: now, UpdatedAt: now}
 	_ = cacheUpsertComment(db, c)
 	if err := cacheDeleteComment(db, c.ID); err != nil {
@@ -273,7 +276,7 @@ func TestCacheDeleteCommentRemovesLabels(t *testing.T) {
 func TestCacheListCommentsSortedByID(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0002", TaskID: "ATM-0001", Body: "b", CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "a", CreatedAt: now, UpdatedAt: now})
 	got, err := cacheListComments(db, "ATM-0001")
@@ -288,7 +291,7 @@ func TestCacheListCommentsSortedByID(t *testing.T) {
 func TestCacheListCommentIDsForProject(t *testing.T) {
 	s := newTestStore(t)
 	db, _ := s.cacheDB()
-	now := Now()
+	now := core.Now()
 	_ = cacheUpsertTask(db, &Task{ID: "ATM-0001", ProjectCode: "ATM", Title: "t", CreatedAt: now, UpdatedAt: now})
 	_ = cacheUpsertComment(db, &Comment{ID: "ATM-0001-c0001", TaskID: "ATM-0001", Body: "a", CreatedAt: now, UpdatedAt: now})
 	ids, err := cacheListCommentIDsForProject(db, "ATM")

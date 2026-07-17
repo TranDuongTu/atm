@@ -37,7 +37,7 @@ func copyTree(src, dst string) error {
 func TestCopiedStoreRemintsReplicaBeforeWrite(t *testing.T) {
 	original := testStore(t)
 	_, _ = original.CreateProject("ATM", "x", "admin@cli:unset")
-	first, err := original.ensureReplicaForWriteLocked()
+	first, err := original.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestCopiedStoreRemintsReplicaBeforeWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := copied.ensureReplicaForWriteLocked()
+	second, err := copied.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,12 +65,12 @@ func TestCopiedStoreRemintsReplicaBeforeWrite(t *testing.T) {
 func TestUncopiedStoreKeepsReplicaAcrossWrites(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
-	first, err := s.ensureReplicaForWriteLocked()
+	first, err := s.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		next, err := s.ensureReplicaForWriteLocked()
+		next, err := s.eng.EnsureReplicaForWriteLocked()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,10 +88,8 @@ func TestUncopiedStoreKeepsReplicaAcrossWrites(t *testing.T) {
 func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 	original := testStore(t)
 	_, _ = original.CreateProject("ATM", "x", "admin@cli:unset")
-	if _, _, err := original.appendV2TaskCreatedLocked("ATM", "first task", "", nil, testActor); err != nil {
-		t.Fatal(err)
-	}
-	beforeCopy, err := os.ReadFile(original.eventsV2Path("ATM"))
+	_ = authorTaskViaEngine(t, original, "ATM", "first task", testActor)
+	beforeCopy, err := os.ReadFile(original.eng.EventsV2Path("ATM"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +102,9 @@ func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := copied.appendV2TaskCreatedLocked("ATM", "second task", "", nil, testActor); err != nil {
-		t.Fatal(err)
-	}
+	_ = authorTaskViaEngine(t, copied, "ATM", "second task", testActor)
 
-	afterAppend, err := os.ReadFile(copied.eventsV2Path("ATM"))
+	afterAppend, err := os.ReadFile(copied.eng.EventsV2Path("ATM"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,11 +114,11 @@ func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 
 	// The original instance's own future writes must be unaffected by the
 	// copy's re-mint: it keeps authoring under its own (unchanged) replica.
-	origAfter, err := original.ensureReplicaForWriteLocked()
+	origAfter, err := original.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}
-	copiedReplica, err := copied.ensureReplicaForWriteLocked()
+	copiedReplica, err := copied.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,10 +1,11 @@
 package store
 
 import (
+	"atm/internal/core"
 	"path/filepath"
 )
 
-// Action enum — closed. Unknown action → ErrUsage.
+// Action enum — closed. Unknown action → core.ErrUsage.
 const (
 	ActionProjectCreated      = "project.created"
 	ActionProjectNameChanged  = "project.name-changed"
@@ -37,26 +38,26 @@ func (s *Store) logPath(code string) string {
 // local appends (the only writer before L4 sync) and the same value the
 // cache freshness row records.
 func (s *Store) LastLogSeq(code string) (int, error) {
-	if _, err := s.projectFormat(code); err != nil {
+	if _, err := s.eng.ProjectFormat(code); err != nil {
 		return 0, err
 	}
-	return s.v2EventCount(code)
+	return s.eng.ChangeCount(code)
 }
 
 // readLogForViews returns the project's history as compatibility []LogEntry
 // — the read behind every log-derived view (History, ReadLogCached and,
 // through it, activity.Build).
 //
-// The v2 read returns the recoverable prefix alongside an ErrIntegrity, and
+// The v2 read returns the recoverable prefix alongside a core.ErrIntegrity, and
 // that error is propagated rather than dropped: swallowing it would render a
 // corrupt event file as a silently truncated view. Callers that can tolerate
 // damage (the TUI project summary) keep consuming the prefix; callers that
 // cannot (the CLI) surface the error.
 func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
-	if _, err := s.projectFormat(code); err != nil {
+	if _, err := s.eng.ProjectFormat(code); err != nil {
 		return nil, err
 	}
-	return s.readV2LogEntries(code)
+	return s.eng.LogEntries(code)
 }
 
 // ReadLogCached returns the project's log entries, memoizing the parsed
@@ -83,7 +84,7 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 	// snapshot. LastLogSeq is O(1) when the meta row is present.
 	if ok {
 		cur, err := s.LastLogSeq(code)
-		if err != nil && !IsIntegrity(err) {
+		if err != nil && !core.IsIntegrity(err) {
 			return nil, err
 		}
 		if cur <= snap.builtSeq {
@@ -98,7 +99,7 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 	// format-agnostic: the v2 entries' last Seq equals the event count, which is
 	// exactly what the branched LastLogSeq returns for the staleness comparison.
 	entries, err := s.readLogForViews(code)
-	if err != nil && !IsIntegrity(err) {
+	if err != nil && !core.IsIntegrity(err) {
 		return nil, err
 	}
 	if err != nil {
@@ -142,7 +143,7 @@ func (s *Store) History(code string, subject Subject) []HistoryView {
 
 // HistoryE is History with an error channel. The rendered rows and the error are
 // BOTH returned: a v2 integrity failure yields the recoverable prefix alongside
-// ErrIntegrity, mirroring v1's long-standing partial-view posture, so a caller
+// core.ErrIntegrity, mirroring v1's long-standing partial-view posture, so a caller
 // that tolerates integrity errors still gets everything that parsed and a caller
 // that does not gets the failure.
 func (s *Store) HistoryE(code string, subject Subject) ([]HistoryView, error) {
