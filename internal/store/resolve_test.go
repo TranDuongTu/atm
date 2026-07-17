@@ -84,3 +84,61 @@ func TestResolverUnknownAtomIsNotAMatch(t *testing.T) {
 		t.Fatalf("got %v (err %v), want false, nil", got, err)
 	}
 }
+
+// TestResolverStarTautologyMatchesEveryTask covers the all-tasks board's
+// membership predicate: a bare '*' atom evaluates to true for every task,
+// including unlabeled naked jottings, and composes with NOT/AND like any
+// other atom. The short-circuit must fire before qualify, or '*' would be
+// read as the <CODE>:* namespace wildcard ("has any label") and miss
+// unlabeled tasks.
+func TestResolverStarTautologyMatchesEveryTask(t *testing.T) {
+	r := resolverFor() // no labels needed: '*' never consults them
+	labeled := &Task{ID: "ATM-0001", Labels: []string{"ATM:status:open"}}
+	unlabeled := &Task{ID: "ATM-0002", Labels: nil}
+
+	cases := map[string]bool{
+		"*":                     true,  // tautology: matches labeled ...
+		"* AND NOT *":           false,
+		"* AND NOT status:done": true,  // labeled task: * true, NOT status:done true
+		"* AND NOT status:open": false, // labeled task: NOT status:open false
+	}
+	for src, want := range cases {
+		n, err := ParseExpr(src)
+		if err != nil {
+			t.Fatalf("ParseExpr(%q): %v", src, err)
+		}
+		got, err := r.Matches(labeled, n)
+		if err != nil {
+			t.Fatalf("Matches(%q) labeled: %v", src, err)
+		}
+		if got != want {
+			t.Errorf("Matches(%q) labeled = %v, want %v", src, got, want)
+		}
+	}
+
+	// The load-bearing case: an unlabeled task matches '*'. Without the
+	// short-circuit, qualify('*') yields "ATM:*", IsNamespaceName reads it
+	// as "has any label", and a task with no labels returns false.
+	n, _ := ParseExpr("*")
+	got, err := r.Matches(unlabeled, n)
+	if err != nil {
+		t.Fatalf("Matches(%q) unlabeled: %v", "*", err)
+	}
+	if !got {
+		t.Errorf("Matches(%q) unlabeled = false, want true (the whole point of the all-tasks board)", "*")
+	}
+}
+
+// TestResolverStarStandaloneRestrictingToken mirrors the CLI --label '*'
+// path: a bare '*' restricting token reaches evalAtom with Name="*"
+// (TrimPrefix("*", "<CODE>:") is still "*"). The short-circuit must fire
+// before qualify turns it into "<CODE>:*".
+func TestResolverStarStandaloneRestrictingToken(t *testing.T) {
+	r := resolverFor()
+	task := &Task{ID: "ATM-0001", Labels: nil}
+	n, _ := ParseExpr("*")
+	got, err := r.Matches(task, n)
+	if err != nil || !got {
+		t.Fatalf("standalone '*' on unlabeled task: got %v (err %v), want true, nil", got, err)
+	}
+}

@@ -67,6 +67,14 @@ func (r *resolver) eval(t *Task, n Node, visiting map[string]bool) (bool, error)
 // bare-tag stored label ("stale") and a board ("next-sprint") share one name
 // space unambiguously: whichever the live label record says it is, it is.
 func (r *resolver) evalAtom(t *Task, atom string, visiting map[string]bool) (bool, error) {
+	// The bare '*' tautology atom: matches every task, including unlabeled
+	// ones. MUST short-circuit before qualify — qualify("*") yields
+	// "<CODE>:*", which IsNamespaceName reads as the namespace predicate
+	// "has any label" and so misses naked unlabeled jottings. See
+	// docs/superpowers/specs/2026-07-17-all-tasks-board-design.md.
+	if atom == "*" {
+		return true, nil
+	}
 	full := r.qualify(atom)
 
 	// Namespace predicate: task carries ANY label in the namespace.
