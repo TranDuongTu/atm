@@ -51,8 +51,8 @@ func deterministicSeamOpts() []store.Option {
 var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 
 // testRegistry mirrors cmd/atm's production registry so golden tests
-// exercise the same command surface the binary ships. Tasks 5-6 of the
-// step-5 plan add the capabilities as their cobra layers move.
+// exercise the same command surface the binary ships. Keep the two in sync:
+// a capability registered in main.go but not here is invisible to goldens.
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(workflow.New(), contextmap.New())
 }

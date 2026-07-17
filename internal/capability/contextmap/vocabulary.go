@@ -21,8 +21,8 @@ func currentExpr() string { return "context:* AND NOT knowledge:superseded" }
 
 // EnsureVocabulary creates the labels and the board this capability uses, with
 // descriptions, if they are absent. Idempotent, and it never overwrites a
-// description a human already curated (store.LabelSeed upserts only when the
-// label is absent).
+// description a human already curated (the LabelSeed contract upserts only
+// when the label is absent).
 //
 // This is what makes the capability self-bootstrapping: it works in any
 // project, whether or not `atm label seed` ever ran.

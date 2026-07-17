@@ -1,4 +1,3 @@
-// internal/workflow/status.go
 package workflow
 
 // StatusNamespace is the label suffix prefix this capability owns. It is the
