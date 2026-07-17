@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"atm/internal/capability/workflow"
 	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/internal/workflow"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

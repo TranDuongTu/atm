@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"atm/internal/capability/workflow"
 	"atm/internal/store"
-	"atm/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

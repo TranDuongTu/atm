@@ -2,7 +2,7 @@
 
 ## What ATM is
 
-ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives in capabilities (internal/workflow), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.
+ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives in capabilities (internal/capability/workflow), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.
 
 ## Where labels live
 
@@ -56,7 +56,7 @@ Record a pointer with `atm context add`; re-verify one with `atm context stamp`;
 
 ## Workflow verbs (status transitions)
 
-Status transitions live in the `internal/workflow` capability, exposed as four mutating verbs — `atm workflow start` (in-progress), `atm workflow open`, `atm workflow block` (blocked), `atm workflow complete` (done) — plus a read-only `atm workflow status` reporter and `atm workflow seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (adds the target, then removes any other), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/workflow` is a paved road, not a fence — a project can replace it with a different transition model.
+Status transitions live in the `internal/capability/workflow` capability, exposed as four mutating verbs — `atm workflow start` (in-progress), `atm workflow open`, `atm workflow block` (blocked), `atm workflow complete` (done) — plus a read-only `atm workflow status` reporter and `atm workflow seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (adds the target, then removes any other), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. `internal/capability/workflow` is a paved road, not a fence — a project can replace it with a different transition model.
 
 Three boards are ensured on project create / label seed / TUI use: `ATM:backlog` (`NOT status:*` — untriaged jottings), `ATM:open-tasks` (`status:open` — active work, the TUI default), `ATM:in-progress-tasks` (`status:in-progress`). In an older project where a board is absent, the expression fallback applies (`--label <CODE>:status:open` etc.).
 

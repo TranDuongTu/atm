@@ -81,7 +81,7 @@ func TestTUIDoesNotImportStore(t *testing.T) {
 // workflow.EnsureVocabulary on core.LabelService: the capability now depends
 // on the domain leaf, not the persistence adapter.
 func TestWorkflowDoesNotImportStore(t *testing.T) {
-	for f, imps := range internalImports(t, "internal/workflow") {
+	for f, imps := range internalImports(t, "internal/capability/workflow") {
 		for _, p := range imps {
 			if p == "atm/internal/store" {
 				t.Errorf("%s imports %q; internal/workflow must depend on core, not the store", f, p)

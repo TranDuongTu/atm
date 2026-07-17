@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"atm/internal/capability/workflow"
 	"atm/internal/store"
-	"atm/internal/workflow"
 
 	"github.com/spf13/cobra"
 )

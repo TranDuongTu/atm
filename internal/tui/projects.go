@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"atm/internal/activity"
+	"atm/internal/capability/workflow"
 	"atm/internal/core"
-	"atm/internal/workflow"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

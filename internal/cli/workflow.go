@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"atm/internal/workflow"
+	"atm/internal/capability/workflow"
 
 	"github.com/spf13/cobra"
 )
@@ -12,7 +12,7 @@ func newWorkflowCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Status-transition verbs (the paved road for task status)",
-		Long: "Status transitions live in the internal/workflow capability. " +
+		Long: "Status transitions live in the internal/capability/workflow capability. " +
 			"Each verb swaps the task's status:* label (removes any existing one, " +
 			"adds the target), so exactly-one-status is an invariant the capability " +
 			"maintains. The store still enforces nothing; raw `atm task label " +
