@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/workflow"
+	"atm/internal/capability/workflow"
 )
 
 // TestGroupedListFooterVisibleWithPins guards the grouped-list off-by-one: the

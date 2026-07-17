@@ -1,31 +1,52 @@
-package cli
+package workflow
 
 import (
 	"fmt"
 
-	"atm/internal/workflow"
+	"atm/internal/capability"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
 
-func newWorkflowCmd(st *cliState) *cobra.Command {
+// Cap is the workflow capability: the `atm workflow` verb tree over the
+// status recorder/reporter in this package.
+type Cap struct{}
+
+// New returns the capability the composition root registers.
+func New() capability.Capability { return Cap{} }
+
+func (Cap) Name() string { return "workflow" }
+
+// DefaultBoard nominates All Tasks: the default board surface a UI selects
+// for a project (ATM-18111b — the human's "browse recent activity" consult
+// mode sees the whole project, not just status:open).
+func (Cap) DefaultBoard(code string) string { return BoardAllTasks(code) }
+
+// EnsureVocabulary implements capability.Capability by delegating to this
+// package's vocabulary bootstrap.
+func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+	return EnsureVocabulary(svc, code, actor)
+}
+
+func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Status-transition verbs (the paved road for task status)",
-		Long: "Status transitions live in the internal/workflow capability. " +
+		Long: "Status transitions live in the internal/capability/workflow capability. " +
 			"Each verb swaps the task's status:* label (removes any existing one, " +
 			"adds the target), so exactly-one-status is an invariant the capability " +
 			"maintains. The store still enforces nothing; raw `atm task label " +
 			"add/remove --label <CODE>:status:<value>` works. This is a paved road, " +
 			"not a fence.",
 	}
-	bindActorFlag(cmd, st)
-	cmd.AddCommand(newWorkflowStartCmd(st))
-	cmd.AddCommand(newWorkflowOpenCmd(st))
-	cmd.AddCommand(newWorkflowBlockCmd(st))
-	cmd.AddCommand(newWorkflowCompleteCmd(st))
-	cmd.AddCommand(newWorkflowStatusCmd(st))
-	cmd.AddCommand(newWorkflowSeedCmd(st))
+	env.BindActorFlag(cmd)
+	cmd.AddCommand(newStartCmd(env))
+	cmd.AddCommand(newOpenCmd(env))
+	cmd.AddCommand(newBlockCmd(env))
+	cmd.AddCommand(newCompleteCmd(env))
+	cmd.AddCommand(newStatusCmd(env))
+	cmd.AddCommand(newSeedCmd(env))
 	return cmd
 }
 
@@ -39,167 +60,167 @@ func newWorkflowCmd(st *cliState) *cobra.Command {
 // the design spec, which calls for a no-op message rather than a transition
 // line that would misleadingly read as if something happened (e.g.
 // "status done -> done").
-func runStatusVerb(st *cliState, id, legacy string, fn func(*workflow.Recorder, string) (string, error)) error {
-	taskID, err := resolveTaskID(st, id, legacy)
+func runStatusVerb(env capability.Env, id, legacy string, fn func(*Recorder, string) (string, error)) error {
+	taskID, err := env.ResolveTaskID(id, legacy)
 	if err != nil {
 		return err
 	}
-	actor, err := st.requireMutatingActor()
+	actor, err := env.RequireMutatingActor()
 	if err != nil {
 		return err
 	}
-	s, err := st.openStore()
+	svc, err := env.OpenService()
 	if err != nil {
 		return err
 	}
-	rec := &workflow.Recorder{Store: s, Actor: actor}
+	rec := &Recorder{Store: svc, Actor: actor}
 	prior, err := fn(rec, taskID)
 	if err != nil {
 		return err
 	}
-	t, err := s.GetTask(taskID)
+	t, err := svc.GetTask(taskID)
 	if err != nil {
 		return err
 	}
-	now, err := (&workflow.Reporter{Store: s}).Status(taskID)
+	now, err := (&Reporter{Store: svc}).Status(taskID)
 	if err != nil {
 		return err
 	}
-	return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, nil)}, func() {
+	return env.Emit(map[string]any{"task": env.TaskJSON(t)}, func() {
 		switch {
 		case prior == now:
 			// No-op: the task already carried this status as its sole status.
-			fmt.Fprintf(st.stdout(), "%s: already %s\n", t.ID, now)
+			fmt.Fprintf(env.Stdout(), "%s: already %s\n", t.ID, now)
 		case prior == "":
-			fmt.Fprintf(st.stdout(), "%s: status -> %s\n", t.ID, now)
+			fmt.Fprintf(env.Stdout(), "%s: status -> %s\n", t.ID, now)
 		default:
-			fmt.Fprintf(st.stdout(), "%s: status %s -> %s\n", t.ID, prior, now)
+			fmt.Fprintf(env.Stdout(), "%s: status %s -> %s\n", t.ID, prior, now)
 		}
 	})
 }
 
-func newWorkflowStartCmd(st *cliState) *cobra.Command {
+func newStartCmd(env capability.Env) *cobra.Command {
 	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Transition a task to in-progress",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
+			return runStatusVerb(env, id, legacy, func(r *Recorder, tid string) (string, error) {
 				return r.Start(tid)
 			})
 		},
 	}
-	bindTaskIDFlags(cmd, &id, &legacy)
+	env.BindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
-func newWorkflowOpenCmd(st *cliState) *cobra.Command {
+func newOpenCmd(env capability.Env) *cobra.Command {
 	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "open",
 		Short: "Transition a task to open",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
+			return runStatusVerb(env, id, legacy, func(r *Recorder, tid string) (string, error) {
 				return r.Open(tid)
 			})
 		},
 	}
-	bindTaskIDFlags(cmd, &id, &legacy)
+	env.BindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
-func newWorkflowBlockCmd(st *cliState) *cobra.Command {
+func newBlockCmd(env capability.Env) *cobra.Command {
 	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "block",
 		Short: "Transition a task to blocked",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
+			return runStatusVerb(env, id, legacy, func(r *Recorder, tid string) (string, error) {
 				return r.Block(tid)
 			})
 		},
 	}
-	bindTaskIDFlags(cmd, &id, &legacy)
+	env.BindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
-func newWorkflowCompleteCmd(st *cliState) *cobra.Command {
+func newCompleteCmd(env capability.Env) *cobra.Command {
 	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "complete",
 		Short: "Transition a task to done",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusVerb(st, id, legacy, func(r *workflow.Recorder, tid string) (string, error) {
+			return runStatusVerb(env, id, legacy, func(r *Recorder, tid string) (string, error) {
 				return r.Complete(tid)
 			})
 		},
 	}
-	bindTaskIDFlags(cmd, &id, &legacy)
+	env.BindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
-func newWorkflowStatusCmd(st *cliState) *cobra.Command {
+func newStatusCmd(env capability.Env) *cobra.Command {
 	var id, legacy string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print the task's current status (read-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, err := resolveTaskID(st, id, legacy)
+			taskID, err := env.ResolveTaskID(id, legacy)
 			if err != nil {
 				return err
 			}
-			s, err := st.openStore()
+			svc, err := env.OpenService()
 			if err != nil {
 				return err
 			}
-			rep := &workflow.Reporter{Store: s}
+			rep := &Reporter{Store: svc}
 			value, err := rep.Status(taskID)
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": taskID, "status": value}, func() {
+			return env.Emit(map[string]any{"task": taskID, "status": value}, func() {
 				if value == "" {
-					fmt.Fprintf(st.stdout(), "untriaged\n")
+					fmt.Fprintf(env.Stdout(), "untriaged\n")
 					return
 				}
-				fmt.Fprintf(st.stdout(), "%s\n", value)
+				fmt.Fprintf(env.Stdout(), "%s\n", value)
 			})
 		},
 	}
-	bindTaskIDFlags(cmd, &id, &legacy)
+	env.BindTaskIDFlags(cmd, &id, &legacy)
 	return cmd
 }
 
-func newWorkflowSeedCmd(st *cliState) *cobra.Command {
+func newSeedCmd(env capability.Env) *cobra.Command {
 	var project string
 	cmd := &cobra.Command{
 		Use:   "seed",
 		Short: "Ensure the workflow boards (backlog, open-tasks, in-progress-tasks) exist",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := env.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
-			s, err := st.openStore()
+			svc, err := env.OpenService()
 			if err != nil {
 				return err
 			}
-			if err := workflow.EnsureVocabulary(s, project, actor); err != nil {
+			if err := EnsureVocabulary(svc, project, actor); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{
+			return env.Emit(map[string]any{
 				"project": project,
 				// Board names come from the capability's helpers, never rebuilt
-				// here: internal/workflow owns these names exclusively, and a
+				// here: this package owns these names exclusively, and a
 				// hand-built string would silently drift from what
 				// EnsureVocabulary actually seeds if a board is ever renamed.
 				"boards": []string{
-					workflow.BoardBacklog(project),
-					workflow.BoardOpenTasks(project),
-					workflow.BoardInProgressTasks(project),
+					BoardBacklog(project),
+					BoardOpenTasks(project),
+					BoardInProgressTasks(project),
 				},
 			}, func() {
-				fmt.Fprintf(st.stdout(), "ensured workflow boards for %s\n", project)
+				fmt.Fprintf(env.Stdout(), "ensured workflow boards for %s\n", project)
 			})
 		},
 	}

@@ -1,4 +1,3 @@
-// internal/workflow/recorder.go
 package workflow
 
 import (

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"atm/internal/capability"
 	"atm/internal/core"
-	"atm/internal/workflow"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -68,6 +68,8 @@ type Model struct {
 	storeSet bool
 	actor    string
 	km       keymap
+	// reg is the capability registry the composition root injected; nil-safe.
+	reg *capability.Registry
 
 	themeName ThemeName
 	styles    Styles
@@ -132,8 +134,9 @@ type Model struct {
 
 // NewModelOpts are the inputs to NewModel.
 type NewModelOpts struct {
-	Service core.Service
-	Actor   string
+	Service  core.Service
+	Actor    string
+	Registry *capability.Registry
 }
 
 // NewModel builds the root Model over an opened store (auto-initing the
@@ -162,6 +165,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 		actor:     actor,
 		themeName: themeName,
 		styles:    buildStyles(themeName),
+		reg:       opts.Registry,
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
@@ -179,7 +183,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	// projects.go. Kept in case a future caller constructs a Model with a
 	// pre-populated projectScope.
 	if m.projectScope != "" {
-		if err := workflow.EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
+		if err := m.reg.EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
 			m.showToast("ensure workflow boards: " + err.Error())
 		}
 		m.boards.selectDefault()

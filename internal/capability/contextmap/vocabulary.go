@@ -1,6 +1,6 @@
 package contextmap
 
-import "atm/internal/store"
+import "atm/internal/core"
 
 // ContextKinds are the pointer kinds this capability recognizes. They match the
 // seeded context:* labels, but EnsureVocabulary does not assume seeding ran.
@@ -21,12 +21,12 @@ func currentExpr() string { return "context:* AND NOT knowledge:superseded" }
 
 // EnsureVocabulary creates the labels and the board this capability uses, with
 // descriptions, if they are absent. Idempotent, and it never overwrites a
-// description a human already curated (store.LabelSeed upserts only when the
-// label is absent).
+// description a human already curated (the LabelSeed contract upserts only
+// when the label is absent).
 //
 // This is what makes the capability self-bootstrapping: it works in any
 // project, whether or not `atm label seed` ever ran.
-func EnsureVocabulary(s *store.Store, code, actor string) error {
+func EnsureVocabulary(s core.LabelService, code, actor string) error {
 	type lbl struct{ name, desc, expr string }
 	want := []lbl{
 		{code + ":knowledge:*", "lifecycle of a piece of recorded knowledge; absence means current", ""},

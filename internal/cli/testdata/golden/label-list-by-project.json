@@ -27,6 +27,15 @@
       "name": "ATM:comment:progress"
     },
     {
+      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm context` -- do not hand-edit.",
+      "name": "ATM:comment:provenance"
+    },
+    {
+      "description": "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.",
+      "expr": "context:* AND NOT knowledge:superseded",
+      "name": "ATM:context-current"
+    },
+    {
       "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
       "name": "ATM:context:*"
     },
@@ -50,6 +59,14 @@
       "description": "tasks someone is actively working on (status:in-progress).",
       "expr": "status:in-progress",
       "name": "ATM:in-progress-tasks"
+    },
+    {
+      "description": "lifecycle of a piece of recorded knowledge; absence means current",
+      "name": "ATM:knowledge:*"
+    },
+    {
+      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm context supersede`.",
+      "name": "ATM:knowledge:superseded"
     },
     {
       "description": "every open task: the project's active work.",

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability/workflow"
 	"atm/internal/core"
 	"atm/internal/store"
-	"atm/internal/workflow"
 )
 
 // toRowTest builds a taskRow without depending on a live *Model (which

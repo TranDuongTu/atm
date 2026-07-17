@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 // Finding is one pointer's verdict on one source.
@@ -37,8 +37,8 @@ type Report struct {
 // since bounds the NEW-territory scan; when empty it defaults to the HEAD
 // recorded on the most recent stamp in the project, so no watermark needs
 // storing anywhere.
-func Check(s *store.Store, r *Resolver, code, since string) (Report, error) {
-	tasks, err := s.ListTasksErr(store.QueryFilters{
+func Check(s Service, r *Resolver, code, since string) (Report, error) {
+	tasks, err := s.ListTasksErr(core.QueryFilters{
 		Project: code,
 		Labels:  []string{BoardCurrent(code)},
 	})

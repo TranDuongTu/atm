@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 
+	"atm/internal/capability"
+	"atm/internal/capability/workflow"
 	"atm/internal/store"
 )
 
@@ -17,7 +19,7 @@ func BenchmarkView_SelectedProject(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -52,7 +54,7 @@ func BenchmarkRefreshAll(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -85,7 +87,7 @@ func BenchmarkView_NoSelection(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}

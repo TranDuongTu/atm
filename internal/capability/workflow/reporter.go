@@ -1,4 +1,3 @@
-// internal/workflow/reporter.go
 package workflow
 
 import (

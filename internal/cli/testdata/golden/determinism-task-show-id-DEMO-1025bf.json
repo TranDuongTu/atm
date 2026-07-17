@@ -8,10 +8,10 @@
         "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 23
+        "seq": 27
       }
     ],
-    "id": "DEMO-caad30",
+    "id": "DEMO-1025bf",
     "labels": [
       "DEMO:status:open"
     ],

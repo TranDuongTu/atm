@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/workflow"
+	"atm/internal/capability/workflow"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )

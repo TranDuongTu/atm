@@ -8,7 +8,6 @@ import (
 
 	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/internal/workflow"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -255,7 +254,7 @@ func (b *boardsModel) refresh() {
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
-	want := workflow.BoardAllTasks(b.m.projectScope)
+	want := b.m.reg.DefaultBoard(b.m.projectScope)
 	for _, r := range b.rows {
 		if r.FullName == want {
 			b.selected = want

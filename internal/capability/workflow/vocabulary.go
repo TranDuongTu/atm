@@ -29,9 +29,9 @@ func BoardInProgressTasks(code string) string { return code + ":in-progress-task
 func BoardAllTasks(code string) string { return code + ":all-tasks" }
 
 func openTasksExpr() string       { return "status:open" }
-func backlogExpr() string        { return "NOT status:*" }
+func backlogExpr() string         { return "NOT status:*" }
 func inProgressTasksExpr() string { return "status:in-progress" }
-func allTasksExpr() string       { return "*" }
+func allTasksExpr() string        { return "*" }
 
 // EnsureVocabulary creates the four workflow boards with descriptions, if
 // absent. Idempotent: LabelSeed upserts only when the label is absent, so a

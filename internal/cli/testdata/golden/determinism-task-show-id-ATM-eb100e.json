@@ -8,17 +8,16 @@
         "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 25
+        "seq": 30
       }
     ],
-    "id": "ATM-e303cf",
+    "id": "ATM-eb100e",
     "labels": [
-      "ATM:status:open",
-      "ATM:type:bug"
+      "ATM:context:agent"
     ],
-    "ordinal": 1,
+    "ordinal": 2,
     "project_code": "ATM",
-    "title": "Fix label reconciliation",
+    "title": "Seed index tasks",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"atm/internal/store"
-	"atm/internal/workflow"
 
 	"github.com/spf13/cobra"
 )
@@ -43,7 +42,7 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := workflow.EnsureVocabulary(s, p.Code, actor); err != nil {
+			if err := st.registry.EnsureVocabulary(s, p.Code, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, nil)}, func() {

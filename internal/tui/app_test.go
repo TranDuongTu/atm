@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"atm/internal/capability"
+	"atm/internal/capability/workflow"
 	"atm/internal/store"
-	"atm/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -39,7 +40,7 @@ func newTestModelWithActor(t *testing.T, actor string) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: actor})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: actor, Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}

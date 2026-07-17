@@ -1,15 +1,36 @@
-package cli
+package contextmap
 
 import (
 	"fmt"
+	"io"
 	"os"
 
-	"atm/internal/contextmap"
+	"atm/internal/capability"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
 
-func newContextCmd(st *cliState) *cobra.Command {
+// Cap is the contextmap capability: the `atm context` verb tree over the
+// recorder/check verbs in this package.
+type Cap struct{}
+
+// New returns the capability the composition root registers.
+func New() capability.Capability { return Cap{} }
+
+func (Cap) Name() string { return "contextmap" }
+
+// DefaultBoard nominates no board: context-current is a knowledge surface,
+// not a work queue.
+func (Cap) DefaultBoard(code string) string { return "" }
+
+// EnsureVocabulary implements capability.Capability by delegating to this
+// package's vocabulary bootstrap.
+func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+	return EnsureVocabulary(svc, code, actor)
+}
+
+func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "context",
 		Short: "Record and verify the project's context map",
@@ -18,19 +39,19 @@ func newContextCmd(st *cliState) *cobra.Command {
 			"add/stamp/retarget/supersede record; check only reports -- it never marks anything " +
 			"stale. A changed file is not a wrong pointer: that judgement is yours.",
 	}
-	bindActorFlag(cmd, st)
-	cmd.AddCommand(newContextAddCmd(st))
-	cmd.AddCommand(newContextStampCmd(st))
-	cmd.AddCommand(newContextRetargetCmd(st))
-	cmd.AddCommand(newContextSupersedeCmd(st))
-	cmd.AddCommand(newContextCheckCmd(st))
+	env.BindActorFlag(cmd)
+	cmd.AddCommand(newAddCmd(env))
+	cmd.AddCommand(newStampCmd(env))
+	cmd.AddCommand(newRetargetCmd(env))
+	cmd.AddCommand(newSupersedeCmd(env))
+	cmd.AddCommand(newCheckCmd(env))
 	return cmd
 }
 
-// recorder builds a Recorder rooted at the current working directory, which is
-// the repo the manager is running in.
-func (st *cliState) recorder(actor string) (*contextmap.Recorder, error) {
-	s, err := st.openStore()
+// newRecorder builds a Recorder rooted at the current working directory,
+// which is the repo the manager is running in.
+func newRecorder(env capability.Env, actor string) (*Recorder, error) {
+	svc, err := env.OpenService()
 	if err != nil {
 		return nil, err
 	}
@@ -38,47 +59,36 @@ func (st *cliState) recorder(actor string) (*contextmap.Recorder, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &contextmap.Recorder{
-		Store:    s,
-		Resolver: &contextmap.Resolver{Repo: cwd},
+	return &Recorder{
+		Store:    svc,
+		Resolver: &Resolver{Repo: cwd},
 		Actor:    actor,
 	}, nil
 }
 
-// requireMutatingActor enforces that a mutating verb has an explicit actor. The
-// shared resolveActor helper deliberately defaults a missing actor to
-// admin@cli:unset (so read-only commands and the TUI still work), so mutating
-// verbs that must attribute their work check the flag directly.
-func (st *cliState) requireMutatingActor() (string, error) {
-	if st.flags.actor == "" {
-		return "", fmt.Errorf("%w: mutating command requires --actor or ATM_ACTOR", ErrUsage)
-	}
-	return st.resolveActor(true)
-}
-
-func parseSources(raw []string) ([]contextmap.Source, error) {
+func parseSources(raw []string) ([]Source, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("%w: at least one --source is required", ErrUsage)
+		return nil, fmt.Errorf("%w: at least one --source is required", core.ErrUsage)
 	}
-	out := make([]contextmap.Source, 0, len(raw))
+	out := make([]Source, 0, len(raw))
 	for _, r := range raw {
-		src, err := contextmap.ParseSource(r)
+		src, err := ParseSource(r)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrUsage, err)
+			return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 		}
 		out = append(out, src)
 	}
 	return out, nil
 }
 
-func newContextAddCmd(st *cliState) *cobra.Command {
+func newAddCmd(env capability.Env) *cobra.Command {
 	var task, kind string
 	var sources []string
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Make a task a context pointer and stamp its provenance",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := env.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
@@ -86,15 +96,15 @@ func newContextAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rec, err := st.recorder(actor)
+			rec, err := newRecorder(env, actor)
 			if err != nil {
 				return err
 			}
 			if err := rec.Add(task, kind, srcs); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": task, "kind": kind}, func() {
-				fmt.Fprintf(st.stdout(), "stamped %s as context:%s\n", task, kind)
+			return env.Emit(map[string]any{"task": task, "kind": kind}, func() {
+				fmt.Fprintf(env.Stdout(), "stamped %s as context:%s\n", task, kind)
 			})
 		},
 	}
@@ -107,25 +117,25 @@ func newContextAddCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func newContextStampCmd(st *cliState) *cobra.Command {
+func newStampCmd(env capability.Env) *cobra.Command {
 	var task string
 	cmd := &cobra.Command{
 		Use:   "stamp",
 		Short: "Re-verify a pointer: its subject is unchanged in meaning",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := env.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
-			rec, err := st.recorder(actor)
+			rec, err := newRecorder(env, actor)
 			if err != nil {
 				return err
 			}
 			if err := rec.Stamp(task); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": task}, func() {
-				fmt.Fprintf(st.stdout(), "re-stamped %s\n", task)
+			return env.Emit(map[string]any{"task": task}, func() {
+				fmt.Fprintf(env.Stdout(), "re-stamped %s\n", task)
 			})
 		},
 	}
@@ -134,14 +144,14 @@ func newContextStampCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func newContextRetargetCmd(st *cliState) *cobra.Command {
+func newRetargetCmd(env capability.Env) *cobra.Command {
 	var task string
 	var sources []string
 	cmd := &cobra.Command{
 		Use:   "retarget",
 		Short: "Point at new sources: the subject survived, but moved",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := env.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
@@ -149,15 +159,15 @@ func newContextRetargetCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rec, err := st.recorder(actor)
+			rec, err := newRecorder(env, actor)
 			if err != nil {
 				return err
 			}
 			if err := rec.Retarget(task, srcs); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": task}, func() {
-				fmt.Fprintf(st.stdout(), "retargeted %s\n", task)
+			return env.Emit(map[string]any{"task": task}, func() {
+				fmt.Fprintf(env.Stdout(), "retargeted %s\n", task)
 			})
 		},
 	}
@@ -167,25 +177,25 @@ func newContextRetargetCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func newContextSupersedeCmd(st *cliState) *cobra.Command {
+func newSupersedeCmd(env capability.Env) *cobra.Command {
 	var task, by, reason string
 	cmd := &cobra.Command{
 		Use:   "supersede",
 		Short: "Retire a pointer whose subject died; history is kept",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := env.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
-			rec, err := st.recorder(actor)
+			rec, err := newRecorder(env, actor)
 			if err != nil {
 				return err
 			}
 			if err := rec.Supersede(task, by, reason); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"task": task, "by": by}, func() {
-				fmt.Fprintf(st.stdout(), "superseded %s by %s\n", task, by)
+			return env.Emit(map[string]any{"task": task, "by": by}, func() {
+				fmt.Fprintf(env.Stdout(), "superseded %s by %s\n", task, by)
 			})
 		},
 	}
@@ -197,16 +207,16 @@ func newContextSupersedeCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func newContextCheckCmd(st *cliState) *cobra.Command {
+func newCheckCmd(env capability.Env) *cobra.Command {
 	var project, since string
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Report which pointers drifted (read-only; mutates nothing)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := st.resolveActor(false); err != nil {
+			if _, err := env.ResolveActor(false); err != nil {
 				return err
 			}
-			s, err := st.openStore()
+			svc, err := env.OpenService()
 			if err != nil {
 				return err
 			}
@@ -214,11 +224,11 @@ func newContextCheckCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rep, err := contextmap.Check(s, &contextmap.Resolver{Repo: cwd}, project, since)
+			rep, err := Check(svc, &Resolver{Repo: cwd}, project, since)
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), reportToJSON(rep), func() { printReport(st, rep) })
+			return env.Emit(reportToJSON(rep), func() { printReport(env.Stdout(), rep) })
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "ATM project code")
@@ -227,8 +237,8 @@ func newContextCheckCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-func reportToJSON(rep contextmap.Report) map[string]any {
-	find := func(fs []contextmap.Finding) []map[string]any {
+func reportToJSON(rep Report) map[string]any {
+	find := func(fs []Finding) []map[string]any {
 		out := make([]map[string]any, 0, len(fs))
 		for _, f := range fs {
 			m := map[string]any{
@@ -256,9 +266,8 @@ func reportToJSON(rep contextmap.Report) map[string]any {
 	}
 }
 
-func printReport(st *cliState, rep contextmap.Report) {
-	w := st.stdout()
-	section := func(name string, fs []contextmap.Finding, gloss string) {
+func printReport(w io.Writer, rep Report) {
+	section := func(name string, fs []Finding, gloss string) {
 		if len(fs) == 0 {
 			return
 		}

@@ -9,7 +9,6 @@ import (
 
 	"atm/internal/activity"
 	"atm/internal/core"
-	"atm/internal/workflow"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -240,7 +239,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.boards.reset()
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
-			if err := workflow.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
+			if err := p.m.reg.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
 			// D15: auto-start the indexer for the newly-selected project

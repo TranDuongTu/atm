@@ -9,7 +9,7 @@ import (
 	"atm/internal/store"
 )
 
-func newRecorder(t *testing.T, repo string) (*Recorder, *store.Store, string) {
+func newTestRecorder(t *testing.T, repo string) (*Recorder, *store.Store, string) {
 	t.Helper()
 	s, actor := newTestStore(t)
 	return &Recorder{Store: s, Resolver: &Resolver{Repo: repo}, Actor: actor}, s, actor
@@ -17,7 +17,7 @@ func newRecorder(t *testing.T, repo string) (*Recorder, *store.Store, string) {
 
 func TestAddStampsAndLabels(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	task, err := s.CreateTask("TST", "Code pointer: pkg", "", nil, actor)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -55,7 +55,7 @@ func TestStampAppendsRatherThanReplaces(t *testing.T) {
 	// Freshness history is the point: each re-stamp leaves the previous one
 	// behind, so the thread records every revision at which this was verified.
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	task, _ := s.CreateTask("TST", "Code pointer: pkg", "", nil, actor)
 	if err := rec.Add(task.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -82,7 +82,7 @@ func TestStampAppendsRatherThanReplaces(t *testing.T) {
 
 func TestRetargetKeepsTaskAndRecordsNewSources(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	task, _ := s.CreateTask("TST", "Code pointer: pkg", "", nil, actor)
 	if err := rec.Add(task.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -108,7 +108,7 @@ func TestRetargetKeepsTaskAndRecordsNewSources(t *testing.T) {
 
 func TestSupersedeLabelsOldAndKeepsHistory(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	old, _ := s.CreateTask("TST", "Doc pointer: old", "the old thing", nil, actor)
 	replacement, _ := s.CreateTask("TST", "Doc pointer: new", "", nil, actor)
 	if err := rec.Add(old.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
@@ -142,7 +142,7 @@ func TestSupersedeLabelsOldAndKeepsHistory(t *testing.T) {
 // requirement: it is a board, and it needs no code of its own.
 func TestSupersededTaskLeavesCurrentBoard(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	keep, _ := s.CreateTask("TST", "Doc pointer: keep", "", nil, actor)
 	drop, _ := s.CreateTask("TST", "Doc pointer: drop", "", nil, actor)
 	replacement, _ := s.CreateTask("TST", "Doc pointer: new", "", nil, actor)
@@ -180,7 +180,7 @@ func TestStampRefusesWhenSourceIsGone(t *testing.T) {
 	// moved) or supersede (if it died). A silent empty witness would lie that
 	// the pointer was re-verified.
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	task, _ := s.CreateTask("TST", "Code pointer: gone", "", nil, actor)
 	if err := rec.Add(task.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
 		t.Fatalf("Add: %v", err)
