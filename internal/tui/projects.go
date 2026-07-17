@@ -241,7 +241,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			if err := workflow.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
-				p.m.showToast("ensure open-tasks: " + err.Error())
+				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
 			// D15: auto-start the indexer for the newly-selected project
 			// (starts the watcher if config present; opens the overlay to

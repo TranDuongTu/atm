@@ -1,6 +1,11 @@
 {
   "labels": [
     {
+      "description": "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.",
+      "expr": "NOT status:*",
+      "name": "ATM:backlog"
+    },
+    {
       "description": "the kinds of narrative an agent writes on a task",
       "name": "ATM:comment:*"
     },
@@ -35,6 +40,11 @@
     {
       "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
       "name": "ATM:context:repository"
+    },
+    {
+      "description": "tasks someone is actively working on (status:in-progress).",
+      "expr": "status:in-progress",
+      "name": "ATM:in-progress-tasks"
     },
     {
       "description": "every open task: the project's active work. Default board in the TUI.",

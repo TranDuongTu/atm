@@ -14,7 +14,7 @@
         "action": "project.name-changed",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 21
+        "seq": 23
       }
     ],
     "name": "Demo Project",

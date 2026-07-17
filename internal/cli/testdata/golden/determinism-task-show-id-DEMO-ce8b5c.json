@@ -8,16 +8,16 @@
         "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 23
+        "seq": 22
       }
     ],
-    "id": "ATM-fe86ec",
+    "id": "DEMO-ce8b5c",
     "labels": [
-      "ATM:context:agent"
+      "DEMO:status:open"
     ],
-    "ordinal": 2,
-    "project_code": "ATM",
-    "title": "Seed index tasks",
+    "ordinal": 1,
+    "project_code": "DEMO",
+    "title": "Demo task",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
