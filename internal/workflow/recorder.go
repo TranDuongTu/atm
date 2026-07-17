@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 // Recorder is the mutating side of the workflow capability. It swaps a
-// task's status:* label via existing store calls; the store itself
+// task's status:* label via existing service calls; the store itself
 // enforces nothing. The "exactly one status" invariant is maintained by
 // this recorder, not by the store.
 type Recorder struct {
-	Store *store.Store
+	Store core.TaskService
 	Actor string
 }
 
@@ -37,7 +37,7 @@ func (r *Recorder) SetStatus(taskID, target string) (prior string, err error) {
 	if err != nil {
 		return "", err
 	}
-	code, _, ok := store.ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
 		return "", fmt.Errorf("invalid task id %q", taskID)
 	}

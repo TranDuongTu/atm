@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 // Reporter is the read-only side of the workflow capability. It never
 // mutates the store; the project log is byte-identical before and after
 // any Reporter call (testable, like contextmap's reporter contract).
 type Reporter struct {
-	Store *store.Store
+	Store core.TaskService
 }
 
 // Status returns the task's status value (e.g. "open", "in-progress") or
 // "" when the task carries no status:* label (untriaged). "" is not an error:
 // an untriaged task is a normal state, and a status value can never itself be
-// the empty string (store.ValidateLabelName requires a non-empty value
+// the empty string (label-name validation requires a non-empty value
 // segment), so the sentinel is unambiguous.
 //
 // Exactly-one-status is an invariant this capability maintains, not one the
@@ -35,7 +35,7 @@ func (r *Reporter) Status(taskID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	code, _, ok := store.ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
 		return "", fmt.Errorf("invalid task id %q", taskID)
 	}
