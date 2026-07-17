@@ -480,7 +480,7 @@ func newTestStore(t *testing.T) *store.Store {
 // for direct row assertions without driving the full key harness.
 func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel {
 	t.Helper()
-	mm, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: testActor})
+	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}

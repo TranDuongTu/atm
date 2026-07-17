@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"atm/internal/core"
-	"atm/internal/store"
 	"atm/internal/workflow"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -133,18 +132,14 @@ type Model struct {
 
 // NewModelOpts are the inputs to NewModel.
 type NewModelOpts struct {
-	StorePath string
-	Actor     string
+	Service core.Service
+	Actor   string
 }
 
-// NewModel opens (and auto-inits if absent) the store and builds the root
-// Model with all its sub-models initialized.
+// NewModel builds the root Model over an opened store (auto-initing the
+// store directory if absent) with all its sub-models initialized.
 func NewModel(opts NewModelOpts) (*Model, error) {
-	root := store.ResolveStorePath(opts.StorePath)
-	s, err := store.Open(root)
-	if err != nil {
-		return nil, err
-	}
+	s := opts.Service
 	if _, statErr := os.Stat(s.StorePath()); statErr != nil {
 		if err := s.Init(""); err != nil {
 			return nil, err

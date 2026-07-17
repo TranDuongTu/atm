@@ -17,7 +17,7 @@ func BenchmarkView_SelectedProject(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -52,7 +52,7 @@ func BenchmarkRefreshAll(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -85,7 +85,7 @@ func BenchmarkView_NoSelection(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "bench"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench"})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}

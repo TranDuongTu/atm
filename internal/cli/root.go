@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"atm/internal/store"
-	"atm/internal/tui"
 	"atm/internal/version"
 
 	"github.com/spf13/cobra"
@@ -15,6 +14,12 @@ import (
 
 type childRunner func(name string, argv []string, env []string, notFoundHint string) (int, error)
 type tuiRunner func(storePath, actor string) error
+
+// Deps are the composition-root-provided dependencies (wired by cmd/atm).
+// RunTUI launches the interactive TUI for the given store path and actor.
+type Deps struct {
+	RunTUI func(storePath, actor string) error
+}
 
 type globalFlags struct {
 	store  string
@@ -135,7 +140,7 @@ func (s *cliState) launchTUI() error {
 	}
 	run := s.runTUI
 	if run == nil {
-		run = tui.Run
+		return fmt.Errorf("tui runner not wired (composition root must set Deps.RunTUI)")
 	}
 	setTmuxWindowLabel(os.Stdout, tmuxLabelTUI)
 	if err := run(root, actor); err != nil {
@@ -203,8 +208,8 @@ func newVersionCmd(st *cliState) *cobra.Command {
 	}
 }
 
-func Execute() int {
-	st := &cliState{}
+func Execute(deps Deps) int {
+	st := &cliState{runTUI: deps.RunTUI}
 	root := newRootCmdWithState(st)
 	if err := root.Execute(); err != nil {
 		if st.isJSON() {

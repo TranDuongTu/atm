@@ -24,7 +24,7 @@ func TestRefreshTickSurfacesExternalMutation(t *testing.T) {
 	// One task exists before the TUI starts.
 	_, _ = s.CreateTask("ATM", "pre-existing", "", []string{"ATM:status:open"}, "admin@cli:test")
 
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: "admin@tui:unset"})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: "admin@tui:unset"})
 	if err != nil {
 		t.Fatal(err)
 	}

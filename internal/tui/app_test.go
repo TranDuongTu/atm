@@ -39,7 +39,7 @@ func newTestModelWithActor(t *testing.T, actor string) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{StorePath: s.StorePath(), Actor: actor})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: actor})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
