@@ -508,6 +508,10 @@ func TestProjectCreateFormInvalidCode(t *testing.T) {
 // submitting creates the project and the list shows it.
 func TestProjectCreateFormValidCreates(t *testing.T) {
 	m := newTestModel(t)
+	// Use a width where the Projects pane can show the full project name in
+	// its NAME column (the column now truncates to fit the pane rather than
+	// overflowing and clipping the UPDATED column — see ATM-46f820).
+	m.SetSize(160, 30)
 	update(t, m, "a")
 	for _, r := range "ATM" {
 		update(t, m, string(r))
@@ -573,6 +577,10 @@ func TestProjectCreateFormNoActor(t *testing.T) {
 // is replaced by the dim shade (not visible through the modal).
 func TestOverlayRendersDimmedBackdropWithModal(t *testing.T) {
 	m := newTestModel(t)
+	// Use a width where the Projects pane can show the full project name in
+	// its NAME column (the column now truncates to fit the pane rather than
+	// overflowing and clipping the UPDATED column — see ATM-46f820).
+	m.SetSize(160, 30)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	base := m.View()
 	mustContain(t, base, "Acme Task Manager")
@@ -2153,6 +2161,28 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	// paneLabels no longer exists as a focusable pane (Task 3 removed the
 	// [3] Boards pane); drive boardsModel directly since Task 7 has not yet
 	// re-wired its key handling into the Tasks pane.
+	//
+	// Locate the "status" namespace row explicitly rather than assuming
+	// cursor 0 lands on it: the workflow capability added "backlog" and
+	// "in-progress-tasks" as normal L0 board members (sorted by display
+	// name, buildBoardRows), and "backlog" now sorts alphabetically before
+	// "status" (and before the template's other emergent namespaces), so
+	// cursor 0 lands on a non-expandable board row instead of a namespace.
+	// This test doesn't care which namespace it drills into -- it only
+	// needs non-trivial chart/detail state to exercise the project-switch
+	// reset -- so pick "status" (seeded above) by name instead of by
+	// position.
+	statusIdx := -1
+	for i, r := range m.boards.rows {
+		if r.Name == "status" {
+			statusIdx = i
+			break
+		}
+	}
+	if statusIdx < 0 {
+		t.Fatal("status namespace row not found in boards ring")
+	}
+	m.boards.cursor = statusIdx
 	m.boards.handleKey(keyMsg("enter")) // enter ATM namespace chart
 	if m.boards.level != lLevelChart {
 		t.Fatalf("boards.level = %v want lLevelChart", m.boards.level)

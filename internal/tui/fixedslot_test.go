@@ -170,3 +170,103 @@ func TestGroupedPagingDerivesFromListContentHeight(t *testing.T) {
 		t.Errorf("grouped listPageSize() after pinning = %d, want unchanged %d", got, want)
 	}
 }
+
+// TestProjectColumnWidthsFitPaneWithGutterPrefix verifies the data row —
+// including the 2-char "gutter + space" prefix renderListRows prepends —
+// fits p.width so the rightmost UPDATED column is never clipped ("3m ago"
+// must not become "3m ag"). NAME is the flexible column and absorbs the
+// gutter overhead; UPDATED stays fixed at 10.
+func TestProjectColumnWidthsFitPaneWithGutterPrefix(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.width = 60
+	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
+	if codeW != 6 || tasksW != 6 || labelsW != 7 || updatedW != 10 {
+		t.Errorf("fixed widths = %d/%d/%d/%d, want 6/6/7/10", codeW, tasksW, labelsW, updatedW)
+	}
+	// Full data row = fixed + nameW + 5 (format overhead) + 2 (gutter+space).
+	rowW := codeW + tasksW + labelsW + updatedW + nameW + 5 + 2
+	if rowW > p.width {
+		t.Errorf("data row width = %d, exceeds pane width %d (UPDATED would clip)", rowW, p.width)
+	}
+}
+
+// TestProjectColumnWidthsNameAbsorbsShrinkage verifies NAME is the flexible
+// column: at a wider pane it grows, and it never forces the row to overflow.
+func TestProjectColumnWidthsNameAbsorbsShrinkage(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.width = 100
+	_, _, _, _, nameW100 := p.projectColumnWidths()
+	p.width = 50
+	_, _, _, _, nameW50 := p.projectColumnWidths()
+	if nameW100 <= nameW50 {
+		t.Errorf("nameW at width 100 = %d, not greater than nameW at width 50 = %d", nameW100, nameW50)
+	}
+}
+
+// TestProjectColumnWidthsNameFloorIsEight verifies the NAME floor is 8 (lowered
+// from 20) so NAME keeps absorbing shrinkage at narrow panes instead of
+// forcing the row to overflow and clip UPDATED.
+func TestProjectColumnWidthsNameFloorIsEight(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.width = 30 // below the floor: nameW would go negative without the clamp
+	_, _, _, _, nameW := p.projectColumnWidths()
+	if nameW != 8 {
+		t.Errorf("nameW floor = %d, want 8", nameW)
+	}
+}
+
+// TestProjectListDataRowRendersFullUpdatedColumn verifies a rendered data row
+// keeps the full UPDATED value ("3m ago", not "3m ag") at a realistic pane
+// width. The row is formatted exactly as renderListRows does, including the
+// "gutter + space" prefix, and must fit the pane width.
+func TestProjectListDataRowRendersFullUpdatedColumn(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.width = 60
+	p.list = []projRow{
+		{code: "ATM", name: "Acme Task Manager", tasks: 3, labels: 5, updated: "3m ago"},
+	}
+	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
+	r := p.list[0]
+	gutter := " "
+	line := fmt.Sprintf(" %-*s %-*s %*d %*d %*s", codeW, r.code, nameW, truncateRunes(r.name, nameW), tasksW, r.tasks, labelsW, r.labels, updatedW, r.updated)
+	full := gutter + " " + line
+	if w := lipgloss.Width(full); w > p.width {
+		t.Errorf("data row width = %d, exceeds pane width %d (UPDATED would clip): %q", w, p.width, full)
+	}
+	if !strings.Contains(full, "3m ago") {
+		t.Errorf("data row = %q, want the full UPDATED value \"3m ago\" (not clipped)", full)
+	}
+}
+
+// TestProjectListDataRowRendersFullUpdatedColumnAtNarrowPane verifies the
+// UPDATED value stays intact even when the pane is narrow enough to push NAME
+// to its floor — NAME truncates with an ellipsis, UPDATED does not clip.
+func TestProjectListDataRowRendersFullUpdatedColumnAtNarrowPane(t *testing.T) {
+	m := newTestModel(t)
+	p := newProjectsModel(m)
+	p.width = 44 // the smallest width at which the row still fits with nameW=8
+	p.list = []projRow{
+		{code: "ATM", name: "Acme Task Manager", tasks: 3, labels: 5, updated: "3m ago"},
+	}
+	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
+	if nameW != 8 {
+		t.Fatalf("nameW = %d, want 8 (floor) at p.width=44", nameW)
+	}
+	r := p.list[0]
+	gutter := " "
+	line := fmt.Sprintf(" %-*s %-*s %*d %*d %*s", codeW, r.code, nameW, truncateRunes(r.name, nameW), tasksW, r.tasks, labelsW, r.labels, updatedW, r.updated)
+	full := gutter + " " + line
+	if w := lipgloss.Width(full); w > p.width {
+		t.Errorf("narrow data row width = %d, exceeds pane width %d: %q", w, p.width, full)
+	}
+	if !strings.Contains(full, "3m ago") {
+		t.Errorf("narrow data row = %q, want the full UPDATED value \"3m ago\"", full)
+	}
+	if !strings.Contains(line, "...") {
+		t.Errorf("narrow data row = %q, want NAME truncated with ellipsis", line)
+	}
+}

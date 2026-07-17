@@ -241,7 +241,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			if err := workflow.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
-				p.m.showToast("ensure open-tasks: " + err.Error())
+				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
 			// D15: auto-start the indexer for the newly-selected project
 			// (starts the watcher if config present; opens the overlay to
@@ -397,12 +397,18 @@ func (p *projectsModel) renderList() string {
 }
 
 // projectColumnWidths returns fixed widths for CODE/TASKS/LABELS/UPDATED and a
-// flexible NAME width that absorbs the remaining pane width.
+// flexible NAME width that absorbs the remaining pane width. The data rows
+// render with a 2-char "gutter + space" prefix (renderListRows) plus the 5
+// chars of overhead inside the format string (1 leading space + 4 inter-column
+// spaces), so NAME is sized to leave room for 7 chars of overhead — keeping
+// the full row, including UPDATED, inside p.width. UPDATED stays fixed at 10
+// so the relative timestamp is never the column that gets clipped; NAME is
+// the flexible column and truncates with an ellipsis when the pane is narrow.
 func (p *projectsModel) projectColumnWidths() (codeW, tasksW, labelsW, updatedW, nameW int) {
 	codeW, tasksW, labelsW, updatedW = 6, 6, 7, 10
-	nameW = p.width - codeW - tasksW - labelsW - updatedW - 5
-	if nameW < 20 {
-		nameW = 20
+	nameW = p.width - codeW - tasksW - labelsW - updatedW - 7
+	if nameW < 8 {
+		nameW = 8
 	}
 	return
 }
