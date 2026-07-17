@@ -21,19 +21,28 @@ func BoardBacklog(code string) string { return code + ":backlog" }
 // BoardInProgressTasks returns the full name of the In-Progress board.
 func BoardInProgressTasks(code string) string { return code + ":in-progress-tasks" }
 
-func openTasksExpr() string       { return "status:open" }
-func backlogExpr() string         { return "NOT status:*" }
-func inProgressTasksExpr() string { return "status:in-progress" }
+// BoardAllTasks returns the full name of the All Tasks board: every task in
+// the project, including unlabeled naked jottings. Its membership predicate
+// is the '*' tautology atom (internal/store/resolve.go). Surfaced as the
+// TUI's default-selected board so the human's "browse recent activity"
+// consult mode sees the whole project, not just status:open.
+func BoardAllTasks(code string) string { return code + ":all-tasks" }
 
-// EnsureVocabulary creates the three workflow boards with descriptions, if
+func openTasksExpr() string       { return "status:open" }
+func backlogExpr() string        { return "NOT status:*" }
+func inProgressTasksExpr() string { return "status:in-progress" }
+func allTasksExpr() string       { return "*" }
+
+// EnsureVocabulary creates the four workflow boards with descriptions, if
 // absent. Idempotent: LabelSeed upserts only when the label is absent, so a
 // human's curated description is never overwritten. Self-bootstrapping: it
 // does not assume `atm label seed` ran.
 func EnsureVocabulary(s core.LabelService, code, actor string) error {
 	boards := []struct{ name, desc, expr string }{
 		{BoardBacklog(code), "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.", backlogExpr()},
-		{BoardOpenTasks(code), "every open task: the project's active work. Default board in the TUI.", openTasksExpr()},
+		{BoardOpenTasks(code), "every open task: the project's active work.", openTasksExpr()},
 		{BoardInProgressTasks(code), "tasks someone is actively working on (status:in-progress).", inProgressTasksExpr()},
+		{BoardAllTasks(code), "every task in the project, ordered by recent activity. Default board in the TUI.", allTasksExpr()},
 	}
 	for _, b := range boards {
 		if err := s.LabelSeed(b.name, b.desc, b.expr, actor); err != nil {
