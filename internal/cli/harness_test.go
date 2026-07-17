@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"atm/internal/capability"
+	"atm/internal/capability/contextmap"
 	"atm/internal/store"
 )
 
@@ -52,7 +53,7 @@ var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 // exercise the same command surface the binary ships. Tasks 5-6 of the
 // step-5 plan add the capabilities as their cobra layers move.
 func testRegistry() *capability.Registry {
-	return capability.NewRegistry()
+	return capability.NewRegistry(contextmap.New())
 }
 
 var tsRe = regexp.MustCompile(`"2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"`)

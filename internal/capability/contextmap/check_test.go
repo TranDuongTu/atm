@@ -9,7 +9,7 @@ import (
 
 func TestCheckClassifiesEachPointer(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 
 	clean, _ := s.CreateTask("TST", "Pointer: clean", "", nil, actor)
 	drifted, _ := s.CreateTask("TST", "Pointer: drifted", "", nil, actor)
@@ -58,7 +58,7 @@ func TestCheckReportsNewTerritory(t *testing.T) {
 	// A file changed in git that no pointer claims. This is how a repeat run
 	// notices the repo grew, without check knowing anything about repo structure.
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	covered, _ := s.CreateTask("TST", "Pointer: pkg", "", nil, actor)
 	if err := rec.Add(covered.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -85,7 +85,7 @@ func TestCheckReportsNewTerritory(t *testing.T) {
 func TestCheckSkipsSupersededPointers(t *testing.T) {
 	// Superseded knowledge is history. It must not appear in the worklist.
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	old, _ := s.CreateTask("TST", "Pointer: old", "", nil, actor)
 	next, _ := s.CreateTask("TST", "Pointer: new", "", nil, actor)
 	if err := rec.Add(old.ID, "documentation", []Source{{Kind: KindGit, Locator: "pkg"}}); err != nil {
@@ -107,7 +107,7 @@ func TestCheckSkipsSupersededPointers(t *testing.T) {
 
 func TestCheckAgeIsMeasuredInDays(t *testing.T) {
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	ext, _ := s.CreateTask("TST", "Pointer: notion", "", nil, actor)
 	if err := rec.Add(ext.ID, "documentation", []Source{{Kind: KindExternal, Locator: "notion/arch"}}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -130,7 +130,7 @@ func TestCheckRepoRootPointerCoversAllNewTerritory(t *testing.T) {
 	// changed path is NEW. Without the whole-repo fix, a path like "pkg/a.go"
 	// would be reported as NEW even though "." claims it.
 	repo := newTestRepo(t)
-	rec, s, actor := newRecorder(t, repo)
+	rec, s, actor := newTestRecorder(t, repo)
 	whole, _ := s.CreateTask("TST", "Pointer: whole repo", "", nil, actor)
 	if err := rec.Add(whole.ID, "documentation", []Source{{Kind: KindGit, Locator: "."}}); err != nil {
 		t.Fatalf("Add whole-repo: %v", err)
