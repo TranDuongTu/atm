@@ -28,7 +28,7 @@ cmd/atm ─────────────── composition root: construc
 | `cmd/atm` | `main` and the composition root. Constructs the concrete store, the capability registry, and hands them to the adapters. | Contain domain or presentation logic. |
 | `internal/core` | The domain leaf. Task/Label/Comment/Project types, the label algebra (wildcards, faceting, grouping, board expressions), vocabulary rules, and the narrow service + repository interfaces the adapters consume. | Import any other internal package or any I/O library. Know that persistence is event-sourced. |
 | `internal/store` | The persistence adapter. Implements `core`'s repository interfaces using the event log (author → project → sqlite cache). The **only** package that knows events exist. | Export event-sourcing concepts upward; grow UI- or CLI-shaped helpers. |
-| `internal/cli` | The terminal adapter. Cobra command tree: parse flags → call core services → emit text/JSON. Hosts the capability registry so plugged commands mount without `cli` importing their internals. | Contain business logic; be imported by anything except `cmd/atm`. |
+| `internal/cli` | The terminal adapter. Cobra command tree: parse flags → call core services → emit text/JSON. Mounts the capability registry's commands; the registry itself is assembled by `cmd/atm`. | Contain business logic; be imported by anything except `cmd/atm`. |
 | `internal/tui` | The interactive adapter. Bubble Tea panes over the core service interface, with live features (watch, reindex) via that interface. | Import `cli` or the concrete store type; reimplement core algebra (faceting, wildcard matching). |
 | `internal/capability/*` | One package per capability command (first: `contextmap`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
 | `libs/eventsource` | Nested Go module (own `go.mod`, stitched via `go.work`). Root package: event canon, hashing, HLC, DAG, fold, replay. `sync/` subpackage: sync engine, `LocalStore`/`SyncTarget` interfaces, dir and git transports. | Import anything from this repo. Depend on more than the standard library (plus `jcs`). |
@@ -42,9 +42,10 @@ These rules are the enforceable heart of this document. A change that violates o
 | Package | May import (internal) |
 |---|---|
 | `cmd/atm` | anything — it is the composition root |
-| `internal/cli` | `core`, `capability/*`, satellites; `store` only until wiring moves to `cmd/atm`, then via injected interfaces |
-| `internal/tui` | `core`, `tui/components` — nothing else |
-| `internal/capability/*` | `core` |
+| `internal/cli` | `core`, `capability` (registry only), satellites; `store` only until step 6 moves the remaining admin surface behind interfaces |
+| `internal/tui` | `core`, `capability` (registry only), `tui/components` — plus the acknowledged satellites until they are purged |
+| `internal/capability/*` | `capability`, `core` |
+| `internal/capability` | nothing internal but `core` |
 | `internal/core` | nothing internal (pure leaf) |
 | `internal/store` | `core`, `libs/eventsource`, `seed` |
 | `libs/eventsource` | nothing from this repo |
