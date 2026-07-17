@@ -5,6 +5,7 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/capability/contextmap"
+	"atm/internal/capability/workflow"
 	"atm/internal/cli"
 	"atm/internal/store"
 	"atm/internal/tui"
@@ -14,7 +15,7 @@ import (
 // the capability registry, and hands the adapters their dependencies. No
 // domain or presentation logic here.
 func main() {
-	reg := capability.NewRegistry(contextmap.New())
+	reg := capability.NewRegistry(workflow.New(), contextmap.New())
 	runTUI := func(storePath, actor string) error {
 		root := store.ResolveStorePath(storePath)
 		s, err := store.Open(root)

@@ -119,7 +119,6 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newPersonaCmd(st))
 	root.AddCommand(newActivityCmd(st))
 	root.AddCommand(newTaskCmd(st))
-	root.AddCommand(newWorkflowCmd(st))
 	root.AddCommand(newVocabularyCmd(st))
 	root.AddCommand(newEmbedCmd(st))
 	root.AddCommand(newIndexCmd(st))
