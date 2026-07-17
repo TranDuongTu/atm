@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"atm/internal/capability"
-	"atm/internal/store"
+	"atm/internal/core"
 	"atm/internal/version"
 
 	"github.com/spf13/cobra"
@@ -23,6 +23,11 @@ type Deps struct {
 	// Registry holds the capability commands the composition root enabled;
 	// nil behaves as empty (no capability commands mount).
 	Registry *capability.Registry
+	// OpenService / OpenAdmin construct the store for a --store/ATM_HOME
+	// path (unresolved; the constructor resolves it). The CLI never names
+	// the concrete store — the composition root injects these.
+	OpenService func(storePath string) (core.Service, error)
+	OpenAdmin   func(storePath string) (core.StorageAdmin, error)
 }
 
 type globalFlags struct {
@@ -42,13 +47,12 @@ type cliState struct {
 	runTUI          tuiRunner
 	stdinIsTerminal func() bool
 
-	// storeOpts are determinism seams (WithClock/WithReplicaEntropy/WithNow)
-	// applied to every store this CLI opens. Production leaves it nil, so
-	// store.Open keeps its wall-clock + crypto/rand defaults. The golden test
-	// harness sets it so that the v2 events authored INSIDE command execution
-	// (openStore is called per command, not on the harness's own handle) mint
-	// reproducible hex aliases.
-	storeOpts []store.Option
+	// openServiceFn / openAdminFn construct the store for a --store path. The
+	// CLI never names the concrete store; the composition root injects these
+	// (production wires store.Open; the golden harness wires seeded opens so
+	// v2 events authored INSIDE command execution mint reproducible aliases).
+	openServiceFn func(string) (core.Service, error)
+	openAdminFn   func(string) (core.StorageAdmin, error)
 
 	// registry is the capability registry the composition root injected;
 	// nil-safe (behaves as empty).
@@ -142,7 +146,7 @@ func bindActorFlag(cmd *cobra.Command, st *cliState) {
 }
 
 func (s *cliState) launchTUI() error {
-	root := store.ResolveStorePath(s.flags.store)
+	root := s.flags.store
 	actor := s.flags.actor
 	if actor == "" {
 		actor = "admin@tui:unset"
@@ -167,13 +171,18 @@ func (s *cliState) runChild(name string, argv []string, env []string, notFoundHi
 	return runChild(name, argv, env, notFoundHint)
 }
 
-func (s *cliState) openStore() (*store.Store, error) {
-	root := store.ResolveStorePath(s.flags.store)
-	st, err := store.Open(root, s.storeOpts...)
-	if err != nil {
-		return nil, err
+func (s *cliState) openStore() (core.Service, error) {
+	if s.openServiceFn == nil {
+		return nil, fmt.Errorf("store opener not wired (composition root must set Deps.OpenService)")
 	}
-	return st, nil
+	return s.openServiceFn(s.flags.store)
+}
+
+func (s *cliState) openAdmin() (core.StorageAdmin, error) {
+	if s.openAdminFn == nil {
+		return nil, fmt.Errorf("store opener not wired (composition root must set Deps.OpenAdmin)")
+	}
+	return s.openAdminFn(s.flags.store)
 }
 
 func (s *cliState) isJSON() bool { return s.flags.output == outputJSON }
@@ -220,7 +229,7 @@ func newVersionCmd(st *cliState) *cobra.Command {
 }
 
 func Execute(deps Deps) int {
-	st := &cliState{runTUI: deps.RunTUI, registry: deps.Registry}
+	st := &cliState{runTUI: deps.RunTUI, registry: deps.Registry, openServiceFn: deps.OpenService, openAdminFn: deps.OpenAdmin}
 	root := newRootCmdWithState(st)
 	if err := root.Execute(); err != nil {
 		if st.isJSON() {

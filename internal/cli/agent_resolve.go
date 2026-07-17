@@ -5,15 +5,15 @@ import (
 	"os"
 
 	"atm/internal/agent"
+	"atm/internal/core"
 	"atm/internal/developing"
 	"atm/internal/manager"
-	"atm/internal/store"
 )
 
 // resolveAgentName picks the agent entry name for a launch: an explicit
 // --agent flag wins, then the ATM_AGENT env override, then the stored
 // selection. None set is a usage error.
-func resolveAgentName(flagAgent string, cfg store.AgentsConfig) (string, error) {
+func resolveAgentName(flagAgent string, cfg core.AgentsConfig) (string, error) {
 	if flagAgent != "" {
 		return flagAgent, nil
 	}
@@ -28,7 +28,7 @@ func resolveAgentName(flagAgent string, cfg store.AgentsConfig) (string, error) 
 
 // resolveEntry resolves the launch agent to a catalog entry plus its stored
 // default passthrough args.
-func resolveEntry(flagAgent string, cfg store.AgentsConfig) (agent.Entry, []string, error) {
+func resolveEntry(flagAgent string, cfg core.AgentsConfig) (agent.Entry, []string, error) {
 	name, err := resolveAgentName(flagAgent, cfg)
 	if err != nil {
 		return agent.Entry{}, nil, err

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 // newRunID builds a run id of the form <CODE>-<YYYYMMDDHHMMSS>-<6-hex>.
@@ -21,19 +21,19 @@ func newRunID(code string) string {
 	)
 }
 
-func ensureProjectForLaunch(s *store.Store, code string) (*store.Project, error) {
+func ensureProjectForLaunch(s core.Service, code string) (*core.Project, error) {
 	p, err := s.GetProject(code)
 	if err == nil {
 		return p, nil
 	}
-	if !store.IsNotFound(err) {
+	if !core.IsNotFound(err) {
 		return nil, err
 	}
 	p, err = s.CreateProject(code, code, "admin@cli:unset")
 	if err == nil {
 		return p, nil
 	}
-	if store.IsConflict(err) {
+	if core.IsConflict(err) {
 		return s.GetProject(code)
 	}
 	return nil, err

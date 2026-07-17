@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"atm/internal/core"
 	"atm/internal/embed"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -53,7 +53,7 @@ func newSearchCmd(st *cliState) *cobra.Command {
 			if resolvedModel == "" {
 				resolvedModel = model
 			}
-			p := store.SearchParams{
+			p := core.SearchParams{
 				Project: project, Model: resolvedModel, QueryVector: qv, QueryText: args[0],
 				Kind: kind, K: k, Threshold: threshold,
 			}
@@ -100,7 +100,7 @@ type jsonHit struct {
 	Match   string   `json:"match"`
 }
 
-func hitsToJSON(hits []store.Hit) []jsonHit {
+func hitsToJSON(hits []core.Hit) []jsonHit {
 	out := make([]jsonHit, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, jsonHit(h))

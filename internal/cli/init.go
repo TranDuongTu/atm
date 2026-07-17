@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"atm/internal/agent"
+	"atm/internal/core"
 	"atm/internal/developing"
 	"atm/internal/manager"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -22,8 +22,7 @@ func newInitCmd(st *cliState) *cobra.Command {
 		Use:   "init",
 		Short: "Initialize the store and install ATM agent plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := store.ResolveStorePath(st.flags.store)
-			s, err := store.Open(root, st.storeOpts...)
+			s, err := st.openStore()
 			if err != nil {
 				return err
 			}
@@ -111,11 +110,11 @@ func newInitCmd(st *cliState) *cobra.Command {
 }
 
 func promptInitAgents(st *cliState) ([]string, error) {
-	res, err := promptInitSetup(st, store.AgentsConfig{})
+	res, err := promptInitSetup(st, core.AgentsConfig{})
 	return res.PluginAgents, err
 }
 
-func promptInitSetup(st *cliState, cfg store.AgentsConfig) (initSetupPromptResult, error) {
+func promptInitSetup(st *cliState, cfg core.AgentsConfig) (initSetupPromptResult, error) {
 	var res initSetupPromptResult
 	fmt.Fprintln(st.stdout())
 	fmt.Fprintln(st.stdout(), "ATM setup")
@@ -360,7 +359,7 @@ func previewInitInstallResults(selected []string) ([]initInstallResult, error) {
 	return out, nil
 }
 
-func viableInitDefaultAgents(installed []initInstallResult, cfg store.AgentsConfig, home string) []agent.Entry {
+func viableInitDefaultAgents(installed []initInstallResult, cfg core.AgentsConfig, home string) []agent.Entry {
 	pluginAgents := map[string]bool{}
 	for _, res := range installed {
 		pluginAgents[res.Agent] = true
@@ -403,7 +402,7 @@ func warnInitSelectedAgent(st *cliState, selected string) error {
 	return nil
 }
 
-func persistInitSetup(s *store.Store, setup initSetupPromptResult, dryRun bool) error {
+func persistInitSetup(s core.Service, setup initSetupPromptResult, dryRun bool) error {
 	if dryRun {
 		return nil
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"atm/internal/store"
+	"atm/internal/core"
 
 	"github.com/spf13/cobra"
 )
@@ -89,7 +89,7 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hv, err := s.HistoryE(p.Code, store.Subject{Kind: "project", Code: p.Code})
+			hv, err := s.HistoryE(p.Code, core.Subject{Kind: "project", Code: p.Code})
 			if err != nil {
 				return err
 			}
@@ -186,7 +186,7 @@ func newProjectSetEmbeddingCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
 			}
-			cfg := store.EmbeddingConfig{
+			cfg := core.EmbeddingConfig{
 				Model: model, Endpoint: endpoint, QueryPrefix: queryPrefix, DocPrefix: docPrefix,
 				Dim: dim, Threshold: threshold,
 			}

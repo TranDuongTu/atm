@@ -14,6 +14,7 @@ import (
 	"atm/internal/capability"
 	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -46,6 +47,30 @@ func deterministicSeamOpts() []store.Option {
 		store.WithReplicaEntropy(&deterministicSeam{}),
 		store.WithNow(func() time.Time { return time.Date(2026, 7, 14, 9, 12, 3, 0, time.UTC) }),
 	}
+}
+
+// storeOpeners builds the injected OpenService/OpenAdmin constructors the test
+// harnesses wire into cliState, standing in for cmd/atm's composition root. Both
+// share the one determinism seam set (opts) so the v2 events authored INSIDE
+// command execution (openStore/openAdmin are called per command, not on the
+// harness's own handle) mint reproducible hex aliases. Each returns an explicit
+// nil on error so a typed-nil *store.Store never hides in the interface.
+func storeOpeners(opts ...store.Option) (func(string) (core.Service, error), func(string) (core.StorageAdmin, error)) {
+	openService := func(p string) (core.Service, error) {
+		s, err := store.Open(store.ResolveStorePath(p), opts...)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+	openAdmin := func(p string) (core.StorageAdmin, error) {
+		s, err := store.Open(store.ResolveStorePath(p), opts...)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+	return openService, openAdmin
 }
 
 var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
@@ -85,18 +110,18 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 		t.Setenv(k, "")
 	}
 	dir := t.TempDir()
-	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry()}
+	// One shared seam set threaded through BOTH the harness's own handle and
+	// every store the CLI commands open (via the injected openers): v2 events
+	// are authored inside command execution through openStore/openAdmin, so the
+	// seams must reach there or the minted hex aliases draw from the real wall
+	// clock / crypto-rand and are not reproducible.
+	opts := deterministicSeamOpts()
+	openService, openAdmin := storeOpeners(opts...)
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	// One shared seam set threaded through BOTH the harness's own handle and
-	// every store the CLI commands open (st.storeOpts): v2 events are authored
-	// inside command execution via openStore, so the seams must reach there or
-	// the minted hex aliases draw from the real wall clock / crypto-rand and are
-	// not reproducible.
-	opts := deterministicSeamOpts()
-	st.storeOpts = opts
 	s, err := store.Open(dir, opts...)
 	if err != nil {
 		t.Fatal(err)
@@ -116,13 +141,13 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	} {
 		t.Setenv(k, "")
 	}
-	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry()}
+	opts := deterministicSeamOpts()
+	openService, openAdmin := storeOpeners(opts...)
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
 	st.err = ebuf
-	opts := deterministicSeamOpts()
-	st.storeOpts = opts
 	s, err := store.Open(storePath, opts...)
 	if err != nil {
 		t.Fatal(err)

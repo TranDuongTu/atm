@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"atm/internal/store"
+	"atm/internal/core"
 )
 
 const (
@@ -38,15 +38,15 @@ type jsonTask struct {
 }
 
 type jsonProject struct {
-	Code      string                 `json:"code"`
-	Name      string                 `json:"name"`
-	Ordinal   int                    `json:"ordinal"`
-	History   []jsonHistory          `json:"history"`
-	CreatedAt string                 `json:"created_at"`
-	CreatedBy string                 `json:"created_by"`
-	UpdatedAt string                 `json:"updated_at"`
-	UpdatedBy string                 `json:"updated_by"`
-	Embedding *store.EmbeddingConfig `json:"embedding,omitempty"`
+	Code      string                `json:"code"`
+	Name      string                `json:"name"`
+	Ordinal   int                   `json:"ordinal"`
+	History   []jsonHistory         `json:"history"`
+	CreatedAt string                `json:"created_at"`
+	CreatedBy string                `json:"created_by"`
+	UpdatedAt string                `json:"updated_at"`
+	UpdatedBy string                `json:"updated_by"`
+	Embedding *core.EmbeddingConfig `json:"embedding,omitempty"`
 }
 
 type jsonLabel struct {
@@ -58,7 +58,7 @@ type jsonLabel struct {
 // IsComputed reports whether this label's membership is derived (a board or
 // namespace label) rather than asserted by tasks.
 func (l jsonLabel) IsComputed() bool {
-	return l.Expr != "" || store.IsNamespaceName(l.Name)
+	return l.Expr != "" || core.IsNamespaceName(l.Name)
 }
 
 type jsonLabelGroup struct {
@@ -73,20 +73,20 @@ type jsonFacets struct {
 
 // ---- mappers ----
 
-func historyToJSON(h []store.HistoryView) []jsonHistory {
+func historyToJSON(h []core.HistoryView) []jsonHistory {
 	out := make([]jsonHistory, 0, len(h))
 	for _, e := range h {
 		out = append(out, jsonHistory{
 			Seq:    e.Seq,
 			Action: e.Action,
 			Actor:  e.Actor,
-			At:     store.RFC3339UTC(e.At),
+			At:     core.RFC3339UTC(e.At),
 		})
 	}
 	return out
 }
 
-func taskToJSON(t *store.Task, history []store.HistoryView) jsonTask {
+func taskToJSON(t *core.Task, history []core.HistoryView) jsonTask {
 	return jsonTask{
 		ID:          t.ID,
 		ProjectCode: t.ProjectCode,
@@ -95,14 +95,14 @@ func taskToJSON(t *store.Task, history []store.HistoryView) jsonTask {
 		Labels:      normalizeStrSlice(t.Labels),
 		Ordinal:     t.Ordinal,
 		History:     historyToJSON(history),
-		CreatedAt:   store.RFC3339UTC(t.CreatedAt),
+		CreatedAt:   core.RFC3339UTC(t.CreatedAt),
 		CreatedBy:   t.CreatedBy,
-		UpdatedAt:   store.RFC3339UTC(t.UpdatedAt),
+		UpdatedAt:   core.RFC3339UTC(t.UpdatedAt),
 		UpdatedBy:   t.UpdatedBy,
 	}
 }
 
-func tasksToJSON(ts []*store.Task) []jsonTask {
+func tasksToJSON(ts []*core.Task) []jsonTask {
 	out := make([]jsonTask, 0, len(ts))
 	for _, t := range ts {
 		out = append(out, taskToJSON(t, nil))
@@ -110,20 +110,20 @@ func tasksToJSON(ts []*store.Task) []jsonTask {
 	return out
 }
 
-func projectToJSON(p *store.Project, history []store.HistoryView) jsonProject {
+func projectToJSON(p *core.Project, history []core.HistoryView) jsonProject {
 	return jsonProject{
 		Code:      p.Code,
 		Name:      p.Name,
 		Ordinal:   p.Ordinal,
 		History:   historyToJSON(history),
-		CreatedAt: store.RFC3339UTC(p.CreatedAt),
+		CreatedAt: core.RFC3339UTC(p.CreatedAt),
 		CreatedBy: p.CreatedBy,
-		UpdatedAt: store.RFC3339UTC(p.UpdatedAt),
+		UpdatedAt: core.RFC3339UTC(p.UpdatedAt),
 		UpdatedBy: p.UpdatedBy,
 	}
 }
 
-func projectsToJSON(ps []*store.Project) []jsonProject {
+func projectsToJSON(ps []*core.Project) []jsonProject {
 	out := make([]jsonProject, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, projectToJSON(p, nil))
@@ -131,11 +131,11 @@ func projectsToJSON(ps []*store.Project) []jsonProject {
 	return out
 }
 
-func labelToJSON(l store.Label) jsonLabel {
+func labelToJSON(l core.Label) jsonLabel {
 	return jsonLabel{Name: l.Name, Description: l.Description, Expr: l.Expr}
 }
 
-func labelsToJSON(ls []store.Label) []jsonLabel {
+func labelsToJSON(ls []core.Label) []jsonLabel {
 	out := make([]jsonLabel, 0, len(ls))
 	for _, l := range ls {
 		out = append(out, labelToJSON(l))
@@ -155,7 +155,7 @@ func normalizeStrSlice(s []string) []string {
 // ---- helpers ----
 
 func writeJSON(out io.Writer, v any) error {
-	data, err := store.MarshalSorted(v)
+	data, err := core.MarshalSorted(v)
 	if err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ type jsonComment struct {
 	UpdatedBy string        `json:"updated_by"`
 }
 
-func commentToJSON(c *store.Comment, hv []store.HistoryView) jsonComment {
+func commentToJSON(c *core.Comment, hv []core.HistoryView) jsonComment {
 	return jsonComment{
 		ID:        c.ID,
 		TaskID:    c.TaskID,
@@ -240,14 +240,14 @@ func commentToJSON(c *store.Comment, hv []store.HistoryView) jsonComment {
 		Labels:    normalizeStrSlice(c.Labels),
 		Ordinal:   c.Ordinal,
 		History:   historyToJSON(hv),
-		CreatedAt: store.RFC3339UTC(c.CreatedAt),
+		CreatedAt: core.RFC3339UTC(c.CreatedAt),
 		CreatedBy: c.CreatedBy,
-		UpdatedAt: store.RFC3339UTC(c.UpdatedAt),
+		UpdatedAt: core.RFC3339UTC(c.UpdatedAt),
 		UpdatedBy: c.UpdatedBy,
 	}
 }
 
-func commentsToJSON(cs []*store.Comment) []jsonComment {
+func commentsToJSON(cs []*core.Comment) []jsonComment {
 	out := make([]jsonComment, 0, len(cs))
 	for _, c := range cs {
 		out = append(out, commentToJSON(c, nil))

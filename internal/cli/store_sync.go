@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"atm/internal/core"
-	"atm/internal/store"
 
 	"github.com/spf13/cobra"
 )
@@ -28,7 +27,7 @@ func newStoreSyncCmds(st *cliState) []*cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, _ := cmd.Flags().GetString("project")
 			if project == "" {
-				return fmt.Errorf("%w: --project is required", store.ErrUsage)
+				return fmt.Errorf("%w: --project is required", core.ErrUsage)
 			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
@@ -86,7 +85,7 @@ func newStoreSyncCmds(st *cliState) []*cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, _ := cmd.Flags().GetString("project")
 			if project == "" {
-				return fmt.Errorf("%w: --project is required", store.ErrUsage)
+				return fmt.Errorf("%w: --project is required", core.ErrUsage)
 			}
 			actor, err := st.resolveActor(true)
 			if err != nil {
@@ -129,6 +128,10 @@ func newStoreSyncCmds(st *cliState) []*cobra.Command {
 			if err != nil {
 				return err
 			}
+			admin, err := st.openAdmin()
+			if err != nil {
+				return err
+			}
 			var arg string
 			if len(args) == 1 {
 				arg = args[0]
@@ -145,7 +148,7 @@ func newStoreSyncCmds(st *cliState) []*cobra.Command {
 			results := make([]syncResult, 0, len(codes))
 			failed := false
 			for _, code := range codes {
-				res := runProjectSync(cmd.Context(), s, code, arg, opts, actor)
+				res := runProjectSync(cmd.Context(), s, admin, code, arg, opts, actor)
 				if res.failed() {
 					failed = true
 				}
@@ -173,7 +176,7 @@ var errSyncFailed = errors.New("one or more projects failed to sync")
 // syncProjectCodes resolves which projects `store sync` operates on: just the
 // named project when project != "", otherwise every project that has at least
 // one configured remote, sorted for deterministic output.
-func syncProjectCodes(s *store.Store, project string) ([]string, error) {
+func syncProjectCodes(s core.Service, project string) ([]string, error) {
 	if project != "" {
 		return []string{project}, nil
 	}
@@ -214,12 +217,12 @@ func (r syncResult) failed() bool {
 // an ad-hoc URL that bootstrapped a brand-new project (I-5), it persists that
 // URL as the project's "origin" so later syncs need no argument; an ad-hoc URL
 // that merely updated an existing project is not persisted.
-func runProjectSync(ctx context.Context, s *store.Store, code, arg string, opts core.SyncOptions, actor string) syncResult {
+func runProjectSync(ctx context.Context, s core.Service, admin core.StorageAdmin, code, arg string, opts core.SyncOptions, actor string) syncResult {
 	url, adhoc, err := resolveSyncRemote(s, code, arg)
 	if err != nil {
 		return syncResult{code: code, err: err}
 	}
-	report, err := s.SyncProject(ctx, code, url, opts)
+	report, err := admin.SyncProject(ctx, code, url, opts)
 	if err != nil {
 		return syncResult{code: code, err: err}
 	}
@@ -234,7 +237,7 @@ func runProjectSync(ctx context.Context, s *store.Store, code, arg string, opts 
 // resolveSyncRemote maps the positional argument to a remote URL: a name found
 // in the project's remotes yields its URL; any other value is treated as an
 // ad-hoc URL. With no argument the project's "origin" remote is required.
-func resolveSyncRemote(s *store.Store, code, arg string) (url string, adhoc bool, err error) {
+func resolveSyncRemote(s core.Service, code, arg string) (url string, adhoc bool, err error) {
 	remotes, err := s.ProjectRemotes(code)
 	if err != nil {
 		return "", false, err
@@ -242,7 +245,7 @@ func resolveSyncRemote(s *store.Store, code, arg string) (url string, adhoc bool
 	if arg == "" {
 		u, ok := remotes["origin"]
 		if !ok {
-			return "", false, fmt.Errorf("%w: project %s has no \"origin\" remote (pass a name or URL)", store.ErrUsage, code)
+			return "", false, fmt.Errorf("%w: project %s has no \"origin\" remote (pass a name or URL)", core.ErrUsage, code)
 		}
 		return u, false, nil
 	}
@@ -337,7 +340,7 @@ type remoteRow struct {
 // listProjectRemotes returns the sync remotes for one project (code != ""),
 // or for every project that has at least one remote (code == ""). Both
 // projects and remote names are sorted for deterministic output.
-func listProjectRemotes(s *store.Store, code string) ([]remoteRow, error) {
+func listProjectRemotes(s core.Service, code string) ([]remoteRow, error) {
 	codes := []string{code}
 	if code == "" {
 		var err error
