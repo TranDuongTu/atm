@@ -9,16 +9,6 @@ import (
 	"atm/libs/eventsource"
 )
 
-// UpgradeReport is the per-project outcome of an upgrade to v2 media.
-// AlreadyV2 marks a project `upgrade --all` SKIPPED because its effective
-// format was already v2 (nothing on disk was touched for it).
-type UpgradeReport struct {
-	Project   string      `json:"project"`
-	Format    StoreFormat `json:"format"`
-	Events    int         `json:"events"`
-	AlreadyV2 bool        `json:"already_v2,omitempty"`
-}
-
 // UpgradeProject converts a v1-active project's frozen log.jsonl into
 // events.v2.jsonl and cuts the project over to v2 media. log.jsonl is never
 // written by this path: it stays byte-identical, and is what the read-back
@@ -29,7 +19,7 @@ type UpgradeReport struct {
 // semantically compare it to the v1 replay, and only then rename it into
 // place. Every failure before step 4 leaves the v1 log and any existing
 // events.v2.jsonl exactly as they were.
-func (e *Engine) UpgradeProject(code string) (*UpgradeReport, error) {
+func (e *Engine) UpgradeProject(code string) (*core.UpgradeReport, error) {
 	// GUARD (spec L3-5): upgrade reads FROM the frozen v1 log, so it is
 	// legal only while the project's EFFECTIVE format is v1. Running it
 	// against an effective-v2 project would rebuild from stale v1 bytes;
@@ -40,7 +30,7 @@ func (e *Engine) UpgradeProject(code string) (*UpgradeReport, error) {
 	} else if f == StoreFormatV2 {
 		return nil, fmt.Errorf("%w: project %q is already v2-active; upgrade reads from the v1 log and is only legal for v1-active projects", core.ErrConflict, code)
 	}
-	rep := &UpgradeReport{Project: code, Format: StoreFormatV2}
+	rep := &core.UpgradeReport{Project: code, Format: string(StoreFormatV2)}
 	err := e.WithLock(code, func() error {
 		// Re-check under the lock: a concurrent upgrade of the same project
 		// may have cut it over between the guard above and here, and the
@@ -164,12 +154,12 @@ func (e *Engine) UpgradeProject(code string) (*UpgradeReport, error) {
 // store default so NEW projects are born v2. A failure on any project returns
 // the reports collected so far WITHOUT flipping: the already-cut-over
 // projects stay v2 (their media is complete), and a retry resumes.
-func (e *Engine) UpgradeAll() ([]UpgradeReport, error) {
+func (e *Engine) UpgradeAll() ([]core.UpgradeReport, error) {
 	codes, err := e.ProjectCodesOnDisk()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]UpgradeReport, 0, len(codes))
+	out := make([]core.UpgradeReport, 0, len(codes))
 	for _, code := range codes {
 		// SKIP effective-v2 projects instead of letting the per-project
 		// guard error: a RETRY of a partially-failed `upgrade --all` (A cut
@@ -180,7 +170,7 @@ func (e *Engine) UpgradeAll() ([]UpgradeReport, error) {
 		if f, err := e.ProjectFormat(code); err != nil {
 			return out, err
 		} else if f == StoreFormatV2 {
-			out = append(out, UpgradeReport{Project: code, Format: StoreFormatV2, AlreadyV2: true})
+			out = append(out, core.UpgradeReport{Project: code, Format: string(StoreFormatV2), AlreadyV2: true})
 			continue
 		}
 		rep, err := e.UpgradeProject(code)

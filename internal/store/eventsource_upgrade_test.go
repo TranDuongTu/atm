@@ -53,7 +53,7 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Project != "ATM" || rep.Events == 0 || rep.Format != StoreFormatV2 {
+	if rep.Project != "ATM" || rep.Events == 0 || rep.Format != string(StoreFormatV2) {
 		t.Fatalf("bad report: %#v", rep)
 	}
 

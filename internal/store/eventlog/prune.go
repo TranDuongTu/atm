@@ -5,16 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-)
 
-// PruneReport is the per-project outcome of `atm store prune-v1`.
-type PruneReport struct {
-	Project  string `json:"project"`
-	Pruned   bool   `json:"pruned"`
-	Archived string `json:"archived,omitempty"`
-	Deleted  bool   `json:"deleted,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-}
+	"atm/internal/core"
+)
 
 // PruneLegacy retires an upgraded project's frozen log.jsonl. It refuses
 // unless the project is v2-active and the caller's verifyClean gate passes; a
@@ -28,8 +21,8 @@ type PruneReport struct {
 // facade concern the engine has no handle on, so the engine takes the whole
 // gate as a callback rather than reaching for the sqlite cache itself; a
 // non-nil return refuses the prune with the caller's error verbatim.
-func (e *Engine) PruneLegacy(code string, del bool, verifyClean func() error) (*PruneReport, error) {
-	rep := &PruneReport{Project: code}
+func (e *Engine) PruneLegacy(code string, del bool, verifyClean func() error) (*core.PruneReport, error) {
+	rep := &core.PruneReport{Project: code}
 	err := e.WithLock(code, func() error {
 		f, err := e.ProjectFormat(code)
 		if err != nil {

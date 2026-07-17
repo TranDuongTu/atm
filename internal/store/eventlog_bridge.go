@@ -14,11 +14,15 @@ type StoreMeta = eventlog.StoreMeta
 type ProjectEventsourceMeta = eventlog.ProjectEventsourceMeta
 type V2FileSnapshot = eventlog.V2FileSnapshot
 
-// UpgradeReport/PruneReport now live in the engine (sync/upgrade/prune moved
-// there in Task 6); these aliases keep the cli and store-package callers that
-// still name store.X compiling until Task 7 relocates the types to core.
-type UpgradeReport = eventlog.UpgradeReport
-type PruneReport = eventlog.PruneReport
+// The storage-maintenance report types now live in core (Task 7); these
+// aliases keep the cli and store-package callers that still name store.X
+// compiling until Task 8/9 retarget them at core.X directly.
+type UpgradeReport = core.UpgradeReport
+type PruneReport = core.PruneReport
+type VerifyReport = core.VerifyReport
+type CacheCheck = core.CacheCheck
+type VectorIndexInfo = core.VectorIndexInfo
+type RebuildReport = core.RebuildReport
 
 // ErrSyncNeedsV2 moved into the engine with sync.go; the alias preserves the
 // store-package sentinel name for tests that match against it.

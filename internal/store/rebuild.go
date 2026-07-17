@@ -2,20 +2,16 @@ package store
 
 import (
 	"database/sql"
-)
 
-type RebuildReport struct {
-	Projects int
-	Tasks    int
-	Labels   int
-}
+	"atm/internal/core"
+)
 
 // Rebuild regenerates cache.db from every project's events.v2.jsonl. Clears
 // every cache table, then delegates to reprojectAllV2, which enumerates the
 // project codes from disk (not from cache.db, which was just wiped), folds
 // each v2 project's events, and re-inserts the live set.
-func (s *Store) Rebuild() (*RebuildReport, error) {
-	rep := &RebuildReport{}
+func (s *Store) Rebuild() (*core.RebuildReport, error) {
+	rep := &core.RebuildReport{}
 	db, err := s.cacheDB()
 	if err != nil {
 		return rep, err
@@ -45,8 +41,8 @@ func (s *Store) Rebuild() (*RebuildReport, error) {
 // It takes db directly and MUST NOT call s.cacheDB(): the migration caller is
 // already inside cacheOnce.Do, and cacheDB() is not reentrant — calling it
 // again from here would deadlock.
-func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
-	rep := &RebuildReport{}
+func (s *Store) reprojectAllV2(db *sql.DB) (*core.RebuildReport, error) {
+	rep := &core.RebuildReport{}
 	codes, err := s.projectCodesOnDisk()
 	if err != nil {
 		return rep, err

@@ -57,7 +57,7 @@ func TestVerifyProjectReportsV2Format(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Format != StoreFormatV2 {
+	if r.Format != string(StoreFormatV2) {
 		t.Fatalf("Format = %q, want v2", r.Format)
 	}
 	if r.V2Events == 0 {
