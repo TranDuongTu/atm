@@ -8,10 +8,10 @@
         "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 28
+        "seq": 29
       }
     ],
-    "id": "ATM-b59c46",
+    "id": "ATM-3df9b9",
     "labels": [
       "ATM:status:open",
       "ATM:type:bug"

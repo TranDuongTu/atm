@@ -18,9 +18,10 @@ func New() capability.Capability { return Cap{} }
 
 func (Cap) Name() string { return "workflow" }
 
-// DefaultBoard nominates Open Tasks: the default board surface a UI selects
-// for a project.
-func (Cap) DefaultBoard(code string) string { return BoardOpenTasks(code) }
+// DefaultBoard nominates All Tasks: the default board surface a UI selects
+// for a project (ATM-18111b — the human's "browse recent activity" consult
+// mode sees the whole project, not just status:open).
+func (Cap) DefaultBoard(code string) string { return BoardAllTasks(code) }
 
 // EnsureVocabulary implements capability.Capability by delegating to this
 // package's vocabulary bootstrap.

@@ -261,11 +261,11 @@ func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
 	m.boards.refresh()
 	m.boards.selectDefault()
 	v := m.tasks.View()
-	// "open-tasks" already appears once via the header FOCUS caption (the
-	// board's filter token, ATM:open-tasks); the strip renders the board name
+	// "all-tasks" already appears once via the header FOCUS caption (the
+	// board's filter token, ATM:all-tasks); the strip renders the board name
 	// again as its thumbnail title, so a passing render must contain it at
 	// least twice.
-	if got := strings.Count(v, "open-tasks"); got < 2 {
+	if got := strings.Count(v, "all-tasks"); got < 2 {
 		t.Errorf("tasks view missing strip board name (got %d occurrences, want >= 2):\n%s", got, v)
 	}
 }
@@ -392,7 +392,7 @@ func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 // TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
 // top-to-bottom the pane stacks task list -> tabbed pinned box -> board strip,
 // so the strip is the LAST stripHeight lines and the fixed pinned box
-// (pinnedBoxHeight lines) sits directly above it. The pinned open-tasks board
+// (pinnedBoxHeight lines) sits directly above it. The pinned all-tasks board
 // surfaces as the Shift-1 tab, with its name in the box body.
 func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
@@ -413,12 +413,12 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 		t.Fatalf("first line = %q, want the task list header first", lines[0])
 	}
 	stripBlock := strings.Join(lines[len(lines)-stripHeight:], "\n")
-	if !strings.Contains(stripBlock, "open-tasks") {
+	if !strings.Contains(stripBlock, "all-tasks") {
 		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
 	}
 	pinBlock := strings.Join(lines[len(lines)-stripHeight-pinnedBoxHeight:len(lines)-stripHeight], "\n")
-	if !strings.Contains(pinBlock, "open-tasks") {
-		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned open-tasks board named in the body", pinnedBoxHeight, pinBlock)
+	if !strings.Contains(pinBlock, "all-tasks") {
+		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
 	}
 	if !strings.Contains(pinBlock, "Shift-1") {
 		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)

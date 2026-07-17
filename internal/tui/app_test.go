@@ -2221,11 +2221,11 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	if m.tasks.detail.id != "" {
 		t.Errorf("tasks.detail.id = %q want empty (stale detail survived switch)", m.tasks.detail.id)
 	}
-	// Task 4: project-select now defaults the Tasks pane to the new
-	// project's Open Tasks board (not an empty filter), so the invariant
-	// under test is that the OLD project's (ATM) filter does not survive —
-	// not that the filter is literally empty.
-	wantFilter := workflow.BoardOpenTasks("SCY")
+	// Project-select now defaults the Tasks pane to the new project's All
+	// Tasks board (not an empty filter), so the invariant under test is that
+	// the OLD project's (ATM) filter does not survive — not that the filter
+	// is literally empty.
+	wantFilter := workflow.BoardAllTasks("SCY")
 	if m.tasks.filter != wantFilter {
 		t.Errorf("tasks.filter = %q want %q (new project's default board, not the stale ATM filter)", m.tasks.filter, wantFilter)
 	}

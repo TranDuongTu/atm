@@ -27,7 +27,7 @@ func TestSplitStripWidthsClampsSmall(t *testing.T) {
 	}
 }
 
-func TestRenderStripShowsSelectedOpenTasks(t *testing.T) {
+func TestRenderStripShowsSelectedAllTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -38,8 +38,8 @@ func TestRenderStripShowsSelectedOpenTasks(t *testing.T) {
 	m.boards.refresh()
 	m.boards.selectDefault()
 	strip := m.boards.renderStrip(80, 8)
-	if !strings.Contains(strip, "open-tasks") {
-		t.Errorf("strip missing open-tasks:\n%s", strip)
+	if !strings.Contains(strip, "all-tasks") {
+		t.Errorf("strip missing all-tasks (the default-selected board):\n%s", strip)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 			t.Errorf("empty tabbed box missing the Shift-%d tab:\n%s", n, box)
 		}
 	}
-	if !strings.Contains(box, "open-tasks") {
+	if !strings.Contains(box, "all-tasks") {
 		t.Errorf("empty tabbed box body missing the center board name:\n%s", box)
 	}
 }

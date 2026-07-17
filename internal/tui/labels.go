@@ -245,7 +245,7 @@ func (b *boardsModel) refresh() {
 	}
 }
 
-// selectDefault selects the Open Tasks board if present, else the first ring
+// selectDefault selects the All Tasks board if present, else the first ring
 // board. Called on project select after EnsureVocabulary, and from refresh()
 // when the previously selected board vanished mid-session — that fallback can
 // fire while a chart/detail is drilled into the now-vanished board, so this
