@@ -1,9 +1,8 @@
 package workflow
 
 import (
+	"atm/internal/core"
 	"testing"
-
-	"atm/internal/store"
 )
 
 func TestReporterStatusReturnsValue(t *testing.T) {
@@ -59,7 +58,7 @@ func TestReporterStatusIsPure(t *testing.T) {
 	// internal/store/log.go) and is the cleanest byte-stable check.
 	s := newTestStore(t)
 	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:status:open"}, "admin@cli:unset")
-	code, _, _ := store.ParseTaskID(tk.ID)
+	code, _, _ := core.ParseTaskID(tk.ID)
 	before, err := s.LastLogSeq(code)
 	if err != nil {
 		t.Fatalf("LastLogSeq before: %v", err)

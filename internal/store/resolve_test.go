@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"errors"
 	"testing"
 )
@@ -26,9 +27,9 @@ func TestResolverAtomForms(t *testing.T) {
 		"status:done OR sprint:next":     true,
 	}
 	for src, want := range cases {
-		n, err := ParseExpr(src)
+		n, err := core.ParseExpr(src)
 		if err != nil {
-			t.Fatalf("ParseExpr(%q): %v", src, err)
+			t.Fatalf("core.ParseExpr(%q): %v", src, err)
 		}
 		got, err := r.Matches(task, n)
 		if err != nil {
@@ -49,7 +50,7 @@ func TestResolverComposesBoards(t *testing.T) {
 	blocker := &Task{ID: "ATM-0001", Labels: []string{"ATM:release:v1-0-0", "ATM:priority:high"}}
 	shipped := &Task{ID: "ATM-0002", Labels: []string{"ATM:release:v1-0-0", "ATM:priority:high", "ATM:status:done"}}
 
-	n, _ := ParseExpr("release-blockers")
+	n, _ := core.ParseExpr("release-blockers")
 	if got, err := r.Matches(blocker, n); err != nil || !got {
 		t.Errorf("blocker: got %v (err %v), want true", got, err)
 	}
@@ -67,7 +68,7 @@ func TestResolverRejectsMergeInducedCycle(t *testing.T) {
 		Label{Name: "ATM:a", Expr: "b"},
 		Label{Name: "ATM:b", Expr: "a"},
 	)
-	n, _ := ParseExpr("a")
+	n, _ := core.ParseExpr("a")
 	_, err := r.Matches(&Task{ID: "ATM-0001"}, n)
 	if !errors.Is(err, ErrCyclicExpr) {
 		t.Fatalf("err = %v, want ErrCyclicExpr", err)
@@ -78,7 +79,7 @@ func TestResolverUnknownAtomIsNotAMatch(t *testing.T) {
 	// An atom naming no live label is simply absent — not an error. A label
 	// removed while a board still references it must not break the board.
 	r := resolverFor()
-	n, _ := ParseExpr("ghost")
+	n, _ := core.ParseExpr("ghost")
 	got, err := r.Matches(&Task{ID: "ATM-0001"}, n)
 	if err != nil || got {
 		t.Fatalf("got %v (err %v), want false, nil", got, err)
@@ -97,15 +98,15 @@ func TestResolverStarTautologyMatchesEveryTask(t *testing.T) {
 	unlabeled := &Task{ID: "ATM-0002", Labels: nil}
 
 	cases := map[string]bool{
-		"*":                     true,  // tautology: matches labeled ...
+		"*":                     true, // tautology: matches labeled ...
 		"* AND NOT *":           false,
 		"* AND NOT status:done": true,  // labeled task: * true, NOT status:done true
 		"* AND NOT status:open": false, // labeled task: NOT status:open false
 	}
 	for src, want := range cases {
-		n, err := ParseExpr(src)
+		n, err := core.ParseExpr(src)
 		if err != nil {
-			t.Fatalf("ParseExpr(%q): %v", src, err)
+			t.Fatalf("core.ParseExpr(%q): %v", src, err)
 		}
 		got, err := r.Matches(labeled, n)
 		if err != nil {
@@ -117,9 +118,9 @@ func TestResolverStarTautologyMatchesEveryTask(t *testing.T) {
 	}
 
 	// The load-bearing case: an unlabeled task matches '*'. Without the
-	// short-circuit, qualify('*') yields "ATM:*", IsNamespaceName reads it
+	// short-circuit, qualify('*') yields "ATM:*", core.IsNamespaceName reads it
 	// as "has any label", and a task with no labels returns false.
-	n, _ := ParseExpr("*")
+	n, _ := core.ParseExpr("*")
 	got, err := r.Matches(unlabeled, n)
 	if err != nil {
 		t.Fatalf("Matches(%q) unlabeled: %v", "*", err)
@@ -136,7 +137,7 @@ func TestResolverStarTautologyMatchesEveryTask(t *testing.T) {
 func TestResolverStarStandaloneRestrictingToken(t *testing.T) {
 	r := resolverFor()
 	task := &Task{ID: "ATM-0001", Labels: nil}
-	n, _ := ParseExpr("*")
+	n, _ := core.ParseExpr("*")
 	got, err := r.Matches(task, n)
 	if err != nil || !got {
 		t.Fatalf("standalone '*' on unlabeled task: got %v (err %v), want true, nil", got, err)

@@ -52,7 +52,7 @@ func TestLabelRemoveSoftRetainsUsage(t *testing.T) {
 	}
 	// Removed label is gone from the registry (soft removal drops the entry).
 	if _, err := s.LabelShow("ATM:type:bug"); err == nil {
-		t.Fatal("expected ErrNotFound for removed label")
+		t.Fatal("expected core.ErrNotFound for removed label")
 	}
 	// Existing task still carries the label string (soft removal).
 	got, _ := s.GetTask(tk.ID)

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 )
@@ -29,7 +30,7 @@ func (s *Store) WriteVocabulary(code string, v *Vocabulary) error {
 	if err := s.validateActor(v.Actor); err != nil {
 		return err
 	}
-	v.UpdatedAt = Now()
+	v.UpdatedAt = core.Now()
 	return s.WithLock(code, func() error {
 		if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
 			return err

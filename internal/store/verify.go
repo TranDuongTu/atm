@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) Verify() ([]core.VerifyReport, error) {
@@ -24,12 +25,12 @@ func (s *Store) Verify() ([]core.VerifyReport, error) {
 }
 
 func (s *Store) VerifyProject(code string) (*core.VerifyReport, error) {
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
 	report := &core.VerifyReport{Project: code, LogOK: true, Format: string(format)}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		return report, nil
 	}
 	defer s.populateAuxReports(code, report)
@@ -37,7 +38,7 @@ func (s *Store) VerifyProject(code string) (*core.VerifyReport, error) {
 	// vs fold) collapse into one — both set LogOK=false / Diverged=true.
 	snap, err := s.eng.Snapshot(code)
 	if err != nil {
-		if !IsIntegrity(err) {
+		if !core.IsIntegrity(err) {
 			return nil, err
 		}
 		report.LogOK = false

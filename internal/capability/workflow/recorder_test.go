@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -58,7 +59,7 @@ func TestRecorderSetStatusSwapsExisting(t *testing.T) {
 func TestRecorderSetStatusNoOpWhenAlreadyAtTarget(t *testing.T) {
 	s := newTestStore(t)
 	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:status:done"}, "admin@cli:unset")
-	code, _, _ := store.ParseTaskID(tk.ID)
+	code, _, _ := core.ParseTaskID(tk.ID)
 	before, _ := s.LastLogSeq(code)
 	r := &Recorder{Store: s, Actor: "admin@cli:unset"}
 	prior, err := r.SetStatus(tk.ID, StatusDone)

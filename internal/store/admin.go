@@ -11,9 +11,9 @@ import (
 // Storage-maintenance facade: sync, upgrade, and prune-v1 all delegate to the
 // event-log engine, which owns transport selection, the v1→v2 migration, and
 // the legacy-log retirement. These thin adapters keep the store's public
-// method names (which the cli and tests still call) while the engine does the
-// work. Task 7 relocates the report types to core and folds these behind
-// core.StorageAdmin.
+// method names (which the tests still call) while the engine does the work.
+// The report types live in core and these methods satisfy core.StorageAdmin,
+// the interface cmd/atm injects into the cli.
 
 // SyncProject reconciles code against the remote at url and returns the
 // per-project outcome. Direction and dry-run come from opts.
@@ -45,7 +45,7 @@ func (s *Store) PruneProjectV1(code string, del bool) (*core.PruneReport, error)
 			return err
 		}
 		if vr.Diverged || !vr.LogOK {
-			return fmt.Errorf("%w: project %q does not verify clean; refusing to prune", ErrIntegrity, code)
+			return fmt.Errorf("%w: project %q does not verify clean; refusing to prune", core.ErrIntegrity, code)
 		}
 		return nil
 	})
@@ -53,8 +53,8 @@ func (s *Store) PruneProjectV1(code string, del bool) (*core.PruneReport, error)
 
 // ProjectCodes enumerates every project code on disk under projects/, sorted.
 // It is the exported enumeration surface the CLI's `--all` verbs (prune-v1,
-// sync) drive over; internally it delegates to projectCodesOnDisk, which every
-// other store method (Verify, UpgradeAll, Rebuild) already uses.
+// sync) drive over; internally it delegates to projectCodesOnDisk, which the
+// store's other on-disk enumeration paths (Verify, Rebuild) already use.
 func (s *Store) ProjectCodes() ([]string, error) {
 	return s.projectCodesOnDisk()
 }
@@ -88,6 +88,17 @@ func (s *Store) SetStorageFormat(format string) error {
 func (s *Store) StorageFormat(code string) (string, error) {
 	f, err := s.eng.ProjectFormat(code)
 	return string(f), err
+}
+
+// SetActiveFormat sets the store-wide default new projects are born into,
+// typed as eventlog.StoreFormat. Store tests drive format transitions through
+// it directly (SetStorageFormat is the string-typed CLI-facing surface).
+func (s *Store) SetActiveFormat(f eventlog.StoreFormat) error { return s.eng.SetActiveFormat(f) }
+
+// ProjectFormatForCLI reports one project's effective typed format. Store
+// tests assert against eventlog.StoreFormatV1/V2 through it.
+func (s *Store) ProjectFormatForCLI(code string) (eventlog.StoreFormat, error) {
+	return s.eng.ProjectFormat(code)
 }
 
 // ReadChangeLog renders a project's change history for display.

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"errors"
 	"os"
 	"path/filepath"
@@ -25,7 +27,7 @@ func v1RawLogFixture(t *testing.T) []byte {
 // directory as log.jsonl, WITHOUT going through CreateProject/CreateTask (the
 // public API can no longer produce v1-born media) and WITHOUT calling
 // SetActiveFormat or setProjectFormat: a fresh store defaults to v1
-// (StoreFormatV1) and a project directory holding only log.jsonl (no
+// (eventlog.StoreFormatV1) and a project directory holding only log.jsonl (no
 // ProjectFormats entry) reads as v1-active through that default, which is
 // exactly the on-disk shape UpgradeProjectToV2 is built to consume.
 func plantV1Project(t *testing.T, s *Store, code string, raw []byte) {
@@ -43,9 +45,9 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	raw := v1RawLogFixture(t)
 	plantV1Project(t, s, "ATM", raw)
 
-	if f, err := s.projectFormat("ATM"); err != nil {
+	if f, err := s.eng.ProjectFormat("ATM"); err != nil {
 		t.Fatal(err)
-	} else if f != StoreFormatV1 {
+	} else if f != eventlog.StoreFormatV1 {
 		t.Fatalf("precondition: format = %q, want v1 (planted with no explicit entry)", f)
 	}
 
@@ -53,7 +55,7 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Project != "ATM" || rep.Events == 0 || rep.Format != string(StoreFormatV2) {
+	if rep.Project != "ATM" || rep.Events == 0 || rep.Format != string(eventlog.StoreFormatV2) {
 		t.Fatalf("bad report: %#v", rep)
 	}
 
@@ -66,13 +68,13 @@ func TestUpgradeProjectToV2PreservesV1LogAndActivatesV2(t *testing.T) {
 		t.Fatal("v1 log changed during upgrade")
 	}
 
-	if _, err := os.Stat(s.eventsV2Path("ATM")); err != nil {
+	if _, err := os.Stat(s.eng.EventsV2Path("ATM")); err != nil {
 		t.Fatalf("events.v2.jsonl missing: %v", err)
 	}
 
 	if f, err := s.ProjectFormatForCLI("ATM"); err != nil {
 		t.Fatal(err)
-	} else if f != StoreFormatV2 {
+	} else if f != eventlog.StoreFormatV2 {
 		t.Fatalf("format after upgrade = %q, want v2", f)
 	}
 
@@ -114,8 +116,8 @@ func TestUpgradeRefusesEffectiveV2Project(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.UpgradeProjectToV2("ATM")
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("second upgrade of a v2-active project = %v, want ErrConflict", err)
+	if !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("second upgrade of a v2-active project = %v, want core.ErrConflict", err)
 	}
 }
 
@@ -129,17 +131,17 @@ func TestUpgradeRefusesAPreexistingV2File(t *testing.T) {
 	s := testStore(t)
 	plantV1Project(t, s, "ATM", v1RawLogFixture(t))
 
-	if err := os.WriteFile(s.eventsV2Path("ATM"), []byte("{}\n"), 0o644); err != nil {
+	if err := os.WriteFile(s.eng.EventsV2Path("ATM"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := s.UpgradeProjectToV2("ATM")
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("upgrade with a pre-existing events.v2.jsonl = %v, want ErrConflict", err)
+	if !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("upgrade with a pre-existing events.v2.jsonl = %v, want core.ErrConflict", err)
 	}
 	// The refused upgrade must leave the v1 project readable: the format
 	// entry was never flipped.
-	if f, _ := s.projectFormat("ATM"); f != StoreFormatV1 {
+	if f, _ := s.eng.ProjectFormat("ATM"); f != eventlog.StoreFormatV1 {
 		t.Fatalf("format after refused upgrade = %q, want v1", f)
 	}
 }
@@ -152,14 +154,14 @@ func TestUpgradeAllFlipsActiveFormatSoNewProjectsAreBornV2(t *testing.T) {
 	if _, err := s.UpgradeAllToV2(); err != nil {
 		t.Fatal(err)
 	}
-	m, err := s.readStoreMeta()
+	m, err := s.eng.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.ActiveFormat != StoreFormatV2 {
+	if m.ActiveFormat != eventlog.StoreFormatV2 {
 		t.Fatalf("ActiveFormat after upgrade --all = %q, want v2", m.ActiveFormat)
 	}
-	if f, _ := s.projectFormat("NEW"); f != StoreFormatV2 {
+	if f, _ := s.eng.ProjectFormat("NEW"); f != eventlog.StoreFormatV2 {
 		t.Fatalf("birth format for a project with no entry = %q, want v2", f)
 	}
 }

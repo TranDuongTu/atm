@@ -9,7 +9,9 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/capability/workflow"
+	"atm/internal/core"
 	"atm/internal/store"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -1984,7 +1986,7 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 	// The detail overlay should no longer render the task.
 	mustNotContain(t, m.View(), "Doomed task")
 	// And the task is gone from the store.
-	if _, err := m.store.GetTask(tk.ID); !store.IsNotFound(err) {
+	if _, err := m.store.GetTask(tk.ID); !core.IsNotFound(err) {
 		t.Errorf("GetTask after remove: err=%v, want ErrNotFound", err)
 	}
 }

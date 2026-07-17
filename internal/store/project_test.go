@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestCreateProjectRejectsDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.CreateProject("ATM", "second", testActor)
-	if !IsConflict(err) {
+	if !core.IsConflict(err) {
 		t.Fatalf("expected conflict, got %v", err)
 	}
 }
@@ -43,7 +44,7 @@ func TestRemoveProjectZeroTaskGuard(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	_, _ = s.CreateTask("ATM", "t", "", nil, testActor)
-	if err := s.RemoveProject("ATM", testActor); !IsConflict(err) {
+	if err := s.RemoveProject("ATM", testActor); !core.IsConflict(err) {
 		t.Fatalf("expected conflict (has tasks), got %v", err)
 	}
 }
@@ -129,8 +130,8 @@ func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Project file and log file are gone (project directory removed).
-	if _, err := s.GetProject("ATM"); !IsNotFound(err) {
-		t.Fatalf("GetProject after remove: %v want ErrNotFound", err)
+	if _, err := s.GetProject("ATM"); !core.IsNotFound(err) {
+		t.Fatalf("GetProject after remove: %v want core.ErrNotFound", err)
 	}
 	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
 		t.Fatalf("log.jsonl must be deleted with the project dir, got %v", err)
@@ -159,7 +160,7 @@ func TestCreateProjectRejectsDuplicateAfterCacheOnlyLoss(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM projects WHERE code = ?`, "ATM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject("ATM", "second", testActor); !IsConflict(err) {
+	if _, err := s.CreateProject("ATM", "second", testActor); !core.IsConflict(err) {
 		t.Fatalf("expected conflict recreating %q after cache-only loss, got %v", "ATM", err)
 	}
 }

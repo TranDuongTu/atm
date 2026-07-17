@@ -41,7 +41,7 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 		}
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
 	// Only the fields being SET are asserted (the writesOf action table): a nil
@@ -67,14 +67,14 @@ func (s *Store) validateExpr(name, expr string) error {
 
 	// I3 - a board may not shadow a namespace.
 	for _, l := range s.LabelList(code, "") {
-		if IsNamespaceName(l.Name) && strings.TrimSuffix(l.Name, ":*") == name {
+		if core.IsNamespaceName(l.Name) && strings.TrimSuffix(l.Name, ":*") == name {
 			return fmt.Errorf("%w: %s vs %s", ErrBoardNameCollision, name, l.Name)
 		}
 	}
 
-	n, err := ParseExpr(expr)
+	n, err := core.ParseExpr(expr)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUsage, err)
+		return fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
 
 	// I2 (write half) - walk references depth-first from this label.
@@ -87,7 +87,7 @@ func (s *Store) validateExpr(name, expr string) error {
 	visiting := map[string]bool{}
 	var walk func(full string, node Node) error
 	walk = func(full string, node Node) error {
-		for _, atom := range Atoms(node) {
+		for _, atom := range core.Atoms(node) {
 			ref := code + ":" + atom
 			l, ok := live[ref]
 			if !ok || l.Expr == "" {
@@ -97,7 +97,7 @@ func (s *Store) validateExpr(name, expr string) error {
 				return fmt.Errorf("%w: %s", ErrCyclicExpr, ref)
 			}
 			visiting[ref] = true
-			sub, err := ParseExpr(l.Expr)
+			sub, err := core.ParseExpr(l.Expr)
 			if err != nil {
 				return fmt.Errorf("board %s: %w", ref, err)
 			}
@@ -125,7 +125,7 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 		return err
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
 	return s.labelSeedV2(code, name, description, expr, actor)
@@ -151,7 +151,7 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 		return nil, err
 	}
 	code := labelProject(name)
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return nil, err
 	}
 	return s.labelRemoveV2(code, name, actor)
@@ -232,7 +232,7 @@ func (s *Store) labelProjectExistsV2Locked(name, code string) error {
 	if _, ok, err := cacheGetProject(db, lc); err != nil {
 		return err
 	} else if !ok {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, lc, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, lc, name)
 	}
 	return nil
 }
@@ -259,7 +259,7 @@ func (s *Store) LabelShow(name string) (Label, error) {
 		return Label{}, err
 	}
 	if !ok {
-		return Label{}, fmt.Errorf("%w: label %q", ErrNotFound, name)
+		return Label{}, fmt.Errorf("%w: label %q", core.ErrNotFound, name)
 	}
 	return l, nil
 }
@@ -279,7 +279,7 @@ func (s *Store) Namespaces(code string) []string {
 func (s *Store) labelProjectExists(name string) error {
 	code := labelProject(name)
 	if _, err := s.GetProject(code); err != nil {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, code, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, code, name)
 	}
 	return nil
 }
@@ -294,7 +294,7 @@ func (s *Store) labelProjectExists(name string) error {
 func (s *Store) labelProjectExistsLocked(name string) error {
 	code := labelProject(name)
 	if _, err := s.getProjectLocked(code); err != nil {
-		return fmt.Errorf("%w: project %q for label %q does not exist", ErrUsage, code, name)
+		return fmt.Errorf("%w: project %q for label %q does not exist", core.ErrUsage, code, name)
 	}
 	return nil
 }

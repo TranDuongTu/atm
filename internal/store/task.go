@@ -4,11 +4,12 @@ import (
 	"fmt"
 
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) CreateTask(projectCode, title, description string, labels []string, actor string) (*Task, error) {
 	if title == "" {
-		return nil, fmt.Errorf("%w: title is required", ErrUsage)
+		return nil, fmt.Errorf("%w: title is required", core.ErrUsage)
 	}
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
@@ -20,12 +21,12 @@ func (s *Store) CreateTask(projectCode, title, description string, labels []stri
 // taskProjectFormat parses a task alias for its project code and resolves the
 // project's EFFECTIVE format. Keying on the full alias string (never on a
 // numeric segment) is mandatory: a v2 alias's segment is hex (Task 2b).
-func (s *Store) taskProjectFormat(id string) (string, StoreFormat, error) {
-	code, _, ok := ParseTaskID(id)
+func (s *Store) taskProjectFormat(id string) (string, eventlog.StoreFormat, error) {
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return "", "", fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return "", "", fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
-	f, err := s.dispatchFormat(code)
+	f, err := s.eng.DispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -47,7 +48,7 @@ func (s *Store) validateTaskLabelsV2Locked(code string, labels []string) error {
 		if err := s.labelProjectExistsV2Locked(l, code); err != nil {
 			return err
 		}
-		if IsNamespaceName(l) {
+		if core.IsNamespaceName(l) {
 			return fmt.Errorf("%w: %s", ErrComputedLabelOnTask, l)
 		}
 		if lb, ok, err := cacheGetLabel(db, l); err != nil {
@@ -93,7 +94,7 @@ func (s *Store) createTaskV2(projectCode, title, description string, labels []st
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("%w: task %q", ErrNotFound, alias)
+			return fmt.Errorf("%w: task %q", core.ErrNotFound, alias)
 		}
 		created = t
 		return nil
@@ -127,9 +128,9 @@ func (s *Store) taskLabelAddV2(code, id, label, actor string) error {
 }
 
 func (s *Store) GetTask(id string) (*Task, error) {
-	code, _, ok := ParseTaskID(id)
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
@@ -144,9 +145,9 @@ func (s *Store) GetTask(id string) (*Task, error) {
 // running inside their own s.WithLock(code, ...) closure) — calling GetTask
 // in that situation would re-enter the (non-reentrant) mutex and deadlock.
 func (s *Store) getTaskLocked(id string) (*Task, error) {
-	code, _, ok := ParseTaskID(id)
+	code, _, ok := core.ParseTaskID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, id)
 	}
 	return s.getTaskWithRebuild(id, code, func() error {
 		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
@@ -163,24 +164,24 @@ func (s *Store) getTaskLocked(id string) (*Task, error) {
 // getProjectWithRebuild's doc comment for why a task's project can still
 // legitimately resolve to a non-v2 format (a fully removed project, or a
 // cache row written directly ahead of format registration) and why the
-// correct response is to serve the cache row as-is (or ErrNotFound if
+// correct response is to serve the cache row as-is (or core.ErrNotFound if
 // absent) without ever attempting a rebuild.
 func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		t, found, err := cacheGetTask(db, id)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: task %q", core.ErrNotFound, id)
 		}
 		return t, nil
 	}
@@ -207,7 +208,7 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: task %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: task %q", core.ErrNotFound, id)
 		}
 	}
 	return t, nil
@@ -215,7 +216,7 @@ func (s *Store) getTaskWithRebuild(id, code string, rebuild func() error) (*Task
 
 func (s *Store) SetTitle(id, title, actor string) error {
 	if title == "" {
-		return fmt.Errorf("%w: title is required", ErrUsage)
+		return fmt.Errorf("%w: title is required", core.ErrUsage)
 	}
 	return s.mutateTask(id, actor, func(cs core.ChangeSet) error { return cs.SetTaskTitle(id, title, actor) })
 }

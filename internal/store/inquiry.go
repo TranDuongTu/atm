@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"bufio"
 	"encoding/json"
 	"os"
@@ -23,7 +24,7 @@ func (s *Store) AppendInquiry(code, query string, citedIDs []string) error {
 			return err
 		}
 		defer f.Close()
-		e := InquiryEntry{Query: query, CitedIDs: citedIDs, At: RFC3339UTC(Now())}
+		e := InquiryEntry{Query: query, CitedIDs: citedIDs, At: core.RFC3339UTC(core.Now())}
 		b, err := json.Marshal(e)
 		if err != nil {
 			return err

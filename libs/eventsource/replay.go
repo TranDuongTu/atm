@@ -12,7 +12,7 @@ import (
 
 // ErrIntegrity marks a semantic divergence discovered while self-verifying an
 // upgrade: the v2 fold of the upgraded events disagrees with a pure replay of
-// the v1 log bytes. It is the eventsource-local mirror of store.ErrIntegrity,
+// the v1 log bytes. It is the eventsource-local mirror of core.ErrIntegrity,
 // declared here so the upgrade tool can verify its own output without
 // importing internal/store.
 var ErrIntegrity = errors.New("eventsource: integrity")

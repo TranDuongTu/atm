@@ -41,6 +41,7 @@ func TestRebuildThenVerifyIsFullySynced(t *testing.T) {
 		}
 	}
 }
+
 // TestRebuildReportCountsTombstonedTasks pins the pre-carve output parity of
 // the `atm store rebuild` report: rep.Tasks counts every task ever created,
 // tombstoned included (the fold map's len), not just the live set. The count

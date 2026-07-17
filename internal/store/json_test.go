@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,7 +120,7 @@ func TestWriteFileAtomicReplacesExisting(t *testing.T) {
 
 func TestMarshalSortedRFC3339(t *testing.T) {
 	ts := time.Date(2026, 6, 23, 10, 0, 0, 0, time.UTC)
-	in := map[string]any{"at": RFC3339UTC(ts)}
+	in := map[string]any{"at": core.RFC3339UTC(ts)}
 	out, err := MarshalSorted(in)
 	if err != nil {
 		t.Fatal(err)

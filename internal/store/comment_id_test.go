@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"atm/internal/core"
+	"testing"
+)
 
 func TestParseCommentID(t *testing.T) {
 	cases := []struct {
@@ -23,9 +26,9 @@ func TestParseCommentID(t *testing.T) {
 		{"XYZ-0001-c0001", true, "XYZ", 1, 1},
 	}
 	for _, tc := range cases {
-		code, taskN, commentN, ok := ParseCommentID(tc.in)
+		code, taskN, commentN, ok := core.ParseCommentID(tc.in)
 		if ok != tc.ok || (ok && (code != tc.code || taskN != tc.taskN || commentN != tc.commentN)) {
-			t.Errorf("ParseCommentID(%q) = (%q, %d, %d, %v), want (%q, %d, %d, %v)",
+			t.Errorf("core.ParseCommentID(%q) = (%q, %d, %d, %v), want (%q, %d, %d, %v)",
 				tc.in, code, taskN, commentN, ok, tc.code, tc.taskN, tc.commentN, tc.ok)
 		}
 	}

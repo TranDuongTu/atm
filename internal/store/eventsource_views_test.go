@@ -1,6 +1,8 @@
 package store
 
 import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"os"
 	"testing"
 )
@@ -10,7 +12,7 @@ import (
 // integrity failure.
 func corruptV2File(t *testing.T, s *Store, code string) {
 	t.Helper()
-	f, err := os.OpenFile(s.eventsV2Path(code), os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(s.eng.EventsV2Path(code), os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func corruptV2File(t *testing.T, s *Store, code string) {
 // (Tasks 5 and 9): an integrity error is surfaced, NEVER rendered as an empty or
 // frozen view. HistoryE carries the error to the CLI callers; the error-free
 // History wrapper the TUI uses still renders the recoverable prefix, so
-// tui/projects.go's deliberate IsIntegrity tolerance keeps its partial view.
+// tui/projects.go's deliberate core.IsIntegrity tolerance keeps its partial view.
 func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
@@ -39,8 +41,8 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 	corruptV2File(t, s, "ATM")
 
 	hv, err := s.HistoryE("ATM", Subject{Kind: "task", ID: tk.ID})
-	if !IsIntegrity(err) {
-		t.Fatalf("HistoryE err = %v, want ErrIntegrity (a corrupt event file must never render as a clean history)", err)
+	if !core.IsIntegrity(err) {
+		t.Fatalf("HistoryE err = %v, want core.ErrIntegrity (a corrupt event file must never render as a clean history)", err)
 	}
 	if len(hv) == 0 {
 		t.Fatal("HistoryE returned no rows: the recoverable prefix must come back alongside the error")
@@ -51,7 +53,7 @@ func TestHistoryESurfacesV2IntegrityErrorWithPartialView(t *testing.T) {
 }
 
 // TestReadLogCachedReturnsPartialV2ViewOnIntegrityError pins the shape
-// tui/projects.go's summary pane relies on: entries + ErrIntegrity, exactly like
+// tui/projects.go's summary pane relies on: entries + core.ErrIntegrity, exactly like
 // v1's ReadLog -- not nil entries, which would silently blank the pane.
 func TestReadLogCachedReturnsPartialV2ViewOnIntegrityError(t *testing.T) {
 	s := testStore(t)
@@ -61,11 +63,11 @@ func TestReadLogCachedReturnsPartialV2ViewOnIntegrityError(t *testing.T) {
 	corruptV2File(t, s, "ATM")
 
 	entries, err := s.ReadLogCached("ATM")
-	if !IsIntegrity(err) {
-		t.Fatalf("ReadLogCached err = %v, want ErrIntegrity", err)
+	if !core.IsIntegrity(err) {
+		t.Fatalf("ReadLogCached err = %v, want core.ErrIntegrity", err)
 	}
 	if len(entries) == 0 {
-		t.Fatal("ReadLogCached returned no entries with the integrity error: the TUI's IsIntegrity tolerance renders an EMPTY pane")
+		t.Fatal("ReadLogCached returned no entries with the integrity error: the TUI's core.IsIntegrity tolerance renders an EMPTY pane")
 	}
 }
 
@@ -259,7 +261,7 @@ func TestV2AliasesRoundTripThroughCommentsAndHistory(t *testing.T) {
 	// validation), GetComment, and History. Lives here because it needs
 	// Task 8's v2 mutators AND this task's History branch.
 	s := testStore(t)
-	if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+	if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
@@ -277,8 +279,8 @@ func TestV2AliasesRoundTripThroughCommentsAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reply to hash comment alias %q: %v", c.ID, err)
 	}
-	if _, err := s.CreateComment(tk.ID, "cross-task", nil, "ATM-ffffff-cffff", "admin@cli:unset"); !IsUsage(err) {
-		t.Fatalf("reply-to under a different task alias = %v, want ErrUsage", err)
+	if _, err := s.CreateComment(tk.ID, "cross-task", nil, "ATM-ffffff-cffff", "admin@cli:unset"); !core.IsUsage(err) {
+		t.Fatalf("reply-to under a different task alias = %v, want core.ErrUsage", err)
 	}
 	if got, err := s.GetComment(r.ID); err != nil || got.ReplyTo != c.ID {
 		t.Fatalf("GetComment(%q) = %#v, %v", r.ID, got, err)

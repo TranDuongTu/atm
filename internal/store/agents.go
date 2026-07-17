@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"os"
 	"path/filepath"
 )
@@ -31,7 +32,7 @@ func (s *Store) writeAgentsConfig(mutate func(*AgentsConfig), actor string) erro
 		return err
 	}
 	mutate(&c)
-	c.UpdatedAt = RFC3339UTC(Now())
+	c.UpdatedAt = core.RFC3339UTC(core.Now())
 	c.UpdatedBy = actor
 	return WriteFileAtomic(s.agentsConfigPath(), &c)
 }

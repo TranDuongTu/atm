@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 // Rebuild regenerates cache.db from every project's events.v2.jsonl. Clears
@@ -49,11 +50,11 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*core.RebuildReport, error) {
 	}
 	mergedLabels := map[string]Label{}
 	for _, code := range codes {
-		format, err := s.projectFormat(code)
+		format, err := s.eng.ProjectFormat(code)
 		if err != nil {
 			return rep, err
 		}
-		if format != StoreFormatV2 {
+		if format != eventlog.StoreFormatV2 {
 			continue
 		}
 		// Tolerate an integrity error on THIS project by skipping it and
@@ -62,7 +63,7 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*core.RebuildReport, error) {
 		// and still aborts.
 		snap, err := s.eng.Snapshot(code)
 		if err != nil {
-			if !IsIntegrity(err) {
+			if !core.IsIntegrity(err) {
 				return rep, err
 			}
 			continue
@@ -116,9 +117,9 @@ func (s *Store) rebuildProjectFromV2(code string) error {
 // v1 and v2 mutators perform mid-transaction) from replaying the frozen v1 log
 // into the cache of a v2-active project.
 func (s *Store) rebuildEntityCacheLocked(code string, v1 func() error) error {
-	if f, err := s.projectFormat(code); err != nil {
+	if f, err := s.eng.ProjectFormat(code); err != nil {
 		return err
-	} else if f == StoreFormatV2 {
+	} else if f == eventlog.StoreFormatV2 {
 		return s.rebuildProjectFromV2(code)
 	}
 	return v1()

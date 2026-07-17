@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"atm/libs/eventsource"
 )
 
@@ -53,7 +55,7 @@ func syncPeer(t *testing.T, code string, base []*eventsource.Event, opts []Optio
 // exactly len(incoming).
 func countV2Lines(t *testing.T, s *Store, code string) int {
 	t.Helper()
-	data, err := os.ReadFile(s.eventsV2Path(code))
+	data, err := os.ReadFile(s.eng.EventsV2Path(code))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0
@@ -90,8 +92,8 @@ func TestSyncSnapshotV1Refused(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := s.eng.SyncSnapshot(code)
-	if !errors.Is(err, ErrSyncNeedsV2) {
-		t.Fatalf("SyncSnapshot on v1 project = %v, want ErrSyncNeedsV2", err)
+	if !errors.Is(err, eventlog.ErrSyncNeedsV2) {
+		t.Fatalf("SyncSnapshot on v1 project = %v, want eventlog.ErrSyncNeedsV2", err)
 	}
 }
 
@@ -286,7 +288,7 @@ func TestSyncBootstrapCreatesProject(t *testing.T) {
 		t.Fatal("bootstrapped project not listed")
 	}
 	// Format entry is v2.
-	if f, err := dest.ProjectFormatForCLI(code); err != nil || f != StoreFormatV2 {
+	if f, err := dest.ProjectFormatForCLI(code); err != nil || f != eventlog.StoreFormatV2 {
 		t.Fatalf("format = %q, %v; want v2", f, err)
 	}
 	// Fold matches source: identical event set and equal live task counts.
@@ -328,7 +330,7 @@ func TestSyncBootstrapRefusesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := mustSnapshot(t, s, code)
-	if err := s.eng.SyncBootstrap(code, base); !errors.Is(err, ErrConflict) {
-		t.Fatalf("bootstrap over existing project = %v, want ErrConflict", err)
+	if err := s.eng.SyncBootstrap(code, base); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("bootstrap over existing project = %v, want core.ErrConflict", err)
 	}
 }

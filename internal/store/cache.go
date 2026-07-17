@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -178,7 +179,7 @@ func cacheUpsertProject(db *sql.DB, p *Project) error {
 		ON CONFLICT(code) DO UPDATE SET
 			name=excluded.name, ordinal=excluded.ordinal,
 			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		p.Code, p.Name, p.Ordinal, RFC3339UTC(p.CreatedAt), p.CreatedBy, RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
+		p.Code, p.Name, p.Ordinal, core.RFC3339UTC(p.CreatedAt), p.CreatedBy, core.RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
 	return err
 }
 
@@ -234,7 +235,7 @@ func cacheUpsertTask(db *sql.DB, t *Task) error {
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, description=excluded.description, ordinal=excluded.ordinal,
 			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, RFC3339UTC(t.CreatedAt), t.CreatedBy, RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
+		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, core.RFC3339UTC(t.CreatedAt), t.CreatedBy, core.RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
 	if err != nil {
 		return err
 	}
@@ -393,8 +394,8 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 // widening the store API.
 func SortTaskIDsByFunc(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		ci, ni, _ := ParseTaskID(tasks[i].ID)
-		cj, nj, _ := ParseTaskID(tasks[j].ID)
+		ci, ni, _ := core.ParseTaskID(tasks[i].ID)
+		cj, nj, _ := core.ParseTaskID(tasks[j].ID)
 		if ci != cj {
 			return ci < cj
 		}
@@ -605,7 +606,7 @@ func cacheUpsertComment(db *sql.DB, c *Comment) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			body=excluded.body, ordinal=excluded.ordinal, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		c.ID, c.TaskID, c.ReplyTo, c.Body, c.Ordinal, RFC3339UTC(c.CreatedAt), c.CreatedBy, RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
+		c.ID, c.TaskID, c.ReplyTo, c.Body, c.Ordinal, core.RFC3339UTC(c.CreatedAt), c.CreatedBy, core.RFC3339UTC(c.UpdatedAt), c.UpdatedBy)
 	if err != nil {
 		return err
 	}

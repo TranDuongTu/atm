@@ -98,7 +98,7 @@ var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 func ValidateProjectCode(code string) error {
 	if !projectCodeRe.MatchString(code) {
-		return fmt.Errorf("%w: invalid project code %q (want ^[A-Z]{3,6}$)", ErrUsage, code)
+		return fmt.Errorf("%w: invalid project code %q (want ^[A-Z]{3,6}$)", core.ErrUsage, code)
 	}
 	return nil
 }
@@ -121,8 +121,8 @@ func RenderTaskID(code string, n int) string {
 
 func SortTaskIDs(ids []string) {
 	sort.SliceStable(ids, func(i, j int) bool {
-		ci, ni, _ := ParseTaskID(ids[i])
-		cj, nj, _ := ParseTaskID(ids[j])
+		ci, ni, _ := core.ParseTaskID(ids[i])
+		cj, nj, _ := core.ParseTaskID(ids[j])
 		if ci != cj {
 			return ci < cj
 		}
@@ -138,7 +138,7 @@ func SortTaskIDs(ids []string) {
 // because v1 RenderCommentID and v2 MintCommentAlias both build the comment
 // id as <task-alias>-c<suffix>.
 func commentTaskAlias(id string) (string, bool) {
-	m := CommentIDRe.FindStringSubmatch(id)
+	m := core.CommentIDRe.FindStringSubmatch(id)
 	if m == nil {
 		return "", false
 	}
@@ -220,7 +220,7 @@ func (s *Store) Init(storePath string) error {
 	}
 	// Materialize store.json (defaults included) under the store-scoped lock:
 	// an init racing a concurrent writer must not clobber its update.
-	return s.mutateStoreMeta(func(*StoreMeta) error { return nil })
+	return s.eng.MutateStoreMeta(func(*eventlog.StoreMeta) error { return nil })
 }
 
 func (s *Store) StorePath() string { return s.Root }

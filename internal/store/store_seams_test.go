@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/store/eventlog"
 	"bytes"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestSeamsMakeV2AuthoringReproducible(t *testing.T) {
 		if err := s.Init(""); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+		if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.CreateProject("ATM", "Agent Tasks", testActor); err != nil {
@@ -70,7 +71,7 @@ func mustOpen(t *testing.T) *Store {
 
 func mustReplicaID(t *testing.T, s *Store) string {
 	t.Helper()
-	id, err := s.ensureReplicaForWriteLocked()
+	id, err := s.eng.EnsureReplicaForWriteLocked()
 	if err != nil {
 		t.Fatal(err)
 	}

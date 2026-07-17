@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"atm/internal/core"
+	"testing"
+)
 
 func TestProjectConfigAbsentReturnsNil(t *testing.T) {
 	s := newTestStore(t)
@@ -72,8 +75,8 @@ func TestSetEmbeddingConfigRequiresActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 4, Threshold: 0.5}, "")
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage (missing actor)", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (missing actor)", err)
 	}
 }
 
@@ -131,8 +134,8 @@ func TestRemoveProjectRemoteUnknownNameReturnsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.RemoveProjectRemote("ATM", "nope", testActor)
-	if !IsNotFound(err) {
-		t.Errorf("err = %v, want ErrNotFound", err)
+	if !core.IsNotFound(err) {
+		t.Errorf("err = %v, want core.ErrNotFound", err)
 	}
 }
 
@@ -141,11 +144,11 @@ func TestSetProjectRemoteEmptyNameOrURLIsUsage(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectRemote("ATM", "", "https://example.com/a", testActor); !IsUsage(err) {
-		t.Errorf("empty name: err = %v, want ErrUsage", err)
+	if err := s.SetProjectRemote("ATM", "", "https://example.com/a", testActor); !core.IsUsage(err) {
+		t.Errorf("empty name: err = %v, want core.ErrUsage", err)
 	}
-	if err := s.SetProjectRemote("ATM", "origin", "", testActor); !IsUsage(err) {
-		t.Errorf("empty url: err = %v, want ErrUsage", err)
+	if err := s.SetProjectRemote("ATM", "origin", "", testActor); !core.IsUsage(err) {
+		t.Errorf("empty url: err = %v, want core.ErrUsage", err)
 	}
 }
 
@@ -155,8 +158,8 @@ func TestSetProjectRemoteRequiresActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.SetProjectRemote("ATM", "origin", "https://example.com/a", "")
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage (missing actor)", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (missing actor)", err)
 	}
 }
 

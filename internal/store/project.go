@@ -6,6 +6,7 @@ import (
 
 	"atm/internal/core"
 	"atm/internal/seed"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
@@ -43,7 +44,7 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		if _, ok, err := cacheGetProject(db, code); err != nil {
 			return err
 		} else if ok {
-			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
+			return fmt.Errorf("%w: project %q already exists", core.ErrConflict, code)
 		}
 		// Root event: the fresh file has an empty frontier, so project.created
 		// carries parents [].
@@ -106,7 +107,7 @@ func (s *Store) getProjectLocked(code string) (*Project, error) {
 
 // noV1RebuildErr is the v1 arm rebuildEntityCacheLocked forwards to for a
 // non-v2 project. It should be unreachable: rebuildEntityCacheLocked is only
-// ever invoked (via rebuild()) from the format==StoreFormatV2 arm of a
+// ever invoked (via rebuild()) from the format==eventlog.StoreFormatV2 arm of a
 // *WithRebuild accessor below, at which point rebuildEntityCacheLocked's own
 // format re-check also finds v2 and dispatches to rebuildProjectFromV2, never
 // to this closure. It exists only so the *WithRebuild accessors still have a
@@ -114,7 +115,7 @@ func (s *Store) getProjectLocked(code string) (*Project, error) {
 // rebuildXFromLog helpers are gone; if it ever fires, that means a project
 // reached this code with a non-v2 format, which is an integrity violation.
 func noV1RebuildErr(code string) error {
-	return fmt.Errorf("%w: project %q is not v2 (v1 rebuild path removed)", ErrIntegrity, code)
+	return fmt.Errorf("%w: project %q is not v2 (v1 rebuild path removed)", core.ErrIntegrity, code)
 }
 
 // getProjectWithRebuild contains the fast-path cache read + staleness check
@@ -129,7 +130,7 @@ func noV1RebuildErr(code string) error {
 // have nothing to do with v1 storage: (1) RemoveProject clears the project's
 // ProjectFormats entry along with its media, so a fully removed project
 // falls back to the default/ActiveFormat resolution — GetProject on it must
-// still answer ErrNotFound; (2) a cache row can be written directly by a
+// still answer core.ErrNotFound; (2) a cache row can be written directly by a
 // lower-level v2 helper ahead of format registration — GetProject must still
 // serve that row rather than bounce it through the v2 freshness/rebuild dance,
 // which has nothing to check the staleness of without a real event file.
@@ -140,17 +141,17 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 	if err != nil {
 		return nil, err
 	}
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		p, ok, err := cacheGetProject(db, code)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
+			return nil, fmt.Errorf("%w: project %q", core.ErrNotFound, code)
 		}
 		return p, nil
 	}
@@ -177,7 +178,7 @@ func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Proje
 			return nil, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("%w: project %q", ErrNotFound, code)
+			return nil, fmt.Errorf("%w: project %q", core.ErrNotFound, code)
 		}
 	}
 	return p, nil
@@ -207,7 +208,7 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
 	return s.setProjectNameV2(code, name, actor)
@@ -228,7 +229,7 @@ func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
 		return err
 	}
-	if _, err := s.dispatchFormat(code); err != nil {
+	if _, err := s.eng.DispatchFormat(code); err != nil {
 		return err
 	}
 	return s.removeProjectV2(code)
@@ -270,7 +271,7 @@ func (s *Store) removeProjectV2(code string) error {
 		if has, err := cs.HasLiveTasks(); err != nil {
 			return err
 		} else if has {
-			return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
+			return fmt.Errorf("%w: project %q has tasks — remove tasks first", core.ErrConflict, code)
 		}
 		// 1. Delete the project directory (events.v2.jsonl, vectors, config).
 		if err := os.RemoveAll(s.projectDir(code)); err != nil {
@@ -299,7 +300,7 @@ func (s *Store) hasTasksGuard(code string) error {
 		return err
 	}
 	if len(ids) > 0 {
-		return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
+		return fmt.Errorf("%w: project %q has tasks — remove tasks first", core.ErrConflict, code)
 	}
 	return nil
 }

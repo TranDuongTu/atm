@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"context"
 	"errors"
 	"fmt"
@@ -150,8 +151,8 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 	}
 	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
 	_, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage (no embedding config)", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (no embedding config)", err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -25,7 +26,7 @@ func TestRenderPersonaActivityChart(t *testing.T) {
 	m.refreshAll()
 
 	entries, err := m.store.ReadLogCached("ATM")
-	if err != nil && !store.IsIntegrity(err) {
+	if err != nil && !core.IsIntegrity(err) {
 		t.Fatalf("ReadLog: %v", err)
 	}
 	lines := m.projects.renderPersonaActivityChart(entries, 8)
@@ -70,7 +71,7 @@ func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
 	m.projectScope = "ATM"
 	m.refreshAll()
 	entries, err := m.store.ReadLogCached("ATM")
-	if err != nil && !store.IsIntegrity(err) {
+	if err != nil && !core.IsIntegrity(err) {
 		t.Fatalf("ReadLog: %v", err)
 	}
 

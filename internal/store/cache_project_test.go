@@ -18,7 +18,7 @@ import (
 // disjoint second fold over the same code (simulating a re-upgrade).
 func projectEvents(t *testing.T, s *Store, code string, events []*eventsource.Event) {
 	t.Helper()
-	path := s.eventsV2Path(code)
+	path := s.eng.EventsV2Path(code)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

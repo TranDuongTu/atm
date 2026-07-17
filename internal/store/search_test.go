@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"atm/internal/core"
+	"testing"
+)
 
 func TestCosineSimilarity(t *testing.T) {
 	if got := cosineSimilarity([]float64{1, 0}, []float64{1, 0}); got < 0.9999 {
@@ -117,8 +120,8 @@ func TestSearchDimMismatchRejected(t *testing.T) {
 		Project: "ATM", Model: "m", QueryVector: []float64{0.1, 0.2, 0.3}, QueryText: "q",
 		K: 5, Threshold: 0.3,
 	})
-	if !IsUsage(err) {
-		t.Errorf("err = %v, want ErrUsage (dim mismatch)", err)
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (dim mismatch)", err)
 	}
 }
 

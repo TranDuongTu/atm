@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,15 +53,15 @@ func (s *Store) ReadVectors(code, slug string) ([]VectorEntry, error) {
 
 func (s *Store) WriteVectorBatch(code, slug string, entries []VectorEntry, lastLogSeq int) error {
 	if len(entries) == 0 {
-		return fmt.Errorf("%w: empty vector batch", ErrUsage)
+		return fmt.Errorf("%w: empty vector batch", core.ErrUsage)
 	}
 	dim := entries[0].Dim
 	for i, e := range entries {
 		if e.Model != slug {
-			return fmt.Errorf("%w: entry %d model %q != batch model %q", ErrUsage, i, e.Model, slug)
+			return fmt.Errorf("%w: entry %d model %q != batch model %q", core.ErrUsage, i, e.Model, slug)
 		}
 		if e.Dim != dim {
-			return fmt.Errorf("%w: entry %d dim %d != batch dim %d", ErrUsage, i, e.Dim, dim)
+			return fmt.Errorf("%w: entry %d dim %d != batch dim %d", core.ErrUsage, i, e.Dim, dim)
 		}
 	}
 	return s.WithLock(code, func() error {
@@ -95,7 +96,7 @@ func (s *Store) WriteVectorBatch(code, slug string, entries []VectorEntry, lastL
 			Model:           slug,
 			Dim:             dim,
 			LastLogSeq:      lastLogSeq,
-			LastReindexedAt: RFC3339UTC(Now()),
+			LastReindexedAt: core.RFC3339UTC(core.Now()),
 			Count:           count,
 		}
 		return WriteFileAtomic(s.vectorMetaPath(code, slug), meta)
@@ -134,7 +135,7 @@ func (s *Store) DropVectors(code, slug string) error {
 	return s.WithLock(code, func() error {
 		if err := os.Remove(s.vectorPath(code, slug)); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("%w: no vector index for model %q", ErrNotFound, slug)
+				return fmt.Errorf("%w: no vector index for model %q", core.ErrNotFound, slug)
 			}
 			return err
 		}

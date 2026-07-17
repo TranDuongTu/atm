@@ -1,6 +1,7 @@
 package store
 
 import (
+	"atm/internal/core"
 	"testing"
 )
 
@@ -8,11 +9,11 @@ func TestCreateCommentRequiresBodyAndActor(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
-	if _, err := s.CreateComment(tk.ID, "", nil, "", testActor); !IsUsage(err) {
-		t.Fatalf("empty body should be ErrUsage, got %v", err)
+	if _, err := s.CreateComment(tk.ID, "", nil, "", testActor); !core.IsUsage(err) {
+		t.Fatalf("empty body should be core.ErrUsage, got %v", err)
 	}
-	if _, err := s.CreateComment(tk.ID, "x", nil, "", ""); !IsUsage(err) {
-		t.Fatalf("empty actor should be ErrUsage, got %v", err)
+	if _, err := s.CreateComment(tk.ID, "x", nil, "", ""); !core.IsUsage(err) {
+		t.Fatalf("empty actor should be core.ErrUsage, got %v", err)
 	}
 }
 
@@ -36,8 +37,8 @@ func TestGetCommentReturnsCreated(t *testing.T) {
 func TestGetCommentMalformedID(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	if _, err := s.GetComment("ATM-0001"); !IsUsage(err) {
-		t.Fatalf("malformed comment id should be ErrUsage, got %v", err)
+	if _, err := s.GetComment("ATM-0001"); !core.IsUsage(err) {
+		t.Fatalf("malformed comment id should be core.ErrUsage, got %v", err)
 	}
 }
 
@@ -187,8 +188,8 @@ func TestRemoveCommentAppendsTombstoneAndDeletesCache(t *testing.T) {
 	if after != before+1 {
 		t.Fatalf("seq jumped %d → %d, want %d (comment.removed tombstone)", before, after, before+1)
 	}
-	if _, err := s.GetComment(c.ID); !IsNotFound(err) {
-		t.Fatalf("GetComment after remove: %v want ErrNotFound", err)
+	if _, err := s.GetComment(c.ID); !core.IsNotFound(err) {
+		t.Fatalf("GetComment after remove: %v want core.ErrNotFound", err)
 	}
 	db, _ := s.cacheDB()
 	if _, ok, _ := cacheGetComment(db, c.ID); ok {

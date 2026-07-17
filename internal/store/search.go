@@ -1,6 +1,8 @@
 package store
 
 import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"fmt"
 	"math"
 	"sort"
@@ -22,7 +24,7 @@ func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error
 	if len(entries) > 0 && len(p.QueryVector) > 0 {
 		idxDim := entries[0].Dim
 		if len(p.QueryVector) != idxDim {
-			return nil, false, fmt.Errorf("%w: query vector dim %d != index dim %d for model %q", ErrUsage, len(p.QueryVector), idxDim, p.Model)
+			return nil, false, fmt.Errorf("%w: query vector dim %d != index dim %d for model %q", core.ErrUsage, len(p.QueryVector), idxDim, p.Model)
 		}
 		scored := make([]Hit, 0, len(entries))
 		for _, e := range entries {
@@ -78,18 +80,18 @@ func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	// The format lookup is propagated, never swallowed: a swallowed error here
 	// would silently report "no results" for a project whose entities plainly
 	// exist.
-	f, err := s.projectFormat(code)
+	f, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if f != StoreFormatV2 {
+	if f != eventlog.StoreFormatV2 {
 		return nil, nil
 	}
 	tasks, comments, err := s.v2CompatEntities(code)
 	if err != nil {
 		// An integrity failure must never render as "no results". Every other
 		// error class returns no hits, no error.
-		if IsIntegrity(err) {
+		if core.IsIntegrity(err) {
 			return nil, err
 		}
 		return nil, nil

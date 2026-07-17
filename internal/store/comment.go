@@ -5,26 +5,27 @@ import (
 	"sort"
 
 	"atm/internal/core"
+	"atm/internal/store/eventlog"
 )
 
 func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, actor string) (*Comment, error) {
 	if body == "" {
-		return nil, fmt.Errorf("%w: body is required", ErrUsage)
+		return nil, fmt.Errorf("%w: body is required", core.ErrUsage)
 	}
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	code, _, ok := ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, taskID)
 	}
 	if replyTo != "" {
 		rtask, ok := commentTaskAlias(replyTo)
 		if !ok {
-			return nil, fmt.Errorf("%w: invalid reply-to %q", ErrUsage, replyTo)
+			return nil, fmt.Errorf("%w: invalid reply-to %q", core.ErrUsage, replyTo)
 		}
 		if rtask != taskID {
-			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", ErrUsage, replyTo, taskID)
+			return nil, fmt.Errorf("%w: reply-to %q must belong to task %q", core.ErrUsage, replyTo, taskID)
 		}
 	}
 	for _, l := range labels {
@@ -44,12 +45,12 @@ func (s *Store) CreateComment(taskID, body string, labels []string, replyTo, act
 // commentProjectFormat parses a comment alias for its project code and
 // resolves the project's EFFECTIVE format. v2 comment aliases carry hex
 // segments, so this keys on the full alias string (Task 2b).
-func (s *Store) commentProjectFormat(id string) (string, StoreFormat, error) {
-	code, _, _, ok := ParseCommentID(id)
+func (s *Store) commentProjectFormat(id string) (string, eventlog.StoreFormat, error) {
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return "", "", fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return "", "", fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
-	f, err := s.dispatchFormat(code)
+	f, err := s.eng.DispatchFormat(code)
 	if err != nil {
 		return "", "", err
 	}
@@ -97,7 +98,7 @@ func (s *Store) createCommentV2(code, taskID, body string, labels []string, repl
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("%w: comment %q", ErrNotFound, alias)
+			return fmt.Errorf("%w: comment %q", core.ErrNotFound, alias)
 		}
 		created = c
 		return nil
@@ -128,9 +129,9 @@ func (s *Store) commentLabelAddV2(code, id, label, actor string) error {
 }
 
 func (s *Store) GetComment(id string) (*Comment, error) {
-	code, _, _, ok := ParseCommentID(id)
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
 		return s.WithLock(code, func() error {
@@ -146,9 +147,9 @@ func (s *Store) GetComment(id string) (*Comment, error) {
 // GetComment in that situation would re-enter the (non-reentrant) mutex and
 // deadlock.
 func (s *Store) getCommentLocked(id string) (*Comment, error) {
-	code, _, _, ok := ParseCommentID(id)
+	code, _, _, ok := core.ParseCommentID(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid comment id %q", ErrUsage, id)
+		return nil, fmt.Errorf("%w: invalid comment id %q", core.ErrUsage, id)
 	}
 	return s.getCommentWithRebuild(id, code, func() error {
 		return s.rebuildEntityCacheLocked(code, func() error { return noV1RebuildErr(code) })
@@ -165,24 +166,24 @@ func (s *Store) getCommentLocked(id string) (*Comment, error) {
 // getProjectWithRebuild's doc comment for why a comment's project can still
 // legitimately resolve to a non-v2 format (a fully removed project, or a
 // cache row written directly ahead of format registration) and why the
-// correct response is to serve the cache row as-is (or ErrNotFound if
+// correct response is to serve the cache row as-is (or core.ErrNotFound if
 // absent) without ever attempting a rebuild.
 func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*Comment, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
-	format, err := s.projectFormat(code)
+	format, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if format != StoreFormatV2 {
+	if format != eventlog.StoreFormatV2 {
 		c, found, err := cacheGetComment(db, id)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: comment %q", core.ErrNotFound, id)
 		}
 		return c, nil
 	}
@@ -208,16 +209,16 @@ func (s *Store) getCommentWithRebuild(id, code string, rebuild func() error) (*C
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%w: comment %q", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: comment %q", core.ErrNotFound, id)
 		}
 	}
 	return c, nil
 }
 
 func (s *Store) ListComments(taskID string) ([]*Comment, error) {
-	code, _, ok := ParseTaskID(taskID)
+	code, _, ok := core.ParseTaskID(taskID)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid task id %q", ErrUsage, taskID)
+		return nil, fmt.Errorf("%w: invalid task id %q", core.ErrUsage, taskID)
 	}
 	// Same freshness gap ListTasksErr closes: under v2 an external append (a
 	// second process, or a writer that died between the append commit point
@@ -229,11 +230,11 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	// The lookup error is PROPAGATED, not swallowed: a swallowed lookup leaves
 	// f == "", skips the v2 branch (and its freshness gate), and serves stale
 	// cache rows with a nil error. Same reasoning as ListTasksErr / textSearch.
-	f, err := s.projectFormat(code)
+	f, err := s.eng.ProjectFormat(code)
 	if err != nil {
 		return nil, err
 	}
-	if f == StoreFormatV2 {
+	if f == eventlog.StoreFormatV2 {
 		if err := s.ensureV2CacheFresh(code); err != nil {
 			return nil, err
 		}
@@ -249,7 +250,7 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 	if out == nil {
 		out = []*Comment{}
 	}
-	if f == StoreFormatV2 {
+	if f == eventlog.StoreFormatV2 {
 		// cacheListComments returns id-asc. Under v1 that IS thread order (the
 		// -cNNNN segment is a zero-padded per-task creation counter), but a v2
 		// comment alias is a content hash, so id-asc renders the narrative in
@@ -270,7 +271,7 @@ func (s *Store) ListComments(taskID string) ([]*Comment, error) {
 
 func (s *Store) SetCommentBody(id, body, actor string) error {
 	if body == "" {
-		return fmt.Errorf("%w: body is required", ErrUsage)
+		return fmt.Errorf("%w: body is required", core.ErrUsage)
 	}
 	return s.mutateComment(id, actor, func(cs core.ChangeSet) error { return cs.SetCommentBody(id, body, actor) })
 }

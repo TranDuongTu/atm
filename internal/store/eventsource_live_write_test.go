@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"testing"
 
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
 	"atm/libs/eventsource"
 )
 
@@ -23,7 +25,7 @@ func TestV2ActiveTaskMutationWritesOnlyEventsV2(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("v1 log changed while project is v2-active")
 	}
-	snap, err := s.verifyV2File("ATM")
+	snap, err := s.eng.VerifyFile("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +63,7 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 		if string(now) != string(frozen) {
 			t.Fatalf("%s appended to log.jsonl on a v2-active project", name)
 		}
-		snap, err := s.verifyV2File("ATM")
+		snap, err := s.eng.VerifyFile("ATM")
 		if err != nil {
 			t.Fatalf("%s: v2 file: %v", name, err)
 		}
@@ -132,7 +134,7 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	} else if p.Name != "renamed" {
 		t.Fatalf("GetProject name = %q, want renamed", p.Name)
 	}
-	snap, err := s.verifyV2File("ATM")
+	snap, err := s.eng.VerifyFile("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,16 +159,16 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	if _, err := s.LabelShow("ATM:area:cli"); err != nil {
 		t.Fatalf("LabelAdd did not register: %v", err)
 	}
-	if _, err := s.LabelShow("ATM:area:tui"); !IsNotFound(err) {
+	if _, err := s.LabelShow("ATM:area:tui"); !core.IsNotFound(err) {
 		t.Fatalf("LabelRemove did not unregister: %v", err)
 	}
 
 	step("RemoveComment", func() error { return s.RemoveComment(comment.ID, "admin@cli:unset") })
-	if _, err := s.GetComment(comment.ID); !IsNotFound(err) {
+	if _, err := s.GetComment(comment.ID); !core.IsNotFound(err) {
 		t.Fatalf("removed comment still readable: %v", err)
 	}
 	step("RemoveTask", func() error { return s.RemoveTask(task.ID, "admin@cli:unset") })
-	if _, err := s.GetTask(task.ID); !IsNotFound(err) {
+	if _, err := s.GetTask(task.ID); !core.IsNotFound(err) {
 		t.Fatalf("removed task still readable: %v", err)
 	}
 	// RemoveProject is a mutator like any other: no v1 tombstone, ever.
@@ -177,7 +179,7 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 
 func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	s := testStore(t)
-	if err := s.SetActiveFormat(StoreFormatV2); err != nil { // empty store: no entry-less projects, flip allowed
+	if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil { // empty store: no entry-less projects, flip allowed
 		t.Fatal(err)
 	}
 	p, err := s.CreateProject("ATM", "born v2", "admin@cli:unset")
@@ -187,14 +189,14 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
 		t.Fatal("v2-born project must have no log.jsonl")
 	}
-	if _, err := os.Stat(s.eventsV2Path("ATM")); err != nil {
+	if _, err := os.Stat(s.eng.EventsV2Path("ATM")); err != nil {
 		t.Fatalf("events.v2.jsonl missing: %v", err)
 	}
-	m, err := s.readStoreMeta()
+	m, err := s.eng.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.ProjectFormats["ATM"] != StoreFormatV2 {
+	if m.ProjectFormats["ATM"] != eventlog.StoreFormatV2 {
 		t.Fatalf("v2 birth must write an explicit ProjectFormats entry, got %#v", m.ProjectFormats)
 	}
 	if p.Name != "born v2" {
@@ -216,7 +218,7 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 // resolves to v1 for a not-yet-existing project.
 func TestCreateProjectBornV2OnDefaultStore(t *testing.T) {
 	s := testStore(t)
-	// NOTE: deliberately NO s.SetActiveFormat(StoreFormatV2) here.
+	// NOTE: deliberately NO s.SetActiveFormat(eventlog.StoreFormatV2) here.
 	p, err := s.CreateProject("ATM", "born v2 on default", "admin@cli:unset")
 	if err != nil {
 		t.Fatal(err)
@@ -227,14 +229,14 @@ func TestCreateProjectBornV2OnDefaultStore(t *testing.T) {
 	if _, err := os.Stat(s.logPath("ATM")); !os.IsNotExist(err) {
 		t.Fatal("v2-born project must have no log.jsonl")
 	}
-	if _, err := os.Stat(s.eventsV2Path("ATM")); err != nil {
+	if _, err := os.Stat(s.eng.EventsV2Path("ATM")); err != nil {
 		t.Fatalf("events.v2.jsonl missing: %v", err)
 	}
-	m, err := s.readStoreMeta()
+	m, err := s.eng.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.ProjectFormats["ATM"] != StoreFormatV2 {
+	if m.ProjectFormats["ATM"] != eventlog.StoreFormatV2 {
 		t.Fatalf("born-v2 project must carry an explicit ProjectFormats entry, got %#v", m.ProjectFormats)
 	}
 	// A subsequent task must be v2 (hex alias), not a v1 sequential ATM-0001. A
@@ -244,7 +246,7 @@ func TestCreateProjectBornV2OnDefaultStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := ParseTaskID(tk.ID); !ok {
+	if _, _, ok := core.ParseTaskID(tk.ID); !ok {
 		t.Fatalf("task id %q does not parse", tk.ID)
 	}
 	if tk.ID == "ATM-0001" {
@@ -277,19 +279,19 @@ func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	before := mustRead(t, s.eventsV2Path("ATM"))
+	before := mustRead(t, s.eng.EventsV2Path("ATM"))
 
 	// The task ref is resolved through the fold, so the error is eventsource's
-	// own "no entity matches" rather than store.ErrNotFound; what this test is
+	// own "no entity matches" rather than core.ErrNotFound; what this test is
 	// about is that it arrives BEFORE anything is written.
 	_, err := s.CreateComment("ATM-9999", "body", []string{"ATM:area:orphan"}, "", "admin@cli:unset")
 	if err == nil {
 		t.Fatal("CreateComment on a nonexistent task must fail")
 	}
-	if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
+	if after := mustRead(t, s.eng.EventsV2Path("ATM")); string(after) != string(before) {
 		t.Fatal("failed CreateComment appended events to events.v2.jsonl")
 	}
-	if _, err := s.LabelShow("ATM:area:orphan"); !IsNotFound(err) {
+	if _, err := s.LabelShow("ATM:area:orphan"); !core.IsNotFound(err) {
 		t.Fatalf("failed CreateComment registered its labels: LabelShow = %v", err)
 	}
 	// Same rule for the reply-to reference.
@@ -297,15 +299,15 @@ func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before = mustRead(t, s.eventsV2Path("ATM"))
+	before = mustRead(t, s.eng.EventsV2Path("ATM"))
 	_, err = s.CreateComment(tk.ID, "body", []string{"ATM:area:orphan"}, tk.ID+"-c9999", "admin@cli:unset")
 	if err == nil {
 		t.Fatal("CreateComment with a nonexistent reply-to must fail")
 	}
-	if after := mustRead(t, s.eventsV2Path("ATM")); string(after) != string(before) {
+	if after := mustRead(t, s.eng.EventsV2Path("ATM")); string(after) != string(before) {
 		t.Fatal("failed CreateComment (bad reply-to) appended events to events.v2.jsonl")
 	}
-	if _, err := s.LabelShow("ATM:area:orphan"); !IsNotFound(err) {
+	if _, err := s.LabelShow("ATM:area:orphan"); !core.IsNotFound(err) {
 		t.Fatalf("failed CreateComment (bad reply-to) registered its labels: LabelShow = %v", err)
 	}
 }
@@ -320,14 +322,14 @@ func TestCreateCommentV2OnMissingTaskAppendsNothing(t *testing.T) {
 //   - a v2-BORN project has no log.jsonl, so LastLogSeq is 0 while
 //     cacheProjectFromV2State stores a v2 CREATION ORDINAL in
 //     Task.Ordinal/Comment.Ordinal: the v1 freshness check `LogSeq > LastSeq` used
-//     to hard-fail with ErrIntegrity. The v2 branch precedes it.
+//     to hard-fail with core.ErrIntegrity. The v2 branch precedes it.
 //   - on an UPGRADED project lastProjectEventSeq still matches the FROZEN v1
 //     log's project.created (keyed on Subject.Code), so the v1 staleness check
 //     used to rebuild the project row from v1 and revert a v2 rename.
 func TestV2ReadPathReturnsV2Truth(t *testing.T) {
 	t.Run("v2-born task and comment reads return the v2 state", func(t *testing.T) {
 		s := testStore(t)
-		if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+		if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.CreateProject("ATM", "born v2", "admin@cli:unset"); err != nil {
@@ -390,7 +392,7 @@ func TestRemoveProjectV2ClearsFormatEntryAndAllowsRecreation(t *testing.T) {
 	if _, err := os.Stat(s.projectDir("ATM")); !os.IsNotExist(err) {
 		t.Fatal("project dir should be deleted")
 	}
-	m, err := s.readStoreMeta()
+	m, err := s.eng.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,10 +425,10 @@ func TestRemoveProjectRefusesUnprojectedV2Task(t *testing.T) {
 	if err == nil {
 		t.Fatalf("RemoveProject with unprojected live task %q = nil: DATA LOSS, the event file was deleted", alias)
 	}
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("RemoveProject err = %v, want ErrConflict (same refusal v1's hasTasksGuard produces)", err)
+	if !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("RemoveProject err = %v, want core.ErrConflict (same refusal v1's hasTasksGuard produces)", err)
 	}
-	if _, statErr := os.Stat(s.eventsV2Path("ATM")); statErr != nil {
+	if _, statErr := os.Stat(s.eng.EventsV2Path("ATM")); statErr != nil {
 		t.Fatalf("events.v2.jsonl gone after a refused RemoveProject: %v", statErr)
 	}
 	// And the task is still there once the cache catches up.
@@ -439,12 +441,12 @@ func TestRemoveProjectRefusesUnprojectedV2Task(t *testing.T) {
 // TestV2ActiveMissingEntityReadsReturnErrNotFound. The read side was pinned; the
 // write side regressed, because every v2 mutator resolves through
 // v2AuthorCtx.resolveTaskRef/resolveCommentRef, which returned the raw
-// eventsource.ErrNoMatch. That is not wrapped in store.ErrNotFound, so
+// eventsource.ErrNoMatch. That is not wrapped in core.ErrNotFound, so
 // cli.CodeForError fell through to "generic" and `atm task set-title --task
 // <typo>` exited 1 instead of 3.
 func TestV2ActiveMissingEntityWritesReturnErrNotFound(t *testing.T) {
 	s := testStore(t)
-	if err := s.SetActiveFormat(StoreFormatV2); err != nil {
+	if err := s.SetActiveFormat(eventlog.StoreFormatV2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
@@ -487,8 +489,8 @@ func TestV2ActiveMissingEntityWritesReturnErrNotFound(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := c.call()
-			if !IsNotFound(err) {
-				t.Fatalf("%s on a missing v2 entity = %v, want ErrNotFound (CLI exit 3, not generic exit 1)", c.name, err)
+			if !core.IsNotFound(err) {
+				t.Fatalf("%s on a missing v2 entity = %v, want core.ErrNotFound (CLI exit 3, not generic exit 1)", c.name, err)
 			}
 			if errors.Is(err, eventsource.ErrNoMatch) {
 				t.Fatalf("%s leaked eventsource.ErrNoMatch through the compatibility API: %v", c.name, err)
