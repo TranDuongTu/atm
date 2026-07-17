@@ -1,6 +1,11 @@
 {
   "labels": [
     {
+      "description": "every task in the project, ordered by recent activity. Default board in the TUI.",
+      "expr": "*",
+      "name": "ATM:all-tasks"
+    },
+    {
       "description": "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.",
       "expr": "NOT status:*",
       "name": "ATM:backlog"
@@ -47,7 +52,7 @@
       "name": "ATM:in-progress-tasks"
     },
     {
-      "description": "every open task: the project's active work. Default board in the TUI.",
+      "description": "every open task: the project's active work.",
       "expr": "status:open",
       "name": "ATM:open-tasks"
     },

@@ -54,3 +54,33 @@ func TestParseExprRejectsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestParseExprStarAtom(t *testing.T) {
+	// The bare '*' tautology atom: lexes as a single token and parses as an
+	// ExprAtom. It is the membership predicate of the all-tasks board and a
+	// reusable standalone filter token.
+	n, err := ParseExpr("*")
+	if err != nil {
+		t.Fatalf("ParseExpr(%q): %v", "*", err)
+	}
+	a, ok := n.(*ExprAtom)
+	if !ok || a.Name != "*" {
+		t.Fatalf("ParseExpr(%q) = %#v, want ExprAtom{%q}", "*", n, "*")
+	}
+}
+
+func TestParseExprStarComposes(t *testing.T) {
+	// '*' is a normal atom: it composes with AND/OR/NOT like any other.
+	n, err := ParseExpr("* AND NOT status:done")
+	if err != nil {
+		t.Fatalf("ParseExpr: %v", err)
+	}
+	if _, ok := n.(*ExprAnd); !ok {
+		t.Fatalf("root = %T, want *ExprAnd", n)
+	}
+	got := Atoms(n)
+	want := []string{"*", "status:done"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Atoms = %v, want %v", got, want)
+	}
+}

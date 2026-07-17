@@ -218,3 +218,57 @@ func TestTaskListWithExpr(t *testing.T) {
 		t.Fatalf("--expr must filter; got:\n%s", out)
 	}
 }
+
+// TestTaskListAllTasksBoardAndStarFilterPinsTautology covers the all-tasks
+// board (expr '*') and the standalone '*' filter token end-to-end through the
+// CLI. Both must return every task, including an unlabeled naked jotting. The
+// unlabeled task is the load-bearing assertion: a board expression that used
+// the <CODE>:* namespace wildcard as its membership predicate would miss it
+// (qualify('*') in evalAtom yields <CODE>:* and reads as "has any label"),
+// which is exactly the bug the '*' tautology atom exists to fix — see
+// internal/store/resolve.go and TestResolverStarTautologyMatchesEveryTask.
+//
+// Note: this test does NOT contrast with `--label ATM:*` at the CLI, because
+// that token is a FACET (IsWildcard true), not a restricting atom — it groups
+// rather than filters, so unlabeled tasks land in its `others` bucket. The
+// '*' vs <CODE>:* distinction lives in the expression evaluator
+// (evalAtom), which is where the tautology short-circuits; the unit test
+// there pins the contrast directly.
+func TestTaskListAllTasksBoardAndStarFilterPinsTautology(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	// project create calls workflow.EnsureVocabulary, seeding all-tasks.
+	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "open-task", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "done-task", "--label", "ATM:status:done", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "wip-task", "--label", "ATM:status:in-progress", "--actor", "admin@cli:unset")
+	// The naked jotting: no labels at all.
+	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "naked-jotting", "--actor", "admin@cli:unset")
+
+	want := []string{"open-task", "done-task", "wip-task", "naked-jotting"}
+
+	// The all-tasks board resolves through its expr '*'.
+	outBoard, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:all-tasks")
+	if code != 0 {
+		t.Fatalf("all-tasks board exit = %d stderr=%s", code, h.stderr.String())
+	}
+	for _, title := range want {
+		if !strings.Contains(outBoard, title) {
+			t.Errorf("all-tasks board missing %q:\n%s", title, outBoard)
+		}
+	}
+
+	// The standalone '*' restricting token reaches evalAtom with Name="*"
+	// and short-circuits to true. Passed as a literal Go arg so no shell
+	// glob interferes.
+	outStar, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "*")
+	if code != 0 {
+		t.Fatalf("'*' filter exit = %d stderr=%s", code, h.stderr.String())
+	}
+	for _, title := range want {
+		if !strings.Contains(outStar, title) {
+			t.Errorf("'*' filter missing %q:\n%s", title, outStar)
+		}
+	}
+}
