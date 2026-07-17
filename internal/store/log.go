@@ -48,7 +48,7 @@ func (s *Store) LastLogSeq(code string) (int, error) {
 // — the read behind every log-derived view (History, ReadLogCached and,
 // through it, activity.Build).
 //
-// The v2 read returns the recoverable prefix alongside an core.ErrIntegrity, and
+// The v2 read returns the recoverable prefix alongside a core.ErrIntegrity, and
 // that error is propagated rather than dropped: swallowing it would render a
 // corrupt event file as a silently truncated view. Callers that can tolerate
 // damage (the TUI project summary) keep consuming the prefix; callers that

@@ -33,7 +33,7 @@ func newResolver(code string, labels []Label) *resolver {
 }
 
 // qualify turns a bare atom name ("status:open") into a full label name
-// ("ATM:status:open"). core.Atoms in an expression omit the project prefix.
+// ("ATM:status:open"). Atoms in an expression omit the project prefix.
 func (r *resolver) qualify(atom string) string { return r.code + ":" + atom }
 
 // Matches reports whether t satisfies n.

@@ -88,10 +88,9 @@ func WithNow(f func() time.Time) Option { return func(s *Store) { s.nowFn = f } 
 
 // Now returns the current time as seen by this Store instance, honoring
 // WithNow if set. Production stores (opened with no options) get
-// time.Now().UTC(), identical to the package-level Now() below. v2 authoring
-// stamps event `at` fields through this method so tests can pin it via
-// WithNow; everything else in the store continues to use the package-level
-// Now().
+// time.Now().UTC(). v2 authoring stamps event `at` fields through this
+// method so tests can pin it via WithNow; everything else in the store
+// continues to use core.Now() directly.
 func (s *Store) Now() time.Time { return s.nowFn() }
 
 var projectCodeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)

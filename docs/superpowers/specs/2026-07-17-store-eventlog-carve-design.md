@@ -84,6 +84,8 @@ internal/store            facade: implements core.Service + core.StorageAdmin
   └── internal/store/fslock     leaf: the file-lock primitive both import
 ```
 
+The lock leaf landed as `internal/store/fsio` (lock + atomic JSON + `core.MarshalSorted`), a refinement of this spec's `fslock` name discovered when the JSON helpers turned out to be shared by both sides.
+
 ### What moves into `internal/store/eventlog`
 
 Wholesale, with their tests, preserving semantics verbatim:
