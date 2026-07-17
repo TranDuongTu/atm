@@ -69,7 +69,7 @@ type logSnapshot struct {
 type Option func(*Store)
 
 // WithClock fixes the millisecond source feeding the v2 HLC clock used by
-// v2 authoring (eventsource_author.go's beginV2AuthorLocked). Production
+// v2 authoring (the eventlog engine's beginAuthorLocked). Production
 // omits it, leaving eventsource.NewClock to read the wall clock. Tests pass
 // a counter so successive HLC ticks -- and therefore minted hex aliases --
 // are reproducible.

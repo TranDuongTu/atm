@@ -23,9 +23,9 @@ var ErrSyncNeedsV2 = errors.New(`project is v1-active and cannot sync; run "atm 
 // guarantees. readV2File(repairTail=false) is deliberately strict -- a sync
 // read never silently truncates an uncommitted tail.
 func (s *Store) SyncSnapshot(code string) (events []*eventsource.Event, absent bool, err error) {
-	switch err := s.projectMediaExists(code); {
+	switch err := s.eng.MediaExists(code); {
 	case err == nil:
-		// projectMediaExists returns nil ONLY when neither log.jsonl nor
+		// MediaExists returns nil ONLY when neither log.jsonl nor
 		// events.v2.jsonl is on disk, i.e. the project is genuinely absent.
 		return nil, true, nil
 	case errors.Is(err, ErrConflict):
@@ -55,7 +55,7 @@ func (s *Store) SyncSnapshot(code string) (events []*eventsource.Event, absent b
 // lock so a concurrent local writer cannot cause a double-append.
 //
 // The HLC high-water mark is advanced exactly the way local authoring advances
-// it (commitV2AuthorLocked): the observed maximum ingested stamp is persisted
+// it (the engine's commitAuthorLocked): the observed maximum ingested stamp is persisted
 // verbatim -- no artificial logical bump -- so a subsequent local author sorts
 // after everything just received and convergence stays deterministic.
 func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested, newlyContested int, err error) {
@@ -92,7 +92,7 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 			return nil
 		}
 		// Persist the observed high-water mark under the store-scoped lock, the
-		// same read-modify-write commitV2AuthorLocked performs after a local
+		// same read-modify-write the engine's commitAuthorLocked performs after a local
 		// append. Copy maxHLC before taking its address so &h never aliases a
 		// value that changes underneath the stored pointer.
 		if err := s.mutateStoreMeta(func(m *StoreMeta) error {
@@ -123,7 +123,7 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 // given (topological) order, the HLC high-water mark is seeded from them so a
 // later local author is monotonic, and the cache is reprojected.
 func (s *Store) SyncBootstrap(code string, incoming []*eventsource.Event) error {
-	if err := s.projectMediaExists(code); err != nil {
+	if err := s.eng.MediaExists(code); err != nil {
 		// Non-nil means the project already exists (ErrConflict) or a real
 		// stat error; either way bootstrap must not proceed.
 		return err

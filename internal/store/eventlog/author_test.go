@@ -1,6 +1,7 @@
-package store
+package eventlog
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,15 +12,26 @@ import (
 	"atm/libs/eventsource"
 )
 
+// testEngine builds an Engine over a fresh temp root with the production
+// determinism defaults (wall clock, crypto/rand entropy) — the same defaults
+// store.Open fills in when no options are passed.
+func testEngine(t *testing.T) *Engine {
+	t.Helper()
+	return New(t.TempDir(), Options{
+		ReplicaEntropy: rand.Reader,
+		Now:            func() time.Time { return time.Now().UTC() },
+	})
+}
+
 // authorTask/authorComment run the minting helpers under the project lock,
-// exactly as Task 8's mutators will.
-func authorTask(t *testing.T, s *Store, code, title string) (*eventsource.Event, string) {
+// exactly as the facade's mutators do.
+func authorTask(t *testing.T, e *Engine, code, title string) (*eventsource.Event, string) {
 	t.Helper()
 	var ev *eventsource.Event
 	var alias string
-	if err := s.WithLock(code, func() error {
+	if err := e.WithLock(code, func() error {
 		var err error
-		ev, alias, err = s.appendV2TaskCreatedLocked(code, title, "", nil, "admin@cli:unset")
+		ev, alias, err = e.appendTaskCreatedLocked(code, title, "", nil, "admin@cli:unset")
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -27,13 +39,13 @@ func authorTask(t *testing.T, s *Store, code, title string) (*eventsource.Event,
 	return ev, alias
 }
 
-func authorComment(t *testing.T, s *Store, code, taskAlias, body, replyTo string) (*eventsource.Event, string) {
+func authorComment(t *testing.T, e *Engine, code, taskAlias, body, replyTo string) (*eventsource.Event, string) {
 	t.Helper()
 	var ev *eventsource.Event
 	var alias string
-	if err := s.WithLock(code, func() error {
+	if err := e.WithLock(code, func() error {
 		var err error
-		ev, alias, err = s.appendV2CommentCreatedLocked(code, taskAlias, body, nil, replyTo, "admin@cli:unset")
+		ev, alias, err = e.appendCommentCreatedLocked(code, taskAlias, body, nil, replyTo, "admin@cli:unset")
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -41,9 +53,9 @@ func authorComment(t *testing.T, s *Store, code, taskAlias, body, replyTo string
 	return ev, alias
 }
 
-func foldProject(t *testing.T, s *Store, code string) *eventsource.State {
+func foldProject(t *testing.T, e *Engine, code string) *eventsource.State {
 	t.Helper()
-	snap, err := s.readV2File(code, false)
+	snap, err := e.ReadV2File(code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,13 +84,13 @@ func payloadString(t *testing.T, ev *eventsource.Event, key string) string {
 }
 
 func TestAppendV2LockedParentsSecondLocalWriteOnFirst(t *testing.T) {
-	s := testStore(t)
-	if err := s.setProjectFormat("ATM", StoreFormatV2); err != nil {
+	e := testEngine(t)
+	if err := e.SetProjectFormat("ATM", StoreFormatV2); err != nil {
 		t.Fatal(err)
 	}
 	var firstID string
-	if err := s.WithLock("ATM", func() error {
-		ev, err := s.appendV2Locked("ATM", V2Draft{
+	if err := e.WithLock("ATM", func() error {
+		ev, err := e.appendLocked("ATM", draft{
 			Actor:   "admin@cli:unset",
 			Action:  "project.created",
 			Subject: eventsource.Subject{Kind: "project", Code: "ATM"},
@@ -92,8 +104,8 @@ func TestAppendV2LockedParentsSecondLocalWriteOnFirst(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WithLock("ATM", func() error {
-		ev, err := s.appendV2Locked("ATM", V2Draft{
+	if err := e.WithLock("ATM", func() error {
+		ev, err := e.appendLocked("ATM", draft{
 			Actor:   "admin@cli:unset",
 			Action:  "project.name-changed",
 			Subject: eventsource.Subject{Kind: "project", Code: "ATM"},
@@ -116,8 +128,8 @@ func TestAppendV2LockedParentsSecondLocalWriteOnFirst(t *testing.T) {
 // point: this pins the property, not a literal digest.
 
 func TestAppendV2TaskCreatedAliasIsNotDerivedFromEventID(t *testing.T) {
-	s := testStore(t)
-	ev, alias := authorTask(t, s, "ATM", "first")
+	e := testEngine(t)
+	ev, alias := authorTask(t, e, "ATM", "first")
 
 	if !strings.HasPrefix(alias, "ATM-") {
 		t.Fatalf("alias = %q, want ATM- prefix", alias)
@@ -131,7 +143,7 @@ func TestAppendV2TaskCreatedAliasIsNotDerivedFromEventID(t *testing.T) {
 	if got := payloadString(t, ev, "alias"); got != alias {
 		t.Fatalf("payload.alias = %q, want %q", got, alias)
 	}
-	st := foldProject(t, s, "ATM")
+	st := foldProject(t, e, "ATM")
 	m, err := st.Resolve(alias)
 	if err != nil {
 		t.Fatal(err)
@@ -142,9 +154,9 @@ func TestAppendV2TaskCreatedAliasIsNotDerivedFromEventID(t *testing.T) {
 }
 
 func TestAppendV2CommentCreatedAliasIsNotDerivedFromEventID(t *testing.T) {
-	s := testStore(t)
-	_, taskAlias := authorTask(t, s, "ATM", "t")
-	ev, alias := authorComment(t, s, "ATM", taskAlias, "hello", "")
+	e := testEngine(t)
+	_, taskAlias := authorTask(t, e, "ATM", "t")
+	ev, alias := authorComment(t, e, "ATM", taskAlias, "hello", "")
 
 	if !strings.HasPrefix(alias, taskAlias+"-c") {
 		t.Fatalf("alias = %q, want %q-c prefix", alias, taskAlias)
@@ -162,27 +174,27 @@ func TestAppendV2CommentCreatedAliasIsNotDerivedFromEventID(t *testing.T) {
 // --- the `taken` collision set is honored.
 
 func TestAppendV2TaskCreatedAliasesAreDistinctAndTaken(t *testing.T) {
-	s := testStore(t)
-	_, a1 := authorTask(t, s, "ATM", "one")
-	_, a2 := authorTask(t, s, "ATM", "two")
+	e := testEngine(t)
+	_, a1 := authorTask(t, e, "ATM", "one")
+	_, a2 := authorTask(t, e, "ATM", "two")
 	if a1 == a2 {
 		t.Fatalf("both tasks minted alias %q", a1)
 	}
 	// Both aliases are in the collision set the NEXT mint will be handed.
-	taken := takenTaskAliases(foldProject(t, s, "ATM"))
+	taken := takenTaskAliases(foldProject(t, e, "ATM"))
 	if !taken(a1) || !taken(a2) {
 		t.Fatalf("taken set does not hold both minted aliases (%q, %q)", a1, a2)
 	}
 }
 
 // TestTakenTaskAliasesForcesCollisionExtension drives eventsource.mintAlias's
-// collision-extension branch with the store's OWN predicate: a synthetic digest
+// collision-extension branch with the engine's OWN predicate: a synthetic digest
 // whose first 6 hex chars are exactly an existing task's alias suffix must not
 // mint that alias again, but extend it.
 func TestTakenTaskAliasesForcesCollisionExtension(t *testing.T) {
-	s := testStore(t)
-	_, existing := authorTask(t, s, "ATM", "one")
-	taken := takenTaskAliases(foldProject(t, s, "ATM"))
+	e := testEngine(t)
+	_, existing := authorTask(t, e, "ATM", "one")
+	taken := takenTaskAliases(foldProject(t, e, "ATM"))
 
 	// A digest that WOULD mint the existing alias (6 hex chars) verbatim.
 	colliding := "sha256:" + strings.TrimPrefix(existing, "ATM-") + "0123456789abcdef"
@@ -201,13 +213,13 @@ func TestTakenTaskAliasesForcesCollisionExtension(t *testing.T) {
 // TestTakenCommentAliasesAreScopedToTheirTask pins that a comment's collision
 // set is its OWN task's comments — and that it forces extension there.
 func TestTakenCommentAliasesAreScopedToTheirTask(t *testing.T) {
-	s := testStore(t)
-	t1, alias1 := authorTask(t, s, "ATM", "one")
-	t2, alias2 := authorTask(t, s, "ATM", "two")
-	_, c1 := authorComment(t, s, "ATM", alias1, "on task one", "")
-	_, c2 := authorComment(t, s, "ATM", alias2, "on task two", "")
+	e := testEngine(t)
+	t1, alias1 := authorTask(t, e, "ATM", "one")
+	t2, alias2 := authorTask(t, e, "ATM", "two")
+	_, c1 := authorComment(t, e, "ATM", alias1, "on task one", "")
+	_, c2 := authorComment(t, e, "ATM", alias2, "on task two", "")
 
-	st := foldProject(t, s, "ATM")
+	st := foldProject(t, e, "ATM")
 	taken1 := takenCommentAliases(st, t1.ID)
 	if !taken1(c1) {
 		t.Fatalf("task one's collision set misses its own comment %q", c1)
@@ -219,7 +231,7 @@ func TestTakenCommentAliasesAreScopedToTheirTask(t *testing.T) {
 		t.Fatalf("task two's collision set is wrong (c1=%v c2=%v)", taken2(c1), taken2(c2))
 	}
 
-	// Collision extension, driven through the store's predicate.
+	// Collision extension, driven through the engine's predicate.
 	colliding := "sha256:" + strings.TrimPrefix(c1, alias1+"-c") + "0123456789abcdef"
 	got := eventsource.MintCommentAlias(alias1, colliding, taken1)
 	if got == c1 || !strings.HasPrefix(got, c1) || len(got) <= len(c1) {
@@ -230,10 +242,10 @@ func TestTakenCommentAliasesAreScopedToTheirTask(t *testing.T) {
 // --- refs are fold-resolved identities, never aliases.
 
 func TestAppendV2CommentCreatedRefsAreIdentities(t *testing.T) {
-	s := testStore(t)
-	taskEv, taskAlias := authorTask(t, s, "ATM", "t")
-	c1ev, c1 := authorComment(t, s, "ATM", taskAlias, "parent", "")
-	c2ev, _ := authorComment(t, s, "ATM", taskAlias, "reply", c1) // reply_to given as an ALIAS
+	e := testEngine(t)
+	taskEv, taskAlias := authorTask(t, e, "ATM", "t")
+	c1ev, c1 := authorComment(t, e, "ATM", taskAlias, "parent", "")
+	c2ev, _ := authorComment(t, e, "ATM", taskAlias, "reply", c1) // reply_to given as an ALIAS
 
 	taskRef := payloadString(t, c2ev, "task_ref")
 	replyRef := payloadString(t, c2ev, "reply_to_ref")
@@ -253,7 +265,7 @@ func TestAppendV2CommentCreatedRefsAreIdentities(t *testing.T) {
 		t.Fatalf("top-level comment carries reply_to_ref %q", got)
 	}
 	// The fold agrees: the comment hangs off the task by identity.
-	st := foldProject(t, s, "ATM")
+	st := foldProject(t, e, "ATM")
 	if c := st.Comments[c2ev.ID]; c == nil || c.TaskRef != taskEv.ID || c.ReplyToRef != c1ev.ID {
 		t.Fatalf("fold: comment = %+v, want task_ref=%s reply_to_ref=%s", c, taskEv.ID, c1ev.ID)
 	}
@@ -262,9 +274,9 @@ func TestAppendV2CommentCreatedRefsAreIdentities(t *testing.T) {
 // --- HLC.
 
 func TestCommitV2AuthorPersistsLastHLC(t *testing.T) {
-	s := testStore(t)
-	ev, _ := authorTask(t, s, "ATM", "t")
-	m, err := s.readStoreMeta()
+	e := testEngine(t)
+	ev, _ := authorTask(t, e, "ATM", "t")
+	m, err := e.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,24 +293,24 @@ func TestCommitV2AuthorPersistsLastHLC(t *testing.T) {
 // event already in the log that carries a far-future stamp must still be
 // sorted BEFORE the next locally-authored event.
 func TestBeginV2AuthorReobservesFileHLCs(t *testing.T) {
-	s := testStore(t)
-	_, _ = authorTask(t, s, "ATM", "t")
+	e := testEngine(t)
+	_, _ = authorTask(t, e, "ATM", "t")
 
 	// Splice in a legitimate v2 event stamped an hour into the future.
 	future := time.Now().Add(time.Hour).UnixMilli()
 	var futureHLC eventsource.HLC
-	if err := s.WithLock("ATM", func() error {
-		snap, err := s.readV2File("ATM", true)
+	if err := e.WithLock("ATM", func() error {
+		snap, err := e.ReadV2File("ATM", true)
 		if err != nil {
 			return err
 		}
-		replica, err := s.currentReplicaIDLocked()
+		replica, err := e.EnsureReplicaForWriteLocked()
 		if err != nil {
 			return err
 		}
 		clock := eventsource.NewClock(func() int64 { return future })
 		ev, err := eventsource.NewEvent(clock, replica, snap.Frontier, eventsource.Draft{
-			At:      Now(),
+			At:      e.now(),
 			Actor:   "admin@cli:unset",
 			Action:  "project.name-changed",
 			Subject: eventsource.Subject{Kind: "project", Code: "ATM"},
@@ -308,14 +320,14 @@ func TestBeginV2AuthorReobservesFileHLCs(t *testing.T) {
 			return err
 		}
 		futureHLC = ev.HLC
-		return s.appendV2EventLineLocked("ATM", ev.Raw)
+		return e.AppendEventLineLocked("ATM", ev.Raw)
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	for _, name := range []string{"absent last_hlc", "stale last_hlc"} {
 		t.Run(name, func(t *testing.T) {
-			if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+			if err := e.MutateStoreMeta(func(m *StoreMeta) error {
 				if name == "absent last_hlc" {
 					m.LastHLC = nil
 				} else {
@@ -325,11 +337,11 @@ func TestBeginV2AuthorReobservesFileHLCs(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			ev, alias := authorTask(t, s, "ATM", "after "+name)
+			ev, alias := authorTask(t, e, "ATM", "after "+name)
 			if ev.HLC.Compare(futureHLC) <= 0 {
 				t.Fatalf("new event HLC %+v does not follow the file's future stamp %+v (%s)", ev.HLC, futureHLC, alias)
 			}
-			m, err := s.readStoreMeta()
+			m, err := e.ReadStoreMeta()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -343,16 +355,16 @@ func TestBeginV2AuthorReobservesFileHLCs(t *testing.T) {
 // TestBeginV2AuthorObservesPersistedLastHLC pins spec authoring step 5: a
 // persisted local HLC ahead of everything in the file is still observed.
 func TestBeginV2AuthorObservesPersistedLastHLC(t *testing.T) {
-	s := testStore(t)
-	_, _ = authorTask(t, s, "ATM", "t")
+	e := testEngine(t)
+	_, _ = authorTask(t, e, "ATM", "t")
 	ahead := eventsource.HLC{P: time.Now().Add(time.Hour).UnixMilli(), L: 7}
-	if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+	if err := e.MutateStoreMeta(func(m *StoreMeta) error {
 		m.LastHLC = &ahead
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ev, _ := authorTask(t, s, "ATM", "next")
+	ev, _ := authorTask(t, e, "ATM", "next")
 	if ev.HLC.Compare(ahead) <= 0 {
 		t.Fatalf("new event HLC %+v does not follow the persisted last_hlc %+v", ev.HLC, ahead)
 	}
@@ -362,24 +374,24 @@ func TestBeginV2AuthorObservesPersistedLastHLC(t *testing.T) {
 // STORE-WIDE watermark: a commit in one project must never move it backwards
 // past a higher stamp a concurrent commit in another project just wrote.
 // Per-project causality is unaffected either way — each project reobserves
-// every event in its own file on every beginV2AuthorLocked — but the field
+// every event in its own file on every beginAuthorLocked — but the field
 // is store-wide, so its name promises a store-wide max.
 //
 // This simulates the race directly: begin a v2 author context (observing
 // today's last_hlc), then have a "concurrent" writer in another project push
 // last_hlc ahead before this writer commits its (now stale, lower) event.
 func TestCommitV2AuthorKeepsLastHLCMonotone(t *testing.T) {
-	s := testStore(t)
+	e := testEngine(t)
 
 	var lowEv *eventsource.Event
-	if err := s.WithLock("ATM", func() error {
-		ctx, err := s.beginV2AuthorLocked("ATM")
+	if err := e.WithLock("ATM", func() error {
+		ctx, err := e.beginAuthorLocked("ATM")
 		if err != nil {
 			return err
 		}
 		lowEv, _, err = eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 			ProjectCode: "ATM",
-			At:          Now(),
+			At:          e.now(),
 			Actor:       "admin@cli:unset",
 			Title:       "low",
 		}, takenTaskAliases(ctx.state))
@@ -390,7 +402,7 @@ func TestCommitV2AuthorKeepsLastHLCMonotone(t *testing.T) {
 
 	// A concurrent commit in another project moves last_hlc ahead of lowEv.
 	ahead := eventsource.HLC{P: lowEv.HLC.P + 1_000_000, L: 0}
-	if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+	if err := e.MutateStoreMeta(func(m *StoreMeta) error {
 		m.LastHLC = &ahead
 		return nil
 	}); err != nil {
@@ -398,13 +410,13 @@ func TestCommitV2AuthorKeepsLastHLCMonotone(t *testing.T) {
 	}
 
 	// This project now commits its stale, lower-stamped event.
-	if err := s.WithLock("ATM", func() error {
-		return s.commitV2AuthorLocked("ATM", lowEv)
+	if err := e.WithLock("ATM", func() error {
+		return e.commitAuthorLocked("ATM", lowEv)
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	m, err := s.readStoreMeta()
+	m, err := e.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,10 +429,10 @@ func TestCommitV2AuthorKeepsLastHLCMonotone(t *testing.T) {
 // Without the store-scoped lock, a v2 append in one project read-modify-writes
 // a stale store.json and silently drops another project's ProjectFormats entry
 // — which downgrades a v2-media project to v1 and sends its next write to
-// log.jsonl. Remove the WithLock in mutateStoreMeta and this test fails.
+// log.jsonl. Remove the WithLock in MutateStoreMeta and this test fails.
 func TestStoreMetaWritesDoNotLoseProjectFormats(t *testing.T) {
-	s := testStore(t)
-	if err := s.setProjectFormat("BBB", StoreFormatV2); err != nil {
+	e := testEngine(t)
+	if err := e.SetProjectFormat("BBB", StoreFormatV2); err != nil {
 		t.Fatal(err)
 	}
 
@@ -435,7 +447,7 @@ func TestStoreMetaWritesDoNotLoseProjectFormats(t *testing.T) {
 	go func() { // P1: upgrades projects, writing their format entries
 		defer wg.Done()
 		for _, code := range codes {
-			if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
+			if err := e.SetProjectFormat(code, StoreFormatV2); err != nil {
 				errs <- err
 				return
 			}
@@ -444,8 +456,8 @@ func TestStoreMetaWritesDoNotLoseProjectFormats(t *testing.T) {
 	go func() { // P2: appends v2 events in a DIFFERENT project (LastHLC RMW)
 		defer wg.Done()
 		for i := 0; i < 20; i++ {
-			if err := s.WithLock("BBB", func() error {
-				_, _, err := s.appendV2TaskCreatedLocked("BBB", fmt.Sprintf("t%d", i), "", nil, "admin@cli:unset")
+			if err := e.WithLock("BBB", func() error {
+				_, _, err := e.appendTaskCreatedLocked("BBB", fmt.Sprintf("t%d", i), "", nil, "admin@cli:unset")
 				return err
 			}); err != nil {
 				errs <- err
@@ -459,7 +471,7 @@ func TestStoreMetaWritesDoNotLoseProjectFormats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := s.readStoreMeta()
+	m, err := e.ReadStoreMeta()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/libs/eventsource"
 )
 
 var (
@@ -44,18 +44,18 @@ func (s *Store) LabelAdd(name, description, expr, actor string) error {
 	if _, err := s.dispatchFormat(code); err != nil {
 		return err
 	}
-	// Only the fields being SET go into the payload (the writesOf action
-	// table): an omitted key writes no slot, so the label's existing
-	// description/expr survives — exactly the v1 "empty means keep" rule,
-	// expressed in the event model instead of by re-reading the cache.
-	payload := map[string]any{}
+	// Only the fields being SET are asserted (the writesOf action table): a nil
+	// field writes no slot, so the label's existing description/expr survives —
+	// exactly the v1 "empty means keep" rule, expressed in the event model
+	// instead of by re-reading the cache.
+	f := core.LabelFields{}
 	if description != "" {
-		payload["description"] = description
+		f.Description = &description
 	}
 	if expr != "" {
-		payload["expr"] = expr
+		f.Expr = &expr
 	}
-	return s.labelUpsertV2(code, name, actor, payload)
+	return s.labelUpsertV2(code, name, actor, f)
 }
 
 // validateExpr parses expr, rejects a name collision, and walks the board
@@ -159,46 +159,31 @@ func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 
 // ---- v2 label mutators ----
 
-// labelUpsertV2 emits label.upserted. A label's NAME is its identity in the
-// fold, so the subject carries the name and there is nothing to resolve.
-func (s *Store) labelUpsertV2(code, name, actor string, payload map[string]any) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-			Payload: payload,
-		}); err != nil {
+// labelUpsertV2 emits label.upserted through the engine's write transaction.
+// A label's NAME is its identity in the fold, so there is nothing to resolve.
+func (s *Store) labelUpsertV2(code, name, actor string, f core.LabelFields) error {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.UpsertLabel(name, f, actor); err != nil {
 			return err
 		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
-// labelSeedV2 is LabelSeed's v2 body: a no-op when the label is already live
-// in the fold (the fold, not cache.db, is the authority for a v2 project).
+// labelSeedV2 is LabelSeed's v2 body. cs.SeedLabel is itself the no-op guard:
+// it folds under the lock and appends nothing when the label is already live,
+// so it carries the exact begin/observe sequence (and therefore the exact HLC
+// trajectory) the pre-carve labelSeedV2 had — a separate LabelLive pre-check
+// here would insert an extra begin, whose per-event Observe advances the shared
+// HLC clock and shifts every downstream event's stamp. The trailing
+// reprojectTxn is clock-free (a strict re-read + cache rewrite, no append), so
+// running it even on the no-op path never changes event bytes.
 func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.SeedLabel(name, description, expr, actor); err != nil {
 			return err
 		}
-		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
-			return nil
-		}
-		payload := map[string]any{"description": description}
-		if expr != "" {
-			payload["expr"] = expr
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelUpserted,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-			Payload: payload,
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
@@ -208,22 +193,11 @@ func (s *Store) labelRemoveV2(code, name, actor string) (*LabelRemoveResult, err
 		return nil, err
 	}
 	var result *LabelRemoveResult
-	err = s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	err = s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.RemoveLabel(name, actor); err != nil {
 			return err
 		}
-		if l, ok := ctx.state.Labels[name]; !ok || l.Tombstoned {
-			return fmt.Errorf("%w: label %q", ErrNotFound, name)
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionLabelRemoved,
-			Subject: eventsource.Subject{Kind: "label", Name: name},
-		}); err != nil {
-			return err
-		}
-		if err := s.reprojectV2Locked(code); err != nil {
+		if err := s.reprojectTxn(code, cs); err != nil {
 			return err
 		}
 		// Retained usage: entities still carrying the (now unregistered) name.

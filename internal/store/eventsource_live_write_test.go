@@ -140,8 +140,14 @@ func TestV2ActiveEveryMutatorLeavesV1LogByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proj, ok := v2LiveProject(state, "ATM")
-	if !ok {
+	var proj *eventsource.ProjectState
+	for _, p := range state.Projects {
+		if p.Code == "ATM" && !p.Tombstoned {
+			proj = p
+			break
+		}
+	}
+	if proj == nil {
 		t.Fatal("project missing from v2 fold")
 	}
 	if proj.Name != "renamed" {
@@ -412,14 +418,7 @@ func TestRemoveProjectRefusesUnprojectedV2Task(t *testing.T) {
 	}
 	// A writer that fsynced its commit point and died before reprojecting: the
 	// event line is truth, the cache holds no task row for it.
-	var alias string
-	if err := s.WithLock("ATM", func() error {
-		_, a, err := s.appendV2TaskCreatedLocked("ATM", "unprojected live task", "", nil, "admin@cli:unset")
-		alias = a
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	alias := authorTaskViaEngine(t, s, "ATM", "unprojected live task", "admin@cli:unset")
 	err := s.RemoveProject("ATM", "admin@cli:unset")
 	if err == nil {
 		t.Fatalf("RemoveProject with unprojected live task %q = nil: DATA LOSS, the event file was deleted", alias)

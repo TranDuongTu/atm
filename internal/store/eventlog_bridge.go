@@ -53,6 +53,3 @@ func (s *Store) appendV2EventLineLocked(code string, raw []byte) error {
 func (s *Store) ensureReplicaForWriteLocked() (string, error) {
 	return s.eng.EnsureReplicaForWriteLocked()
 }
-func (s *Store) currentReplicaIDLocked() (string, error) {
-	return s.eng.EnsureReplicaForWriteLocked()
-}

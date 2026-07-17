@@ -48,14 +48,7 @@ func TestListTasksSeesV2AppendWithoutCacheProjection(t *testing.T) {
 	// Simulate a writer that died between the append commit point and the
 	// cache projection: the event line is truth, the cache is legitimately
 	// stale, and ONLY the freshness gate can save the list read.
-	var alias string
-	if err := s.WithLock("ATM", func() error {
-		_, a, err := s.appendV2TaskCreatedLocked("ATM", "external", "", nil, "admin@cli:unset")
-		alias = a
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	alias := authorTaskViaEngine(t, s, "ATM", "external", "admin@cli:unset")
 	tasks := s.ListTasks(QueryFilters{Project: "ATM"})
 	found := false
 	for _, tk := range tasks {
@@ -116,14 +109,7 @@ func TestListCommentsSeesV2AppendWithoutCacheProjection(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	tk, _ := s.CreateTask("ATM", "t1", "", nil, testActor)
-	var alias string
-	if err := s.WithLock("ATM", func() error {
-		_, a, err := s.appendV2CommentCreatedLocked("ATM", tk.ID, "external", nil, "", testActor)
-		alias = a
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	alias := authorCommentViaEngine(t, s, "ATM", tk.ID, "external", testActor)
 	comments, err := s.ListComments(tk.ID)
 	if err != nil {
 		t.Fatal(err)

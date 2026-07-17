@@ -31,7 +31,7 @@ func TestCacheProjectFromV2StateWritesCompatibilityRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", state, 2); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", state, 2)); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.GetProject("ATM")
@@ -109,7 +109,7 @@ func TestCacheProjectFromV2StateDeletesStaleRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", state, 4); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", state, 4)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestCacheProjectFromV2StateDeletesStaleRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", freshState, 2); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", freshState, 2)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +208,7 @@ func TestCacheProjectFromV2StateDeletesStaleLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", state, 2); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", state, 2)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,7 +254,7 @@ func TestCacheProjectFromV2StateDeletesStaleLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", freshState, 2); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", freshState, 2)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -338,7 +338,7 @@ func TestCacheProjectFromV2StateDropsDanglingReplyToForTombstonedParent(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.cacheProjectFromV2State("ATM", state, 5); err != nil {
+	if err := s.projectSnapshot("ATM", s.eng.ConvertState("ATM", state, 5)); err != nil {
 		t.Fatal(err)
 	}
 

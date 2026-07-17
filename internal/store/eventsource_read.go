@@ -8,10 +8,9 @@ import (
 )
 
 // rebuildProjectFromV2 re-derives the project's cache rows from the v2 event
-// file: strict read, fold, project. There is no per-entity variant because
-// cacheProjectFromV2State always projects the whole live set from one fold,
-// and the freshness key is a whole-file event count. Caller MUST hold the
-// project lock.
+// file: strict read, fold, project. There is no per-entity variant because the
+// whole live set is projected from one fold, and the freshness key is a
+// whole-file event count. Caller MUST hold the project lock.
 func (s *Store) rebuildProjectFromV2(code string) error {
 	snap, err := s.verifyV2File(code)
 	if err != nil {
@@ -21,7 +20,7 @@ func (s *Store) rebuildProjectFromV2(code string) error {
 	if err != nil {
 		return err
 	}
-	return s.cacheProjectFromV2State(code, state, snap.EventCount)
+	return s.projectSnapshot(code, s.eng.ConvertState(code, state, snap.EventCount))
 }
 
 // rebuildEntityCacheLocked dispatches a point-read rebuild by format: the v2

@@ -1,32 +1,57 @@
-package store
+package eventlog
 
 import (
 	"errors"
 	"fmt"
 
+	"atm/internal/core"
 	"atm/libs/eventsource"
 )
 
-type V2Draft struct {
+// Action enum — closed. These are the write-side action strings the engine
+// stamps on authored events. They mirror the read-side store.Action* constants
+// (internal/store/log.go still renders history from the same strings); the two
+// sets carry identical literals across the carve seam and Task 9 reconciles
+// them once nothing outside the engine authors events.
+const (
+	actionProjectCreated      = "project.created"
+	actionProjectNameChanged  = "project.name-changed"
+	actionProjectRemoved      = "project.removed"
+	actionTaskCreated         = "task.created"
+	actionTaskTitleChanged    = "task.title-changed"
+	actionTaskDescChanged     = "task.description-changed"
+	actionTaskLabelAdded      = "task.label-added"
+	actionTaskLabelRemoved    = "task.label-removed"
+	actionTaskRemoved         = "task.removed"
+	actionLabelUpserted       = "label.upserted"
+	actionLabelRemoved        = "label.removed"
+	actionCommentCreated      = "comment.created"
+	actionCommentBodyChanged  = "comment.body-changed"
+	actionCommentLabelAdded   = "comment.label-added"
+	actionCommentLabelRemoved = "comment.label-removed"
+	actionCommentRemoved      = "comment.removed"
+)
+
+type draft struct {
 	Actor   string
 	Action  string
 	Subject eventsource.Subject
 	Payload map[string]any
 }
 
-// v2AuthorCtx is everything a locked writer needs: the current snapshot and
+// authorCtx is everything a locked writer needs: the current snapshot and
 // fold (frontier, alias→identity resolution, taken-alias sets), a clock that
 // has observed the persisted local HLC and every event in the file, and the
 // writing replica id. It must only be built while holding the project lock.
-type v2AuthorCtx struct {
+type authorCtx struct {
 	snap    *V2FileSnapshot
 	state   *eventsource.State
 	clock   *eventsource.Clock
 	replica string
 }
 
-func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
-	snap, err := s.readV2File(code, true)
+func (e *Engine) beginAuthorLocked(code string) (*authorCtx, error) {
+	snap, err := e.ReadV2File(code, true)
 	if err != nil {
 		return nil, err
 	}
@@ -34,12 +59,12 @@ func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
 	if err != nil {
 		return nil, err
 	}
-	replica, err := s.currentReplicaIDLocked()
+	replica, err := e.EnsureReplicaForWriteLocked()
 	if err != nil {
 		return nil, err
 	}
-	clock := eventsource.NewClock(s.clockNow)
-	m, err := s.readStoreMeta()
+	clock := eventsource.NewClock(e.opts.ClockNow)
+	m, err := e.ReadStoreMeta()
 	if err != nil {
 		return nil, err
 	}
@@ -49,14 +74,14 @@ func (s *Store) beginV2AuthorLocked(code string) (*v2AuthorCtx, error) {
 	for _, ev := range snap.Events {
 		clock.Observe(ev.HLC)
 	}
-	return &v2AuthorCtx{snap: snap, state: state, clock: clock, replica: replica}, nil
+	return &authorCtx{snap: snap, state: state, clock: clock, replica: replica}, nil
 }
 
-// commitV2AuthorLocked appends the event line — the commit point — and then
+// commitAuthorLocked appends the event line — the commit point — and then
 // persists the local HLC. The metadata write is rebuildable state; the event
 // line is the truth.
-func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
-	if err := s.appendV2EventLineLocked(code, ev.Raw); err != nil {
+func (e *Engine) commitAuthorLocked(code string, ev *eventsource.Event) error {
+	if err := e.AppendEventLineLocked(code, ev.Raw); err != nil {
 		return err
 	}
 	// store.json is store-wide but this writer only holds the project lock,
@@ -64,7 +89,7 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 	// concurrent writer in another project would drop our (or their)
 	// ProjectFormats entry. Nesting a DIFFERENT lock name inside the project
 	// lock is safe; WithLock is not reentrant on the same name.
-	return s.mutateStoreMeta(func(m *StoreMeta) error {
+	return e.MutateStoreMeta(func(m *StoreMeta) error {
 		h := ev.HLC
 		if m.LastHLC == nil || h.Compare(*m.LastHLC) > 0 {
 			m.LastHLC = &h
@@ -78,7 +103,7 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 // An alias collision surfaces as *eventsource.AmbiguousError — the caller
 // reports the candidates; never silently pick one (L1-4).
 //
-// Both go through resolveV2Ref, which translates the eventsource-layer errors
+// Both go through resolveRef, which translates the eventsource-layer errors
 // into the store's sentinels. That translation is the whole point: EVERY v2
 // mutator resolves here, and internal/store is the compatibility API the CLI
 // keys its exit codes off (cli.CodeForError -> errors.Is(err, ErrNotFound)).
@@ -86,31 +111,31 @@ func (s *Store) commitV2AuthorLocked(code string, ev *eventsource.Event) error {
 // exit 1 (generic) instead of 3 (not-found) and leaked an "eventsource:" prefix
 // into user-facing output. The read side was pinned by
 // TestV2ActiveMissingEntityReadsReturnErrNotFound; this is its write-side twin.
-func (c *v2AuthorCtx) resolveTaskRef(alias string) (string, error) {
-	return c.resolveV2Ref(alias, "task")
+func (c *authorCtx) resolveTaskRef(alias string) (string, error) {
+	return c.resolveRef(alias, "task")
 }
 
-func (c *v2AuthorCtx) resolveCommentRef(alias string) (string, error) {
-	return c.resolveV2Ref(alias, "comment")
+func (c *authorCtx) resolveCommentRef(alias string) (string, error) {
+	return c.resolveRef(alias, "comment")
 }
 
-func (c *v2AuthorCtx) resolveV2Ref(alias, kind string) (string, error) {
+func (c *authorCtx) resolveRef(alias, kind string) (string, error) {
 	m, err := c.state.Resolve(alias)
 	if err != nil {
 		if errors.Is(err, eventsource.ErrNoMatch) {
-			return "", fmt.Errorf("%w: %s %q", ErrNotFound, kind, alias)
+			return "", fmt.Errorf("%w: %s %q", core.ErrNotFound, kind, alias)
 		}
 		var amb *eventsource.AmbiguousError
 		if errors.As(err, &amb) {
 			// No v1 sentinel exists for an ambiguous id (v1 ids are exact), so
 			// this is a caller-input problem: ErrUsage (CLI exit 2). The
 			// candidate list rides along in the message — never pick one (L1-4).
-			return "", fmt.Errorf("%w: %s", ErrUsage, amb.Error())
+			return "", fmt.Errorf("%w: %s", core.ErrUsage, amb.Error())
 		}
 		return "", err
 	}
 	if m.Kind != kind {
-		return "", fmt.Errorf("%w: %q is a %s, not a %s", ErrUsage, alias, m.Kind, kind)
+		return "", fmt.Errorf("%w: %q is a %s, not a %s", core.ErrUsage, alias, m.Kind, kind)
 	}
 	return m.ID, nil
 }
@@ -119,10 +144,10 @@ func (c *v2AuthorCtx) resolveV2Ref(alias, kind string) (string, error) {
 // A project's alias IS its code, but the event model still keys project slot
 // writes off subject.id (the identity of its project.created event), so every
 // project mutator must go through the fold rather than sending the code.
-func (c *v2AuthorCtx) resolveProjectRef(code string) (string, error) {
+func (c *authorCtx) resolveProjectRef(code string) (string, error) {
 	p, ok := v2LiveProject(c.state, code)
 	if !ok {
-		return "", fmt.Errorf("%w: project %q", ErrNotFound, code)
+		return "", fmt.Errorf("%w: project %q", core.ErrNotFound, code)
 	}
 	return p.ID, nil
 }
@@ -137,7 +162,7 @@ func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectStat
 	return nil, false
 }
 
-// appendV2LabelUpsertsLocked auto-registers any label name a task/comment
+// appendLabelUpsertsLocked auto-registers any label name a task/comment
 // mutation asserts but the fold does not already hold live. It was the v2
 // mirror of the v1 appendLabelUpsertsLocked, deleted in D-Task5b along with
 // the v1 write branches that were its only callers. The payload carries NO
@@ -145,11 +170,11 @@ func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectStat
 // writes the existence slot unconditionally (writesOf), so an empty payload
 // registers the label without clobbering a description/expr some other
 // replica may have set. Caller MUST hold the project lock.
-func (s *Store) appendV2LabelUpsertsLocked(code string, labels []string, actor string) error {
+func (e *Engine) appendLabelUpsertsLocked(code string, labels []string, actor string) error {
 	if len(labels) == 0 {
 		return nil
 	}
-	ctx, err := s.beginV2AuthorLocked(code)
+	ctx, err := e.beginAuthorLocked(code)
 	if err != nil {
 		return err
 	}
@@ -157,9 +182,9 @@ func (s *Store) appendV2LabelUpsertsLocked(code string, labels []string, actor s
 		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
 			continue
 		}
-		if _, err := s.appendV2Locked(code, V2Draft{
+		if _, err := e.appendLocked(code, draft{
 			Actor:   actor,
-			Action:  ActionLabelUpserted,
+			Action:  actionLabelUpserted,
 			Subject: eventsource.Subject{Kind: "label", Name: name},
 			Payload: map[string]any{},
 		}); err != nil {
@@ -169,22 +194,22 @@ func (s *Store) appendV2LabelUpsertsLocked(code string, labels []string, actor s
 	return nil
 }
 
-func (s *Store) appendV2Locked(code string, draft V2Draft) (*eventsource.Event, error) {
-	ctx, err := s.beginV2AuthorLocked(code)
+func (e *Engine) appendLocked(code string, d draft) (*eventsource.Event, error) {
+	ctx, err := e.beginAuthorLocked(code)
 	if err != nil {
 		return nil, err
 	}
 	ev, err := eventsource.NewEvent(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.Draft{
-		At:      s.Now(),
-		Actor:   draft.Actor,
-		Action:  draft.Action,
-		Subject: draft.Subject,
-		Payload: draft.Payload,
+		At:      e.now(),
+		Actor:   d.Actor,
+		Action:  d.Action,
+		Subject: d.Subject,
+		Payload: d.Payload,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return ev, s.commitV2AuthorLocked(code, ev)
+	return ev, e.commitAuthorLocked(code, ev)
 }
 
 // takenTaskAliases and takenCommentAliases build the collision sets handed to
@@ -212,14 +237,14 @@ func takenCommentAliases(st *eventsource.State, taskRef string) func(string) boo
 	return func(a string) bool { return taken[a] }
 }
 
-func (s *Store) appendV2TaskCreatedLocked(code, title, description string, labels []string, actor string) (*eventsource.Event, string, error) {
-	ctx, err := s.beginV2AuthorLocked(code)
+func (e *Engine) appendTaskCreatedLocked(code, title, description string, labels []string, actor string) (*eventsource.Event, string, error) {
+	ctx, err := e.beginAuthorLocked(code)
 	if err != nil {
 		return nil, "", err
 	}
 	ev, alias, err := eventsource.NewTaskCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.TaskCreateDraft{
 		ProjectCode: code,
-		At:          s.Now(),
+		At:          e.now(),
 		Actor:       actor,
 		Title:       title,
 		Description: description,
@@ -228,11 +253,11 @@ func (s *Store) appendV2TaskCreatedLocked(code, title, description string, label
 	if err != nil {
 		return nil, "", err
 	}
-	return ev, alias, s.commitV2AuthorLocked(code, ev)
+	return ev, alias, e.commitAuthorLocked(code, ev)
 }
 
-func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, labels []string, replyToAlias, actor string) (*eventsource.Event, string, error) {
-	ctx, err := s.beginV2AuthorLocked(code)
+func (e *Engine) appendCommentCreatedLocked(code, taskAlias, body string, labels []string, replyToAlias, actor string) (*eventsource.Event, string, error) {
+	ctx, err := e.beginAuthorLocked(code)
 	if err != nil {
 		return nil, "", err
 	}
@@ -250,7 +275,7 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 		TaskAlias:  taskAlias,
 		TaskRef:    taskRef,
 		ReplyToRef: replyToRef,
-		At:         s.Now(),
+		At:         e.now(),
 		Actor:      actor,
 		Body:       body,
 		Labels:     labels,
@@ -258,5 +283,5 @@ func (s *Store) appendV2CommentCreatedLocked(code, taskAlias, body string, label
 	if err != nil {
 		return nil, "", err
 	}
-	return ev, alias, s.commitV2AuthorLocked(code, ev)
+	return ev, alias, e.commitAuthorLocked(code, ev)
 }

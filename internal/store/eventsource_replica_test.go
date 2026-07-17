@@ -88,9 +88,7 @@ func TestUncopiedStoreKeepsReplicaAcrossWrites(t *testing.T) {
 func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 	original := testStore(t)
 	_, _ = original.CreateProject("ATM", "x", "admin@cli:unset")
-	if _, _, err := original.appendV2TaskCreatedLocked("ATM", "first task", "", nil, testActor); err != nil {
-		t.Fatal(err)
-	}
+	_ = authorTaskViaEngine(t, original, "ATM", "first task", testActor)
 	beforeCopy, err := os.ReadFile(original.eventsV2Path("ATM"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +102,7 @@ func TestCopiedStoreDoesNotLoseExistingEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := copied.appendV2TaskCreatedLocked("ATM", "second task", "", nil, testActor); err != nil {
-		t.Fatal(err)
-	}
+	_ = authorTaskViaEngine(t, copied, "ATM", "second task", testActor)
 
 	afterAppend, err := os.ReadFile(copied.eventsV2Path("ATM"))
 	if err != nil {

@@ -4,28 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"atm/internal/core"
 	"atm/internal/seed"
-	"atm/libs/eventsource"
 )
-
-// projectMediaExists reports ErrConflict when EITHER format's media is on
-// disk for code. cache.db is documented as disposable and rebuildable, so a
-// cache row alone is not proof of life; log.jsonl alone stopped being proof of
-// ABSENCE the moment projects can be born on v2 (a v2-born project has no
-// log.jsonl at all, so the old os.Stat(logPath) check would have let
-// CreateProject append a second project.created over a live project).
-// RemoveProject deletes the whole project directory, so both paths truly
-// absent means the project was actually removed and recreation is allowed.
-func (s *Store) projectMediaExists(code string) error {
-	for _, path := range []string{s.logPath(code), s.eventsV2Path(code)} {
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
 
 func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err := ValidateProjectCode(code); err != nil {
@@ -34,31 +15,29 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
-	// Every new project is born v2. createProjectV2 ESTABLISHES the format (it
-	// writes ProjectFormats[code]=v2 itself), so CreateProject no longer
-	// dispatches on the store's ActiveFormat — the fresh-store DEFAULT stays v1,
-	// but no v1-active project can be created any more.
+	// Every new project is born v2. createProjectV2 ESTABLISHES the format (the
+	// engine's WithProjectBirth writes ProjectFormats[code]=v2 itself), so
+	// CreateProject no longer dispatches on the store's ActiveFormat — the
+	// fresh-store DEFAULT stays v1, but no v1-active project can be created any
+	// more.
 	return s.createProjectV2(code, name, actor)
 }
 
 // createProjectV2 is the v2 birth path — the only mutator that starts from an
-// EMPTY event file. No log.jsonl is ever created for such a project.
+// EMPTY event file. No log.jsonl is ever created for such a project. It runs
+// inside the engine's WithProjectBirth transaction: a plain project lock (never
+// the format gate — the format is being ESTABLISHED), the format entry written
+// before the first append, best-effort entry rollback if the closure fails
+// before the root event commits. Double-creation is guarded below
+// (MediaExists + the cache "already exists" check).
 func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
 	var created *Project
-	// A plain WithLock, NOT withProjectFormatLock(code, v2): createProjectV2
-	// ESTABLISHES the format rather than operating on an already-v2 project.
-	// withProjectFormatLock re-checks projectFormat(code)==v2 under the lock and
-	// would ErrConflict on a fresh v1-DEFAULT store (a not-yet-existing project
-	// resolves to the default). Double-creation is already guarded below
-	// (projectMediaExists + the cache "already exists" check), and this body
-	// writes setProjectFormat(code, v2) itself, so no format re-check is correct
-	// here.
-	err = s.WithLock(code, func() error {
-		if err := s.projectMediaExists(code); err != nil {
+	err = s.eng.WithProjectBirth(code, func(cs core.ChangeSet) error {
+		if err := s.eng.MediaExists(code); err != nil {
 			return err
 		}
 		if _, ok, err := cacheGetProject(db, code); err != nil {
@@ -66,61 +45,33 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		} else if ok {
 			return fmt.Errorf("%w: project %q already exists", ErrConflict, code)
 		}
-		// CRASH-WINDOW DECISION: write the ProjectFormats entry BEFORE the
-		// first append. A crash between the two leaves an entry pointing at an
-		// absent event file — benign: readV2File treats a missing file as an
-		// empty snapshot, the project reads as an empty v2 project, and the
-		// media-based existence check still allows recreation. The reverse
-		// order is the dangerous window: v2 media with NO entry would read as
-		// v1 (no log.jsonl) on a v1-default store AND block recreation,
-		// violating the Task 1 invariant that every v2-media project carries an
-		// explicit entry. On any error before the root append commits,
-		// best-effort remove the entry again.
-		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
-			return err
-		}
 		// Root event: the fresh file has an empty frontier, so project.created
-		// carries parents [] — beginV2AuthorLocked derives exactly that from
-		// the (absent) events.v2.jsonl.
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
-			_ = s.removeProjectFormat(code)
-			return err
-		}
-		ev, _, err := eventsource.NewProjectCreated(ctx.clock, ctx.replica, ctx.snap.Frontier, eventsource.ProjectCreateDraft{
-			Code: code, Name: name, At: s.Now(), Actor: actor,
-		})
-		if err != nil {
-			_ = s.removeProjectFormat(code)
-			return err
-		}
-		if err := s.commitV2AuthorLocked(code, ev); err != nil {
-			_ = s.removeProjectFormat(code)
+		// carries parents [].
+		if err := cs.CreateProject(name, actor); err != nil {
 			return err
 		}
 		// Seed default labels as label.upserted v2 events — v1 parity with
 		// seedLabelsLocked, same seed.Labels source; the payload carries only
-		// the fields being set (the writesOf action table).
+		// the fields being set (the writesOf action table). Copy the range
+		// variable's Description before taking its address: &l.Description would
+		// alias the single loop variable across every iteration.
 		for _, l := range seed.Labels {
-			payload := map[string]any{"description": l.Description}
-			if l.Expr != "" {
-				payload["expr"] = l.Expr
+			desc := l.Description
+			expr := l.Expr
+			f := core.LabelFields{Description: &desc}
+			if expr != "" {
+				f.Expr = &expr
 			}
-			if _, err := s.appendV2Locked(code, V2Draft{
-				Actor:   actor,
-				Action:  ActionLabelUpserted,
-				Subject: eventsource.Subject{Kind: "label", Name: code + ":" + l.Suffix},
-				Payload: payload,
-			}); err != nil {
+			if err := cs.UpsertLabel(code+":"+l.Suffix, f, actor); err != nil {
 				return err
 			}
 		}
-		if err := s.reprojectV2Locked(code); err != nil {
+		if err := s.reprojectTxn(code, cs); err != nil {
 			return err
 		}
-		// getProjectLocked now branches on the effective format in its shared
-		// body (Task 9), so this locked read goes through the v2 freshness path
-		// reprojectV2Locked just satisfied — never the v1 checks.
+		// getProjectLocked branches on the effective format in its shared body
+		// (Task 9), so this locked read goes through the v2 freshness path
+		// reprojectTxn just satisfied — never the v1 checks.
 		p, err := s.getProjectLocked(code)
 		if err != nil {
 			return err
@@ -179,11 +130,11 @@ func noV1RebuildErr(code string) error {
 // ProjectFormats entry along with its media, so a fully removed project
 // falls back to the default/ActiveFormat resolution — GetProject on it must
 // still answer ErrNotFound; (2) a cache row can be written directly by a
-// lower-level v2 helper (cacheProjectFromV2State) ahead of format
-// registration — GetProject must still serve that row rather than bounce it
-// through the v2 freshness/rebuild dance, which has nothing to check the
-// staleness of without a real event file. Either way, the cache row (or its
-// absence) is authoritative; there's nothing to rebuild.
+// lower-level v2 helper ahead of format registration — GetProject must still
+// serve that row rather than bounce it through the v2 freshness/rebuild dance,
+// which has nothing to check the staleness of without a real event file.
+// Either way, the cache row (or its absence) is authoritative; there's nothing
+// to rebuild.
 func (s *Store) getProjectWithRebuild(code string, rebuild func() error) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
@@ -265,24 +216,11 @@ func (s *Store) SetProjectName(code, name, actor string) error {
 // setProjectNameV2 emits project.name-changed against the project's identity
 // (never its code: the fold keys slot writes off subject.id).
 func (s *Store) setProjectNameV2(code, name, actor string) error {
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.SetProjectName(name, actor); err != nil {
 			return err
 		}
-		ref, err := ctx.resolveProjectRef(code)
-		if err != nil {
-			return err
-		}
-		if _, err := s.appendV2Locked(code, V2Draft{
-			Actor:   actor,
-			Action:  ActionProjectNameChanged,
-			Subject: eventsource.Subject{Kind: "project", ID: ref, Code: code},
-			Payload: map[string]any{"name": name},
-		}); err != nil {
-			return err
-		}
-		return s.reprojectV2Locked(code)
+		return s.reprojectTxn(code, cs)
 	})
 }
 
@@ -302,48 +240,45 @@ func (s *Store) RemoveProject(code, actor string) error {
 // project.removed tombstone exists for REMOTE observers (L4 sync); local
 // removal of the entire project is a filesystem operation plus metadata
 // cleanup, exactly like v1's RemoveAll.
+//
+// The "is this project empty?" guard is answered from the FOLD, not from cache
+// rows (cs.HasLiveTasks). Under v2 a lagging cache is a designed-for state --
+// an external append, or a writer that died between the append commit point and
+// its reprojection, leaves the cache legitimately behind the event file -- and
+// step 1 below is an IRREVERSIBLE os.RemoveAll that takes events.v2.jsonl with
+// it. Every other v2 read path is freshness-gated; this one cannot be (the gate
+// takes the project lock we already hold, and WithLock is not reentrant), so it
+// consults the truth it already has in hand.
+//
+// CRASH-WINDOW DECISION (media first, entry second): a crash between the
+// os.RemoveAll and ForgetProject leaves ProjectFormats[code]="v2" with no
+// media, so a recreation goes to createProjectV2 regardless of ActiveFormat --
+// coherent (createProjectV2 starts from an empty event file anyway, and it
+// rewrites the same entry) and strictly safer than the reverse order, where the
+// entry would be gone while v2 media survived: on a v1-default store that
+// project would then read as v1 with no log.jsonl, breaking the invariant that
+// every v2-media project carries an explicit entry.
 func (s *Store) removeProjectV2(code string) error {
 	db, err := s.cacheDB()
 	if err != nil {
 		return err
 	}
-	return s.withProjectFormatLock(code, StoreFormatV2, func() error {
-		ctx, err := s.beginV2AuthorLocked(code)
-		if err != nil {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.RequireProject(); err != nil {
 			return err
 		}
-		if _, err := ctx.resolveProjectRef(code); err != nil {
+		if has, err := cs.HasLiveTasks(); err != nil {
 			return err
-		}
-		// The "is this project empty?" guard is answered from the FOLD, not
-		// from cache rows (hasTasksGuard, the v1 answer). Under v2 a lagging
-		// cache is a designed-for state -- an external append, or a writer that
-		// died between the append commit point and its reprojection, leaves the
-		// cache legitimately behind the event file -- and step 1 below is an
-		// IRREVERSIBLE os.RemoveAll that takes events.v2.jsonl with it. Every
-		// other v2 read path is freshness-gated; this one cannot be (the gate
-		// takes the project lock we already hold, and WithLock is not
-		// reentrant), so it consults the truth it already has in hand.
-		if err := v2HasTasksGuardLocked(code, ctx); err != nil {
-			return err
+		} else if has {
+			return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
 		}
 		// 1. Delete the project directory (events.v2.jsonl, vectors, config).
-		//
-		// CRASH-WINDOW DECISION (media first, entry second): a crash between
-		// steps 1 and 2 leaves ProjectFormats[code]="v2" with no media, so a
-		// recreation goes to createProjectV2 regardless of ActiveFormat — which
-		// is coherent (createProjectV2 starts from an empty event file anyway,
-		// and it rewrites the same entry) and strictly safer than the reverse
-		// order, where the entry would be gone while v2 media survived: on a
-		// v1-default store that project would then read as v1 with no log.jsonl,
-		// breaking the invariant that every v2-media project carries an explicit
-		// entry.
 		if err := os.RemoveAll(s.projectDir(code)); err != nil {
 			return err
 		}
 		// 2. Remove the ProjectFormats entry so recreation follows ActiveFormat
 		// instead of reading "v2" with no event file.
-		if err := s.removeProjectFormat(code); err != nil {
+		if err := cs.ForgetProject(); err != nil {
 			return err
 		}
 		// 3. Delete the project's cache rows AND its v2 freshness meta row.
@@ -352,19 +287,6 @@ func (s *Store) removeProjectV2(code string) error {
 		}
 		return cacheClearV2Freshness(db, code)
 	})
-}
-
-// v2HasTasksGuardLocked is hasTasksGuard's fold-sourced twin: it counts LIVE
-// (non-tombstoned) tasks in the authoring context's fold and refuses with the
-// exact error hasTasksGuard would have produced. Caller MUST hold the project
-// lock (the ctx it takes can only be built under it).
-func v2HasTasksGuardLocked(code string, ctx *v2AuthorCtx) error {
-	for _, t := range ctx.state.Tasks {
-		if !t.Tombstoned {
-			return fmt.Errorf("%w: project %q has tasks — remove tasks first", ErrConflict, code)
-		}
-	}
-	return nil
 }
 
 func (s *Store) hasTasksGuard(code string) error {

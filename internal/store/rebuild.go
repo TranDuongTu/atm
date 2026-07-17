@@ -80,17 +80,17 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
 			}
 			continue
 		}
-		if err := s.cacheProjectFromV2StateDB(db, code, state, snap.EventCount); err != nil {
+		if err := s.projectSnapshotDB(db, code, s.eng.ConvertState(code, state, snap.EventCount)); err != nil {
 			return rep, err
 		}
 		rep.Projects++
 		rep.Tasks += len(state.Tasks)
 		// Fold this v2 project's live label names into the store-global,
 		// name-keyed set (the "labels" cache table has no project_code
-		// column — see eventsource_projector.go's cacheDeleteProjectRows
+		// column — see cache_project.go's cacheDeleteProjectRows
 		// comment) so a name shared with another project is counted once,
 		// not once per project. Tombstoned entries are excluded to match
-		// cacheProjectFromV2StateDB, which never upserts them.
+		// projectSnapshotDB, which never upserts them.
 		for name, l := range state.Labels {
 			if l.Tombstoned {
 				continue

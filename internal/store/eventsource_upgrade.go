@@ -131,7 +131,7 @@ func (s *Store) UpgradeProjectToV2(code string) (*UpgradeReport, error) {
 			_ = os.Remove(tmp)
 			return err
 		}
-		if err := s.cacheProjectFromV2State(code, state, snap.EventCount); err != nil {
+		if err := s.projectSnapshot(code, s.eng.ConvertState(code, state, snap.EventCount)); err != nil {
 			return err
 		}
 		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
