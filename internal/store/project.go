@@ -29,15 +29,18 @@ func (s *Store) CreateProject(code, name, actor string) (*Project, error) {
 // inside the engine's WithProjectBirth transaction: a plain project lock (never
 // the format gate — the format is being ESTABLISHED), the format entry written
 // before the first append, best-effort entry rollback if the closure fails
-// before the root event commits. Double-creation is guarded below
-// (MediaExists + the cache "already exists" check).
+// before the root event commits. Double-creation is guarded in the PREFLIGHT
+// (MediaExists + the cache "already exists" check), which WithProjectBirth runs
+// before it touches store.json — so a failed duplicate create leaves an
+// existing project's ProjectFormats entry (including a legacy explicit "v1")
+// untouched.
 func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
 	}
 	var created *Project
-	err = s.eng.WithProjectBirth(code, func(cs core.ChangeSet) error {
+	preflight := func() error {
 		if err := s.eng.MediaExists(code); err != nil {
 			return err
 		}
@@ -46,6 +49,9 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		} else if ok {
 			return fmt.Errorf("%w: project %q already exists", core.ErrConflict, code)
 		}
+		return nil
+	}
+	err = s.eng.WithProjectBirth(code, preflight, func(cs core.ChangeSet) error {
 		// Root event: the fresh file has an empty frontier, so project.created
 		// carries parents [].
 		if err := cs.CreateProject(name, actor); err != nil {

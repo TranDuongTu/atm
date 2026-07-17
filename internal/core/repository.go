@@ -109,7 +109,6 @@ type ChangeSet interface {
 	TaskHasLabel(id, label string) (bool, error)
 	CommentHasLabel(id, label string) (bool, error)
 	HasLiveTasks() (bool, error)
-	LabelLive(name string) (bool, error)
 
 	Snapshot() (*ProjectSnapshot, error)
 }
@@ -119,7 +118,12 @@ type ChangeSet interface {
 // birth establishes a brand-new project (WithProjectWrite would refuse it).
 type Journal interface {
 	WithProjectWrite(code string, fn func(ChangeSet) error) error
-	WithProjectBirth(code string, fn func(ChangeSet) error) error
+	// WithProjectBirth establishes a brand-new project (WithProjectWrite would
+	// refuse it). preflight runs under the project lock BEFORE the storage
+	// registration is established — it is the caller's existence guard, and a
+	// preflight error leaves storage metadata untouched. Only once preflight
+	// passes does birth register the project and run fn to record the birth.
+	WithProjectBirth(code string, preflight func() error, fn func(ChangeSet) error) error
 	// Snapshot is a strict, lock-free point-in-time read (integrity errors
 	// wrap ErrIntegrity).
 	Snapshot(code string) (*ProjectSnapshot, error)

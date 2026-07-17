@@ -30,25 +30,41 @@ func (e *Engine) WithProjectWrite(code string, fn func(core.ChangeSet) error) er
 // before the first append, best-effort entry rollback if fn fails before the
 // root event committed. Exactly createProjectV2's crash-window contract.
 //
-// The rollback is skipped when an explicit format entry ALREADY existed for
-// code: a birth against a project that is really still live (a duplicate
-// CreateProject, which fails fn's MediaExists guard before rootCommitted)
-// must leave that live project's entry intact — the pre-carve code checked
-// media BEFORE writing the entry, so it never touched a pre-existing one.
-func (e *Engine) WithProjectBirth(code string, fn func(core.ChangeSet) error) error {
+// preflight runs FIRST, under the lock, BEFORE any storage registration is
+// established — it is the caller's existence guard (a duplicate create fails
+// here), and a preflight error returns with store metadata COMPLETELY
+// untouched. This restores the pre-carve order, where media/cache were checked
+// before setProjectFormat, so a failed duplicate create never wrote store.json
+// (and, critically, never flipped an explicit "v1" entry to "v2" — which would
+// hide a live v1 project's log as an empty v2 project).
+//
+// Only once preflight passes does birth write ProjectFormats[code]=v2 (before
+// the first append). If fn then fails before the root event commits, the entry
+// is restored to exactly what birth found — its prior value, or removed if
+// there was none — so a failed birth is atomic on store.json regardless of any
+// pre-existing (e.g. orphaned) entry. Once the root event is durable
+// (cs.rootCommitted), the entry stands: the project now has v2 media.
+func (e *Engine) WithProjectBirth(code string, preflight func() error, fn func(core.ChangeSet) error) error {
 	return e.WithLock(code, func() error {
+		if err := preflight(); err != nil {
+			return err
+		}
 		m, err := e.ReadStoreMeta()
 		if err != nil {
 			return err
 		}
-		_, hadEntry := m.ProjectFormats[code]
+		prior, hadEntry := m.ProjectFormats[code]
 		if err := e.SetProjectFormat(code, StoreFormatV2); err != nil {
 			return err
 		}
 		cs := &changeSet{e: e, code: code}
 		if err := fn(cs); err != nil {
-			if !cs.rootCommitted && !hadEntry {
-				_ = e.RemoveProjectFormat(code)
+			if !cs.rootCommitted {
+				if hadEntry {
+					_ = e.SetProjectFormat(code, prior)
+				} else {
+					_ = e.RemoveProjectFormat(code)
+				}
 			}
 			return err
 		}
@@ -351,15 +367,6 @@ func (cs *changeSet) HasLiveTasks() (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func (cs *changeSet) LabelLive(name string) (bool, error) {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
-	if err != nil {
-		return false, err
-	}
-	l, ok := ctx.state.Labels[name]
-	return ok && !l.Tombstoned, nil
 }
 
 // Snapshot is the strict re-read the facade projects at the end of a
