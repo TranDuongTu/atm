@@ -42,6 +42,11 @@ type ProjectSnapshot struct {
 	Labels        []Label
 	RemovedLabels []string
 	ChangeCount   int
+	// TotalTasks is every task the project ever created, tombstoned included
+	// (Tasks holds only the live ones). It exists solely for the `store
+	// rebuild` report's task count, which has always been tombstone-inclusive;
+	// keeping the field preserves that output byte-for-byte.
+	TotalTasks int
 }
 
 type ProjectWriter interface {

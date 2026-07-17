@@ -36,7 +36,7 @@ func (e *Engine) ConvertState(code string, st *eventsource.State, eventCount int
 // tombstone handling cacheProjectFromV2StateDB used, so the projected rows
 // are byte-identical to the pre-carve projection.
 func convertState(code string, st *eventsource.State, eventCount int) *core.ProjectSnapshot {
-	out := &core.ProjectSnapshot{ChangeCount: eventCount}
+	out := &core.ProjectSnapshot{ChangeCount: eventCount, TotalTasks: len(st.Tasks)}
 	for _, p := range st.Projects {
 		if p.Code != code || p.Tombstoned {
 			continue

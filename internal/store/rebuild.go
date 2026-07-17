@@ -75,7 +75,9 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
 			return rep, err
 		}
 		rep.Projects++
-		rep.Tasks += len(snap.Tasks)
+		// Tombstone-inclusive, matching the pre-carve len(state.Tasks): the
+		// report's task count has always included removed tasks.
+		rep.Tasks += snap.TotalTasks
 		// Fold this v2 project's live label names into the store-global,
 		// name-keyed set (the "labels" cache table has no project_code
 		// column — see cache_project.go's cacheDeleteProjectRows

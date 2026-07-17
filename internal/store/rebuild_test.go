@@ -41,6 +41,40 @@ func TestRebuildThenVerifyIsFullySynced(t *testing.T) {
 		}
 	}
 }
+// TestRebuildReportCountsTombstonedTasks pins the pre-carve output parity of
+// the `atm store rebuild` report: rep.Tasks counts every task ever created,
+// tombstoned included (the fold map's len), not just the live set. The count
+// is printed in both text and JSON, so a store that ever removed a task must
+// still report the tombstone-inclusive number byte-for-byte.
+func TestRebuildReportCountsTombstonedTasks(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "keep-one", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "keep-two", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	drop, err := s.CreateTask("ATM", "drop", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Remove one of the three tasks; the fold keeps its tombstoned state in
+	// the task map, so the pre-carve report counted it.
+	if err := s.RemoveTask(drop.ID, testActor); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.Rebuild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Tasks != 3 {
+		t.Fatalf("rep.Tasks = %d, want 3 (tombstone-inclusive: 3 created, 1 removed)", rep.Tasks)
+	}
+}
+
 func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
