@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"atm/internal/capability"
 	"atm/internal/store"
 	"atm/internal/version"
 
@@ -19,6 +20,9 @@ type tuiRunner func(storePath, actor string) error
 // RunTUI launches the interactive TUI for the given store path and actor.
 type Deps struct {
 	RunTUI func(storePath, actor string) error
+	// Registry holds the capability commands the composition root enabled;
+	// nil behaves as empty (no capability commands mount).
+	Registry *capability.Registry
 }
 
 type globalFlags struct {
@@ -45,6 +49,10 @@ type cliState struct {
 	// (openStore is called per command, not on the harness's own handle) mint
 	// reproducible hex aliases.
 	storeOpts []store.Option
+
+	// registry is the capability registry the composition root injected;
+	// nil-safe (behaves as empty).
+	registry *capability.Registry
 }
 
 func (s *cliState) stdin() io.Reader {
@@ -123,6 +131,10 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newManageCmd(st))
 	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))
+
+	for _, c := range st.registry.Commands(st) {
+		root.AddCommand(c)
+	}
 
 	return root
 }
@@ -210,7 +222,7 @@ func newVersionCmd(st *cliState) *cobra.Command {
 }
 
 func Execute(deps Deps) int {
-	st := &cliState{runTUI: deps.RunTUI}
+	st := &cliState{runTUI: deps.RunTUI, registry: deps.Registry}
 	root := newRootCmdWithState(st)
 	if err := root.Execute(); err != nil {
 		if st.isJSON() {

@@ -44,7 +44,7 @@ func runStatusVerb(st *cliState, id, legacy string, fn func(*workflow.Recorder, 
 	if err != nil {
 		return err
 	}
-	actor, err := st.requireMutatingActor()
+	actor, err := st.RequireMutatingActor()
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func newWorkflowSeedCmd(st *cliState) *cobra.Command {
 		Use:   "seed",
 		Short: "Ensure the workflow boards (backlog, open-tasks, in-progress-tasks) exist",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := st.RequireMutatingActor()
 			if err != nil {
 				return err
 			}

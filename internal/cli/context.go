@@ -45,17 +45,6 @@ func (st *cliState) recorder(actor string) (*contextmap.Recorder, error) {
 	}, nil
 }
 
-// requireMutatingActor enforces that a mutating verb has an explicit actor. The
-// shared resolveActor helper deliberately defaults a missing actor to
-// admin@cli:unset (so read-only commands and the TUI still work), so mutating
-// verbs that must attribute their work check the flag directly.
-func (st *cliState) requireMutatingActor() (string, error) {
-	if st.flags.actor == "" {
-		return "", fmt.Errorf("%w: mutating command requires --actor or ATM_ACTOR", ErrUsage)
-	}
-	return st.resolveActor(true)
-}
-
 func parseSources(raw []string) ([]contextmap.Source, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("%w: at least one --source is required", ErrUsage)
@@ -78,7 +67,7 @@ func newContextAddCmd(st *cliState) *cobra.Command {
 		Use:   "add",
 		Short: "Make a task a context pointer and stamp its provenance",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := st.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
@@ -113,7 +102,7 @@ func newContextStampCmd(st *cliState) *cobra.Command {
 		Use:   "stamp",
 		Short: "Re-verify a pointer: its subject is unchanged in meaning",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := st.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
@@ -141,7 +130,7 @@ func newContextRetargetCmd(st *cliState) *cobra.Command {
 		Use:   "retarget",
 		Short: "Point at new sources: the subject survived, but moved",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := st.RequireMutatingActor()
 			if err != nil {
 				return err
 			}
@@ -173,7 +162,7 @@ func newContextSupersedeCmd(st *cliState) *cobra.Command {
 		Use:   "supersede",
 		Short: "Retire a pointer whose subject died; history is kept",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.requireMutatingActor()
+			actor, err := st.RequireMutatingActor()
 			if err != nil {
 				return err
 			}

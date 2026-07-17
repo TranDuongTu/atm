@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"atm/internal/capability"
 	"atm/internal/store"
 )
 
@@ -47,6 +48,13 @@ func deterministicSeamOpts() []store.Option {
 
 var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 
+// testRegistry mirrors cmd/atm's production registry so golden tests
+// exercise the same command surface the binary ships. Tasks 5-6 of the
+// step-5 plan add the capabilities as their cobra layers move.
+func testRegistry() *capability.Registry {
+	return capability.NewRegistry()
+}
+
 var tsRe = regexp.MustCompile(`"2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"`)
 
 var storePathRe = regexp.MustCompile(`"/[^"]*/projects"`)
@@ -75,7 +83,7 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 		t.Setenv(k, "")
 	}
 	dir := t.TempDir()
-	st := &cliState{flags: globalFlags{output: outputJSON}}
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry()}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
@@ -106,7 +114,7 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	} {
 		t.Setenv(k, "")
 	}
-	st := &cliState{flags: globalFlags{output: outputJSON}}
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry()}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
