@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 
+	"atm/internal/core"
 	"atm/internal/store"
-	eventsync "atm/libs/eventsource/sync"
 
 	"github.com/spf13/cobra"
 )
@@ -135,19 +134,18 @@ func newStoreSyncCmds(st *cliState) []*cobra.Command {
 				arg = args[0]
 			}
 			// Neither flag means both directions; both flags set is the same
-			// (eventsync.Sync treats Pull && Push as bidirectional too).
-			opts := eventsync.Options{Pull: pull, Push: push, DryRun: dryRun}
+			// (the sync engine treats Pull && Push as bidirectional too).
+			opts := core.SyncOptions{Pull: pull, Push: push, DryRun: dryRun}
 
 			codes, err := syncProjectCodes(s, project)
 			if err != nil {
 				return err
 			}
 
-			remotesDir := filepath.Join(s.StorePath(), "remotes")
 			results := make([]syncResult, 0, len(codes))
 			failed := false
 			for _, code := range codes {
-				res := runProjectSync(cmd.Context(), s, remotesDir, code, arg, opts, actor)
+				res := runProjectSync(cmd.Context(), s, code, arg, opts, actor)
 				if res.failed() {
 					failed = true
 				}
@@ -203,29 +201,25 @@ func syncProjectCodes(s *store.Store, project string) ([]string, error) {
 // non-nil PushErr and no err. Both count as a failure for the exit code.
 type syncResult struct {
 	code   string
-	report *eventsync.Report
+	report *core.SyncReport
 	err    error
 }
 
 func (r syncResult) failed() bool {
-	return r.err != nil || (r.report != nil && r.report.PushErr != nil)
+	return r.err != nil || (r.report != nil && r.report.PushErr != "")
 }
 
-// runProjectSync resolves code's remote, selects a transport, and runs one
-// sync. On success against an ad-hoc URL that bootstrapped a brand-new project
-// (I-5), it persists that URL as the project's "origin" so later syncs need no
-// argument; an ad-hoc URL that merely updated an existing project is not
-// persisted.
-func runProjectSync(ctx context.Context, s *store.Store, remotesDir, code, arg string, opts eventsync.Options, actor string) syncResult {
+// runProjectSync resolves code's remote and runs one sync through the store
+// (which owns transport selection and the set-union engine). On success against
+// an ad-hoc URL that bootstrapped a brand-new project (I-5), it persists that
+// URL as the project's "origin" so later syncs need no argument; an ad-hoc URL
+// that merely updated an existing project is not persisted.
+func runProjectSync(ctx context.Context, s *store.Store, code, arg string, opts core.SyncOptions, actor string) syncResult {
 	url, adhoc, err := resolveSyncRemote(s, code, arg)
 	if err != nil {
 		return syncResult{code: code, err: err}
 	}
-	target, err := eventsync.SelectTarget(remotesDir, url)
-	if err != nil {
-		return syncResult{code: code, err: err}
-	}
-	report, err := eventsync.Sync(ctx, s, target, code, opts)
+	report, err := s.SyncProject(ctx, code, url, opts)
 	if err != nil {
 		return syncResult{code: code, err: err}
 	}
@@ -286,8 +280,8 @@ func (r syncResult) toJSON() syncJSONReport {
 		j.NewlyContested = rep.NewlyContested
 		j.RemoteAbsent = rep.RemoteAbsent
 		j.DryRun = rep.DryRun
-		if rep.PushErr != nil {
-			j.PushError = rep.PushErr.Error()
+		if rep.PushErr != "" {
+			j.PushError = rep.PushErr
 		}
 	}
 	return j
@@ -320,7 +314,7 @@ func (st *cliState) emitSyncResults(results []syncResult) error {
 			line += " (dry run)"
 		}
 		fmt.Fprintln(w, line)
-		if rep.PushErr != nil {
+		if rep.PushErr != "" {
 			fmt.Fprintf(w, "  push failed: %s\n", rep.PushErr)
 		}
 		if rep.NewlyContested > 0 {

@@ -23,14 +23,6 @@ func (e *Engine) Snapshot(code string) (*core.ProjectSnapshot, error) {
 	return convertState(code, state, snap.EventCount), nil
 }
 
-// ConvertState is a transitional shim for facade callers (read/upgrade/rebuild)
-// that still fold eventsource.State themselves before projecting: it renders a
-// fold they already hold as the domain snapshot, without re-reading the file.
-// Tasks 5-6 delete it as those paths move behind Snapshot/WithProjectWrite.
-func (e *Engine) ConvertState(code string, st *eventsource.State, eventCount int) *core.ProjectSnapshot {
-	return convertState(code, st, eventCount)
-}
-
 // convertState renders a fold as the domain snapshot the facade projects:
 // the same iteration order, ordinal assignment, alias resolution and
 // tombstone handling cacheProjectFromV2StateDB used, so the projected rows

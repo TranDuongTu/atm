@@ -18,12 +18,12 @@ type V2FileSnapshot struct {
 	Frontier       []string
 }
 
-// ReadFileAt reads a v2 event file. The commit point is a complete,
+// readFileAt reads a v2 event file. The commit point is a complete,
 // newline-terminated line (L3-7): every byte after the last '\n' is an
 // uncommitted partial tail — even if it happens to parse as JSON. A
 // bufio.Scanner would hide that distinction (it yields an unterminated
 // tail as a normal line), so the split is done on the raw bytes.
-func (e *Engine) ReadFileAt(path string, repairTail bool) (*V2FileSnapshot, error) {
+func (e *Engine) readFileAt(path string, repairTail bool) (*V2FileSnapshot, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return &V2FileSnapshot{}, nil
@@ -75,7 +75,7 @@ func (e *Engine) ReadFileAt(path string, repairTail bool) (*V2FileSnapshot, erro
 }
 
 func (e *Engine) ReadV2File(code string, repairTail bool) (*V2FileSnapshot, error) {
-	return e.ReadFileAt(e.EventsV2Path(code), repairTail)
+	return e.readFileAt(e.EventsV2Path(code), repairTail)
 }
 
 // VerifyFile is the strict read: parse, recompute ids, validate parents,

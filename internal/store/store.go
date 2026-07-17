@@ -45,9 +45,10 @@ type Store struct {
 	replicaEntropy io.Reader        // nil => rand.Reader (defaulted in Open)
 	nowFn          func() time.Time // nil => time.Now().UTC (defaulted in Open)
 
-	// eng is the event-log write-engine (internal/store/eventlog). Hooks are
-	// wired in Task 6; until then engine-internal projection paths are still
-	// facade methods.
+	// eng is the event-log write-engine (internal/store/eventlog). Its
+	// OnProject/OnMediaReplaced hooks (wired in Open) let engine-internal
+	// projection paths (sync ingest/bootstrap, upgrade) write through the
+	// facade's read-model cache under the project lock.
 	eng *eventlog.Engine
 }
 
@@ -187,6 +188,11 @@ func Open(root string, opts ...Option) (*Store, error) {
 		ClockNow:       s.clockNow,
 		ReplicaEntropy: s.replicaEntropy,
 		Now:            s.nowFn,
+		OnProject:      func(code string, snap *core.ProjectSnapshot) error { return s.projectSnapshot(code, snap) },
+		OnMediaReplaced: func(code string) {
+			_ = os.RemoveAll(s.vectorsDir(code))
+			s.invalidateLogSnapshot(code)
+		},
 	})
 	return s, nil
 }

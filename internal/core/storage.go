@@ -16,3 +16,24 @@ type LogView struct {
 	Action  string    `json:"action"`
 	Subject string    `json:"subject"`
 }
+
+// SyncOptions selects sync direction; neither flag set means both.
+type SyncOptions struct {
+	Pull   bool
+	Push   bool
+	DryRun bool
+}
+
+// SyncReport is one project's sync outcome. PushErr carries a push-leg
+// failure as text ("" = none); a hard failure is returned as an error
+// instead of a report.
+type SyncReport struct {
+	Project        string
+	Pulled         int
+	Pushed         int
+	Bootstrapped   bool
+	NewlyContested int
+	RemoteAbsent   bool
+	DryRun         bool
+	PushErr        string
+}

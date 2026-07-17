@@ -27,11 +27,11 @@ func syncPeer(t *testing.T, code string, base []*eventsource.Event, opts []Optio
 	if err := p.Init(""); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SyncBootstrap(code, base); err != nil {
+	if err := p.eng.SyncBootstrap(code, base); err != nil {
 		t.Fatalf("peer bootstrap: %v", err)
 	}
 	author(p)
-	snap, absent, err := p.SyncSnapshot(code)
+	snap, absent, err := p.eng.SyncSnapshot(code)
 	if err != nil || absent {
 		t.Fatalf("peer snapshot: absent=%v err=%v", absent, err)
 	}
@@ -65,7 +65,7 @@ func countV2Lines(t *testing.T, s *Store, code string) int {
 
 func mustSnapshot(t *testing.T, s *Store, code string) []*eventsource.Event {
 	t.Helper()
-	snap, absent, err := s.SyncSnapshot(code)
+	snap, absent, err := s.eng.SyncSnapshot(code)
 	if err != nil {
 		t.Fatalf("snapshot %s: %v", code, err)
 	}
@@ -89,7 +89,7 @@ func TestSyncSnapshotV1Refused(t *testing.T) {
 	if err := os.WriteFile(s.logPath(code), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := s.SyncSnapshot(code)
+	_, _, err := s.eng.SyncSnapshot(code)
 	if !errors.Is(err, ErrSyncNeedsV2) {
 		t.Fatalf("SyncSnapshot on v1 project = %v, want ErrSyncNeedsV2", err)
 	}
@@ -98,7 +98,7 @@ func TestSyncSnapshotV1Refused(t *testing.T) {
 // TestSyncSnapshotAbsentProject: an unknown code reports absent, not an error.
 func TestSyncSnapshotAbsentProject(t *testing.T) {
 	s := testStore(t)
-	events, absent, err := s.SyncSnapshot("ZZZ")
+	events, absent, err := s.eng.SyncSnapshot("ZZZ")
 	if err != nil {
 		t.Fatalf("SyncSnapshot on absent project = %v, want nil", err)
 	}
@@ -132,7 +132,7 @@ func TestSyncIngestAppendsTopoAndReprojects(t *testing.T) {
 	}
 
 	before := countV2Lines(t, s, code)
-	ingested, newly, err := s.SyncIngest(code, incoming)
+	ingested, newly, err := s.eng.SyncIngest(code, incoming)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,10 +166,10 @@ func TestSyncIngestIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if _, _, err := s.SyncIngest(code, incoming); err != nil {
+	if _, _, err := s.eng.SyncIngest(code, incoming); err != nil {
 		t.Fatal(err)
 	}
-	ingested, newly, err := s.SyncIngest(code, incoming)
+	ingested, newly, err := s.eng.SyncIngest(code, incoming)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestSyncIngestObservesHLC(t *testing.T) {
 			maxIn = e.HLC
 		}
 	}
-	if _, _, err := s.SyncIngest(code, incoming); err != nil {
+	if _, _, err := s.eng.SyncIngest(code, incoming); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTask(code, "after ingest", "", nil, testActor); err != nil {
@@ -245,7 +245,7 @@ func TestSyncIngestReportsNewlyContested(t *testing.T) {
 	if err := s.SetTitle(tk.ID, "origin title", testActor); err != nil {
 		t.Fatal(err)
 	}
-	_, newly, err := s.SyncIngest(code, incoming)
+	_, newly, err := s.eng.SyncIngest(code, incoming)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestSyncBootstrapCreatesProject(t *testing.T) {
 	base := mustSnapshot(t, origin, code)
 
 	dest := testStore(t)
-	if err := dest.SyncBootstrap(code, base); err != nil {
+	if err := dest.eng.SyncBootstrap(code, base); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,7 +328,7 @@ func TestSyncBootstrapRefusesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := mustSnapshot(t, s, code)
-	if err := s.SyncBootstrap(code, base); !errors.Is(err, ErrConflict) {
+	if err := s.eng.SyncBootstrap(code, base); !errors.Is(err, ErrConflict) {
 		t.Fatalf("bootstrap over existing project = %v, want ErrConflict", err)
 	}
 }

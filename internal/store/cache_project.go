@@ -70,19 +70,6 @@ func (s *Store) reprojectTxn(code string, cs core.ChangeSet) error {
 	return s.projectSnapshot(code, snap)
 }
 
-// reprojectV2Locked re-derives the project's cache rows from events.v2.jsonl:
-// the engine folds (Snapshot re-reads strictly — a v2 write has just landed, so
-// any parse/DAG failure is a real integrity problem), the facade projects.
-// Transitional: the sync/upgrade/read paths still call it until Tasks 5-6.
-// Caller MUST hold the project lock.
-func (s *Store) reprojectV2Locked(code string) error {
-	snap, err := s.eng.Snapshot(code)
-	if err != nil {
-		return err
-	}
-	return s.projectSnapshot(code, snap)
-}
-
 // cacheDeleteProjectRows removes the project's task/comment/label rows and
 // the project row itself — the per-project mirror of the global wipe
 // Rebuild does. The labels table is store-global (merged across projects),

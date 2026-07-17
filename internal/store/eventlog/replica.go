@@ -11,7 +11,7 @@ import (
 // localInstanceMarker is written to the store root (NOT store.json, and NOT
 // governed by the store-meta lock's "only mutateStoreMeta writes store.json"
 // rule below -- it is a separate file) after every call to
-// ensureReplicaForWriteLocked. It records the identity this Store instance
+// ensureReplicaForWriteLocked. It records the identity this engine
 // believed it owned the last time it authored an event, plus the
 // filesystem path it was writing from.
 //
@@ -19,7 +19,7 @@ import (
 // a cloned VM disk, ...) carries the marker file along with it. If the
 // marker's StoreInstanceID still matches store.json's StoreInstanceID but
 // the marker's StorePath no longer matches the store root actually being
-// opened, this Store instance is a copy of the one that wrote the marker --
+// opened, this engine is a copy of the one that wrote the marker --
 // re-mint the replica id before authoring anything, so the two copies never
 // stamp events under the same replica id.
 //
@@ -60,21 +60,21 @@ type localInstanceMarker struct {
 // localInstanceMarkerPath is store-local, per-directory state, not
 // store-wide state: it never participates in the byte-identical v1 log or
 // the eventsource frontier, and it is fully derived at write time -- its
-// ABSENCE (a fresh store, or a marker deleted out from under this store)
+// ABSENCE (a fresh store, or a marker deleted out from under this engine)
 // never blocks authoring; it just means detection is skipped for that
 // write, which is the same as never having had a marker at all.
 func (e *Engine) localInstanceMarkerPath() string {
 	return filepath.Join(e.root, ".atm-local-instance.json")
 }
 
-// ensureReplicaForWriteLocked returns the replica id this Store instance
+// ensureReplicaForWriteLocked returns the replica id this engine
 // should stamp on the NEXT authored event, re-minting it first if
 // localInstanceMarker's detection rule (see its doc comment, including the
 // documented identical-path limitation) says this store root looks like a
-// copy of another instance that already authored under the current
+// copy of another engine that already authored under the current
 // store.json's replica/instance ids.
 //
-// Caller must already hold this store's PROJECT lock -- v2 authoring's lock
+// Caller must already hold this engine's PROJECT lock -- v2 authoring's lock
 // order is project -> store-meta (eventsource_meta.go:100-101). This
 // function itself takes the store-meta lock via mutateStoreMeta, which is a
 // DIFFERENT lock name and therefore safe to nest: WithLock is only

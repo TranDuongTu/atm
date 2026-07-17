@@ -1,9 +1,10 @@
-package store
+package eventlog
 
 import (
 	"errors"
 	"os"
 
+	"atm/internal/core"
 	"atm/libs/eventsource"
 )
 
@@ -11,6 +12,22 @@ import (
 // media is still v1: L4 sync is defined over the event DAG (events.v2.jsonl),
 // so a v1-active project must be upgraded before it can participate.
 var ErrSyncNeedsV2 = errors.New(`project is v1-active and cannot sync; run "atm store upgrade" first`)
+
+// reprojectLocked folds what is now on disk for code and hands it to the
+// facade's read-model hook — the engine-internal projection at the exact
+// points the pre-carve code called reprojectV2Locked (sync ingest/bootstrap,
+// upgrade). A nil hook (an engine wired without a read model) is a no-op.
+// Caller MUST hold the project lock.
+func (e *Engine) reprojectLocked(code string) error {
+	if e.opts.OnProject == nil {
+		return nil
+	}
+	snap, err := e.Snapshot(code)
+	if err != nil {
+		return err
+	}
+	return e.opts.OnProject(code, snap)
+}
 
 // SyncSnapshot returns the full ordered event set the peer needs to reconcile
 // against this store's copy of code. An absent project (no media in any format)
@@ -20,28 +37,28 @@ var ErrSyncNeedsV2 = errors.New(`project is v1-active and cannot sync; run "atm 
 //
 // This is a lock-free read: the returned events are a point-in-time view, and
 // the transport layer (Task 7) is responsible for any snapshot-consistency
-// guarantees. readV2File(repairTail=false) is deliberately strict -- a sync
+// guarantees. ReadV2File(repairTail=false) is deliberately strict -- a sync
 // read never silently truncates an uncommitted tail.
-func (s *Store) SyncSnapshot(code string) (events []*eventsource.Event, absent bool, err error) {
-	switch err := s.eng.MediaExists(code); {
+func (e *Engine) SyncSnapshot(code string) (events []*eventsource.Event, absent bool, err error) {
+	switch err := e.MediaExists(code); {
 	case err == nil:
 		// MediaExists returns nil ONLY when neither log.jsonl nor
 		// events.v2.jsonl is on disk, i.e. the project is genuinely absent.
 		return nil, true, nil
-	case errors.Is(err, ErrConflict):
+	case errors.Is(err, core.ErrConflict):
 		// Present in some medium -- the ErrConflict "already exists" is the
 		// signal we want here; fall through to the format check.
 	default:
 		return nil, false, err
 	}
-	f, err := s.dispatchFormat(code)
+	f, err := e.DispatchFormat(code)
 	if err != nil {
 		return nil, false, err
 	}
 	if f != StoreFormatV2 {
 		return nil, false, ErrSyncNeedsV2
 	}
-	snap, err := s.readV2File(code, false)
+	snap, err := e.ReadV2File(code, false)
 	if err != nil {
 		return nil, false, err
 	}
@@ -58,9 +75,9 @@ func (s *Store) SyncSnapshot(code string) (events []*eventsource.Event, absent b
 // it (the engine's commitAuthorLocked): the observed maximum ingested stamp is persisted
 // verbatim -- no artificial logical bump -- so a subsequent local author sorts
 // after everything just received and convergence stays deterministic.
-func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested, newlyContested int, err error) {
-	err = s.WithLock(code, func() error {
-		snap, err := s.readV2File(code, false)
+func (e *Engine) SyncIngest(code string, incoming []*eventsource.Event) (ingested, newlyContested int, err error) {
+	err = e.WithLock(code, func() error {
+		snap, err := e.ReadV2File(code, false)
 		if err != nil {
 			return err
 		}
@@ -69,23 +86,23 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 			return err
 		}
 		have := make(map[string]bool, len(snap.Events))
-		for _, e := range snap.Events {
-			have[e.ID] = true
+		for _, ev := range snap.Events {
+			have[ev.ID] = true
 		}
 		all := snap.Events
 		var maxHLC eventsource.HLC
-		for _, e := range incoming {
-			if have[e.ID] {
+		for _, ev := range incoming {
+			if have[ev.ID] {
 				continue
 			}
-			if err := s.appendV2EventLineLocked(code, e.Raw); err != nil {
+			if err := e.AppendEventLineLocked(code, ev.Raw); err != nil {
 				return err
 			}
-			have[e.ID] = true
-			all = append(all, e)
+			have[ev.ID] = true
+			all = append(all, ev)
 			ingested++
-			if e.HLC.Compare(maxHLC) > 0 {
-				maxHLC = e.HLC
+			if ev.HLC.Compare(maxHLC) > 0 {
+				maxHLC = ev.HLC
 			}
 		}
 		if ingested == 0 {
@@ -95,7 +112,7 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 		// same read-modify-write the engine's commitAuthorLocked performs after a local
 		// append. Copy maxHLC before taking its address so &h never aliases a
 		// value that changes underneath the stored pointer.
-		if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+		if err := e.MutateStoreMeta(func(m *StoreMeta) error {
 			if m.LastHLC == nil || maxHLC.Compare(*m.LastHLC) > 0 {
 				h := maxHLC
 				m.LastHLC = &h
@@ -109,7 +126,7 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 			return err
 		}
 		newlyContested = contestedDelta(before.Contested, after.Contested)
-		return s.reprojectV2Locked(code)
+		return e.reprojectLocked(code)
 	})
 	return ingested, newlyContested, err
 }
@@ -122,33 +139,33 @@ func (s *Store) SyncIngest(code string, incoming []*eventsource.Event) (ingested
 // same crash-window ordering createProjectV2 uses). Events are appended in the
 // given (topological) order, the HLC high-water mark is seeded from them so a
 // later local author is monotonic, and the cache is reprojected.
-func (s *Store) SyncBootstrap(code string, incoming []*eventsource.Event) error {
-	if err := s.eng.MediaExists(code); err != nil {
+func (e *Engine) SyncBootstrap(code string, incoming []*eventsource.Event) error {
+	if err := e.MediaExists(code); err != nil {
 		// Non-nil means the project already exists (ErrConflict) or a real
 		// stat error; either way bootstrap must not proceed.
 		return err
 	}
-	if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
+	if err := os.MkdirAll(e.projectDir(code), 0o755); err != nil {
 		return err
 	}
-	return s.WithLock(code, func() error {
+	return e.WithLock(code, func() error {
 		// Establish the format before any append: a crash leaving the entry
 		// with an empty/absent file reads as an empty v2 project (benign),
 		// whereas v2 media with no entry would read as v1 and block recreation.
-		if err := s.setProjectFormat(code, StoreFormatV2); err != nil {
+		if err := e.SetProjectFormat(code, StoreFormatV2); err != nil {
 			return err
 		}
 		var maxHLC eventsource.HLC
-		for _, e := range incoming {
-			if err := s.appendV2EventLineLocked(code, e.Raw); err != nil {
+		for _, ev := range incoming {
+			if err := e.AppendEventLineLocked(code, ev.Raw); err != nil {
 				return err
 			}
-			if e.HLC.Compare(maxHLC) > 0 {
-				maxHLC = e.HLC
+			if ev.HLC.Compare(maxHLC) > 0 {
+				maxHLC = ev.HLC
 			}
 		}
 		if len(incoming) > 0 {
-			if err := s.mutateStoreMeta(func(m *StoreMeta) error {
+			if err := e.MutateStoreMeta(func(m *StoreMeta) error {
 				if m.LastHLC == nil || maxHLC.Compare(*m.LastHLC) > 0 {
 					h := maxHLC
 					m.LastHLC = &h
@@ -158,7 +175,7 @@ func (s *Store) SyncBootstrap(code string, incoming []*eventsource.Event) error 
 				return err
 			}
 		}
-		return s.reprojectV2Locked(code)
+		return e.reprojectLocked(code)
 	})
 }
 
