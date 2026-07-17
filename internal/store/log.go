@@ -37,10 +37,10 @@ func (s *Store) logPath(code string) string {
 // local appends (the only writer before L4 sync) and the same value the
 // cache freshness row records.
 func (s *Store) LastLogSeq(code string) (int, error) {
-	if _, err := s.projectFormat(code); err != nil {
+	if _, err := s.eng.ProjectFormat(code); err != nil {
 		return 0, err
 	}
-	return s.v2EventCount(code)
+	return s.eng.ChangeCount(code)
 }
 
 // readLogForViews returns the project's history as compatibility []LogEntry
@@ -53,10 +53,10 @@ func (s *Store) LastLogSeq(code string) (int, error) {
 // damage (the TUI project summary) keep consuming the prefix; callers that
 // cannot (the CLI) surface the error.
 func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
-	if _, err := s.projectFormat(code); err != nil {
+	if _, err := s.eng.ProjectFormat(code); err != nil {
 		return nil, err
 	}
-	return s.readV2LogEntries(code)
+	return s.eng.LogEntries(code)
 }
 
 // ReadLogCached returns the project's log entries, memoizing the parsed

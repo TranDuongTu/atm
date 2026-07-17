@@ -4,12 +4,25 @@ package store
 // flight (refactor step 6, ATM-3b873c). Tasks 4-6 shrink it; Task 9 deletes
 // it. Nothing new may start depending on these names.
 
-import "atm/internal/store/eventlog"
+import (
+	"atm/internal/core"
+	"atm/internal/store/eventlog"
+)
 
 type StoreFormat = eventlog.StoreFormat
 type StoreMeta = eventlog.StoreMeta
 type ProjectEventsourceMeta = eventlog.ProjectEventsourceMeta
 type V2FileSnapshot = eventlog.V2FileSnapshot
+
+// V2LogView aliases the storage-neutral read model the CLI still names; Task 8
+// retargets the CLI at core.LogView directly and drops this.
+type V2LogView = core.LogView
+
+// ReadV2LogForDisplay delegates to the engine's DisplayLog; the CLI keeps
+// calling this facade name until Task 8.
+func (s *Store) ReadV2LogForDisplay(code string) ([]core.LogView, error) {
+	return s.eng.DisplayLog(code)
+}
 
 const (
 	StoreFormatV1 = eventlog.StoreFormatV1

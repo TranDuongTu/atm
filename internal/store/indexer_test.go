@@ -202,7 +202,7 @@ func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
 	if !found {
 		t.Fatalf("vectors = %#v, want one under the task's hash alias %s", vecs, tk.ID)
 	}
-	count, err := s.v2EventCount("ATM")
+	count, err := s.eng.ChangeCount("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}

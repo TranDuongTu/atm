@@ -96,7 +96,7 @@ func TestLastLogSeqReturnsEventCountForV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := s.v2EventCount("ATM")
+	want, err := s.eng.ChangeCount("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}

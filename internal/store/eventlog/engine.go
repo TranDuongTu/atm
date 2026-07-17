@@ -34,6 +34,10 @@ type Options struct {
 	OnMediaReplaced func(code string)
 }
 
+// The engine is the concrete Journal the facade consumes: it authors and reads
+// the change history under the project lock and answers freshness/existence.
+var _ core.Journal = (*Engine)(nil)
+
 type Engine struct {
 	root string
 	opts Options

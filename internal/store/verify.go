@@ -2,8 +2,6 @@ package store
 
 import (
 	"sort"
-
-	"atm/libs/eventsource"
 )
 
 type VerifyReport struct {
@@ -62,7 +60,9 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		return report, nil
 	}
 	defer s.populateAuxReports(code, report)
-	snap, err := s.verifyV2File(code)
+	// Snapshot folds the file strictly; the two old failure branches (file read
+	// vs fold) collapse into one — both set LogOK=false / Diverged=true.
+	snap, err := s.eng.Snapshot(code)
 	if err != nil {
 		if !IsIntegrity(err) {
 			return nil, err
@@ -72,18 +72,9 @@ func (s *Store) VerifyProject(code string) (*VerifyReport, error) {
 		return report, nil
 	}
 	report.V2FileOK = true
-	report.V2Events = snap.EventCount
-	report.LogEntries = snap.EventCount
-	state, err := eventsource.FoldEvents(snap.Events)
-	if err != nil {
-		if !IsIntegrity(err) {
-			return nil, err
-		}
-		report.LogOK = false
-		report.Diverged = true
-		return report, nil
-	}
-	report.Caches = append(report.Caches, s.checkV2Cache(code, state, snap.EventCount)...)
+	report.V2Events = snap.ChangeCount
+	report.LogEntries = snap.ChangeCount
+	report.Caches = append(report.Caches, s.checkV2Cache(code, snap.ChangeCount)...)
 	for _, c := range report.Caches {
 		if c.Status != "ok" {
 			report.Diverged = true
@@ -114,7 +105,7 @@ func (s *Store) populateAuxReports(code string, report *VerifyReport) {
 // count. There is a single freshness key for the whole project:
 // cacheProjectFromV2State always projects the entire live set from one fold,
 // so there is no per-task/per-comment staleness to distinguish.
-func (s *Store) checkV2Cache(code string, st *eventsource.State, eventCount int) []CacheCheck {
+func (s *Store) checkV2Cache(code string, eventCount int) []CacheCheck {
 	db, err := s.cacheDB()
 	if err != nil {
 		return []CacheCheck{{Kind: "project", ID: code, Status: "corrupt"}}

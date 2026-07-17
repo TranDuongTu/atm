@@ -2,8 +2,6 @@ package store
 
 import (
 	"database/sql"
-
-	"atm/libs/eventsource"
 )
 
 type RebuildReport struct {
@@ -66,36 +64,27 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
 		// moving on to the remaining projects, rather than aborting the
 		// whole-store rebuild. Any other error is a real operational failure
 		// and still aborts.
-		snap, err := s.verifyV2File(code)
+		snap, err := s.eng.Snapshot(code)
 		if err != nil {
 			if !IsIntegrity(err) {
 				return rep, err
 			}
 			continue
 		}
-		state, err := eventsource.FoldEvents(snap.Events)
-		if err != nil {
-			if !IsIntegrity(err) {
-				return rep, err
-			}
-			continue
-		}
-		if err := s.projectSnapshotDB(db, code, s.eng.ConvertState(code, state, snap.EventCount)); err != nil {
+		if err := s.projectSnapshotDB(db, code, snap); err != nil {
 			return rep, err
 		}
 		rep.Projects++
-		rep.Tasks += len(state.Tasks)
+		rep.Tasks += len(snap.Tasks)
 		// Fold this v2 project's live label names into the store-global,
 		// name-keyed set (the "labels" cache table has no project_code
 		// column — see cache_project.go's cacheDeleteProjectRows
 		// comment) so a name shared with another project is counted once,
-		// not once per project. Tombstoned entries are excluded to match
-		// projectSnapshotDB, which never upserts them.
-		for name, l := range state.Labels {
-			if l.Tombstoned {
-				continue
-			}
-			mergedLabels[name] = Label{Name: l.Name, Description: l.Description, Expr: l.Expr}
+		// not once per project. The snapshot's Labels already exclude
+		// tombstoned entries, matching projectSnapshotDB, which never
+		// upserts them.
+		for _, l := range snap.Labels {
+			mergedLabels[l.Name] = Label{Name: l.Name, Description: l.Description, Expr: l.Expr}
 		}
 	}
 	for _, l := range mergedLabels {
@@ -105,4 +94,34 @@ func (s *Store) reprojectAllV2(db *sql.DB) (*RebuildReport, error) {
 	}
 	rep.Labels = len(mergedLabels)
 	return rep, nil
+}
+
+// rebuildProjectFromV2 re-derives the project's cache rows from the v2 event
+// file: the engine takes a strict snapshot (Snapshot re-reads and folds), the
+// facade projects. There is no per-entity variant because the whole live set
+// is projected from one snapshot, and the freshness key is a whole-file change
+// count. Caller MUST hold the project lock.
+func (s *Store) rebuildProjectFromV2(code string) error {
+	snap, err := s.eng.Snapshot(code)
+	if err != nil {
+		return err
+	}
+	return s.projectSnapshot(code, snap)
+}
+
+// rebuildEntityCacheLocked dispatches a point-read rebuild by format: the v2
+// snapshot for a v2-active project, the given v1 closure otherwise. Caller MUST
+// hold the project lock (directly, or via the entry point's WithLock wrapper).
+//
+// Routing EVERY point-read rebuild closure through this — including the ones
+// the *Locked variants pass — is what keeps a locked validation read (the ones
+// v1 and v2 mutators perform mid-transaction) from replaying the frozen v1 log
+// into the cache of a v2-active project.
+func (s *Store) rebuildEntityCacheLocked(code string, v1 func() error) error {
+	if f, err := s.projectFormat(code); err != nil {
+		return err
+	} else if f == StoreFormatV2 {
+		return s.rebuildProjectFromV2(code)
+	}
+	return v1()
 }

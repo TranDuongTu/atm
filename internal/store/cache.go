@@ -50,6 +50,56 @@ func cacheGetV2Freshness(db *sql.DB, code string) (int, bool, error) {
 	return v, true, nil
 }
 
+// v2CacheFresh reports whether the project's cache rows were projected from the
+// event file as it stands now, by comparing the freshness row
+// (cacheGetV2Freshness — the event count of the file the cache was last
+// projected from) against the current event count. A missing freshness row
+// means "never projected from a v2 file" and is never fresh, so it can be told
+// apart from a genuine projection at count 0.
+//
+// The v1 last_log_seq freshness key is meaningless here: a v2 cache row's
+// Ordinal holds a creation ordinal from the fold, unrelated to any v1 log seq.
+func (s *Store) v2CacheFresh(code string) (bool, error) {
+	db, err := s.cacheDB()
+	if err != nil {
+		return false, err
+	}
+	got, ok, err := cacheGetV2Freshness(db, code)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	n, err := s.eng.ChangeCount(code)
+	if err != nil {
+		return false, err
+	}
+	return got == n, nil
+}
+
+// ensureV2CacheFresh rebuilds the project's cache rows from the v2 snapshot iff
+// the freshness probe says the cache is behind the event file. It takes the
+// project lock; NEVER call it from a *Locked context (point reads use
+// v2CacheFresh plus their format-aware rebuild closure instead, which preserves
+// the locked / unlocked split the *WithRebuild bodies are parameterized on).
+func (s *Store) ensureV2CacheFresh(code string) error {
+	if fresh, err := s.v2CacheFresh(code); err != nil {
+		return err
+	} else if fresh {
+		return nil
+	}
+	return s.WithLock(code, func() error {
+		// Re-probe under the lock: another process may have projected the cache
+		// while this reader waited, and reprojecting is a full delete+insert of
+		// every row in the project.
+		if fresh, err := s.v2CacheFresh(code); err != nil || fresh {
+			return err
+		}
+		return s.rebuildProjectFromV2(code)
+	})
+}
+
 // cacheDB returns the store's single shared *sql.DB, opening and migrating it
 // on first use. WAL mode lets short-lived CLI invocations for different
 // projects avoid contending on reads; MaxOpenConns(1) keeps this process's

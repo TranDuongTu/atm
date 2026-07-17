@@ -1,33 +1,21 @@
-package store
+package eventlog
 
 import (
 	"bytes"
 	"os"
 	"sort"
-	"time"
 
+	"atm/internal/core"
 	"atm/libs/eventsource"
 )
 
-// V2LogView is one row of `store log` for a v2-active project: the v2 event
-// file rendered in the deterministic total order, with identities mapped back
-// to the aliases a user can type.
-type V2LogView struct {
-	Ordinal int       `json:"ordinal"`
-	ID      string    `json:"id"`
-	At      time.Time `json:"at"`
-	Actor   string    `json:"actor"`
-	Action  string    `json:"action"`
-	Subject string    `json:"subject"`
-}
-
-// ReadV2LogForDisplay renders the raw v2 event file for `store log`: a strict
-// read (never a repair — this is an inspection command), events sorted by
+// DisplayLog renders the raw v2 event file for `store log`: a strict read
+// (never a repair — this is an inspection command), events sorted by
 // eventsource.CompareEvents, Ordinal set to the 1-based position in that order.
 // The ordinal is a DISPLAY position, not an identity: the event id is, and it
 // is carried in ID.
-func (s *Store) ReadV2LogForDisplay(code string) ([]V2LogView, error) {
-	snap, err := s.verifyV2File(code)
+func (e *Engine) DisplayLog(code string) ([]core.LogView, error) {
+	snap, err := e.VerifyFile(code)
 	if err != nil {
 		return nil, err
 	}
@@ -37,9 +25,9 @@ func (s *Store) ReadV2LogForDisplay(code string) ([]V2LogView, error) {
 	}
 	events := append([]*eventsource.Event(nil), snap.Events...)
 	sort.SliceStable(events, func(i, j int) bool { return eventsource.CompareEvents(events[i], events[j]) < 0 })
-	out := make([]V2LogView, 0, len(events))
+	out := make([]core.LogView, 0, len(events))
 	for i, ev := range events {
-		out = append(out, V2LogView{
+		out = append(out, core.LogView{
 			Ordinal: i + 1,
 			ID:      ev.ID,
 			At:      ev.At,
@@ -86,7 +74,22 @@ func v2SubjectDisplay(st *eventsource.State, ev *eventsource.Event) string {
 	return su.Kind + " " + id
 }
 
-// readV2LogEntries renders the v2 event file as compatibility []LogEntry:
+// ChangeCount is the number of COMMITTED events in a project's event file:
+// the number of newline-terminated lines, counted without parsing (the commit
+// point is a complete line — L3-7 — so any unterminated tail is uncommitted and
+// correctly excluded). A missing file counts as zero.
+func (e *Engine) ChangeCount(code string) (int, error) {
+	raw, err := os.ReadFile(e.EventsV2Path(code))
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return bytes.Count(raw, []byte("\n")), nil
+}
+
+// LogEntries renders the v2 event file as compatibility []core.LogEntry:
 // events sorted by CompareEvents (the deterministic total order), Seq set to the
 // 1-based ordinal in that order, and subject aliases restored from the fold so
 // v1-shaped consumers (activity.Build, History's subjectMatch) keep working
@@ -100,13 +103,13 @@ func v2SubjectDisplay(st *eventsource.State, ev *eventsource.Event) string {
 // with an error channel must surface the error (HistoryE and its CLI callers do);
 // the ones that deliberately tolerate it (tui/projects.go's summary pane) then
 // still get a partial view instead of a silently empty one.
-func (s *Store) readV2LogEntries(code string) ([]LogEntry, error) {
-	snap, err := s.readV2File(code, false)
+func (e *Engine) LogEntries(code string) ([]core.LogEntry, error) {
+	snap, err := e.ReadV2File(code, false)
 	if err != nil {
-		if !IsIntegrity(err) {
+		if !core.IsIntegrity(err) {
 			return nil, err
 		}
-		entries, perr := s.v2LogEntriesFrom(s.readV2EventPrefix(code))
+		entries, perr := e.v2LogEntriesFrom(e.readV2EventPrefix(code))
 		if perr != nil {
 			// Not even a prefix folds (a damaged line early in the file, a
 			// dangling parent): nothing renderable, but the integrity error --
@@ -115,16 +118,16 @@ func (s *Store) readV2LogEntries(code string) ([]LogEntry, error) {
 		}
 		return entries, err
 	}
-	return s.v2LogEntriesFrom(snap.Events)
+	return e.v2LogEntriesFrom(snap.Events)
 }
 
 // readV2EventPrefix parses the longest prefix of COMMITTED lines (complete,
 // newline-terminated -- L3-7) that parse cleanly, stopping at the first damaged
-// line. It is the recovery read behind readV2LogEntries' partial view and reports
+// line. It is the recovery read behind LogEntries' partial view and reports
 // no error of its own: its whole job is to salvage what it can from a file the
 // strict read already rejected.
-func (s *Store) readV2EventPrefix(code string) []*eventsource.Event {
-	raw, err := os.ReadFile(s.eventsV2Path(code))
+func (e *Engine) readV2EventPrefix(code string) []*eventsource.Event {
+	raw, err := os.ReadFile(e.EventsV2Path(code))
 	if err != nil {
 		return nil
 	}
@@ -147,8 +150,9 @@ func (s *Store) readV2EventPrefix(code string) []*eventsource.Event {
 	return events
 }
 
-// v2LogEntriesFrom folds an event set and renders it as compatibility []LogEntry.
-func (s *Store) v2LogEntriesFrom(evs []*eventsource.Event) ([]LogEntry, error) {
+// v2LogEntriesFrom folds an event set and renders it as compatibility
+// []core.LogEntry.
+func (e *Engine) v2LogEntriesFrom(evs []*eventsource.Event) ([]core.LogEntry, error) {
 	snap := &V2FileSnapshot{Events: evs}
 	state, err := eventsource.FoldEvents(snap.Events)
 	if err != nil {
@@ -165,9 +169,9 @@ func (s *Store) v2LogEntriesFrom(evs []*eventsource.Event) ([]LogEntry, error) {
 	}
 	events := append([]*eventsource.Event(nil), snap.Events...)
 	sort.SliceStable(events, func(i, j int) bool { return eventsource.CompareEvents(events[i], events[j]) < 0 })
-	out := make([]LogEntry, 0, len(events))
+	out := make([]core.LogEntry, 0, len(events))
 	for i, ev := range events {
-		subj := Subject{Kind: ev.Subject.Kind, Code: ev.Subject.Code, Name: ev.Subject.Name}
+		subj := core.Subject{Kind: ev.Subject.Kind, Code: ev.Subject.Code, Name: ev.Subject.Name}
 		switch ev.Subject.Kind {
 		case "task", "comment":
 			id := ev.Subject.ID
@@ -176,44 +180,7 @@ func (s *Store) v2LogEntriesFrom(evs []*eventsource.Event) ([]LogEntry, error) {
 			}
 			subj.ID = alias(id)
 		}
-		out = append(out, LogEntry{Seq: i + 1, At: ev.At, Actor: ev.Actor, Action: ev.Action, Subject: subj, Payload: ev.Payload})
+		out = append(out, core.LogEntry{Seq: i + 1, At: ev.At, Actor: ev.Actor, Action: ev.Action, Subject: subj, Payload: ev.Payload})
 	}
 	return out, nil
-}
-
-// v2CompatEntities returns the project's live tasks and comments as
-// compatibility rows, through the freshness-gated cache — the same rows list
-// commands display, so search and indexing never disagree with `atm task list`.
-// Chosen over a direct fold to avoid a second projection code path (spec
-// "Log-derived views").
-//
-// It calls ensureV2CacheFresh, which takes the project lock: never call this
-// from a context that already holds it (WithLock is not reentrant).
-func (s *Store) v2CompatEntities(code string) ([]*Task, []*Comment, error) {
-	if err := s.ensureV2CacheFresh(code); err != nil {
-		return nil, nil, err
-	}
-	db, err := s.cacheDB()
-	if err != nil {
-		return nil, nil, err
-	}
-	tasks, err := cacheListTasksForProject(db, code)
-	if err != nil {
-		return nil, nil, err
-	}
-	ids, err := cacheListCommentIDsForProject(db, code)
-	if err != nil {
-		return nil, nil, err
-	}
-	var comments []*Comment
-	for _, id := range ids {
-		c, ok, err := cacheGetComment(db, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		if ok {
-			comments = append(comments, c)
-		}
-	}
-	return tasks, comments, nil
 }
