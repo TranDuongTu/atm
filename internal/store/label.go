@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"atm/internal/core"
-	"atm/internal/seed"
 )
 
 var (
@@ -129,18 +128,6 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 		return err
 	}
 	return s.labelSeedV2(code, name, description, expr, actor)
-}
-
-// SeedLabels applies the default seed labels (internal/seed.Labels) to the
-// project. Idempotent.
-func (s *Store) SeedLabels(code, actor string) error {
-	for _, l := range seed.Labels {
-		full := code + ":" + l.Suffix
-		if err := s.LabelSeed(full, l.Description, l.Expr, actor); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {

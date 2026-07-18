@@ -89,58 +89,40 @@ func TestGoldenLabelShowNotFound(t *testing.T) {
 	}
 }
 
-func TestGoldenLabelSeed(t *testing.T) {
+func TestFreshProjectSeedsOnlyCapabilityLabels(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "PRJ", "--name", "P", "--actor", "admin@cli:unset")
+	h.reset()
+	stdout, _, _ := h.run("label", "list", "--project", "PRJ")
+	// The old internal/seed set seeded comment:progress/decision/open-question
+	// and priority:high. Capabilities do not own those, so a fresh project must
+	// NOT carry them. (contextmap DOES seed comment:provenance, which is a
+	// capability-owned label, so we assert the specific dropped suffixes rather
+	// than the broad "PRJ:comment:" prefix.)
+	for _, gone := range []string{
+		"PRJ:comment:progress", "PRJ:comment:decision", "PRJ:comment:open-question",
+		"PRJ:priority:high", "PRJ:priority:*",
+	} {
+		if strings.Contains(stdout, gone) {
+			t.Errorf("fresh project still seeds %q (not capability-owned)", gone)
+		}
+	}
+	for _, want := range []string{"PRJ:status:open", "PRJ:all-tasks", "PRJ:context:*", "PRJ:context-current"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("fresh project missing capability-owned %s", want)
+		}
+	}
+}
+
+func TestLabelSeedCommandGone(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
 	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	// Remove one seed label, then re-seed to confirm idempotency.
-	h.run("label", "remove", "--store", sp, "--name", "ATM:context:question", "--actor", "admin@cli:unset")
-	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
-	}
-	if !strings.Contains(out, `"seeded": 16`) {
-		t.Fatalf("missing seeded: 16 in JSON output: %s", out)
-	}
-	if !strings.Contains(out, `"ATM:context:question"`) {
-		t.Fatalf("missing ATM:context:question in seed output: %s", out)
-	}
-	compareGolden(t, "label-seed", out)
-}
-
-func TestLabelSeedTextOutput(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.output = outputText
-	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
-	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	out, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
-	}
-	if !strings.Contains(out, "seeded 16 labels into ATM") {
-		t.Fatalf("text output missing 'seeded 16 labels into ATM': %s", out)
-	}
-}
-
-func TestLabelSeedEnsuresOpenTasksBoard(t *testing.T) {
-	h := newGoldenHarness(t)
-	sp := h.store.StorePath()
-	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
-	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	// Simulate an older project that predates the open-tasks board.
-	h.run("label", "remove", "--store", sp, "--name", "FOO:open-tasks", "--actor", "admin@cli:unset")
-	_, _, code := h.run("label", "seed", "--store", sp, "--project", "FOO", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
-	}
-	l, err := h.store.LabelShow("FOO:open-tasks")
-	if err != nil {
-		t.Fatalf("open-tasks board missing after label seed: %v", err)
-	}
-	if l.Expr == "" {
-		t.Error("open-tasks board has no expression")
+	if _, _, code := h.run("label", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("atm label seed still exists")
 	}
 }
 

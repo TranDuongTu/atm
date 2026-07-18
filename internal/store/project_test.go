@@ -69,62 +69,20 @@ func newTestStore(t *testing.T) *Store {
 // on the first mutation, so admin is available without an explicit seed step.
 const testActor = "admin@cli:test"
 
-func TestSeedLabelsAppliesAllDefaults(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	// SeedLabels applies all 16 defaults (CreateProject seeding is wired in Task 3).
-	if err := s.SeedLabels("ATM", testActor); err != nil {
-		t.Fatal(err)
-	}
-	ls := s.LabelList("ATM", "")
-	if len(ls) != 16 {
-		t.Fatalf("SeedLabels left %d labels, want 16", len(ls))
-	}
-	l, _ := s.LabelShow("ATM:context:agent")
-	if l.Description == "" {
-		t.Error("ATM:context:agent has empty description after seed")
-	}
-}
-
-func TestCreateProjectSeedsLabels(t *testing.T) {
+func TestCreateProjectDoesNotSeedLabels(t *testing.T) {
+	// Task 6: CreateProject no longer seeds labels. Capabilities'
+	// EnsureVocabulary (called by the CLI/TUI after CreateProject) is the
+	// only seeding path; the v2 birth closure emits only project.created.
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
 		t.Fatal(err)
 	}
 	ls := s.LabelList("ATM", "")
-	if len(ls) != 16 {
-		t.Fatalf("after CreateProject, ATM has %d labels, want 16 (seeded defaults)", len(ls))
-	}
-	// Every seeded label has a non-empty description.
-	for _, l := range ls {
-		if l.Description == "" {
-			t.Errorf("seeded label %q has empty description", l.Name)
-		}
-	}
-	// Spot-check a known seed label is present.
-	if _, err := s.LabelShow("ATM:context:agent"); err != nil {
-		t.Errorf("ATM:context:agent missing after seed: %v", err)
+	if len(ls) != 0 {
+		t.Fatalf("after CreateProject, ATM has %d labels, want 0 (capabilities own seeding): %v", len(ls), ls)
 	}
 }
 
-func TestSeedLabelsPreservesEditedDescriptions(t *testing.T) {
-	s := newTestStore(t)
-	_, _ = s.CreateProject("ATM", "x", testActor)
-	// Edit one label's description (human curates).
-	_ = s.LabelAdd("ATM:type:bug", "human edited", "", testActor)
-	if err := s.SeedLabels("ATM", testActor); err != nil {
-		t.Fatal(err)
-	}
-	l, _ := s.LabelShow("ATM:type:bug")
-	if l.Description != "human edited" {
-		t.Fatalf("SeedLabels overwrote edited description: got %q want \"human edited\"", l.Description)
-	}
-	// The other 15 keep their seed descriptions.
-	l2, _ := s.LabelShow("ATM:status:open")
-	if l2.Description == "" {
-		t.Error("ATM:status:open lost its description after re-seed")
-	}
-}
 func TestRemoveProjectAppendsTombstoneThenDeletes(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
@@ -179,6 +137,7 @@ func TestCreateProjectAllowedAfterRemoveProject(t *testing.T) {
 		t.Fatalf("recreate after RemoveProject should succeed, got %v", err)
 	}
 }
+
 // TestCreateProjectDuplicateDoesNotCorruptExplicitV1Entry pins the birth
 // preflight ordering: a duplicate CreateProject against a legacy v1 project
 // (an explicit "v1" ProjectFormats entry plus a log.jsonl on disk — these

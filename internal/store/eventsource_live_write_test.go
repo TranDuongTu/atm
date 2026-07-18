@@ -202,8 +202,12 @@ func TestCreateProjectBornV2WhenActiveFormatV2(t *testing.T) {
 	if p.Name != "born v2" {
 		t.Fatalf("project = %#v", p)
 	}
-	if labels := s.LabelList("ATM", ""); len(labels) == 0 {
-		t.Fatal("v2 birth must seed default labels")
+	// CreateProject no longer seeds labels in Task 6 — a fresh project's
+	// labels come from the registry's EnsureVocabulary, invoked by the CLI
+	// after CreateProject. The v2 birth path is still complete: project row,
+	// events.v2.jsonl, and explicit ProjectFormats entry are all in place.
+	if _, err := s.LabelShow("ATM:status:open"); !core.IsNotFound(err) {
+		t.Fatalf("v2 birth must NOT seed labels (capability EnsureVocabulary owns seeding), got err=%v", err)
 	}
 	// Existence check (F): recreating must fail even though log.jsonl is absent.
 	if _, err := s.CreateProject("ATM", "again", "admin@cli:unset"); err == nil {

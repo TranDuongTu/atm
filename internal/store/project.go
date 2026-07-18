@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"atm/internal/core"
-	"atm/internal/seed"
 	"atm/internal/store/eventlog"
 )
 
@@ -56,22 +55,6 @@ func (s *Store) createProjectV2(code, name, actor string) (*Project, error) {
 		// carries parents [].
 		if err := cs.CreateProject(name, actor); err != nil {
 			return err
-		}
-		// Seed default labels as label.upserted v2 events — v1 parity with
-		// seedLabelsLocked, same seed.Labels source; the payload carries only
-		// the fields being set (the writesOf action table). Copy the range
-		// variable's Description before taking its address: &l.Description would
-		// alias the single loop variable across every iteration.
-		for _, l := range seed.Labels {
-			desc := l.Description
-			expr := l.Expr
-			f := core.LabelFields{Description: &desc}
-			if expr != "" {
-				f.Expr = &expr
-			}
-			if err := cs.UpsertLabel(code+":"+l.Suffix, f, actor); err != nil {
-				return err
-			}
 		}
 		if err := s.reprojectTxn(code, cs); err != nil {
 			return err

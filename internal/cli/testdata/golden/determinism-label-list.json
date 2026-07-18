@@ -11,22 +11,6 @@
       "name": "ATM:backlog"
     },
     {
-      "description": "the kinds of narrative an agent writes on a task",
-      "name": "ATM:comment:*"
-    },
-    {
-      "description": "task comment kind: a decision recorded during work",
-      "name": "ATM:comment:decision"
-    },
-    {
-      "description": "task comment kind: an open question raised during work",
-      "name": "ATM:comment:open-question"
-    },
-    {
-      "description": "task comment kind: a progress note during work",
-      "name": "ATM:comment:progress"
-    },
-    {
       "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
       "name": "ATM:comment:provenance"
     },
@@ -74,14 +58,6 @@
       "name": "ATM:open-tasks"
     },
     {
-      "description": "optional urgency ranking; absent means default priority",
-      "name": "ATM:priority:*"
-    },
-    {
-      "description": "optional prioritization: high; do this first, everything untagged is default priority",
-      "name": "ATM:priority:high"
-    },
-    {
       "description": "lifecycle state of a task; exactly one status label should be present",
       "name": "ATM:status:*"
     },
@@ -118,22 +94,6 @@
       "description": "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.",
       "expr": "NOT status:*",
       "name": "DEMO:backlog"
-    },
-    {
-      "description": "the kinds of narrative an agent writes on a task",
-      "name": "DEMO:comment:*"
-    },
-    {
-      "description": "task comment kind: a decision recorded during work",
-      "name": "DEMO:comment:decision"
-    },
-    {
-      "description": "task comment kind: an open question raised during work",
-      "name": "DEMO:comment:open-question"
-    },
-    {
-      "description": "task comment kind: a progress note during work",
-      "name": "DEMO:comment:progress"
     },
     {
       "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
@@ -181,14 +141,6 @@
       "description": "every open task: the project's active work.",
       "expr": "status:open",
       "name": "DEMO:open-tasks"
-    },
-    {
-      "description": "optional urgency ranking; absent means default priority",
-      "name": "DEMO:priority:*"
-    },
-    {
-      "description": "optional prioritization: high; do this first, everything untagged is default priority",
-      "name": "DEMO:priority:high"
     },
     {
       "description": "lifecycle state of a task; exactly one status label should be present",

@@ -635,6 +635,9 @@ func contains(haystack []string, needle string) bool {
 func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
+	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
 	_ = s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", testActor)
 
 	m := newTestBoardsModel(t, s, "ATM")
@@ -693,6 +696,9 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 	// review signal (conventions rule 6) appears in the pane automatically.
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
+	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
 	_, _ = s.CreateTask("ATM", "t", "", []string{"ATM:sprint:next"}, testActor)
 
 	m := newTestBoardsModel(t, s, "ATM")
@@ -755,15 +761,19 @@ func TestBoardsTabAddLabel(t *testing.T) {
 func TestBoardsTabSeedKey(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	_, _ = m.store.LabelRemove("ATM:context:question", testActor)
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// Remove a workflow-owned board, then re-ensure via [S] and confirm it returns.
+	_, _ = m.store.LabelRemove("ATM:open-tasks", testActor)
 	m.refreshAll()
 	update(t, m, "s")
 	m.boards.handleKey(keyMsg("S"))
-	if !strings.Contains(m.toastMsg, "seeded 16 labels into ATM") {
-		t.Fatalf("toast = %q, want seeded 16 labels into ATM", m.toastMsg)
+	if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
+		t.Fatalf("toast = %q, want ensured capability vocabulary in ATM", m.toastMsg)
 	}
-	if _, err := m.store.LabelShow("ATM:context:question"); err != nil {
-		t.Errorf("ATM:context:question not restored after seed: %v", err)
+	if _, err := m.store.LabelShow("ATM:open-tasks"); err != nil {
+		t.Errorf("ATM:open-tasks not restored after [S]: %v", err)
 	}
 }
 

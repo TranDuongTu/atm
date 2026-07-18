@@ -107,7 +107,7 @@ func TestTasksPaneDKeyAtChartTargetsCursorMember(t *testing.T) {
 	otherSuffix := strings.TrimPrefix(rows[0].full, "ATM:")
 
 	update(t, m, "shift+down") // move the chart cursor to row index 1
-	update(t, m, "d") // describe the cursor member
+	update(t, m, "d")          // describe the cursor member
 
 	if m.form == nil || m.formKind != formLabelDescribe {
 		t.Fatalf("[d] at chart must open the describe form; form=%v kind=%v", m.form, m.formKind)
@@ -124,7 +124,7 @@ func TestTasksPaneSKeySeedsDefaults(t *testing.T) {
 
 	update(t, m, "S")
 
-	if !strings.Contains(m.toastMsg, "seeded") || !strings.Contains(m.toastMsg, "ATM") {
-		t.Fatalf("[S] must seed default labels (toast); got toast=%q", m.toastMsg)
+	if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
+		t.Fatalf("[S] must re-ensure capability vocabulary (toast); got toast=%q", m.toastMsg)
 	}
 }

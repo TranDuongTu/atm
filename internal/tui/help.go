@@ -181,7 +181,7 @@ atm project remove --code             Projects pane  [x]
 
 atm label add --name --desc           Tasks pane [a]dd / [d]esc
 atm label remove --name               Tasks pane [l]
-atm label seed --project              Tasks pane [S]
+atm capability workflow seed --project Tasks pane [S] (re-ensure capability vocabulary)
 atm label list [--project] [--ns]     Tasks pane (boards strip)
 atm label show --name                 — (CLI only)
 
