@@ -42,23 +42,6 @@ type Env interface {
 	TaskJSON(t *core.Task) any
 }
 
-// ActionSpec is one manager action a capability contributes: a session mode
-// the manager can be launched in. The procedure behind it lives in the
-// capability's guide (Manager duty section), never in a prompt.
-type ActionSpec struct {
-	Name    string // the --action value, e.g. "mapping"
-	Summary string // one line for the flag help and the prompt role list
-}
-
-// ManagerAction is an aggregated action entry: the ActionSpec plus which
-// capability contributed it and the command an agent consults for it.
-type ManagerAction struct {
-	Capability string // capability name, e.g. "contextmap"
-	Command    string // mounted command name (== Capability after the v2 mount-by-name flag day; for the consult pointer)
-	Name       string
-	Summary    string
-}
-
 // Capability is one registered capability command: it owns its label slice,
 // seeds its own vocabulary, and mounts its cobra verb tree.
 type Capability interface {
@@ -78,10 +61,6 @@ type Capability interface {
 	EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error)
 	// Command returns the capability's cobra verb tree, built over env.
 	Command(env Env) *cobra.Command
-	// ManagerActions lists the manager session modes this capability
-	// contributes (nil for none). The manager core (curate, recall) is not
-	// a capability action — it exists for every project.
-	ManagerActions() []ActionSpec
 }
 
 // Registry is an ordered collection of capabilities. All methods are
@@ -168,27 +147,6 @@ func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) (
 		boards = append(boards, bs...)
 	}
 	return boards, nil
-}
-
-// ManagerActions aggregates the enabled capabilities' contributed manager
-// actions in registration order. Command comes from the built tree, like
-// Describe, so consult pointers cannot drift.
-func (r *Registry) ManagerActions(env Env) []ManagerAction {
-	if r == nil {
-		return nil
-	}
-	var out []ManagerAction
-	for _, c := range r.caps {
-		specs := c.ManagerActions()
-		if len(specs) == 0 {
-			continue
-		}
-		cmdName := c.Command(env).Name()
-		for _, s := range specs {
-			out = append(out, ManagerAction{Capability: c.Name(), Command: cmdName, Name: s.Name, Summary: s.Summary})
-		}
-	}
-	return out
 }
 
 // Names lists the registered capability names in registration order.

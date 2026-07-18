@@ -45,9 +45,3 @@ func TestGuideHasBriefAndAutopilotSections(t *testing.T) {
 		t.Error("guide references pre-namespace command paths")
 	}
 }
-
-func TestNoManagerActions(t *testing.T) {
-	if acts := (Cap{}).ManagerActions(); acts != nil {
-		t.Fatalf("workflow contributes no manager action, got %+v", acts)
-	}
-}

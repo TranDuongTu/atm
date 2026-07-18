@@ -2,8 +2,6 @@ package workflow
 
 import (
 	_ "embed"
-
-	"atm/internal/capability"
 )
 
 //go:embed guide.md
@@ -19,7 +17,3 @@ func (Cap) Summary() string {
 // prints it. The capability explains itself: this text is the single source,
 // composed surfaces (conventions, manager prompt) only point here.
 func (Cap) Guide() string { return guideText }
-
-// ManagerActions: none — status hygiene falls under the manager's core
-// curate role (see guide.md "Manager duty").
-func (Cap) ManagerActions() []capability.ActionSpec { return nil }

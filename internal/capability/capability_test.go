@@ -40,8 +40,6 @@ func (f *fakeCap) Command(env Env) *cobra.Command {
 	return &cobra.Command{Use: use}
 }
 
-func (f *fakeCap) ManagerActions() []ActionSpec { return nil }
-
 func TestCommandsPreserveRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(

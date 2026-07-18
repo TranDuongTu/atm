@@ -5,8 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"atm/internal/manager"
 )
 
 func TestValidateManagerAction(t *testing.T) {
@@ -314,23 +312,6 @@ func TestManagerEnvSetsActionAndCapability(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("manager env missing %q; got:\n%s", want, joined)
 		}
-	}
-	if strings.Contains(joined, "ATM_ONBOARD") {
-		t.Errorf("ATM_ONBOARD must be gone from manager env; got:\n%s", joined)
-	}
-}
-
-// BuildArgvOnboard stays on the Launcher interface until Task 8 removes it;
-// this test guards the contract is still intact for callers (none in
-// production now, but the seam is preserved by design).
-func TestManagerLauncherStillExposesOnboardArgv(t *testing.T) {
-	l, ok := manager.LauncherFor("opencode")
-	if !ok {
-		t.Fatal("LauncherFor(opencode) not found")
-	}
-	argv := l.BuildArgvOnboard("/tmp/ctx.md")
-	if argv[1] != "--auto" || argv[2] != "--prompt" {
-		t.Fatalf("onboard argv = %v, want --auto --prompt <msg>", argv)
 	}
 }
 

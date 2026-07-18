@@ -75,5 +75,3 @@ func (f *fakeMountCap) EnsureVocabulary(svc core.LabelService, code, actor strin
 func (f *fakeMountCap) Command(env capability.Env) *cobra.Command {
 	return &cobra.Command{Use: f.name}
 }
-
-func (f *fakeMountCap) ManagerActions() []capability.ActionSpec { return nil }
