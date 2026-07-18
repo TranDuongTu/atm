@@ -54,9 +54,16 @@ type cliState struct {
 	openServiceFn func(string) (core.Service, error)
 	openAdminFn   func(string) (core.StorageAdmin, error)
 
-	// registry is the capability registry the composition root injected;
-	// nil-safe (behaves as empty).
+	// registry is the capability registry NARROWED to the target project's
+	// enabled set by the pre-parse mount (mountRegistry). The gate reads it:
+	// newRootCmdWithState mounts only its commands, and conventions enumerates
+	// only it. nil-safe (behaves as empty).
 	registry *capability.Registry
+	// fullRegistry is the composition root's UN-narrowed registry. Capability
+	// management commands (project capability add / create) read it: enabling a
+	// capability the project has disabled must validate against — and seed the
+	// vocabulary of — the complete set, not the narrowed view. nil-safe.
+	fullRegistry *capability.Registry
 }
 
 func (s *cliState) stdin() io.Reader {
@@ -228,9 +235,64 @@ func newVersionCmd(st *cliState) *cobra.Command {
 	}
 }
 
-func Execute(deps Deps) int {
-	st := &cliState{runTUI: deps.RunTUI, registry: deps.Registry, openServiceFn: deps.OpenService, openAdminFn: deps.OpenAdmin}
+// flagValue scans argv for `--name v` / `--name=v` without cobra: the mount
+// decision happens BEFORE the command tree exists. First occurrence wins.
+func flagValue(args []string, name string) string {
+	eq := name + "="
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(a, eq) {
+			return strings.TrimPrefix(a, eq)
+		}
+	}
+	return ""
+}
+
+// mountProjectCode resolves which project an invocation targets, pre-parse.
+// Order: --project, then --task/--id (project = everything before the task
+// ID's last '-'), then ATM_PROJECT. Empty string = no target (mount all).
+func mountProjectCode(args []string, getenv func(string) string) string {
+	if v := flagValue(args, "--project"); v != "" {
+		return v
+	}
+	for _, f := range []string{"--task", "--id"} {
+		if v := flagValue(args, f); v != "" {
+			if i := strings.LastIndex(v, "-"); i > 0 {
+				return v[:i]
+			}
+			return ""
+		}
+	}
+	return getenv("ATM_PROJECT")
+}
+
+// mountRegistry narrows the capability registry to the target project's
+// enabled set. Every failure path returns the full registry: the gate only
+// narrows on a successful read (degrade, never reject).
+func mountRegistry(deps Deps, args []string, getenv func(string) string) *capability.Registry {
+	code := mountProjectCode(args, getenv)
+	if code == "" || deps.OpenService == nil {
+		return deps.Registry
+	}
+	svc, err := deps.OpenService(flagValue(args, "--store"))
+	if err != nil {
+		return deps.Registry
+	}
+	p, err := svc.GetProject(code)
+	if err != nil {
+		return deps.Registry
+	}
+	return deps.Registry.For(p)
+}
+
+func Execute(deps Deps) int { return executeArgs(deps, os.Args[1:]) }
+
+func executeArgs(deps Deps, args []string) int {
+	st := &cliState{runTUI: deps.RunTUI, registry: mountRegistry(deps, args, os.Getenv), fullRegistry: deps.Registry, openServiceFn: deps.OpenService, openAdminFn: deps.OpenAdmin}
 	root := newRootCmdWithState(st)
+	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
 		if st.isJSON() {
 			env := NewErrorEnvelopeFromError(err)

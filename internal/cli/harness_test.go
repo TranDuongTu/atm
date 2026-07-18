@@ -99,6 +99,28 @@ type goldenHarness struct {
 	stdout *bytes.Buffer
 	stderr *bytes.Buffer
 	output string
+	// openService is the harness's seeded service opener (from storeOpeners).
+	// run() reuses it to build the mount's OpenService so pre-parse project
+	// resolution reads the SAME seeded store the commands write to.
+	openService func(string) (core.Service, error)
+}
+
+// mountDeps builds the Deps the per-run mount consumes. Its OpenService
+// resolves an empty --store path to the harness's real temp store: most
+// harness runs carry no --store arg, and a plain open("") would resolve the
+// default home, fail GetProject, and degrade-open (mount everything) — masking
+// a correct gate. Registry is a FRESH full registry so every run re-narrows
+// from the full set, never from an already-narrowed h.st.registry.
+func (h *goldenHarness) mountDeps() Deps {
+	return Deps{
+		Registry: testRegistry(),
+		OpenService: func(p string) (core.Service, error) {
+			if p == "" {
+				p = h.store.StorePath()
+			}
+			return h.openService(p)
+		},
+	}
 }
 
 func newGoldenHarness(t *testing.T) *goldenHarness {
@@ -130,7 +152,7 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 		t.Fatal(err)
 	}
 	st.flags.store = s.StorePath()
-	return &goldenHarness{t: t, st: st, store: s, stdout: buf, stderr: ebuf, output: outputJSON}
+	return &goldenHarness{t: t, st: st, store: s, stdout: buf, stderr: ebuf, output: outputJSON, openService: openService}
 }
 
 func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
@@ -153,7 +175,7 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 		t.Fatal(err)
 	}
 	st.flags.store = s.StorePath()
-	return &goldenHarness{t: t, st: st, store: s, stdout: buf, stderr: ebuf, output: outputJSON}
+	return &goldenHarness{t: t, st: st, store: s, stdout: buf, stderr: ebuf, output: outputJSON, openService: openService}
 }
 
 func (h *goldenHarness) reset() {
@@ -164,6 +186,13 @@ func (h *goldenHarness) reset() {
 func (h *goldenHarness) run(args ...string) (string, string, int) {
 	h.reset()
 	h.st.flags.actor = ""
+	// Route every run through the SAME pre-parse mount path production uses.
+	// Re-narrow from a fresh full registry (deps.Registry); the env getter
+	// returns "" so goldens never see the invoking shell's ATM_PROJECT.
+	// fullRegistry keeps the un-narrowed set for capability-management commands.
+	deps := h.mountDeps()
+	h.st.fullRegistry = deps.Registry
+	h.st.registry = mountRegistry(deps, args, func(string) string { return "" })
 	root := newRootCmdWithState(h.st)
 	root.SilenceUsage = true
 	root.SilenceErrors = true

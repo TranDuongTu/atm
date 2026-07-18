@@ -154,7 +154,10 @@ func newProjectCapabilityAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := resolveCapabilityChoice(st.registry, []string{name}); err != nil {
+			// Validate against the FULL registry, not st.registry: the mount
+			// narrowed st.registry to the project's CURRENTLY-enabled set, which
+			// by definition excludes the capability being added.
+			if _, err := resolveCapabilityChoice(st.fullRegistry, []string{name}); err != nil {
 				return err
 			}
 			s, err := st.openStore()
@@ -168,7 +171,10 @@ func newProjectCapabilityAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.registry.For(p).EnsureVocabulary(s, project, actor); err != nil {
+			// Seed from the FULL registry narrowed to the project's NEW enabled
+			// set (p was refetched after the enable). st.registry still reflects
+			// the pre-add set and would filter the just-added capability out.
+			if err := st.fullRegistry.For(p).EnsureVocabulary(s, project, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": project, "enabled": name}, func() {

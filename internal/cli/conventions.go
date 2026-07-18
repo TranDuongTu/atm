@@ -193,5 +193,11 @@ func newConventionsCmd(st *cliState) *cobra.Command {
 			return nil
 		},
 	}
+	// --project is consumed by the pre-parse mount (mountRegistry), not here:
+	// when it is present st.registry was already narrowed to the project's
+	// enabled set, so the RunE enumeration reflects it without reading `project`.
+	var project string
+	cmd.Flags().StringVar(&project, "project", "",
+		"project code; narrows the capability enumeration to the project's enabled set")
 	return cmd
 }
