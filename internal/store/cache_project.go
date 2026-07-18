@@ -21,41 +21,55 @@ func (s *Store) projectSnapshot(code string, snap *core.ProjectSnapshot) error {
 // s.cacheDB(), so it is safe from inside cacheDB()'s cacheOnce.Do (the schema
 // migration's eager reprojection) as well as from ordinary callers.
 //
+// The whole rewrite — delete, upserts, freshness row — runs in ONE SQLite
+// transaction: a live-scale project is ~1,500 rows, and per-row implicit
+// commits made each reprojection pay ~1,500 fsyncs (seconds of wall clock,
+// ATM-d402aa). One transaction is one commit, and it also makes a crash
+// mid-projection atomic instead of leaving a half-rewritten project.
+//
 // It preserves the row-level results cacheProjectFromV2StateDB produced: the
 // upserts are independent rows keyed by id/name, so their relative order does
 // not matter; the only order-sensitive part is delete-before-upsert per table,
 // which is preserved (cacheDeleteProjectRows first, RemovedLabels deletes
 // before label upserts).
 func (s *Store) projectSnapshotDB(db *sql.DB, code string, snap *core.ProjectSnapshot) error {
-	if err := cacheDeleteProjectRows(db, code); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := cacheDeleteProjectRows(tx, code); err != nil {
 		return err
 	}
 	if snap.Project != nil {
-		if err := cacheUpsertProject(db, snap.Project); err != nil {
+		if err := cacheUpsertProject(tx, snap.Project); err != nil {
 			return err
 		}
 	}
 	for _, t := range snap.Tasks {
-		if err := cacheUpsertTask(db, t); err != nil {
+		if err := cacheUpsertTask(tx, t); err != nil {
 			return err
 		}
 	}
 	for _, c := range snap.Comments {
-		if err := cacheUpsertComment(db, c); err != nil {
+		if err := cacheUpsertComment(tx, c); err != nil {
 			return err
 		}
 	}
 	for _, name := range snap.RemovedLabels {
-		if _, err := db.Exec(`DELETE FROM labels WHERE name = ?`, name); err != nil {
+		if _, err := tx.Exec(`DELETE FROM labels WHERE name = ?`, name); err != nil {
 			return err
 		}
 	}
 	for _, l := range snap.Labels {
-		if err := cacheUpsertLabel(db, l); err != nil {
+		if err := cacheUpsertLabel(tx, l); err != nil {
 			return err
 		}
 	}
-	return cacheSetV2Freshness(db, code, snap.ChangeCount)
+	if err := cacheSetV2Freshness(tx, code, snap.ChangeCount); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // reprojectTxn is the in-transaction projection every mutator ends with — the
@@ -88,7 +102,7 @@ func (s *Store) reprojectTxn(code string, cs core.ChangeSet) error {
 // absent from the new one (e.g. a re-upgrade discarded the branch that
 // upserted it) would otherwise never be visited, and its row would survive
 // indefinitely.
-func cacheDeleteProjectRows(db *sql.DB, code string) error {
+func cacheDeleteProjectRows(x sqlExecer, code string) error {
 	for _, stmt := range []string{
 		`DELETE FROM comment_labels WHERE comment_id IN (SELECT c.id FROM comments c JOIN tasks t ON t.id = c.task_id WHERE t.project_code = ?)`,
 		`DELETE FROM comments WHERE task_id IN (SELECT id FROM tasks WHERE project_code = ?)`,
@@ -96,11 +110,11 @@ func cacheDeleteProjectRows(db *sql.DB, code string) error {
 		`DELETE FROM tasks WHERE project_code = ?`,
 		`DELETE FROM projects WHERE code = ?`,
 	} {
-		if _, err := db.Exec(stmt, code); err != nil {
+		if _, err := x.Exec(stmt, code); err != nil {
 			return err
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM labels WHERE name LIKE ? ESCAPE '\'`, escapeLike(code)+":%"); err != nil {
+	if _, err := x.Exec(`DELETE FROM labels WHERE name LIKE ? ESCAPE '\'`, escapeLike(code)+":%"); err != nil {
 		return err
 	}
 	return nil
