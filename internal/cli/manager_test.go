@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
 	"atm/internal/manager"
 )
 
@@ -24,6 +26,29 @@ func TestManageCodexCurateLaunchJSON(t *testing.T) {
 	}
 	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
 	compareGolden(t, "manage-codex-curate-launch", got)
+}
+
+func TestManageCodexActionMappingLaunch(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	h.reset()
+
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "mapping")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if c.name != "codex" {
+		t.Fatalf("child name = %q, want codex", c.name)
+	}
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	if !strings.Contains(got, `"ATM_MANAGER_ACTION": "mapping"`) {
+		t.Fatalf("expected ATM_MANAGER_ACTION mapping, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"ATM_ONBOARD": "1"`) {
+		t.Fatalf("expected ATM_ONBOARD=1, got:\n%s", got)
+	}
+	compareGolden(t, "manage-codex-action-mapping-launch", got)
 }
 
 func TestManageLaunchAutoCreatesProject(t *testing.T) {
@@ -116,49 +141,80 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	}
 }
 
+// mappingAvail is a stand-in for the mount-narrowed registry's ManagerActions
+// output when contextmap is enabled for the project.
+var mappingAvail = []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "reconcile the project's context map"}}
+
 func TestMappingActionResolves(t *testing.T) {
-	got, err := validateManagerAction(managerOpts{Mapping: true})
+	got, _, err := validateManagerAction(managerOpts{Mapping: true}, mappingAvail)
 	if err != nil {
 		t.Fatalf("validateManagerAction: %v", err)
 	}
-	if got != managerActionMapping {
-		t.Errorf("got %q, want %q", got, managerActionMapping)
+	if got != "mapping" {
+		t.Errorf("got %q, want %q", got, "mapping")
 	}
 }
 
 func TestOnboardingAliasStillResolves(t *testing.T) {
 	// Deprecated, hidden, but never hard-broken: the flag is on a stable CLI
 	// surface. See ATM-0113.
-	got, err := validateManagerAction(managerOpts{Onboarding: true})
+	got, _, err := validateManagerAction(managerOpts{Onboarding: true}, mappingAvail)
 	if err != nil {
 		t.Fatalf("validateManagerAction: %v", err)
 	}
-	if got != managerActionMapping {
-		t.Errorf("--onboarding must resolve to %q, got %q", managerActionMapping, got)
+	if got != "mapping" {
+		t.Errorf("--onboarding must resolve to %q, got %q", "mapping", got)
 	}
 }
 
 func TestMappingAndOnboardingTogetherIsOneAction(t *testing.T) {
 	// Both names for the same action must not count as two selections.
-	if _, err := validateManagerAction(managerOpts{Mapping: true, Onboarding: true}); err != nil {
+	if _, _, err := validateManagerAction(managerOpts{Mapping: true, Onboarding: true}, mappingAvail); err != nil {
 		t.Errorf("alias + canonical must be accepted as one action, got %v", err)
 	}
 }
 
 func TestNoActionDefaultsToCurate(t *testing.T) {
 	// ATM-0120: Curate is the default when no action flag is passed.
-	got, err := validateManagerAction(managerOpts{})
+	got, _, err := validateManagerAction(managerOpts{}, nil)
 	if err != nil {
 		t.Fatalf("validateManagerAction: %v", err)
 	}
-	if got != managerActionCurate {
-		t.Errorf("no action: got %q, want %q (default)", got, managerActionCurate)
+	if got != "curate" {
+		t.Errorf("no action: got %q, want %q (default)", got, "curate")
 	}
 }
 
 func TestMultipleActionsIsUsageError(t *testing.T) {
-	if _, err := validateManagerAction(managerOpts{Curate: true, Recall: true}); err == nil {
+	if _, _, err := validateManagerAction(managerOpts{Curate: true, Recall: true}, nil); err == nil {
 		t.Error("want usage error when more than one action is selected")
+	}
+}
+
+func TestValidateManagerActionCapability(t *testing.T) {
+	avail := []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "s"}}
+
+	name, entry, err := validateManagerAction(managerOpts{Action: "mapping"}, avail)
+	if err != nil || name != "mapping" || entry == nil || entry.Command != "context" {
+		t.Fatalf("got (%q,%v,%v)", name, entry, err)
+	}
+	name, entry, err = validateManagerAction(managerOpts{}, avail)
+	if err != nil || name != "curate" || entry != nil {
+		t.Fatalf("default: got (%q,%v,%v)", name, entry, err)
+	}
+	name, entry, err = validateManagerAction(managerOpts{Mapping: true}, avail)
+	if err != nil || name != "mapping" || entry == nil {
+		t.Fatalf("--mapping alias: got (%q,%v,%v)", name, entry, err)
+	}
+	if _, _, err = validateManagerAction(managerOpts{Action: "nosuch"}, avail); err == nil {
+		t.Fatal("unknown action must error")
+	}
+	// contextmap disabled for the project -> mapping not available.
+	if _, _, err = validateManagerAction(managerOpts{Action: "mapping"}, nil); err == nil {
+		t.Fatal("action of a disabled capability must error")
+	}
+	if _, _, err = validateManagerAction(managerOpts{Curate: true, Action: "mapping"}, avail); err == nil {
+		t.Fatal("two selections must error")
 	}
 }
 
@@ -232,21 +288,35 @@ func TestManageContextHiddenFromRootHelp(t *testing.T) {
 
 func TestManageContextRendersPrompt(t *testing.T) {
 	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.reset()
 	h.output = outputText
 	_, _, code := h.run("manage-context", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	// "Mapping" is no longer asserted here: the manager prompt's Roles list is
-	// now composed from CapabilityActions (internal/manager.RenderContext),
-	// and this CLI command does not yet pass any (that wiring lands with the
-	// capability registry in a later task). See TestRenderCapabilityRoles in
-	// internal/manager for coverage of the composed role.
-	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "conventions"} {
+	// The manager prompt's Roles list is composed from CapabilityActions
+	// (internal/manager.RenderContext); the CLI now wires the mount-narrowed
+	// registry's ManagerActions into manage-context, so a project with
+	// contextmap enabled (the default) must render the Mapping role bullet
+	// pointing at `atm context guide`. This is end-to-end coverage of the
+	// registry -> ContextData -> prompt path (unit coverage for the compose
+	// step itself lives in TestRenderCapabilityRoles in internal/manager).
+	// The bin path embedded ahead of "context guide" is this test binary's
+	// real os.Executable() (same call the CLI makes); normalize it to "atm"
+	// before asserting, mirroring how the launch goldens normalize ATM_BIN.
+	normalized := got
+	if bin, err := os.Executable(); err == nil {
+		normalized = strings.ReplaceAll(got, bin, "atm")
+	}
+	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "conventions", "**Mapping**"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
+	}
+	if !strings.Contains(normalized, "atm context guide") {
+		t.Errorf("manage-context output missing composed consult pointer %q; got:\n%s", "atm context guide", normalized)
 	}
 	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding"} {
 		if strings.Contains(got, old) {

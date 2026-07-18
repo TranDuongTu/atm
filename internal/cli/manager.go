@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 	"atm/internal/manager"
 
@@ -18,6 +20,7 @@ type managerOpts struct {
 	Persona     string
 	Agent       string
 	DefaultArgs []string
+	Action      string
 	Curate      bool
 	Recall      bool
 	Mapping     bool
@@ -25,13 +28,9 @@ type managerOpts struct {
 	ExtraArgs   []string
 }
 
-type managerAction string
-
-const (
-	managerActionCurate  managerAction = "curate"
-	managerActionRecall  managerAction = "recall"
-	managerActionMapping managerAction = "mapping"
-)
+// managerCoreActions are the manager's irreducible substrate duties. They
+// exist for every project; capability actions come from the registry.
+var managerCoreActions = []string{"curate", "recall"}
 
 func newManageCmd(st *cliState) *cobra.Command {
 	var opts managerOpts
@@ -167,36 +166,61 @@ func managerPluginAgents(target string) ([]string, error) {
 }
 
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
+	cmd.Flags().StringVar(&opts.Action, "action", "", "manager action: curate, recall, or a capability-contributed action (see `atm manage --project <CODE> --help`)")
 	cmd.Flags().BoolVar(&opts.Curate, "curate", false, "review backlog, triage, track handoffs, and maintain vocabulary (default)")
 	cmd.Flags().BoolVar(&opts.Recall, "recall", false, "read-only synthesis grounded in ledger IDs; does not mutate")
-	cmd.Flags().BoolVar(&opts.Mapping, "mapping", false, "reconcile the project's context map against the repo: verify drifted pointers, discover new territory")
 
-	// Deprecated alias. The action was named --onboarding when it was believed to
-	// be a first-contact ceremony; it is now a repeatable refresh. Never hard-break
-	// a flag on a stable CLI surface (ATM-0113).
+	// Deprecated aliases (never hard-break a flag on a stable CLI surface,
+	// ATM-0113): --mapping predates capability-contributed actions;
+	// --onboarding predates --mapping.
+	cmd.Flags().BoolVar(&opts.Mapping, "mapping", false, "")
+	_ = cmd.Flags().MarkDeprecated("mapping", "use --action mapping")
+	_ = cmd.Flags().MarkHidden("mapping")
 	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "")
-	_ = cmd.Flags().MarkDeprecated("onboarding", "use --mapping")
+	_ = cmd.Flags().MarkDeprecated("onboarding", "use --action mapping")
 	_ = cmd.Flags().MarkHidden("onboarding")
 }
 
-func validateManagerAction(opts managerOpts) (managerAction, error) {
-	selected := []managerAction{}
+// validateManagerAction resolves the session's action: the core duties
+// (curate, recall) always exist; capability actions must be contributed by
+// an enabled capability (`available` comes from the mount-narrowed
+// registry, so a disabled capability's action is simply absent).
+func validateManagerAction(opts managerOpts, available []capability.ManagerAction) (string, *capability.ManagerAction, error) {
+	var selected []string
 	if opts.Curate {
-		selected = append(selected, managerActionCurate)
+		selected = append(selected, "curate")
 	}
 	if opts.Recall {
-		selected = append(selected, managerActionRecall)
+		selected = append(selected, "recall")
 	}
 	if opts.Mapping || opts.Onboarding {
-		selected = append(selected, managerActionMapping)
+		selected = append(selected, "mapping")
+	}
+	if opts.Action != "" {
+		selected = append(selected, opts.Action)
 	}
 	if len(selected) > 1 {
-		return "", fmt.Errorf("%w: choose one manager action: --curate, --recall, or --mapping", ErrUsage)
+		return "", nil, fmt.Errorf("%w: choose one manager action", ErrUsage)
 	}
-	if len(selected) == 1 {
-		return selected[0], nil
+	if len(selected) == 0 {
+		return "curate", nil, nil
 	}
-	return managerActionCurate, nil
+	name := selected[0]
+	for _, core := range managerCoreActions {
+		if name == core {
+			return name, nil, nil
+		}
+	}
+	for i := range available {
+		if available[i].Name == name {
+			return name, &available[i], nil
+		}
+	}
+	names := append([]string{}, managerCoreActions...)
+	for _, a := range available {
+		names = append(names, a.Name)
+	}
+	return "", nil, fmt.Errorf("%w: unknown manager action %q (available: %s)", ErrUsage, name, strings.Join(names, ", "))
 }
 
 func newManageContextCmd(st *cliState) *cobra.Command {
@@ -209,9 +233,15 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 		Short:  "Print the ATM manager system prompt to stdout",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			available := st.registry.ManagerActions(st)
+			capActions := make([]manager.CapabilityAction, 0, len(available))
+			for _, a := range available {
+				capActions = append(capActions, manager.CapabilityAction{Name: a.Name, Summary: a.Summary, Command: a.Command})
+			}
 			data := manager.ContextData{
-				Code:  opts.Project,
-				Actor: opts.Actor,
+				Code:              opts.Project,
+				Actor:             opts.Actor,
+				CapabilityActions: capActions,
 			}
 			if opts.Project != "" {
 				data.ATMBin = atmBinPath()
@@ -244,9 +274,18 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		return err
 	}
 
-	action, err := validateManagerAction(opts)
+	available := st.registry.ManagerActions(st)
+	action, entry, err := validateManagerAction(opts, available)
 	if err != nil {
 		return err
+	}
+	capActions := make([]manager.CapabilityAction, 0, len(available))
+	for _, a := range available {
+		capActions = append(capActions, manager.CapabilityAction{Name: a.Name, Summary: a.Summary, Command: a.Command})
+	}
+	consult := ""
+	if entry != nil {
+		consult = entry.Command
 	}
 	effectivePersona := opts.Persona
 	if effectivePersona == "" {
@@ -279,14 +318,18 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		Persona:            effectivePersona,
 		PersonaPrompt:      mp.Prompt,
 		PersonaDescription: mp.Description,
-		Action:             string(action),
+		Action:             action,
+		CapabilityActions:  capActions,
+		ActionConsult:      consult,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
 	var base []string
-	onboarding := action == managerActionMapping
+	// The onboard argv flavor is a launcher nuance historically tied to the
+	// mapping action; not generalized to other capability actions (YAGNI).
+	onboarding := action == "mapping"
 	if onboarding {
 		base = l.BuildArgvOnboard(contextPath)
 	} else {
@@ -294,7 +337,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	}
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
-	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, onboarding, effectivePersona, string(action))
+	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, onboarding, effectivePersona, action)
 	env := assembleEnv(envValues)
 	if onboarding {
 		setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
