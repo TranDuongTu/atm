@@ -27,7 +27,7 @@
       "name": "ATM:comment:progress"
     },
     {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm context` -- do not hand-edit.",
+      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
       "name": "ATM:comment:provenance"
     },
     {
@@ -65,7 +65,7 @@
       "name": "ATM:knowledge:*"
     },
     {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm context supersede`.",
+      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
       "name": "ATM:knowledge:superseded"
     },
     {
@@ -136,7 +136,7 @@
       "name": "DEMO:comment:progress"
     },
     {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm context` -- do not hand-edit.",
+      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
       "name": "DEMO:comment:provenance"
     },
     {
@@ -174,7 +174,7 @@
       "name": "DEMO:knowledge:*"
     },
     {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm context supersede`.",
+      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
       "name": "DEMO:knowledge:superseded"
     },
     {

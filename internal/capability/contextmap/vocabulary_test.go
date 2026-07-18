@@ -1,6 +1,7 @@
 package contextmap
 
 import (
+	"strings"
 	"testing"
 
 	"atm/internal/store"
@@ -62,6 +63,46 @@ func TestEnsureVocabularyIsIdempotent(t *testing.T) {
 	}
 	if err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("second: %v", err)
+	}
+}
+
+func TestEnsureVocabularySeedsContextNamespaceDescriptor(t *testing.T) {
+	s, actor := newTestStore(t)
+	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if _, err := s.LabelShow("TST:context:*"); err != nil {
+		t.Fatalf("EnsureVocabulary did not seed the context:* namespace descriptor: %v", err)
+	}
+	l, err := s.LabelShow("TST:context:agent")
+	if err != nil {
+		t.Fatalf("context:agent not seeded: %v", err)
+	}
+	if !strings.Contains(l.Description, "agent-direction") {
+		t.Errorf("context:agent description not absorbed from seed.go: %q", l.Description)
+	}
+	// Every recognized kind must carry a non-thin description: not the old
+	// "context pointer kind: X" placeholder form that the absorbed seed.go
+	// default used to emit. Fold the agent assertion above into the loop's
+	// "non-thin" check while keeping its specific agent-direction assertion.
+	for _, kind := range ContextKinds {
+		k, err := s.LabelShow(LabelContextKind("TST", kind))
+		if err != nil {
+			t.Fatalf("EnsureVocabulary did not seed context kind %q: %v", kind, err)
+		}
+		if k.Description == "" {
+			t.Errorf("context:%s seeded without a description", kind)
+		}
+		if strings.HasPrefix(k.Description, "context pointer kind:") {
+			t.Errorf("context:%s description is the thin placeholder %q", kind, k.Description)
+		}
+	}
+	sup, err := s.LabelShow("TST:knowledge:superseded")
+	if err != nil {
+		t.Fatalf("superseded not seeded: %v", err)
+	}
+	if !strings.Contains(sup.Description, "atm capability contextmap supersede") {
+		t.Errorf("superseded description still references the old command path: %q", sup.Description)
 	}
 }
 

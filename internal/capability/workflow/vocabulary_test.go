@@ -5,8 +5,29 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
+
+// recordingLabelService wraps a core.LabelService and records every
+// LabelSeed(name, desc, expr, actor) call. It exists so a test can assert
+// that EnsureVocabulary itself issued the seed calls (independent of any
+// seeding that happened earlier, e.g. via store.CreateProject), which a
+// plain *store.Store cannot prove -- LabelSeed on an existing label is a
+// silent no-op.
+type recordingLabelService struct {
+	core.LabelService
+	seedCalls []labelSeedCall
+}
+
+type labelSeedCall struct {
+	name, desc, expr, actor string
+}
+
+func (r *recordingLabelService) LabelSeed(name, description, expr, actor string) error {
+	r.seedCalls = append(r.seedCalls, labelSeedCall{name, description, expr, actor})
+	return r.LabelService.LabelSeed(name, description, expr, actor)
+}
 
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -169,6 +190,53 @@ func TestEnsureVocabularyFreshOpenTasksDescriptionDropsDefaultClause(t *testing.
 	}
 	if strings.Contains(l.Description, "Default board in the TUI") {
 		t.Errorf("open-tasks description = %q, still references 'Default board'; all-tasks is now the default", l.Description)
+	}
+}
+
+func TestEnsureVocabularySeedsStatusLabels(t *testing.T) {
+	s := newTestStore(t)
+	// Wrap the store so we can observe the LabelSeed calls EnsureVocabulary
+	// itself issues. CreateProject already seeds status:* via internal/seed,
+	// so a plain *store.Store cannot prove EnsureVocabulary seeded anything
+	// (LabelSeed on an existing label is a silent no-op). The recording
+	// wrapper makes EnsureVocabulary's own calls visible independent of
+	// prior seeding.
+	rec := &recordingLabelService{LabelService: s}
+	if err := EnsureVocabulary(rec, "ATM", "admin@cli:unset"); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// EnsureVocabulary must itself issue a LabelSeed for each status label,
+	// with an empty expr (status:* is a namespace label, not a board).
+	wantStatus := []string{
+		"ATM:status:*", "ATM:status:open", "ATM:status:in-progress",
+		"ATM:status:blocked", "ATM:status:done",
+	}
+	seen := map[string]labelSeedCall{}
+	for _, c := range rec.seedCalls {
+		seen[c.name] = c
+	}
+	for _, want := range wantStatus {
+		c, ok := seen[want]
+		if !ok {
+			t.Errorf("EnsureVocabulary did not LabelSeed %s (calls: %v)", want, rec.seedCalls)
+			continue
+		}
+		if c.expr != "" {
+			t.Errorf("%s seeded with expr %q, want empty (status labels are not boards)", want, c.expr)
+		}
+	}
+	// The labels must be present, with non-empty descriptions and empty expr.
+	for _, want := range wantStatus {
+		l, err := s.LabelShow(want)
+		if err != nil {
+			t.Fatalf("EnsureVocabulary did not seed %s: %v", want, err)
+		}
+		if l.Description == "" {
+			t.Errorf("%s seeded without a description", want)
+		}
+		if l.Expr != "" {
+			t.Errorf("%s is a stored/namespace label, seeded with expr %q", want, l.Expr)
+		}
 	}
 }
 
