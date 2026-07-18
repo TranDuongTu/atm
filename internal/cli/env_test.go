@@ -41,16 +41,21 @@ func TestCLIStateImplementsEnv(t *testing.T) {
 }
 
 // TestRegistryCommandsMount pins that a registry handed to Execute's state
-// mounts its command trees on the root command.
+// mounts its command trees under the `atm capability` namespace (the v2 flag
+// day: capabilities no longer mount at the root).
 func TestRegistryCommandsMount(t *testing.T) {
 	st := &cliState{registry: capability.NewRegistry(&fakeMountCap{name: "fakecap"})}
 	root := newRootCmdWithState(st)
 	for _, c := range root.Commands() {
-		if c.Use == "fakecap" {
-			return
+		if c.Use == "capability" {
+			for _, sub := range c.Commands() {
+				if sub.Use == "fakecap" {
+					return
+				}
+			}
 		}
 	}
-	t.Fatal("registry command not mounted on root")
+	t.Fatal("registry command not mounted under `atm capability`")
 }
 
 type fakeMountCap struct {

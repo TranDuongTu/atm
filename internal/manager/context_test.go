@@ -48,7 +48,7 @@ func TestRenderContextActionCatalogPresent(t *testing.T) {
 	got := RenderContext(ContextData{
 		Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m",
 		CapabilityActions: []CapabilityAction{
-			{Name: "mapping", Summary: "reconcile the project's context map against reality", Command: "context"},
+			{Name: "mapping", Summary: "reconcile the project's context map against reality", Command: "contextmap"},
 		},
 	})
 	for _, frag := range []string{"Curate", "Recall", "Mapping"} {
@@ -93,11 +93,11 @@ func TestTemplateMappingRolePointsAtGuide(t *testing.T) {
 	rendered := RenderContext(ContextData{
 		Code: "X", Name: "X", ATMBin: "atm", Actor: "a@b:c",
 		CapabilityActions: []CapabilityAction{
-			{Name: "mapping", Summary: "reconcile the project's context map against reality", Command: "context"},
+			{Name: "mapping", Summary: "reconcile the project's context map against reality", Command: "contextmap"},
 		},
 	})
-	if !strings.Contains(rendered, "atm context guide") {
-		t.Error("Mapping role must tell the manager to consult `atm context guide`")
+	if !strings.Contains(rendered, "atm contextmap guide") {
+		t.Error("Mapping role must tell the manager to consult `atm contextmap guide`")
 	}
 	for _, banned := range []string{"context stamp", "context retarget", "context supersede", "DRIFT", "UNVERIFIED", "**Verify.**", "**Discover.**"} {
 		if strings.Contains(rendered, banned) {
@@ -110,13 +110,13 @@ func TestRenderCapabilityRoles(t *testing.T) {
 	rendered := RenderContext(ContextData{
 		Code: "X", Name: "X", ATMBin: "atm", Actor: "a@b:c",
 		CapabilityActions: []CapabilityAction{
-			{Name: "mapping", Summary: "reconcile the context map", Command: "context"},
+			{Name: "mapping", Summary: "reconcile the context map", Command: "contextmap"},
 		},
 	})
 	for _, want := range []string{
 		"**Mapping**",
 		"reconcile the context map",
-		"`atm context guide`",
+		"`atm contextmap guide`",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered prompt missing %q", want)
@@ -143,12 +143,12 @@ func TestRenderNoCapabilityActions(t *testing.T) {
 func TestRenderActionBlockConsult(t *testing.T) {
 	rendered := RenderContext(ContextData{
 		Code: "X", Name: "X", ATMBin: "atm", Actor: "a@b:c",
-		Action: "mapping", ActionConsult: "context",
+		Action: "mapping", ActionConsult: "contextmap",
 	})
 	if !strings.Contains(rendered, "Focus this session on **mapping**") {
 		t.Error("action block missing")
 	}
-	if !strings.Contains(rendered, "atm context guide") {
+	if !strings.Contains(rendered, "atm contextmap guide") {
 		t.Error("capability action block must point at the capability guide")
 	}
 }

@@ -105,8 +105,8 @@ func TestConventionsEnumerateCapabilities(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Capabilities",
-		"workflow", "`atm workflow guide`",
-		"contextmap", "`atm context guide`",
+		"workflow", "`atm capability workflow guide`",
+		"contextmap", "`atm capability contextmap guide`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("conventions missing %q", want)

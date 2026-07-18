@@ -98,7 +98,7 @@ Agents working in an ATM project follow these rules to keep the label substrate 
 
 Semantics beyond the substrate live in capabilities. Each capability owns a slice of the label substrate and explains itself: consult its guide before operating in its territory.
 
-- **workflow** (`atm workflow`) — Status-transition verbs and boards — the paved road for task status. Consult: `atm workflow guide`.
-- **contextmap** (`atm context`) — Context pointers with provenance — record what knowledge derives from, detect drift. Consult: `atm context guide`.
+- **workflow** (`atm capability workflow`) — Status-transition verbs and boards — the paved road for task status. Consult: `atm capability workflow guide`.
+- **contextmap** (`atm capability contextmap`) — Context pointers with provenance — record what knowledge derives from, detect drift. Consult: `atm capability contextmap guide`.
 
 Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.

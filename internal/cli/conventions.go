@@ -115,7 +115,7 @@ func capabilitiesSection(descs []capability.Description) string {
 	b.WriteString("## Capabilities\n\n")
 	b.WriteString("Semantics beyond the substrate live in capabilities. Each capability owns a slice of the label substrate and explains itself: consult its guide before operating in its territory.\n\n")
 	for _, d := range descs {
-		fmt.Fprintf(&b, "- **%s** (`atm %s`) — %s Consult: `atm %s guide`.\n", d.Name, d.Command, d.Summary, d.Command)
+		fmt.Fprintf(&b, "- **%s** (`atm capability %s`) — %s Consult: `atm capability %s guide`.\n", d.Name, d.Name, d.Summary, d.Name)
 	}
 	return b.String()
 }
@@ -168,9 +168,8 @@ func conventionsStructured(descs []capability.Description) map[string]any {
 			for _, d := range descs {
 				out = append(out, map[string]string{
 					"name":    d.Name,
-					"command": d.Command,
 					"summary": d.Summary,
-					"consult": "atm " + d.Command + " guide",
+					"consult": "atm capability " + d.Name + " guide",
 				})
 			}
 			return out
@@ -183,7 +182,7 @@ func newConventionsCmd(st *cliState) *cobra.Command {
 		Use:   "conventions",
 		Short: "Print the onboarding guide and suggested label namespaces",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			descs := st.registry.Describe(st)
+			descs := st.registry.Describe()
 			if st.isJSON() {
 				return writeJSON(st.stdout(), map[string]any{"conventions": conventionsStructured(descs)})
 			}

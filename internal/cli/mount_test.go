@@ -36,8 +36,8 @@ func TestMountProjectCode(t *testing.T) {
 }
 
 // The gate end-to-end: a project that disabled workflow does not get the
-// workflow command mounted; a project that kept it does; resolution failure
-// mounts everything (degrade open).
+// workflow command mounted under `atm capability`; a project that kept it
+// does; resolution failure mounts everything (degrade open).
 func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 	h := newGoldenHarness(t)
 	// NOCAP is a valid project code (^[A-Z]{3,6}$); a code that fails validation
@@ -48,19 +48,19 @@ func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 		t.Fatalf("create NOCAP: exit %d; stderr=%q", code, stderr)
 	}
 
-	_, stderr, code := h.run("workflow", "seed", "--project", "NOCAP", "--actor", "admin@cli:unset")
+	_, _, code := h.run("capability", "workflow", "seed", "--project", "NOCAP", "--actor", "admin@cli:unset")
 	if code == 0 {
-		t.Fatalf("workflow must be unmounted for NOCAP; stderr=%q", stderr)
+		t.Fatalf("workflow must be unmounted for NOCAP")
 	}
-	// context check may legitimately fail on a non-repo cwd; the point is the
+	// contextmap check may legitimately fail on a non-repo cwd; the point is the
 	// command must be FOUND. Assert the failure is not "unknown command".
-	if _, stderr, code := h.run("context", "check", "--project", "NOCAP"); code != 0 {
+	if _, stderr, code := h.run("capability", "contextmap", "check", "--project", "NOCAP"); code != 0 {
 		if strings.Contains(stderr, "unknown command") {
-			t.Fatal("context must stay mounted for NOCAP")
+			t.Fatal("contextmap must stay mounted for NOCAP")
 		}
 	}
-	// Unknown project: degrade open — workflow help must be found.
-	if _, stderr, _ := h.run("workflow", "--help", "--project", "NOPE"); strings.Contains(stderr, "unknown command") {
-		t.Fatal("resolution failure must mount the full registry")
+	// Unknown project: degrade open — workflow under `atm capability` must be found.
+	if _, stderr, _ := h.run("capability", "workflow", "--help", "--project", "NOPE"); strings.Contains(stderr, "unknown command") {
+		t.Fatal("resolution failure must mount the full registry under atm capability")
 	}
 }

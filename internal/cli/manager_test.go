@@ -142,8 +142,10 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 }
 
 // mappingAvail is a stand-in for the mount-narrowed registry's ManagerActions
-// output when contextmap is enabled for the project.
-var mappingAvail = []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "reconcile the project's context map"}}
+// output when contextmap is enabled for the project. After the v2 flag day
+// contextmap's mounted command name IS its capability name ("contextmap"),
+// so the consult pointer reads `atm contextmap guide`.
+var mappingAvail = []capability.ManagerAction{{Capability: "contextmap", Command: "contextmap", Name: "mapping", Summary: "reconcile the project's context map"}}
 
 func TestMappingActionResolves(t *testing.T) {
 	got, _, err := validateManagerAction(managerOpts{Mapping: true}, mappingAvail)
@@ -192,10 +194,10 @@ func TestMultipleActionsIsUsageError(t *testing.T) {
 }
 
 func TestValidateManagerActionCapability(t *testing.T) {
-	avail := []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "s"}}
+	avail := []capability.ManagerAction{{Capability: "contextmap", Command: "contextmap", Name: "mapping", Summary: "s"}}
 
 	name, entry, err := validateManagerAction(managerOpts{Action: "mapping"}, avail)
-	if err != nil || name != "mapping" || entry == nil || entry.Command != "context" {
+	if err != nil || name != "mapping" || entry == nil || entry.Command != "contextmap" {
 		t.Fatalf("got (%q,%v,%v)", name, entry, err)
 	}
 	name, entry, err = validateManagerAction(managerOpts{}, avail)
@@ -300,10 +302,10 @@ func TestManageContextRendersPrompt(t *testing.T) {
 	// (internal/manager.RenderContext); the CLI now wires the mount-narrowed
 	// registry's ManagerActions into manage-context, so a project with
 	// contextmap enabled (the default) must render the Mapping role bullet
-	// pointing at `atm context guide`. This is end-to-end coverage of the
+	// pointing at `atm contextmap guide`. This is end-to-end coverage of the
 	// registry -> ContextData -> prompt path (unit coverage for the compose
 	// step itself lives in TestRenderCapabilityRoles in internal/manager).
-	// The bin path embedded ahead of "context guide" is this test binary's
+	// The bin path embedded ahead of "contextmap guide" is this test binary's
 	// real os.Executable() (same call the CLI makes); normalize it to "atm"
 	// before asserting, mirroring how the launch goldens normalize ATM_BIN.
 	normalized := got
@@ -315,8 +317,8 @@ func TestManageContextRendersPrompt(t *testing.T) {
 			t.Errorf("manage-context output missing %q", want)
 		}
 	}
-	if !strings.Contains(normalized, "atm context guide") {
-		t.Errorf("manage-context output missing composed consult pointer %q; got:\n%s", "atm context guide", normalized)
+	if !strings.Contains(normalized, "atm contextmap guide") {
+		t.Errorf("manage-context output missing composed consult pointer %q; got:\n%s", "atm contextmap guide", normalized)
 	}
 	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding"} {
 		if strings.Contains(got, old) {

@@ -16,14 +16,12 @@
     "boards": "A label may carry an expression over other labels. Such a label is a BOARD: its membership is computed, not asserted. ATM:next-sprint with the expression status:open AND sprint:next matches every open task in the next sprint, and nothing carries that label directly. Three kinds of label: stored (ATM:status:open — tasks assert it), namespace (ATM:status:* — any label with that prefix; emergent; describable), board (ATM:next-sprint — has an expression; computed; cannot be assigned). Expressions use AND / OR / NOT / parentheses over bare label names (the project prefix is implied). Boards may reference other boards. NOT status:* means carries no status label — i.e. untriaged. Agents author boards for the groupings the project actually needs, and give each one a description — the description is what the next agent reads to know what the board means. Boards are how a human asks for the release board without knowing the label vocabulary. The Boards pane is the human's review surface; a namespace with no description shows a warning there.",
     "capabilities": [
       {
-        "command": "workflow",
-        "consult": "atm workflow guide",
+        "consult": "atm capability workflow guide",
         "name": "workflow",
         "summary": "Status-transition verbs and boards — the paved road for task status."
       },
       {
-        "command": "context",
-        "consult": "atm context guide",
+        "consult": "atm capability contextmap guide",
         "name": "contextmap",
         "summary": "Context pointers with provenance — record what knowledge derives from, detect drift."
       }

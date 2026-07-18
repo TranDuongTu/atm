@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Cap is the contextmap capability: the `atm context` verb tree over the
-// recorder/check verbs in this package.
+// Cap is the contextmap capability: the `atm capability contextmap` verb tree
+// over the recorder/check verbs in this package.
 type Cap struct{}
 
 // New returns the capability the composition root registers.
@@ -28,7 +28,7 @@ func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.L
 
 func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "context",
+		Use:   "contextmap",
 		Short: "Record and verify the project's context map",
 		Long: "Record where each context pointer came from, and report which pointers have " +
 			"drifted from reality.\n\n" +

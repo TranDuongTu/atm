@@ -28,10 +28,10 @@ func TestDescribeEnumeratesInRegistrationOrder(t *testing.T) {
 		&fakeCap{name: "alpha", cmdName: "al", summary: "does alpha"},
 		&fakeCap{name: "beta", cmdName: "be", summary: "does beta"},
 	)
-	got := r.Describe(&fakeEnv{})
+	got := r.Describe()
 	want := []Description{
-		{Name: "alpha", Command: "al", Summary: "does alpha"},
-		{Name: "beta", Command: "be", Summary: "does beta"},
+		{Name: "alpha", Summary: "does alpha"},
+		{Name: "beta", Summary: "does beta"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Describe len = %d, want %d", len(got), len(want))
@@ -45,7 +45,7 @@ func TestDescribeEnumeratesInRegistrationOrder(t *testing.T) {
 
 func TestDescribeNilRegistry(t *testing.T) {
 	var r *Registry
-	if got := r.Describe(&fakeEnv{}); got != nil {
+	if got := r.Describe(); got != nil {
 		t.Fatalf("nil registry Describe = %v, want nil", got)
 	}
 }

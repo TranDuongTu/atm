@@ -54,7 +54,7 @@ type ActionSpec struct {
 // capability contributed it and the command an agent consults for it.
 type ManagerAction struct {
 	Capability string // capability name, e.g. "contextmap"
-	Command    string // mounted command name, e.g. "context" (for the consult pointer)
+	Command    string // mounted command name (== Capability after the v2 mount-by-name flag day; for the consult pointer)
 	Name       string
 	Summary    string
 }
@@ -95,24 +95,22 @@ type Registry struct {
 // EnsureVocabulary order).
 func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
 
-// Description is one capability's enumeration entry: its stable name, the
-// cobra command it mounts as (what an agent types), and its one-line summary.
+// Description is one capability's enumeration entry. The capability's Name
+// IS its mounted command under `atm capability` — there is no separate
+// command identity (Clarification 1 of the v2 spec).
 type Description struct {
 	Name    string
-	Command string
 	Summary string
 }
 
 // Describe enumerates the registered capabilities in registration order.
-// Command is taken from the built command tree so the consult instruction
-// can never drift from what is actually mounted.
-func (r *Registry) Describe(env Env) []Description {
+func (r *Registry) Describe() []Description {
 	if r == nil {
 		return nil
 	}
 	out := make([]Description, 0, len(r.caps))
 	for _, c := range r.caps {
-		out = append(out, Description{Name: c.Name(), Command: c.Command(env).Name(), Summary: c.Summary()})
+		out = append(out, Description{Name: c.Name(), Summary: c.Summary()})
 	}
 	return out
 }
@@ -120,6 +118,8 @@ func (r *Registry) Describe(env Env) []Description {
 // Commands returns each capability's command tree in registration order.
 // The registry, not the capability, mounts the uniform `guide` subcommand,
 // so its shape is identical everywhere and cannot be forgotten.
+// Mount-by-name is a structural invariant: whatever Use the capability chose,
+// the mounted command answers to Name() (Clarification 1 of the v2 spec).
 func (r *Registry) Commands(env Env) []*cobra.Command {
 	if r == nil {
 		return nil
@@ -127,6 +127,7 @@ func (r *Registry) Commands(env Env) []*cobra.Command {
 	out := make([]*cobra.Command, 0, len(r.caps))
 	for _, c := range r.caps {
 		cmd := c.Command(env)
+		cmd.Use = c.Name()
 		cmd.AddCommand(newGuideCmd(c, env))
 		out = append(out, cmd)
 	}
