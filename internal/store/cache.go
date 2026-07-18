@@ -17,11 +17,19 @@ func (s *Store) cachePath() string { return filepath.Join(s.Root, "cache.db") }
 // v2FreshnessMetaKey for the per-project last-projected v2 event count row.
 func v2FreshnessMetaKey(code string) string { return "last_v2_event_count:" + code }
 
+// sqlExecer is the write surface the per-row cache helpers run on: *sql.DB
+// for standalone point writes, *sql.Tx when a caller batches a whole
+// project rewrite into one transaction (projectSnapshotDB — one fsync
+// instead of one per row).
+type sqlExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // cacheSetV2Freshness upserts the per-project v2 freshness row: the event
 // count of the events.v2.jsonl file the cache was last projected from, keyed
 // on the v2 event count since v2 files have no monotonic seq column.
-func cacheSetV2Freshness(db *sql.DB, code string, eventCount int) error {
-	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
+func cacheSetV2Freshness(x sqlExecer, code string, eventCount int) error {
+	_, err := x.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
 		v2FreshnessMetaKey(code), eventCount)
 	return err
@@ -173,8 +181,8 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 
 // ---- project cache ----
 
-func cacheUpsertProject(db *sql.DB, p *Project) error {
-	_, err := db.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by)
+func cacheUpsertProject(x sqlExecer, p *Project) error {
+	_, err := x.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(code) DO UPDATE SET
 			name=excluded.name, ordinal=excluded.ordinal,
@@ -224,13 +232,8 @@ func cacheListProjectCodes(db *sql.DB) ([]string, error) {
 
 // ---- task cache ----
 
-func cacheUpsertTask(db *sql.DB, t *Task) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO tasks (id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by)
+func cacheUpsertTask(x sqlExecer, t *Task) error {
+	_, err := x.Exec(`INSERT INTO tasks (id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, description=excluded.description, ordinal=excluded.ordinal,
@@ -239,15 +242,15 @@ func cacheUpsertTask(db *sql.DB, t *Task) error {
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM task_labels WHERE task_id = ?`, t.ID); err != nil {
+	if _, err = x.Exec(`DELETE FROM task_labels WHERE task_id = ?`, t.ID); err != nil {
 		return err
 	}
 	for _, l := range t.Labels {
-		if _, err = tx.Exec(`INSERT INTO task_labels (task_id, label) VALUES (?, ?)`, t.ID, l); err != nil {
+		if _, err = x.Exec(`INSERT INTO task_labels (task_id, label) VALUES (?, ?)`, t.ID, l); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func cacheTaskLabels(db *sql.DB, taskID string) ([]string, error) {
@@ -408,8 +411,8 @@ func SortTaskIDsByFunc(tasks []*Task) {
 
 // ---- label cache ----
 
-func cacheUpsertLabel(db *sql.DB, l Label) error {
-	_, err := db.Exec(`INSERT INTO labels (name, description, expr, ordinal) VALUES (?, ?, ?, ?)
+func cacheUpsertLabel(x sqlExecer, l Label) error {
+	_, err := x.Exec(`INSERT INTO labels (name, description, expr, ordinal) VALUES (?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET description=excluded.description, expr=excluded.expr, ordinal=excluded.ordinal`,
 		l.Name, l.Description, l.Expr, l.Ordinal)
 	return err
@@ -596,13 +599,8 @@ func cachePresentLabels(db *sql.DB, names []string) (map[string]bool, error) {
 
 // ---- comment cache ----
 
-func cacheUpsertComment(db *sql.DB, c *Comment) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO comments (id, task_id, reply_to, body, ordinal, created_at, created_by, updated_at, updated_by)
+func cacheUpsertComment(x sqlExecer, c *Comment) error {
+	_, err := x.Exec(`INSERT INTO comments (id, task_id, reply_to, body, ordinal, created_at, created_by, updated_at, updated_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			body=excluded.body, ordinal=excluded.ordinal, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
@@ -610,15 +608,15 @@ func cacheUpsertComment(db *sql.DB, c *Comment) error {
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM comment_labels WHERE comment_id = ?`, c.ID); err != nil {
+	if _, err = x.Exec(`DELETE FROM comment_labels WHERE comment_id = ?`, c.ID); err != nil {
 		return err
 	}
 	for _, l := range c.Labels {
-		if _, err = tx.Exec(`INSERT INTO comment_labels (comment_id, label) VALUES (?, ?)`, c.ID, l); err != nil {
+		if _, err = x.Exec(`INSERT INTO comment_labels (comment_id, label) VALUES (?, ?)`, c.ID, l); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func cacheCommentLabels(db *sql.DB, commentID string) ([]string, error) {

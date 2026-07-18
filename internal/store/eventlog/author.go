@@ -164,21 +164,23 @@ func v2LiveProject(st *eventsource.State, code string) (*eventsource.ProjectStat
 }
 
 // appendLabelUpsertsLocked auto-registers any label name a task/comment
-// mutation asserts but the fold does not already hold live. It was the v2
-// mirror of the v1 appendLabelUpsertsLocked, deleted in D-Task5b along with
-// the v1 write branches that were its only callers. The payload carries NO
-// fields — label.upserted
-// writes the existence slot unconditionally (writesOf), so an empty payload
-// registers the label without clobbering a description/expr some other
-// replica may have set. Caller MUST hold the project lock.
-func (e *Engine) appendLabelUpsertsLocked(code string, labels []string, actor string) error {
+// mutation asserts but the fold does not already hold live, returning how
+// many label.upserted events it appended (0 when every name was live). It was
+// the v2 mirror of the v1 appendLabelUpsertsLocked, deleted in D-Task5b along
+// with the v1 write branches that were its only callers. The payload carries
+// NO fields — label.upserted writes the existence slot unconditionally
+// (writesOf), so an empty payload registers the label without clobbering a
+// description/expr some other replica may have set. Caller MUST hold the
+// project lock.
+func (e *Engine) appendLabelUpsertsLocked(code string, labels []string, actor string) (int, error) {
 	if len(labels) == 0 {
-		return nil
+		return 0, nil
 	}
 	ctx, err := e.beginAuthorLocked(code)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	appended := 0
 	for _, name := range labels {
 		if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
 			continue
@@ -189,10 +191,11 @@ func (e *Engine) appendLabelUpsertsLocked(code string, labels []string, actor st
 			Subject: eventsource.Subject{Kind: "label", Name: name},
 			Payload: map[string]any{},
 		}); err != nil {
-			return err
+			return appended, err
 		}
+		appended++
 	}
-	return nil
+	return appended, nil
 }
 
 func (e *Engine) appendLocked(code string, d draft) (*eventsource.Event, error) {
