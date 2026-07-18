@@ -55,9 +55,9 @@ Sooner or later a subsystem needs structure the substrate does not have. The con
 
 A **capability command** is a CLI subsystem that owns a slice of the label substrate. It has four obligations:
 
-**1. It ensures its own vocabulary.** Before using a label or a board, it creates it — idempotently, with a description. It never assumes `atm label seed` ran. It never assumes the project's labels have a particular shape. It works in a project whose human curated the vocabulary differently, and in one created five minutes ago.
+**1. It ensures its own vocabulary via a single seam.** `EnsureVocabulary(svc, code, actor)` is the capability's one self-setup call: idempotently, with a description, it seeds every label and board the capability owns and returns the **boards** it owns (labels with `Expr`). There is no parallel `seed.go` and no `atm label seed`; this seam is invoked at project create, `atm project capability add`, TUI project select, and the TUI Boards [S] key. It never assumes the project's labels have a particular shape; it works in a project whose human curated the vocabulary differently, and in one created five minutes ago. A human's curated description is never overwritten.
 
-*Consequence: capabilities are self-bootstrapping. There is no seeding dependency, and no "this feature only works in a properly-configured project."*
+*Consequence: capabilities are self-bootstrapping. There is one seeding path per capability, no seeding dependency, and no "this feature only works in a properly-configured project." A new board added in a new capability version appears on the next `EnsureVocabulary` run — no migration step.*
 
 **2. It exposes intent-level verbs.** The caller says what it means — `supersede this pointer, because its subject died` — not which labels to apply. Label names, expressions, and formats never appear in a prompt, a skill, or an agent's reasoning.
 
@@ -67,9 +67,9 @@ A **capability command** is a CLI subsystem that owns a slice of the label subst
 
 *Consequence: the format is private and can change freely. It also means the format belongs in a comment or a description — somewhere the substrate already stores free text — rather than in a new field.*
 
-**4. It explains itself.** A capability carries its own agent-facing semantics — what its vocabulary means, how its verbs are used, its operating procedure, and its manager duty — retrievable at runtime as a `guide` verb (`atm <cap> guide`) and a one-line summary for enumeration. `atm conventions` and the manager prompt enumerate capabilities and point at their guides; they do not restate them. Prose about a capability living outside the capability is a defect — the same drift class as label names hardcoded in prompts.
+**4. It explains itself and mounts under its `Name()`.** A capability carries its own agent-facing semantics — what its vocabulary means, how its verbs are used, its operating procedure, and its manager duty — retrievable at runtime as a `guide` verb (`atm capability <Name()> guide`) and a one-line summary for enumeration. Its cobra command tree mounts under `atm capability <Name()>` (e.g. `atm capability workflow start`, `atm capability contextmap add`); a disabled capability's tree is unmounted (cobra "unknown command"), a hard gate on the tooling surface only. `atm conventions` is a minimal substrate primer that points at `atm capability list` and `atm capability <name> guide` for discovery; it does not enumerate capabilities, and it does not restate them. Prose about a capability living outside the capability is a defect — the same drift class as label names hardcoded in prompts.
 
-*Consequence: a capability's semantics have exactly one source. Adding a capability is one package implementing the interface; conventions, the manager scope, and agent behaviour follow by registration, with no prose sites to keep in sync.*
+*Consequence: a capability's semantics and command surface have exactly one source. Adding a capability is one package implementing the interface; conventions, the manager scope, and agent behaviour follow by registration, with no prose sites to keep in sync.*
 
 ### What a capability may not do
 
@@ -83,15 +83,15 @@ Every capability separates the two:
 
 | Role | Mutates | Example |
 |---|---|---|
-| **Recorder** | Yes | `atm context add / stamp / retarget / supersede` |
-| **Reporter** | **Never** | `atm context check` |
+| **Recorder** | Yes | `atm capability contextmap add / stamp / retarget / supersede` |
+| **Reporter** | **Never** | `atm capability contextmap check` |
 | **Decider** | Via recorders | The manager prompt |
 
 The reporter's purity is testable and should be tested: the store is byte-identical before and after it runs.
 
 ### Enablement: which paved roads get built
 
-Capabilities are registered at compile time, but **chosen per project**. A project's enabled set is a project-level fact in its event log — selected at project create, editable later, audited like every other mutation. A capability a project has not enabled is absent from that project's tooling surface: its commands are not mounted, its vocabulary is not seeded, its boards are not ensured, and its manager action is not offered.
+Capabilities are registered at compile time, but **chosen per project**. A project's enabled set is a project-level fact in its event log — selected at project create, editable later, audited like every other mutation. A capability a project has not enabled is absent from that project's tooling surface: its commands are not mounted (`atm capability <Name()>` returns "unknown command"), its vocabulary is not seeded, its boards are not ensured, and its manager action scope is not offered.
 
 This is a fence on the **tooling surface**, not on the substrate. "Advisory, always" continues to describe the store: no validation, no privileged namespaces, and a human hand-assigning a disabled capability's labels breaks nothing. What a project chooses is which interpretations it is offered, and that choice is itself part of the ledger.
 
@@ -99,16 +99,20 @@ This is a fence on the **tooling surface**, not on the substrate. "Advisory, alw
 
 Because capabilities explain themselves (obligation 4) and are chosen per project (enablement), the agent-facing surfaces are **composed, not written**:
 
-- `atm conventions` = the substrate core + an enumeration of the project's enabled capabilities (name, summary, and how to consult its guide). It teaches the substrate; the capabilities teach themselves.
-- The manager scope = an irreducible substrate core (curate — keep the ledger legible; recall — grounded synthesis) + the actions the enabled capabilities contribute (the context map contributes `mapping`). The manager prompt enumerates and points; procedures live in the guides.
+- `atm conventions` = a minimal substrate primer (what ATM is, the substrate commands, advisory-only rule) + a one-line pointer at `atm capability list` and `atm capability <name> guide` for discovery. It does **not** enumerate capabilities; it teaches the substrate, and the capabilities teach themselves.
+- The manager scope = an irreducible substrate core (curate — keep the ledger legible; recall — grounded synthesis) + three semantic-agnostic actions — `brief`, `autopilot`, `ask` — scoped by an optional `--capability <name>`. Each capability's guide carries `## Brief` and `## Autopilot` sections; the manager prompt walks the relevant guides per action. `ManagerActions()` is not a capability concern; the procedure lives in the guide, not in the prompt.
 
-An agent's consultation sequence mirrors this: read the substrate core, read the enumeration, then consult each enabled capability's guide before operating in its territory — progressive disclosure, the same shape as agent skills.
+### The default board
 
-See `docs/superpowers/specs/2026-07-18-capability-semantics-initiative-design.md` for the initiative roadmap (describe → enable → manage) and the current implementation status of each phase.
+The UI picks the default board, not the capability. `DefaultBoard` is not a capability concern: the capability declares its boards via `EnsureVocabulary`'s return, and the store is the source of truth for what boards exist at render time. The TUI's `selectDefault` selects `<CODE>:all-tasks` if present in the ring, else the first row — so a project that disabled `workflow` (and thus has no `all-tasks`) falls back to whatever boards the enabled capabilities seeded.
 
-### First instance: `atm context`
+An agent's consultation sequence mirrors this: read the substrate primer, run `atm capability list`, then consult each enabled capability's `atm capability <name> guide` before operating in its territory — progressive disclosure, the same shape as agent skills.
 
-The context map is the pattern's first realisation. It owns `context:*` (pointer kinds), `knowledge:superseded` (lifecycle), `comment:provenance` (its private format), and the `context-current` board (`context:* AND NOT knowledge:superseded`). It exposes five verbs, of which exactly one is read-only. It witnesses git and local files provably, URLs opportunistically, and external systems by age alone.
+See `docs/superpowers/specs/2026-07-18-capability-namespace-manager-actions-v2-design.md` for the v2 doctrine (capability namespace, manager action model, `seed.go` removal) and `2026-07-18-capability-semantics-initiative-design.md` for the original initiative roadmap (describe → enable → manage).
+
+### First instance: `atm capability contextmap`
+
+The context map is the pattern's first realisation. It owns `context:*` (pointer kinds), `knowledge:superseded` (lifecycle), `comment:provenance` (its private format), and the `context-current` board (`context:* AND NOT knowledge:superseded`). It exposes five verbs (`add`, `stamp`, `retarget`, `supersede`, `check`), mounted under `atm capability contextmap`, of which exactly one (`check`) is read-only. It witnesses git and local files provably, URLs opportunistically, and external systems by age alone.
 
 See `docs/superpowers/specs/2026-07-13-context-map-refresh-design.md` for the full design.
 

@@ -197,11 +197,11 @@ func TestEnsureVocabularyFreshOpenTasksDescriptionDropsDefaultClause(t *testing.
 func TestEnsureVocabularySeedsStatusLabels(t *testing.T) {
 	s := newTestStore(t)
 	// Wrap the store so we can observe the LabelSeed calls EnsureVocabulary
-	// itself issues. CreateProject already seeds status:* via internal/seed,
-	// so a plain *store.Store cannot prove EnsureVocabulary seeded anything
-	// (LabelSeed on an existing label is a silent no-op). The recording
-	// wrapper makes EnsureVocabulary's own calls visible independent of
-	// prior seeding.
+	// itself issues. A plain *store.Store cannot prove EnsureVocabulary
+	// issued the calls directly: LabelSeed on an existing label is a silent
+	// no-op, so prior state would mask the capability's own work. The
+	// recording wrapper makes EnsureVocabulary's own calls visible
+	// independent of any prior state.
 	rec := &recordingLabelService{LabelService: s}
 	if _, err := EnsureVocabulary(rec, "ATM", "admin@cli:unset"); err != nil {
 		t.Fatalf("ensure: %v", err)

@@ -44,7 +44,7 @@ func (rec *Recorder) Stamp(taskID string) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s has no provenance to re-stamp; use `atm context add` first", taskID)
+		return fmt.Errorf("%s has no provenance to re-stamp; use `atm capability contextmap add` first", taskID)
 	}
 	sources := make([]Source, 0, len(prev.Witnesses))
 	for _, w := range prev.Witnesses {

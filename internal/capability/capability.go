@@ -51,8 +51,8 @@ type Capability interface {
 	// (conventions, manager prompt). No trailing newline.
 	Summary() string
 	// Guide is the capability's full agent-facing semantics: vocabulary
-	// meaning, verb usage, operating procedure, and a "Manager duty"
-	// section. Served verbatim by the uniform `guide` subcommand.
+	// meaning, verb usage, operating procedure, and `## Brief` / `## Autopilot`
+	// sections (spec §7). Served verbatim by the uniform `guide` subcommand.
 	Guide() string
 	// EnsureVocabulary seeds ALL the capability's labels (stored, namespace,
 	// boards) for a project, idempotently, and returns the BOARD labels
