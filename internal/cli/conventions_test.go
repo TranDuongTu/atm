@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -70,56 +71,6 @@ func TestConventionsActorText(t *testing.T) {
 	}
 }
 
-func TestConventionsPointAtCurrentKnowledgeBoard(t *testing.T) {
-	if !strings.Contains(conventionsText, "context-current") {
-		t.Error("first-contact sequence must send agents to the context-current board, " +
-			"not the raw context:* namespace -- otherwise they read superseded knowledge")
-	}
-	if !strings.Contains(conventionsText, "atm context check") {
-		t.Error("conventions must mention `atm context check` so an agent can find the capability")
-	}
-	for _, verb := range []string{"atm context add", "atm context stamp", "atm context retarget", "atm context supersede"} {
-		if !strings.Contains(conventionsText, verb) {
-			t.Errorf("conventions text missing %q", verb)
-		}
-	}
-	if !strings.Contains(conventionsText, "The context map") {
-		t.Error("conventions text missing the context-map section heading")
-	}
-	js := conventionsStructured()
-	seq, _ := js["agent_first_contact_sequence"].([]string)
-	joined := strings.Join(seq, "\n")
-	if !strings.Contains(joined, "context-current") {
-		t.Error("agent_first_contact_sequence JSON must reference the context-current board")
-	}
-	cm, _ := js["context_map"].(string)
-	if !strings.Contains(cm, "atm context check") {
-		t.Error("context_map JSON must mention atm context check")
-	}
-	if !strings.Contains(cm, "atm context add") || !strings.Contains(cm, "atm context stamp") ||
-		!strings.Contains(cm, "atm context retarget") || !strings.Contains(cm, "atm context supersede") {
-		t.Error("context_map JSON must mention all five context verbs")
-	}
-	if strings.Contains(conventionsText, "--onboarding") {
-		t.Error("conventions text still advertises the deprecated --onboarding flag; use --mapping")
-	}
-	if strings.Contains(js["day_to_day_development"].(string), "--onboarding") {
-		t.Error("day_to_day_development JSON still advertises the deprecated --onboarding flag; use --mapping")
-	}
-}
-
-func TestConventionsMentionsOpenTasksBoard(t *testing.T) {
-	if !strings.Contains(conventionsText, "open-tasks") {
-		t.Error("conventions text must reference the open-tasks board in the first-contact sequence")
-	}
-	j := conventionsStructured()
-	seq, _ := j["agent_first_contact_sequence"].([]string)
-	joined := strings.Join(seq, " ")
-	if !strings.Contains(joined, "open-tasks") {
-		t.Error("agent_first_contact_sequence JSON must reference open-tasks")
-	}
-}
-
 func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.output = outputText
@@ -135,40 +86,67 @@ func TestConventionsFirstRunUsesInitSetup(t *testing.T) {
 	}
 }
 
-func TestConventionsMentionWorkflowVerbs(t *testing.T) {
-	for _, verb := range []string{
-		"atm workflow start", "atm workflow open",
-		"atm workflow block", "atm workflow complete", "atm workflow status",
-		"atm workflow seed",
-	} {
-		if !strings.Contains(conventionsText, verb) {
-			t.Errorf("conventions text missing %q", verb)
-		}
-	}
-	js := conventionsStructured()
-	wv, _ := js["workflow_verbs"].(string)
-	for _, verb := range []string{"atm workflow start", "atm workflow complete", "atm workflow status"} {
-		if !strings.Contains(wv, verb) {
-			t.Errorf("workflow_verbs JSON missing %q", verb)
-		}
-	}
-}
-
-func TestConventionsMentionBacklogBoard(t *testing.T) {
-	if !strings.Contains(conventionsText, "backlog") {
-		t.Error("conventions text must reference the backlog board")
-	}
-	js := conventionsStructured()
-	seq, _ := js["agent_first_contact_sequence"].([]string)
-	joined := strings.Join(seq, " ")
-	if !strings.Contains(joined, "backlog") {
-		t.Error("agent_first_contact_sequence must reference the backlog board")
-	}
-}
-
 func TestConventionsSoftenedWorkflowWording(t *testing.T) {
 	// The store stays neutral; the paved road lives in a capability.
-	if !strings.Contains(conventionsText, "capability") {
+	if !strings.Contains(conventionsCoreText, "capability") {
 		t.Error("conventions text must mention that workflow lives in a capability")
+	}
+}
+
+// Conventions enumerate capabilities; they no longer restate any
+// capability's semantics. The enumeration is rendered from the registry, so
+// a fake registry must surface its own entries verbatim.
+func TestConventionsEnumerateCapabilities(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.output = outputText
+	out, _, code := h.run("conventions")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{
+		"## Capabilities",
+		"workflow", "`atm workflow guide`",
+		"contextmap", "`atm context guide`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("conventions missing %q", want)
+		}
+	}
+}
+
+// The de-restatement guarantee: capability-owned prose is gone from the
+// static text. These fragments now live only in the capability guides.
+func TestConventionsCarryNoCapabilityProse(t *testing.T) {
+	for _, banned := range []string{
+		"atm workflow start", "exactly-one-status",
+		"atm context stamp", "atm context supersede",
+		"DRIFT", "UNVERIFIED",
+	} {
+		if strings.Contains(conventionsCoreText, banned) {
+			t.Errorf("conventionsCoreText still restates capability prose %q", banned)
+		}
+	}
+}
+
+func TestConventionsJSONEnumeratesCapabilities(t *testing.T) {
+	h := newGoldenHarness(t)
+	out, _, code := h.run("--output", "json", "conventions")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	var envl struct {
+		Conventions map[string]any `json:"conventions"`
+	}
+	if err := json.Unmarshal([]byte(out), &envl); err != nil {
+		t.Fatal(err)
+	}
+	caps, ok := envl.Conventions["capabilities"].([]any)
+	if !ok || len(caps) != 2 {
+		t.Fatalf("capabilities = %v, want 2 entries", envl.Conventions["capabilities"])
+	}
+	for _, gone := range []string{"workflow_verbs", "context_map"} {
+		if _, exists := envl.Conventions[gone]; exists {
+			t.Errorf("JSON still carries removed key %q", gone)
+		}
 	}
 }
