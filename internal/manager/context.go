@@ -9,15 +9,6 @@ import (
 //go:embed context_v1.md
 var contextV1 string
 
-// CapabilityAction is a manager action contributed by an enabled capability
-// (e.g. contextmap's "mapping"). internal/manager stays decoupled from
-// internal/capability: callers pass plain data.
-type CapabilityAction struct {
-	Name    string // action name, e.g. "mapping"
-	Summary string
-	Command string // capability command for the consult pointer, e.g. "context"
-}
-
 type ContextData struct {
 	Code      string
 	Name      string
@@ -33,14 +24,9 @@ type ContextData struct {
 	PersonaPrompt      string
 	PersonaDescription string
 	Action             string
-
-	// CapabilityActions are the manager actions the project's enabled
-	// capabilities contribute; rendered as additional Roles bullets that
-	// point at each capability's guide. The procedures live in the guides.
-	CapabilityActions []CapabilityAction
-	// ActionConsult is the capability command to consult when Action is a
-	// capability-contributed action ("" for the core curate/recall).
-	ActionConsult string
+	// Capability scopes the action to one capability. Empty means "all enabled
+	// capabilities"; the action block then reads "each enabled capability".
+	Capability string
 }
 
 // RenderContext substitutes the ContextData placeholders into the manager
@@ -57,24 +43,33 @@ func RenderContext(data ContextData) string {
 	}
 	actionBlock := ""
 	if data.Action != "" {
-		actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **%s**. Use the matching responsibility below as the primary goal, while still preserving ledger correctness.\n",
-			data.Action)
-		if data.ActionConsult != "" {
-			actionBlock += fmt.Sprintf("This action is capability-contributed: run `%s %s guide` and follow its \"Manager duty\" section.\n",
-				binOr(data.ATMBin), data.ActionConsult)
+		bin := binOr(data.ATMBin)
+		code := data.Code
+		if code == "" {
+			code = "<CODE>"
 		}
-	}
-	rolesBlock := ""
-	for _, a := range data.CapabilityActions {
-		rolesBlock += fmt.Sprintf("- **%s** — %s. Capability-contributed action: run `%s %s guide` and follow its \"Manager duty\" section for the operating procedure.\n",
-			titleWord(a.Name), a.Summary, binOr(data.ATMBin), a.Command)
+		scope := fmt.Sprintf("each enabled capability (`%s capability list --project %s` enumerates them)", bin, code)
+		if data.Capability != "" {
+			scope = fmt.Sprintf("the `%s` capability", data.Capability)
+		}
+		switch data.Action {
+		case "brief":
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **brief**. For %s, run `%s capability <name> guide` and follow its \"Brief\" section — interview the human to set up that capability's territory.\n", scope, bin)
+		case "autopilot":
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **autopilot**. For %s, run `%s capability <name> guide` and follow its \"Autopilot\" section — autonomously keep that capability's territory following its guide.\n", scope, bin)
+		case "ask":
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **ask**. Standby for the human to ask questions; do not act proactively and do not mutate the ledger. Read the guide of %s (`%s capability <name> guide`) to be ready to answer.\n", scope, bin)
+		default:
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **%s**.\n", data.Action)
+		}
 	}
 	// Build a replacer that substitutes non-empty values. Empty values are
 	// replaced with the placeholder itself so it survives (a generic, unrendered
 	// template can still be produced by `atm manage-context` with no --project).
-	// <PERSONA_BLOCK>, <ACTION_BLOCK>, and <CAPABILITY_ROLES> are exceptions:
-	// when absent, the blocks are genuinely omitted, so they substitute with ""
-	// (no placeholders survive).
+	// <PERSONA_BLOCK> and <ACTION_BLOCK> are exceptions: when absent, the blocks
+	// are genuinely omitted, so they substitute with "" (no placeholders
+	// survive). The action block already embeds concrete bin/code, so it never
+	// carries a placeholder the replacer would skip.
 	pairs := []string{
 		"<CODE>", data.Code,
 		"<PROJECT_NAME>", data.Name,
@@ -84,12 +79,11 @@ func RenderContext(data ContextData) string {
 		"<TIMESTAMP>", data.Timestamp,
 		"<PERSONA_BLOCK>", personaBlock,
 		"<ACTION_BLOCK>", actionBlock,
-		"<CAPABILITY_ROLES>", rolesBlock,
 	}
 	final := make([]string, 0, len(pairs))
 	for i := 0; i < len(pairs); i += 2 {
 		key, val := pairs[i], pairs[i+1]
-		if val == "" && key != "<PERSONA_BLOCK>" && key != "<ACTION_BLOCK>" && key != "<CAPABILITY_ROLES>" {
+		if val == "" && key != "<PERSONA_BLOCK>" && key != "<ACTION_BLOCK>" {
 			final = append(final, key, key)
 		} else {
 			final = append(final, key, val)
@@ -105,13 +99,4 @@ func binOr(bin string) string {
 		return "<ATM_BIN>"
 	}
 	return bin
-}
-
-// titleWord upper-cases the first byte of an ASCII action name for the role
-// bullet ("mapping" -> "Mapping"). Not strings.Title (deprecated).
-func titleWord(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }

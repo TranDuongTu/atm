@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
-	"atm/internal/capability"
 	"atm/internal/core"
 	"atm/internal/manager"
 
@@ -21,16 +21,9 @@ type managerOpts struct {
 	Agent       string
 	DefaultArgs []string
 	Action      string
-	Curate      bool
-	Recall      bool
-	Mapping     bool
-	Onboarding  bool
+	Capability  string
 	ExtraArgs   []string
 }
-
-// managerCoreActions are the manager's irreducible substrate duties. They
-// exist for every project; capability actions come from the registry.
-var managerCoreActions = []string{"curate", "recall"}
 
 func newManageCmd(st *cliState) *cobra.Command {
 	var opts managerOpts
@@ -166,61 +159,30 @@ func managerPluginAgents(target string) ([]string, error) {
 }
 
 func bindManagerActionFlags(cmd *cobra.Command, opts *managerOpts) {
-	cmd.Flags().StringVar(&opts.Action, "action", "", "manager action: curate, recall, or a capability-contributed action (see `atm manage --project <CODE> --help`)")
-	cmd.Flags().BoolVar(&opts.Curate, "curate", false, "review backlog, triage, track handoffs, and maintain vocabulary (default)")
-	cmd.Flags().BoolVar(&opts.Recall, "recall", false, "read-only synthesis grounded in ledger IDs; does not mutate")
-
-	// Deprecated aliases (never hard-break a flag on a stable CLI surface,
-	// ATM-0113): --mapping predates capability-contributed actions;
-	// --onboarding predates --mapping.
-	cmd.Flags().BoolVar(&opts.Mapping, "mapping", false, "")
-	_ = cmd.Flags().MarkDeprecated("mapping", "use --action mapping")
-	_ = cmd.Flags().MarkHidden("mapping")
-	cmd.Flags().BoolVar(&opts.Onboarding, "onboarding", false, "")
-	_ = cmd.Flags().MarkDeprecated("onboarding", "use --action mapping")
-	_ = cmd.Flags().MarkHidden("onboarding")
+	cmd.Flags().StringVar(&opts.Action, "action", "autopilot", "manager action: brief (interview the human to set up each capability), autopilot (autonomously maintain each capability's territory), ask (read-only standby for questions)")
+	cmd.Flags().StringVar(&opts.Capability, "capability", "", "scope the action to one enabled capability (default: all enabled)")
 }
 
-// validateManagerAction resolves the session's action: the core duties
-// (curate, recall) always exist; capability actions must be contributed by
-// an enabled capability (`available` comes from the mount-narrowed
-// registry, so a disabled capability's action is simply absent).
-func validateManagerAction(opts managerOpts, available []capability.ManagerAction) (string, *capability.ManagerAction, error) {
-	var selected []string
-	if opts.Curate {
-		selected = append(selected, "curate")
+// validateManagerAction checks the semantic-agnostic action vocabulary and
+// the optional capability scope. The scope is validated against the FULL
+// registry first (typo -> registered list), then the enabled set (known but
+// disabled -> how to enable it).
+func validateManagerAction(action, capabilityName string, enabled, registered []string) error {
+	switch action {
+	case "brief", "autopilot", "ask":
+	default:
+		return fmt.Errorf("%w: unknown manager action %q (available: brief, autopilot, ask)", ErrUsage, action)
 	}
-	if opts.Recall {
-		selected = append(selected, "recall")
+	if capabilityName == "" {
+		return nil
 	}
-	if opts.Mapping || opts.Onboarding {
-		selected = append(selected, "mapping")
+	if !slices.Contains(registered, capabilityName) {
+		return fmt.Errorf("%w: unknown capability %q (registered: %s)", ErrUsage, capabilityName, strings.Join(registered, ", "))
 	}
-	if opts.Action != "" {
-		selected = append(selected, opts.Action)
+	if !slices.Contains(enabled, capabilityName) {
+		return fmt.Errorf("%w: capability %q is not enabled for project; run `atm project capability add --project <CODE> --name %s` first", ErrUsage, capabilityName, capabilityName)
 	}
-	if len(selected) > 1 {
-		return "", nil, fmt.Errorf("%w: choose one manager action", ErrUsage)
-	}
-	if len(selected) == 0 {
-		return "curate", nil, nil
-	}
-	name := selected[0]
-	for _, core := range managerCoreActions {
-		if name == core {
-			return name, nil, nil
-		}
-	}
-	for i := range available {
-		if available[i].Name == name {
-			return name, &available[i], nil
-		}
-	}
-	names := append([]string{}, managerCoreActions...)
-	for _, a := range available {
-		names = append(names, a.Name)
-	}
-	return "", nil, fmt.Errorf("%w: unknown manager action %q (available: %s)", ErrUsage, name, strings.Join(names, ", "))
+	return nil
 }
 
 func newManageContextCmd(st *cliState) *cobra.Command {
@@ -233,15 +195,9 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 		Short:  "Print the ATM manager system prompt to stdout",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			available := st.registry.ManagerActions(st)
-			capActions := make([]manager.CapabilityAction, 0, len(available))
-			for _, a := range available {
-				capActions = append(capActions, manager.CapabilityAction{Name: a.Name, Summary: a.Summary, Command: a.Command})
-			}
 			data := manager.ContextData{
-				Code:              opts.Project,
-				Actor:             opts.Actor,
-				CapabilityActions: capActions,
+				Code:  opts.Project,
+				Actor: opts.Actor,
 			}
 			if opts.Project != "" {
 				data.ATMBin = atmBinPath()
@@ -274,18 +230,8 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		return err
 	}
 
-	available := st.registry.ManagerActions(st)
-	action, entry, err := validateManagerAction(opts, available)
-	if err != nil {
+	if err := validateManagerAction(opts.Action, opts.Capability, st.registry.Names(), st.fullRegistry.Names()); err != nil {
 		return err
-	}
-	capActions := make([]manager.CapabilityAction, 0, len(available))
-	for _, a := range available {
-		capActions = append(capActions, manager.CapabilityAction{Name: a.Name, Summary: a.Summary, Command: a.Command})
-	}
-	consult := ""
-	if entry != nil {
-		consult = entry.Command
 	}
 	effectivePersona := opts.Persona
 	if effectivePersona == "" {
@@ -318,30 +264,18 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 		Persona:            effectivePersona,
 		PersonaPrompt:      mp.Prompt,
 		PersonaDescription: mp.Description,
-		Action:             action,
-		CapabilityActions:  capActions,
-		ActionConsult:      consult,
+		Action:             opts.Action,
+		Capability:         opts.Capability,
 	})
 	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
-	var base []string
-	// The onboard argv flavor is a launcher nuance historically tied to the
-	// mapping action; not generalized to other capability actions (YAGNI).
-	onboarding := action == "mapping"
-	if onboarding {
-		base = l.BuildArgvOnboard(contextPath)
-	} else {
-		base = l.BuildArgvManage(contextPath)
-	}
+	base := l.BuildArgvManage(contextPath)
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
-	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, onboarding, effectivePersona, action)
+	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, effectivePersona, opts.Action, opts.Capability)
 	env := assembleEnv(envValues)
-	if onboarding {
-		setTmuxWindowLabel(os.Stdout, tmuxLabelOnboarding)
-	}
 	if err := emitLaunchHeader(st, "manager", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
 	}
@@ -356,21 +290,18 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	return nil
 }
 
-func managerEnvValues(project, atmBin, actor, runID, contextPath string, onboard bool, persona string, action string) map[string]string {
-	m := map[string]string{
-		"ATM_ROLE":           "manager",
-		"ATM_PROJECT":        project,
-		"ATM_BIN":            atmBin,
-		"ATM_ACTOR":          actor,
-		"ATM_RUN_ID":         runID,
-		"ATM_CONTEXT_FILE":   contextPath,
-		"ATM_PERSONA":        persona,
-		"ATM_MANAGER_ACTION": action,
+func managerEnvValues(project, atmBin, actor, runID, contextPath, persona, action, capability string) map[string]string {
+	return map[string]string{
+		"ATM_ROLE":               "manager",
+		"ATM_PROJECT":            project,
+		"ATM_BIN":                atmBin,
+		"ATM_ACTOR":              actor,
+		"ATM_RUN_ID":             runID,
+		"ATM_CONTEXT_FILE":       contextPath,
+		"ATM_PERSONA":            persona,
+		"ATM_MANAGER_ACTION":     action,
+		"ATM_MANAGER_CAPABILITY": capability,
 	}
-	if onboard {
-		m["ATM_ONBOARD"] = "1"
-	}
-	return m
 }
 
 func atmBinPath() string {

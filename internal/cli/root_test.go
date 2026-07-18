@@ -214,7 +214,7 @@ func TestInitInteractiveSelectsAgentAndArgs(t *testing.T) {
 		"Agent args",
 		"selected\tcodex",
 		"args\tcodex\t--yolo --profile work laptop",
-		"Next: atm manage --project <CODE> --onboarding",
+		"Next: atm manage --project <CODE> --action brief",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("interactive init output missing %q:\n%s", want, out)
