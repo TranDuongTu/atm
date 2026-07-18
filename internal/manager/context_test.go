@@ -79,3 +79,19 @@ func TestManagerContextInjectsPersona(t *testing.T) {
 		t.Error("manager context missing persona prompt")
 	}
 }
+
+// The mapping procedure lives in the contextmap guide (capability obligation
+// 4: it explains itself). The prompt template must point at the guide and
+// must not restate any step of the procedure — restated prose is the drift
+// class this initiative removes (see ATM-0114 for the original bug).
+func TestTemplateMappingRolePointsAtGuide(t *testing.T) {
+	rendered := RenderContext(ContextData{Code: "X", Name: "X", ATMBin: "atm", Actor: "a@b:c"})
+	if !strings.Contains(rendered, "atm context guide") {
+		t.Error("Mapping role must tell the manager to consult `atm context guide`")
+	}
+	for _, banned := range []string{"context stamp", "context retarget", "context supersede", "DRIFT", "UNVERIFIED", "**Verify.**", "**Discover.**"} {
+		if strings.Contains(rendered, banned) {
+			t.Errorf("template still restates mapping procedure fragment %q", banned)
+		}
+	}
+}
