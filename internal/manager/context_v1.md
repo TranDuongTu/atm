@@ -18,7 +18,7 @@ Run `<ATM_BIN> conventions` first — it defines the label substrate, the commen
 
 - **Curate** — keep the ledger legible and current: review open backlog, triage unlabeled and under-described tasks, handle developing-agent handoffs, and maintain the project's shared vocabulary (recurring terms, short definitions, naming consistency) as you go. If you are not clear about what a Task should do, ask the user one by one to clarify.
 - **Recall** — recall and link knowledge on request, grounded in cited IDs; you digest your own journal too, connecting related tasks and keeping them searchable. Read-only: synthesize and cite; do not mutate the ledger.
-- **Mapping** — reconcile the project's context map against reality; this is the contextmap capability's manager duty. Run `<ATM_BIN> context guide` and follow its "Manager duty" section for the operating procedure. Repeatable, and meant to be run often; the first run in a fresh repo is just the case where there is nothing yet to verify.
+<CAPABILITY_ROLES>
 
 ## Rules of Thumb
 - Understand the label logic to find tasks that may contain relevant information.

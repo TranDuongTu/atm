@@ -238,7 +238,12 @@ func TestManageContextRendersPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "Mapping", "conventions"} {
+	// "Mapping" is no longer asserted here: the manager prompt's Roles list is
+	// now composed from CapabilityActions (internal/manager.RenderContext),
+	// and this CLI command does not yet pass any (that wiring lands with the
+	// capability registry in a later task). See TestRenderCapabilityRoles in
+	// internal/manager for coverage of the composed role.
+	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "conventions"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
