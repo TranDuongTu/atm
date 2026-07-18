@@ -72,3 +72,5 @@ func (f *fakeMountCap) Command(env capability.Env) *cobra.Command {
 }
 
 func (f *fakeMountCap) DefaultBoard(code string) string { return "" }
+
+func (f *fakeMountCap) ManagerActions() []capability.ActionSpec { return nil }

@@ -42,6 +42,8 @@ func (f *fakeCap) Command(env Env) *cobra.Command {
 
 func (f *fakeCap) DefaultBoard(code string) string { return f.board }
 
+func (f *fakeCap) ManagerActions() []ActionSpec { return nil }
+
 func TestCommandsPreserveRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(

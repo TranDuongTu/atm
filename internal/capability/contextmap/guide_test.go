@@ -30,3 +30,10 @@ func TestGuideCarriesSemanticsAndManagerDuty(t *testing.T) {
 		}
 	}
 }
+
+func TestManagerActionIsMapping(t *testing.T) {
+	acts := Cap{}.ManagerActions()
+	if len(acts) != 1 || acts[0].Name != "mapping" || acts[0].Summary == "" {
+		t.Fatalf("contextmap must contribute exactly the mapping action, got %+v", acts)
+	}
+}

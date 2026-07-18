@@ -28,3 +28,9 @@ func TestGuideCarriesSemantics(t *testing.T) {
 		}
 	}
 }
+
+func TestNoManagerActions(t *testing.T) {
+	if acts := (Cap{}).ManagerActions(); acts != nil {
+		t.Fatalf("workflow contributes no manager action, got %+v", acts)
+	}
+}

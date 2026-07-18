@@ -1,6 +1,10 @@
 package contextmap
 
-import _ "embed"
+import (
+	_ "embed"
+
+	"atm/internal/capability"
+)
 
 //go:embed guide.md
 var guideText string
@@ -15,3 +19,12 @@ func (Cap) Summary() string {
 // prints it. Its Manager-duty section is the mapping procedure the manager
 // prompt used to hardcode — the prompt now points here.
 func (Cap) Guide() string { return guideText }
+
+// ManagerActions contributes the mapping session mode; its procedure is the
+// guide's "Manager duty" section.
+func (Cap) ManagerActions() []capability.ActionSpec {
+	return []capability.ActionSpec{{
+		Name:    "mapping",
+		Summary: "reconcile the project's context map against the repo: verify drifted pointers, discover new territory",
+	}}
+}
