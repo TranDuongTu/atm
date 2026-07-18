@@ -24,4 +24,7 @@ const (
 	ActionCommentLabelAdded   = "comment.label-added"
 	ActionCommentLabelRemoved = "comment.label-removed"
 	ActionCommentRemoved      = "comment.removed"
+
+	ActionProjectCapabilityEnabled  = "project.capability-enabled"
+	ActionProjectCapabilityDisabled = "project.capability-disabled"
 )

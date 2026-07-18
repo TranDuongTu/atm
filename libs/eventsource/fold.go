@@ -14,6 +14,14 @@ const (
 	SlotExistence  = "existence"
 )
 
+// capabilityFieldPrefix namespaces capability membership slots on the
+// project entity away from label membership slots. '!' cannot occur in a
+// label name, so the two families can never collide.
+const capabilityFieldPrefix = "capability!"
+
+func capabilityField(name string) string  { return capabilityFieldPrefix + name }
+func isCapabilityField(field string) bool { return strings.HasPrefix(field, capabilityFieldPrefix) }
+
 // slotKey names one mutable piece of state.
 type slotKey struct {
 	entity string // entity identity; label name for label entities
@@ -61,6 +69,14 @@ func writesOf(e *Event) []slotWrite {
 		out = append(out, w(e.ID, SlotScalar, "name", str("name")))
 	case ActionProjectNameChanged:
 		out = append(out, w(e.Subject.ID, SlotScalar, "name", str("name")))
+	case ActionProjectCapabilityEnabled:
+		for _, c := range e.PayloadStringOrList("capability") {
+			out = append(out, w(e.Subject.ID, SlotMembership, capabilityField(c), "add"))
+		}
+	case ActionProjectCapabilityDisabled:
+		for _, c := range e.PayloadStringOrList("capability") {
+			out = append(out, w(e.Subject.ID, SlotMembership, capabilityField(c), "remove"))
+		}
 	case ActionTaskCreated:
 		out = append(out,
 			w(e.ID, SlotScalar, "title", str("title")),
@@ -191,6 +207,10 @@ type ProjectState struct {
 	EntityMeta
 	Code string
 	Name string
+	// Capabilities is the enabled capability set. nil = no capability event
+	// was ever recorded (a legacy project — callers treat nil as "all
+	// built-ins enabled"); non-nil empty = explicitly none. Sorted.
+	Capabilities []string
 }
 
 type TaskState struct {
@@ -326,7 +346,19 @@ func Fold(d *DAG) *State {
 	})
 	for _, k := range keys {
 		ws := maximal[k]
-		if k.kind == SlotMembership {
+		if k.kind == SlotMembership && isCapabilityField(k.field) {
+			// Capability membership on the project entity. The presence of
+			// ANY maximal writer marks the set as explicitly recorded
+			// (non-nil), even when the resolution is "not a member".
+			if p := st.Projects[k.entity]; p != nil {
+				if p.Capabilities == nil {
+					p.Capabilities = []string{}
+				}
+				if member(ws) {
+					p.Capabilities = append(p.Capabilities, strings.TrimPrefix(k.field, capabilityFieldPrefix))
+				}
+			}
+		} else if k.kind == SlotMembership {
 			if computed(k.field) {
 				continue
 			}
