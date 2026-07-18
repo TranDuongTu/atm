@@ -1,5 +1,9 @@
 {
   "project": {
+    "capabilities": [
+      "contextmap",
+      "workflow"
+    ],
     "code": "FOO",
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
@@ -15,6 +19,18 @@
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 1
+      },
+      {
+        "action": "project.capability-enabled",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 18
+      },
+      {
+        "action": "project.capability-enabled",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 19
       }
     ],
     "name": "Foo",

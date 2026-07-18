@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 
 	"github.com/spf13/cobra"
@@ -21,16 +23,22 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectSetNameCmd(st))
 	cmd.AddCommand(newProjectRemoveCmd(st))
 	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
+	cmd.AddCommand(newProjectCapabilityCmd(st))
 	return cmd
 }
 
 func newProjectCreateCmd(st *cliState) *cobra.Command {
 	var code, name string
+	var capabilities []string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a project (minimal: code + name)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			chosen, err := resolveCapabilityChoice(st.registry, capabilities)
 			if err != nil {
 				return err
 			}
@@ -42,17 +50,164 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.registry.EnsureVocabulary(s, p.Code, actor); err != nil {
+			for _, cname := range chosen {
+				if err := s.EnableProjectCapability(p.Code, cname, actor); err != nil {
+					return err
+				}
+			}
+			proj, err := s.GetProject(p.Code)
+			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(p, nil)}, func() {
-				fmt.Fprintf(os.Stdout, "created project %s\n", p.Code)
+			if err := st.registry.For(proj).EnsureVocabulary(s, p.Code, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(proj, nil)}, func() {
+				fmt.Fprintf(os.Stdout, "created project %s\n", proj.Code)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&code, "code", "", "project code (^[A-Z]{3,6}$)")
 	cmd.Flags().StringVar(&name, "name", "", "project name")
+	cmd.Flags().StringSliceVar(&capabilities, "capabilities", nil,
+		"capabilities to enable for the project (default: all registered)")
 	_ = cmd.MarkFlagRequired("code")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// resolveCapabilityChoice validates requested capability names against the
+// registry; nil/empty request means every registered capability. New
+// projects always record an explicit choice — only pre-enablement projects
+// read as nil/all.
+func resolveCapabilityChoice(reg *capability.Registry, requested []string) ([]string, error) {
+	known := reg.Names()
+	if len(requested) == 0 {
+		return known, nil
+	}
+	valid := make(map[string]bool, len(known))
+	for _, n := range known {
+		valid[n] = true
+	}
+	for _, r := range requested {
+		if !valid[r] {
+			return nil, fmt.Errorf("%w: unknown capability %q (registered: %s)", ErrUsage, r, strings.Join(known, ", "))
+		}
+	}
+	return requested, nil
+}
+
+func newProjectCapabilityCmd(st *cliState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "capability",
+		Short: "View or change the project's enabled capability set",
+	}
+	cmd.AddCommand(newProjectCapabilityListCmd(st))
+	cmd.AddCommand(newProjectCapabilityAddCmd(st))
+	cmd.AddCommand(newProjectCapabilityRemoveCmd(st))
+	return cmd
+}
+
+func newProjectCapabilityListCmd(st *cliState) *cobra.Command {
+	var project string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List the project's enabled capabilities",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			p, err := s.GetProject(project)
+			if err != nil {
+				return err
+			}
+			explicit := p.Capabilities != nil
+			enabled := p.Capabilities
+			if !explicit {
+				enabled = st.registry.Names()
+			}
+			return st.emit(st.stdout(), map[string]any{
+				"project": project, "capabilities": enabled, "explicit": explicit,
+			}, func() {
+				if !explicit {
+					fmt.Fprintln(st.stdout(), "(all — no explicit choice recorded)")
+				}
+				for _, n := range enabled {
+					fmt.Fprintln(st.stdout(), n)
+				}
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	_ = cmd.MarkFlagRequired("project")
+	return cmd
+}
+
+func newProjectCapabilityAddCmd(st *cliState) *cobra.Command {
+	var project, name string
+	cmd := &cobra.Command{
+		Use:   "add",
+		Short: "Enable a capability for the project (seeds its vocabulary)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.RequireMutatingActor()
+			if err != nil {
+				return err
+			}
+			if _, err := resolveCapabilityChoice(st.registry, []string{name}); err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.EnableProjectCapability(project, name, actor); err != nil {
+				return err
+			}
+			p, err := s.GetProject(project)
+			if err != nil {
+				return err
+			}
+			if err := st.registry.For(p).EnsureVocabulary(s, project, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "enabled": name}, func() {
+				fmt.Fprintf(st.stdout(), "%s: enabled %s\n", project, name)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().StringVar(&name, "name", "", "capability name")
+	_ = cmd.MarkFlagRequired("project")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newProjectCapabilityRemoveCmd(st *cliState) *cobra.Command {
+	var project, name string
+	cmd := &cobra.Command{
+		Use:   "remove",
+		Short: "Disable a capability for the project (vocabulary and labels stay)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.RequireMutatingActor()
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.DisableProjectCapability(project, name, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "disabled": name}, func() {
+				fmt.Fprintf(st.stdout(), "%s: disabled %s\n", project, name)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().StringVar(&name, "name", "", "capability name")
+	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

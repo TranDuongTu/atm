@@ -1,13 +1,14 @@
 {
-  "comment": {
-    "body": "new",
+  "project": {
+    "capabilities": [
+      "workflow"
+    ],
+    "code": "PCX",
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
     "history": [],
-    "id": "ATM-bef4f6-c9568",
-    "labels": [],
-    "ordinal": 1,
-    "task_id": "ATM-bef4f6",
+    "name": "cap demo",
+    "ordinal": 0,
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

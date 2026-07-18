@@ -1,6 +1,10 @@
 {
   "projects": [
     {
+      "capabilities": [
+        "contextmap",
+        "workflow"
+      ],
       "code": "ATM",
       "created_at": "TIMESTAMP",
       "created_by": "admin@cli:unset",

@@ -38,15 +38,16 @@ type jsonTask struct {
 }
 
 type jsonProject struct {
-	Code      string                `json:"code"`
-	Name      string                `json:"name"`
-	Ordinal   int                   `json:"ordinal"`
-	History   []jsonHistory         `json:"history"`
-	CreatedAt string                `json:"created_at"`
-	CreatedBy string                `json:"created_by"`
-	UpdatedAt string                `json:"updated_at"`
-	UpdatedBy string                `json:"updated_by"`
-	Embedding *core.EmbeddingConfig `json:"embedding,omitempty"`
+	Code         string                `json:"code"`
+	Name         string                `json:"name"`
+	Ordinal      int                   `json:"ordinal"`
+	History      []jsonHistory         `json:"history"`
+	CreatedAt    string                `json:"created_at"`
+	CreatedBy    string                `json:"created_by"`
+	UpdatedAt    string                `json:"updated_at"`
+	UpdatedBy    string                `json:"updated_by"`
+	Embedding    *core.EmbeddingConfig `json:"embedding,omitempty"`
+	Capabilities []string              `json:"capabilities,omitempty"`
 }
 
 type jsonLabel struct {
@@ -112,14 +113,15 @@ func tasksToJSON(ts []*core.Task) []jsonTask {
 
 func projectToJSON(p *core.Project, history []core.HistoryView) jsonProject {
 	return jsonProject{
-		Code:      p.Code,
-		Name:      p.Name,
-		Ordinal:   p.Ordinal,
-		History:   historyToJSON(history),
-		CreatedAt: core.RFC3339UTC(p.CreatedAt),
-		CreatedBy: p.CreatedBy,
-		UpdatedAt: core.RFC3339UTC(p.UpdatedAt),
-		UpdatedBy: p.UpdatedBy,
+		Code:         p.Code,
+		Name:         p.Name,
+		Ordinal:      p.Ordinal,
+		History:      historyToJSON(history),
+		CreatedAt:    core.RFC3339UTC(p.CreatedAt),
+		CreatedBy:    p.CreatedBy,
+		UpdatedAt:    core.RFC3339UTC(p.UpdatedAt),
+		UpdatedBy:    p.UpdatedBy,
+		Capabilities: p.Capabilities,
 	}
 }
 
