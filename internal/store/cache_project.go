@@ -61,8 +61,16 @@ func (s *Store) projectSnapshotDB(db *sql.DB, code string, snap *core.ProjectSna
 // reprojectTxn is the in-transaction projection every mutator ends with — the
 // old reprojectV2Locked, split across the seam: the engine folds (cs.Snapshot
 // re-reads the file strictly, including this transaction's own writes), the
-// facade projects.
+// facade projects. A CLEAN transaction (no appends — e.g. SeedLabel of an
+// already-live label) skips both the fold and the rewrite: the event file did
+// not advance, so the cache cannot be behind this txn. That skip is what keeps
+// the TUI's per-select EnsureVocabulary (4 idempotent seeds) from paying 4
+// full reprojections (ATM-d402aa); healing a cache that was ALREADY stale
+// belongs to ensureV2CacheFresh on the read side, not here.
 func (s *Store) reprojectTxn(code string, cs core.ChangeSet) error {
+	if !cs.Dirty() {
+		return nil
+	}
 	snap, err := cs.Snapshot()
 	if err != nil {
 		return err
