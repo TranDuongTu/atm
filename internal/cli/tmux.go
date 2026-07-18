@@ -7,14 +7,12 @@ import (
 )
 
 // tmuxLabelTUI is the label shown in the enclosing tmux window while the
-// TUI runs. tmuxLabelOnboarding is set by `atm manage <agent> --onboarding` (not a
-// separate `atm onboarding` command). These labels are scoped to tmux:
-// outside a tmux session setTmuxWindowLabel is a no-op. tmux's
-// automatic-rename and the next command run in the pane reassert the
-// usual name, so no restore is emitted on exit.
+// TUI runs. The label is scoped to tmux: outside a tmux session
+// setTmuxWindowLabel is a no-op. tmux's automatic-rename and the next
+// command run in the pane reassert the usual name, so no restore is
+// emitted on exit.
 const (
-	tmuxLabelTUI        = "\u2261 ATM TUI"
-	tmuxLabelOnboarding = "\u21bb ATM Onboarding"
+	tmuxLabelTUI = "\u2261 ATM TUI"
 )
 
 // OSC 2 (set window title) updates tmux's pane title (#T) even when

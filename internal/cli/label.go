@@ -2,9 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
-
-	"atm/internal/seed"
 
 	"github.com/spf13/cobra"
 )
@@ -13,13 +10,19 @@ func newLabelCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "label",
 		Short: "Label registry commands",
+		Long: "Label names are <CODE>:<ns>:<value> or <CODE>:<tag> (status lives on the " +
+			"<CODE>:status:<state> axis, not a dedicated field). There are three kinds: stored " +
+			"labels that tasks assert on create/label-add, namespace labels (an <ns>:* prefix " +
+			"that emerges as tasks use it and that the registry can describe) and board labels " +
+			"(declared with --expr, computed at query time, never assigned directly). The " +
+			"description field is the label's intention record; a label without one is a flag for " +
+			"human review.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newLabelAddCmd(st))
 	cmd.AddCommand(newLabelRemoveCmd(st))
 	cmd.AddCommand(newLabelListCmd(st))
 	cmd.AddCommand(newLabelShowCmd(st))
-	cmd.AddCommand(newLabelSeedCmd(st))
 	return cmd
 }
 
@@ -140,44 +143,5 @@ func newLabelShowCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "label name")
 	_ = cmd.MarkFlagRequired("name")
-	return cmd
-}
-
-func newLabelSeedCmd(st *cliState) *cobra.Command {
-	var project string
-	cmd := &cobra.Command{
-		Use:   "seed",
-		Short: "Apply the default seed labels to a project (idempotent)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			if err := s.SeedLabels(project, actor); err != nil {
-				return err
-			}
-			if err := st.registry.EnsureVocabulary(s, project, actor); err != nil {
-				return err
-			}
-			names := make([]string, 0, len(seed.Labels))
-			for _, l := range seed.Labels {
-				names = append(names, project+":"+l.Suffix)
-			}
-			sort.Strings(names)
-			return st.emit(st.stdout(), map[string]any{
-				"project": project,
-				"seeded":  len(seed.Labels),
-				"labels":  names,
-			}, func() {
-				fmt.Fprintf(st.stdout(), "seeded %d labels into %s\n", len(seed.Labels), project)
-			})
-		},
-	}
-	cmd.Flags().StringVar(&project, "project", "", "project code to seed")
-	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }

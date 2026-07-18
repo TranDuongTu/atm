@@ -201,6 +201,24 @@ func TestStampRefusesWhenSourceIsGone(t *testing.T) {
 	}
 }
 
+func TestStampRefusesWhenNoProvenance(t *testing.T) {
+	// Stamp re-witnesses the previously recorded sources. If Add never ran,
+	// there is nothing to re-stamp -- the manager must add the pointer first.
+	// The error string must point at the mounted capability command, not the
+	// pre-flag-day context shim that no longer exists.
+	repo := newTestRepo(t)
+	rec, s, actor := newTestRecorder(t, repo)
+	task, _ := s.CreateTask("TST", "Code pointer: unstamped", "", nil, actor)
+
+	err := rec.Stamp(task.ID)
+	if err == nil {
+		t.Fatal("Stamp on an unstamped pointer: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "atm capability contextmap add") {
+		t.Errorf("Stamp error = %q, want it to mention `atm capability contextmap add`", err.Error())
+	}
+}
+
 func hasLabel(labels []string, want string) bool {
 	for _, l := range labels {
 		if l == want {

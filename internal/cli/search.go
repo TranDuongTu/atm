@@ -17,6 +17,11 @@ func newSearchCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search \"query text\"",
 		Short: "Semantic search over tasks + comments (cosine + text fallback)",
+		Long: "Semantic search over the project's tasks and comments when an embedding index " +
+			"exists; otherwise it falls back to plain text matching. Build the index with " +
+			"atm project set-embedding (to declare the model + endpoint) followed by atm embed " +
+			"and atm index; search then ranks task and comment bodies by cosine similarity to " +
+			"the query and falls back to text scoring when no semantic index is available.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := st.openStore()

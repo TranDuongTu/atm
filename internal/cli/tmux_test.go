@@ -61,9 +61,9 @@ func TestSetTmuxWindowLabel_NoTmuxBinary(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 
 	var buf bytes.Buffer
-	setTmuxWindowLabel(&buf, tmuxLabelOnboarding)
+	setTmuxWindowLabel(&buf, tmuxLabelTUI)
 
-	wantOSC := "\x1b]2;\u21bb ATM Onboarding\x07"
+	wantOSC := "\x1b]2;\u2261 ATM TUI\x07"
 	if buf.String() != wantOSC {
 		t.Fatalf("OSC mismatch:\nwant %q\ngot  %q", wantOSC, buf.String())
 	}

@@ -36,7 +36,7 @@ func TestWorkflowStartSwapsStatus(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "jotting", "ATM:status:open")
 
-	out, stderr, code := h.run("workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
+	out, stderr, code := h.run("capability", "workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr)
 	}
@@ -56,7 +56,7 @@ func TestWorkflowStartRequiresActor(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "t")
 
-	_, _, code := h.run("workflow", "start", "--store", sp, "--task", id)
+	_, _, code := h.run("capability", "workflow", "start", "--store", sp, "--task", id)
 	if code == 0 {
 		t.Fatal("expected non-zero exit when --actor missing on mutating verb")
 	}
@@ -67,7 +67,7 @@ func TestWorkflowStatusReporter(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "t", "ATM:status:done")
 
-	out, _, code := h.run("workflow", "status", "--store", sp, "--task", id)
+	out, _, code := h.run("capability", "workflow", "status", "--store", sp, "--task", id)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
 	}
@@ -91,7 +91,7 @@ func TestWorkflowStatusUntriaged(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "t")
 
-	out, _, code := h.run("workflow", "status", "--store", sp, "--task", id)
+	out, _, code := h.run("capability", "workflow", "status", "--store", sp, "--task", id)
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
@@ -119,7 +119,7 @@ func TestWorkflowStatusReporterIsReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LastLogSeq before: %v", err)
 	}
-	if _, _, code := h.run("workflow", "status", "--store", sp, "--task", id); code != 0 {
+	if _, _, code := h.run("capability", "workflow", "status", "--store", sp, "--task", id); code != 0 {
 		t.Fatalf("status exit=%d stderr=%s", code, h.stderr.String())
 	}
 	after, err := h.store.LastLogSeq("ATM")
@@ -131,16 +131,24 @@ func TestWorkflowStatusReporterIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestWorkflowSeedEnsuresAllThreeBoards(t *testing.T) {
+func TestWorkflowSeedEnsuresAllFourBoards(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := seedWorkflowProject(t, h)
-	_, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
+	out, _, code := h.run("capability", "workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("seed exit=%d stderr=%s", code, h.stderr.String())
 	}
-	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks"} {
+	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:all-tasks"} {
 		if _, err := h.store.LabelShow(name); err != nil {
 			t.Errorf("%s not ensured by workflow seed: %v", name, err)
+		}
+	}
+	// The JSON envelope's boards list comes from EnsureVocabulary's return,
+	// not a hand-maintained copy, so all-tasks (the previously-omitted
+	// fourth board) is now present.
+	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:all-tasks"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("%s missing from workflow seed JSON boards: %s", name, out)
 		}
 	}
 }
@@ -148,10 +156,10 @@ func TestWorkflowSeedEnsuresAllThreeBoards(t *testing.T) {
 func TestWorkflowSeedIdempotent(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := seedWorkflowProject(t, h)
-	if _, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset"); code != 0 {
+	if _, _, code := h.run("capability", "workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("first seed exit=%d stderr=%s", code, h.stderr.String())
 	}
-	_, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
+	_, _, code := h.run("capability", "workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatal("second seed exited non-zero")
 	}
@@ -160,7 +168,7 @@ func TestWorkflowSeedIdempotent(t *testing.T) {
 func TestWorkflowSeedRequiresActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := seedWorkflowProject(t, h)
-	_, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM")
+	_, _, code := h.run("capability", "workflow", "seed", "--store", sp, "--project", "ATM")
 	if code == 0 {
 		t.Fatal("expected non-zero exit when --actor missing on seed")
 	}
@@ -171,7 +179,7 @@ func TestWorkflowCompleteSwapsToDone(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "t", "ATM:status:in-progress")
 
-	out, _, code := h.run("workflow", "complete", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
+	out, _, code := h.run("capability", "workflow", "complete", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
@@ -198,7 +206,7 @@ func TestWorkflowStartAlreadyInProgressIsNoop(t *testing.T) {
 		t.Fatalf("LastLogSeq before: %v", err)
 	}
 	h.output = outputText
-	out, stderr, code := h.run("workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
+	out, stderr, code := h.run("capability", "workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr)
 	}
@@ -259,7 +267,7 @@ func TestInProgressBoardMembership(t *testing.T) {
 	sp := seedWorkflowProject(t, h)
 	id := createTaskWithLabels(t, h, sp, "t", "ATM:status:open")
 
-	if _, _, code := h.run("workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset"); code != 0 {
+	if _, _, code := h.run("capability", "workflow", "start", "--store", sp, "--task", id, "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("workflow start exit=%d stderr=%s", code, h.stderr.String())
 	}
 	out, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "ATM:in-progress-tasks")

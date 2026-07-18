@@ -115,12 +115,12 @@ func TestContextAddThenCheckReportsOK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, errOut, code := h.run("context", "add", "--task", tk.ID,
+	if _, errOut, code := h.run("capability", "contextmap", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "git:pkg", "--actor", actor); code != ExitSuccess {
 		t.Fatalf("context add: exit %d: %s", code, errOut)
 	}
 
-	out, _, code := h.run("context", "check", "--project", "TST")
+	out, _, code := h.run("capability", "contextmap", "check", "--project", "TST")
 	if code != ExitSuccess {
 		t.Fatalf("context check: exit %d", code)
 	}
@@ -147,13 +147,13 @@ func TestContextCheckIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.run("task", "label", "add", "--task", tk2.ID, "--label", "TST:context:documentation", "--actor", actor)
-	h.run("context", "add", "--task", tk1.ID, "--kind", "documentation",
+	h.run("capability", "contextmap", "add", "--task", tk1.ID, "--kind", "documentation",
 		"--source", "git:pkg", "--source", "external:jira/TST-9", "--actor", actor)
 	commitInRepo(t, repo, "pkg/a.go", "package pkg\n\nfunc New() {}\n") // force DRIFT
 
 	root := h.store.StorePath()
 	before := storeDigest(t, root)
-	out, _, code := h.run("context", "check", "--project", "TST")
+	out, _, code := h.run("capability", "contextmap", "check", "--project", "TST")
 	if code != ExitSuccess {
 		t.Fatalf("context check: exit %d", code)
 	}
@@ -176,7 +176,7 @@ func TestContextAddRequiresActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, code := h.run("context", "add", "--task", tk.ID,
+	if _, _, code := h.run("capability", "contextmap", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "git:pkg"); code == ExitSuccess {
 		t.Error("mutating command must require --actor or ATM_ACTOR")
 	}
@@ -189,7 +189,7 @@ func TestContextRejectsUnkindedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, code := h.run("context", "add", "--task", tk.ID,
+	_, _, code := h.run("capability", "contextmap", "add", "--task", tk.ID,
 		"--kind", "documentation", "--source", "pkg", "--actor", actor)
 	if code != ExitUsage {
 		t.Errorf("bare path without a kind prefix must be a usage error, got exit %d", code)
@@ -206,7 +206,7 @@ func TestContextWorksWithoutSeededLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.run("context", "add", "--task", tk.ID, "--kind", "documentation",
+	h.run("capability", "contextmap", "add", "--task", tk.ID, "--kind", "documentation",
 		"--source", "git:pkg", "--actor", actor)
 
 	out, _, _ := h.run("label", "list", "--project", "TST")

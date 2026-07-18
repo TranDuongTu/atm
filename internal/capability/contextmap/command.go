@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Cap is the contextmap capability: the `atm context` verb tree over the
-// recorder/check verbs in this package.
+// Cap is the contextmap capability: the `atm capability contextmap` verb tree
+// over the recorder/check verbs in this package.
 type Cap struct{}
 
 // New returns the capability the composition root registers.
@@ -20,19 +20,15 @@ func New() capability.Capability { return Cap{} }
 
 func (Cap) Name() string { return "contextmap" }
 
-// DefaultBoard nominates no board: context-current is a knowledge surface,
-// not a work queue.
-func (Cap) DefaultBoard(code string) string { return "" }
-
 // EnsureVocabulary implements capability.Capability by delegating to this
 // package's vocabulary bootstrap.
-func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	return EnsureVocabulary(svc, code, actor)
 }
 
 func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "context",
+		Use:   "contextmap",
 		Short: "Record and verify the project's context map",
 		Long: "Record where each context pointer came from, and report which pointers have " +
 			"drifted from reality.\n\n" +

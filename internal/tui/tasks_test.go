@@ -254,7 +254,7 @@ func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
@@ -398,7 +398,7 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
@@ -433,7 +433,7 @@ func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")

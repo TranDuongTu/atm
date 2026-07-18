@@ -214,7 +214,7 @@ func TestInitInteractiveSelectsAgentAndArgs(t *testing.T) {
 		"Agent args",
 		"selected\tcodex",
 		"args\tcodex\t--yolo --profile work laptop",
-		"Next: atm manage --project <CODE> --onboarding",
+		"Next: atm manage --project <CODE> --action brief",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("interactive init output missing %q:\n%s", want, out)
@@ -428,6 +428,33 @@ func TestInitNonInteractiveWithoutAgentDoesNotPrompt(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "atm-developing.js")); !os.IsNotExist(err) {
 		t.Fatalf("non-interactive init without --agent installed plugin: %v", err)
+	}
+}
+
+func TestSubstrateNamespacesHaveInformativeHelp(t *testing.T) {
+	st := &cliState{}
+	root := newRootCmdWithState(st)
+	want := map[string]string{
+		"task":         "<CODE>-<hex>",
+		"task comment": "kind",
+		"label":        "board",
+		"project":      "capabilit",
+		"persona":      "persona@agent:model",
+		"activity":     "--group-by",
+		"store":        "prune-v1",
+		"search":       "semantic",
+	}
+	for path, phrase := range want {
+		cmd, _, err := root.Find(strings.Fields(path))
+		if err != nil {
+			t.Fatalf("find %q: %v", path, err)
+		}
+		if len(cmd.Long) < 100 {
+			t.Errorf("atm %s -h Long is thin (%d chars)", path, len(cmd.Long))
+		}
+		if !strings.Contains(cmd.Long, phrase) {
+			t.Errorf("atm %s -h Long missing %q", path, phrase)
+		}
 	}
 }
 

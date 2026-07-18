@@ -18,14 +18,9 @@ func New() capability.Capability { return Cap{} }
 
 func (Cap) Name() string { return "workflow" }
 
-// DefaultBoard nominates All Tasks: the default board surface a UI selects
-// for a project (ATM-18111b — the human's "browse recent activity" consult
-// mode sees the whole project, not just status:open).
-func (Cap) DefaultBoard(code string) string { return BoardAllTasks(code) }
-
 // EnsureVocabulary implements capability.Capability by delegating to this
 // package's vocabulary bootstrap.
-func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	return EnsureVocabulary(svc, code, actor)
 }
 
@@ -195,7 +190,7 @@ func newSeedCmd(env capability.Env) *cobra.Command {
 	var project string
 	cmd := &cobra.Command{
 		Use:   "seed",
-		Short: "Ensure the workflow boards (backlog, open-tasks, in-progress-tasks) exist",
+		Short: "Ensure the workflow boards (backlog, open-tasks, in-progress-tasks, all-tasks) exist",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := env.RequireMutatingActor()
 			if err != nil {
@@ -205,21 +200,15 @@ func newSeedCmd(env capability.Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := EnsureVocabulary(svc, project, actor); err != nil {
+			boards, err := EnsureVocabulary(svc, project, actor)
+			if err != nil {
 				return err
 			}
-			return env.Emit(map[string]any{
-				"project": project,
-				// Board names come from the capability's helpers, never rebuilt
-				// here: this package owns these names exclusively, and a
-				// hand-built string would silently drift from what
-				// EnsureVocabulary actually seeds if a board is ever renamed.
-				"boards": []string{
-					BoardBacklog(project),
-					BoardOpenTasks(project),
-					BoardInProgressTasks(project),
-				},
-			}, func() {
+			names := make([]string, 0, len(boards))
+			for _, b := range boards {
+				names = append(names, b.Name)
+			}
+			return env.Emit(map[string]any{"project": project, "boards": names}, func() {
 				fmt.Fprintf(env.Stdout(), "ensured workflow boards for %s\n", project)
 			})
 		},

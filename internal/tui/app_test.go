@@ -1853,17 +1853,18 @@ func TestHelpOverlayConventions(t *testing.T) {
 	}
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "What ATM is")
-	mustContain(t, content, "Where labels live")
-	mustContain(t, content, "Where tasks live")
-	mustContain(t, content, "How to read a task and its labels")
-	mustContain(t, content, "How to search")
-	mustContain(t, content, "Agent code-of-conduct")
+	mustContain(t, content, "Substrate")
+	mustContain(t, content, "Capabilities")
+	mustContain(t, content, "Actor identity")
+	mustContain(t, content, "atm capability list")
+	mustContain(t, content, "atm capability <name> guide")
 	mustContain(t, content, "advisory")
-	// The conventions text references where to find labels/tasks but does NOT
-	// duplicate the seeded label list itself.
-	mustNotContain(t, content, "## Suggested seed namespaces")
+	// The conventions primer points at the capability namespace; it does NOT
+	// restate the removed substrate-wide advisory prose.
+	mustNotContain(t, content, "## Agent first-contact sequence")
 	mustNotContain(t, content, "## Agent code-of-conduct")
-	mustNotContain(t, content, "status:open, todo, in-progress")
+	mustNotContain(t, content, "First-time human sequence")
+	mustNotContain(t, content, "atm label seed")
 	// Keys-only content is NOT present in the conventions overlay.
 	mustNotContain(t, content, "CLI / TUI Parity")
 	mustNotContain(t, content, "Global Keymap")

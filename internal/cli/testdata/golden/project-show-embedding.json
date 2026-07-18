@@ -24,13 +24,13 @@
         "action": "project.capability-enabled",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 18
+        "seq": 2
       },
       {
         "action": "project.capability-enabled",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 19
+        "seq": 3
       }
     ],
     "name": "Foo",

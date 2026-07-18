@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"atm/internal/core"
-	"atm/internal/seed"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -254,7 +253,9 @@ func (b *boardsModel) refresh() {
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
-	want := b.m.regFor(b.m.projectScope).DefaultBoard(b.m.projectScope)
+	// UI policy, not a capability concern: all-tasks if the ring has it
+	// (workflow enabled), else the first board any capability seeded.
+	want := b.m.projectScope + ":all-tasks"
 	for _, r := range b.rows {
 		if r.FullName == want {
 			b.selected = want
@@ -1032,11 +1033,12 @@ func (b *boardsModel) reenterChart() {
 }
 
 func (b *boardsModel) seedDefaults() tea.Cmd {
-	if err := b.m.store.SeedLabels(b.m.projectScope, b.m.actor); err != nil {
+	boards, err := b.m.regFor(b.m.projectScope).EnsureVocabulary(b.m.store, b.m.projectScope, b.m.actor)
+	if err != nil {
 		b.m.showToast("error: " + err.Error())
 		return nil
 	}
-	b.m.showToast(fmt.Sprintf("seeded %d labels into %s", len(seed.Labels), b.m.projectScope))
+	b.m.showToast(fmt.Sprintf("ensured capability vocabulary in %s (%d boards)", b.m.projectScope, len(boards)))
 	b.m.refreshAll()
 	return nil
 }

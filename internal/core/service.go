@@ -48,7 +48,6 @@ type LabelService interface {
 	LabelShow(name string) (Label, error)
 	LabelRemove(name, actor string) (*LabelRemoveResult, error)
 	LabelUsageGrouped(projectCode string) (map[string]int, error)
-	SeedLabels(code, actor string) error
 }
 
 type CommentService interface {

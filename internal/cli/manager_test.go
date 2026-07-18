@@ -1,40 +1,39 @@
 package cli
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-
-	"atm/internal/capability"
-	"atm/internal/manager"
 )
 
-func TestManageCodexCurateLaunchJSON(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	c := captureChild(h)
-	h.reset()
-
-	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--curate")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
+func TestValidateManagerAction(t *testing.T) {
+	enabled := []string{"workflow"}
+	registered := []string{"workflow", "contextmap"}
+	if err := validateManagerAction("autopilot", "", enabled, registered); err != nil {
+		t.Errorf("default action rejected: %v", err)
 	}
-	if c.name != "codex" {
-		t.Fatalf("child name = %q, want codex", c.name)
+	if err := validateManagerAction("curate", "", enabled, registered); err == nil {
+		t.Error("curate accepted; want unknown-action error")
 	}
-	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	compareGolden(t, "manage-codex-curate-launch", got)
+	if err := validateManagerAction("brief", "nope", enabled, registered); err == nil || !strings.Contains(err.Error(), "registered: workflow, contextmap") {
+		t.Errorf("unknown capability error wrong: %v", err)
+	}
+	if err := validateManagerAction("ask", "contextmap", enabled, registered); err == nil || !strings.Contains(err.Error(), "not enabled for project") {
+		t.Errorf("not-enabled error wrong: %v", err)
+	}
+	if err := validateManagerAction("ask", "workflow", enabled, registered); err != nil {
+		t.Errorf("enabled capability rejected: %v", err)
+	}
 }
 
-func TestManageCodexActionMappingLaunch(t *testing.T) {
+func TestManageCodexAutopilotLaunchJSON(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "mapping")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -42,20 +41,34 @@ func TestManageCodexActionMappingLaunch(t *testing.T) {
 		t.Fatalf("child name = %q, want codex", c.name)
 	}
 	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
-	if !strings.Contains(got, `"ATM_MANAGER_ACTION": "mapping"`) {
-		t.Fatalf("expected ATM_MANAGER_ACTION mapping, got:\n%s", got)
+	compareGolden(t, "manage-codex-autopilot-launch", got)
+}
+
+func TestManageCodexActionBriefLaunch(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	h.reset()
+
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "brief")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0", code)
 	}
-	if !strings.Contains(got, `"ATM_ONBOARD": "1"`) {
-		t.Fatalf("expected ATM_ONBOARD=1, got:\n%s", got)
+	if c.name != "codex" {
+		t.Fatalf("child name = %q, want codex", c.name)
 	}
-	compareGolden(t, "manage-codex-action-mapping-launch", got)
+	got := normalizeManagerOutput(h.stdout.String(), h.store.StorePath())
+	if !strings.Contains(got, `"ATM_MANAGER_ACTION": "brief"`) {
+		t.Fatalf("expected ATM_MANAGER_ACTION brief, got:\n%s", got)
+	}
+	compareGolden(t, "manage-codex-action-brief-launch", got)
 }
 
 func TestManageLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
 
-	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--curate")
+	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
@@ -73,14 +86,14 @@ func TestManageActionSelection(t *testing.T) {
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
 
-	// No action flag: Curate is the default, so this succeeds.
+	// No action flag: autopilot is the default, so this succeeds.
 	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
-		t.Fatalf("no-flag default should succeed (curate); exit=%d stderr=%s", code, h.stderr.String())
+		t.Fatalf("no-flag default should succeed (autopilot); exit=%d stderr=%s", code, h.stderr.String())
 	}
 }
 
-func TestManageCurateIsDefault(t *testing.T) {
+func TestManageAutopilotIsDefault(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
@@ -90,24 +103,30 @@ func TestManageCurateIsDefault(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, `"ATM_MANAGER_ACTION": "curate"`) {
-		t.Fatalf("default action should be curate; got:\n%s", out)
+	if !strings.Contains(out, `"ATM_MANAGER_ACTION": "autopilot"`) {
+		t.Fatalf("default action should be autopilot; got:\n%s", out)
+	}
+	if !strings.Contains(out, `"ATM_MANAGER_CAPABILITY": ""`) {
+		t.Fatalf("default capability should be empty string; got:\n%s", out)
 	}
 	_ = c
 }
 
-func TestManageRejectsConflictingActions(t *testing.T) {
+func TestManageOldActionFlagsRemoved(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
+	// Old boolean action flags are gone; passing them must error as unknown
+	// flags (the action vocabulary is now --action only).
 	for _, args := range [][]string{
-		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--recall"},
-		{"manage", "--agent", "codex", "--project", "FOO", "--recall", "--onboarding"},
-		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--onboarding"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--curate"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--recall"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--mapping"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--onboarding"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
-			t.Fatalf("%v should fail (conflicting actions)", args)
+			t.Fatalf("%v should fail (old action flag removed)", args)
 		}
 	}
 }
@@ -131,8 +150,8 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	for _, args := range [][]string{
-		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--dry-run"},
-		{"manage", "--agent", "codex", "--project", "FOO", "--curate", "--actor", "manager@codex:unset"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--dry-run"},
+		{"manage", "--agent", "codex", "--project", "FOO", "--actor", "manager@codex:unset"},
 	} {
 		_, _, code := h.run(args...)
 		if code == ExitSuccess {
@@ -141,98 +160,37 @@ func TestManageRejectsDryRunAndActor(t *testing.T) {
 	}
 }
 
-// mappingAvail is a stand-in for the mount-narrowed registry's ManagerActions
-// output when contextmap is enabled for the project.
-var mappingAvail = []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "reconcile the project's context map"}}
-
-func TestMappingActionResolves(t *testing.T) {
-	got, _, err := validateManagerAction(managerOpts{Mapping: true}, mappingAvail)
-	if err != nil {
-		t.Fatalf("validateManagerAction: %v", err)
-	}
-	if got != "mapping" {
-		t.Errorf("got %q, want %q", got, "mapping")
-	}
-}
-
-func TestOnboardingAliasStillResolves(t *testing.T) {
-	// Deprecated, hidden, but never hard-broken: the flag is on a stable CLI
-	// surface. See ATM-0113.
-	got, _, err := validateManagerAction(managerOpts{Onboarding: true}, mappingAvail)
-	if err != nil {
-		t.Fatalf("validateManagerAction: %v", err)
-	}
-	if got != "mapping" {
-		t.Errorf("--onboarding must resolve to %q, got %q", "mapping", got)
-	}
-}
-
-func TestMappingAndOnboardingTogetherIsOneAction(t *testing.T) {
-	// Both names for the same action must not count as two selections.
-	if _, _, err := validateManagerAction(managerOpts{Mapping: true, Onboarding: true}, mappingAvail); err != nil {
-		t.Errorf("alias + canonical must be accepted as one action, got %v", err)
-	}
-}
-
-func TestNoActionDefaultsToCurate(t *testing.T) {
-	// ATM-0120: Curate is the default when no action flag is passed.
-	got, _, err := validateManagerAction(managerOpts{}, nil)
-	if err != nil {
-		t.Fatalf("validateManagerAction: %v", err)
-	}
-	if got != "curate" {
-		t.Errorf("no action: got %q, want %q (default)", got, "curate")
-	}
-}
-
-func TestMultipleActionsIsUsageError(t *testing.T) {
-	if _, _, err := validateManagerAction(managerOpts{Curate: true, Recall: true}, nil); err == nil {
-		t.Error("want usage error when more than one action is selected")
-	}
-}
-
-func TestValidateManagerActionCapability(t *testing.T) {
-	avail := []capability.ManagerAction{{Capability: "contextmap", Command: "context", Name: "mapping", Summary: "s"}}
-
-	name, entry, err := validateManagerAction(managerOpts{Action: "mapping"}, avail)
-	if err != nil || name != "mapping" || entry == nil || entry.Command != "context" {
-		t.Fatalf("got (%q,%v,%v)", name, entry, err)
-	}
-	name, entry, err = validateManagerAction(managerOpts{}, avail)
-	if err != nil || name != "curate" || entry != nil {
-		t.Fatalf("default: got (%q,%v,%v)", name, entry, err)
-	}
-	name, entry, err = validateManagerAction(managerOpts{Mapping: true}, avail)
-	if err != nil || name != "mapping" || entry == nil {
-		t.Fatalf("--mapping alias: got (%q,%v,%v)", name, entry, err)
-	}
-	if _, _, err = validateManagerAction(managerOpts{Action: "nosuch"}, avail); err == nil {
-		t.Fatal("unknown action must error")
-	}
-	// contextmap disabled for the project -> mapping not available.
-	if _, _, err = validateManagerAction(managerOpts{Action: "mapping"}, nil); err == nil {
-		t.Fatal("action of a disabled capability must error")
-	}
-	if _, _, err = validateManagerAction(managerOpts{Curate: true, Action: "mapping"}, avail); err == nil {
-		t.Fatal("two selections must error")
-	}
-}
-
-func TestManageOllamaOnboarding(t *testing.T) {
+func TestManageCapabilityScopeEnv(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	c := captureChild(h)
+	captureChild(h)
 	h.reset()
 
-	_, _, code := h.run("manage", "--agent", "ollama:opencode", "--project", "FOO", "--onboarding")
+	out, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "ask", "--capability", "contextmap")
 	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0", code)
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(strings.Join(c.argv, " "), "--auto --prompt") {
-		t.Fatalf("onboarding argv = %v, want non-interactive prompt argv", c.argv)
+	for _, want := range []string{
+		`"ATM_MANAGER_ACTION": "ask"`,
+		`"ATM_MANAGER_CAPABILITY": "contextmap"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("manager env missing %q:\n%s", want, out)
+		}
 	}
-	if !strings.Contains(strings.Join(c.env, "\n"), "ATM_ONBOARD=1") {
-		t.Fatalf("onboarding env missing ATM_ONBOARD=1:\n%s", strings.Join(c.env, "\n"))
+}
+
+func TestManageCapabilityUnknownIsUsageError(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+
+	_, stderr, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--capability", "nope")
+	if code == ExitSuccess {
+		t.Fatalf("unknown capability must error")
+	}
+	if !strings.Contains(stderr, "registered:") {
+		t.Fatalf("unknown capability error must list registered; got stderr=%s", stderr)
 	}
 }
 
@@ -243,13 +201,13 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 	captureChild(h)
 	h.reset()
 
-	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--curate", "--persona", "ops")
+	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--persona", "ops")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	for _, want := range []string{
 		`"ATM_PERSONA": "ops"`,
-		`"ATM_MANAGER_ACTION": "curate"`,
+		`"ATM_MANAGER_ACTION": "autopilot"`,
 		`"ATM_ACTOR": "ops@claude:unset"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -260,7 +218,7 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 
 func TestManagerCommandRemoved(t *testing.T) {
 	h := newGoldenHarness(t)
-	_, _, code := h.run("manager", "codex", "--project", "FOO", "--curate")
+	_, _, code := h.run("manager", "codex", "--project", "FOO")
 	if code == ExitSuccess {
 		t.Fatalf("atm manager should be removed")
 	}
@@ -296,29 +254,12 @@ func TestManageContextRendersPrompt(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	// The manager prompt's Roles list is composed from CapabilityActions
-	// (internal/manager.RenderContext); the CLI now wires the mount-narrowed
-	// registry's ManagerActions into manage-context, so a project with
-	// contextmap enabled (the default) must render the Mapping role bullet
-	// pointing at `atm context guide`. This is end-to-end coverage of the
-	// registry -> ContextData -> prompt path (unit coverage for the compose
-	// step itself lives in TestRenderCapabilityRoles in internal/manager).
-	// The bin path embedded ahead of "context guide" is this test binary's
-	// real os.Executable() (same call the CLI makes); normalize it to "atm"
-	// before asserting, mirroring how the launch goldens normalize ATM_BIN.
-	normalized := got
-	if bin, err := os.Executable(); err == nil {
-		normalized = strings.ReplaceAll(got, bin, "atm")
-	}
-	for _, want := range []string{"ATM manager", "autonomous owner", "Curate", "Recall", "conventions", "**Mapping**"} {
+	for _, want := range []string{"ATM manager", "autonomous owner", "conventions", "capability list --project FOO"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("manage-context output missing %q", want)
 		}
 	}
-	if !strings.Contains(normalized, "atm context guide") {
-		t.Errorf("manage-context output missing composed consult pointer %q; got:\n%s", "atm context guide", normalized)
-	}
-	for _, old := range []string{"Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding"} {
+	for _, old := range []string{"**Curate**", "**Recall**", "**Mapping**", "Tracking request", "Inquiry", "Vocabulary", "Planning", "Grooming", "Tracking", "Asking", "Glossary", "Onboarding", "<CAPABILITY_ROLES>"} {
 		if strings.Contains(got, old) {
 			t.Errorf("manage-context output still contains old term %q", old)
 		}
@@ -360,28 +301,17 @@ func TestManageContextFillsProjectName(t *testing.T) {
 	}
 }
 
-func TestManagerOnboardEnvHasATMOnboard(t *testing.T) {
-	got := managerEnvValues("FOO", "/bin/atm", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", true, "manager", "onboarding")
+func TestManagerEnvSetsActionAndCapability(t *testing.T) {
+	got := managerEnvValues("FOO", "/bin/atm", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "manager", "autopilot", "")
 	joined := strings.Join(gotToSlice(got), "\n")
 	for _, want := range []string{
-		"ATM_ONBOARD=1",
 		"ATM_PERSONA=manager",
-		"ATM_MANAGER_ACTION=onboarding",
+		"ATM_MANAGER_ACTION=autopilot",
+		"ATM_MANAGER_CAPABILITY=",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("onboard env missing %q; got:\n%s", want, joined)
+			t.Errorf("manager env missing %q; got:\n%s", want, joined)
 		}
-	}
-}
-
-func TestManagerOnboardArgvUsesAutoPrompt(t *testing.T) {
-	l, ok := manager.LauncherFor("opencode")
-	if !ok {
-		t.Fatal("LauncherFor(opencode) not found")
-	}
-	argv := l.BuildArgvOnboard("/tmp/ctx.md")
-	if argv[1] != "--auto" || argv[2] != "--prompt" {
-		t.Fatalf("onboard argv = %v, want --auto --prompt <msg>", argv)
 	}
 }
 

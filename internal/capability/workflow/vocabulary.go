@@ -33,21 +33,36 @@ func backlogExpr() string         { return "NOT status:*" }
 func inProgressTasksExpr() string { return "status:in-progress" }
 func allTasksExpr() string        { return "*" }
 
-// EnsureVocabulary creates the four workflow boards with descriptions, if
-// absent. Idempotent: LabelSeed upserts only when the label is absent, so a
-// human's curated description is never overwritten. Self-bootstrapping: it
-// does not assume `atm label seed` ran.
-func EnsureVocabulary(s core.LabelService, code, actor string) error {
+// EnsureVocabulary seeds this capability's full vocabulary: the status:*
+// namespace it owns (absorbed from the deleted internal/seed default set)
+// and the four workflow boards. Idempotent: LabelSeed upserts only when the
+// label is absent, so a human's curated description is never overwritten. It
+// returns the board labels (Expr != "") it owns, in the documented order.
+func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
+	stored := []struct{ suffix, desc string }{
+		{"status:*", "lifecycle state of a task; exactly one status label should be present"},
+		{"status:open", "workflow state: open; task is not started or is being considered"},
+		{"status:in-progress", "workflow state: in-progress; someone is actively working on this"},
+		{"status:blocked", "workflow state: blocked; task cannot proceed pending something else"},
+		{"status:done", "workflow state: done; task is complete"},
+	}
+	for _, l := range stored {
+		if err := s.LabelSeed(code+":"+l.suffix, l.desc, "", actor); err != nil {
+			return nil, err
+		}
+	}
 	boards := []struct{ name, desc, expr string }{
 		{BoardBacklog(code), "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.", backlogExpr()},
 		{BoardOpenTasks(code), "every open task: the project's active work.", openTasksExpr()},
 		{BoardInProgressTasks(code), "tasks someone is actively working on (status:in-progress).", inProgressTasksExpr()},
 		{BoardAllTasks(code), "every task in the project, ordered by recent activity. Default board in the TUI.", allTasksExpr()},
 	}
+	out := make([]core.Label, 0, len(boards))
 	for _, b := range boards {
 		if err := s.LabelSeed(b.name, b.desc, b.expr, actor); err != nil {
-			return err
+			return nil, err
 		}
+		out = append(out, core.Label{Name: b.name, Description: b.desc, Expr: b.expr})
 	}
-	return nil
+	return out, nil
 }

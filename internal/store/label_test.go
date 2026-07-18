@@ -77,9 +77,10 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 	_ = s.LabelAdd("ATM:custom:a", "", "", testActor)
 	_ = s.LabelAdd("ATM:custom:b", "", "", testActor)
 	_ = s.LabelAdd("SCY:custom:a", "", "", testActor)
-	// ATM has 16 seeded + 2 custom = 18.
-	if got := len(s.LabelList("ATM", "")); got != 18 {
-		t.Fatalf("ATM labels = %d want 18", got)
+	// Task 6: CreateProject no longer seeds labels, so ATM has only the 2
+	// custom labels added above.
+	if got := len(s.LabelList("ATM", "")); got != 2 {
+		t.Fatalf("ATM labels = %d want 2", got)
 	}
 	// Filter to the custom namespace.
 	if got := len(s.LabelList("ATM", "custom")); got != 2 {
@@ -90,11 +91,13 @@ func TestLabelListFiltersByProjectAndNamespace(t *testing.T) {
 func TestNamespacesDistinctSorted(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:hot", "", "", testActor) // unnamespaced tag
-	_ = s.LabelAdd("ATM:custom:x", "", "", testActor)
+	_ = s.LabelAdd("ATM:custom:x", "", "", testActor)         // custom namespace
+	_ = s.LabelAdd("ATM:status:open", "", "", testActor)      // status namespace
+	_ = s.LabelAdd("ATM:priority:high", "", "", testActor)    // priority namespace
+	_ = s.LabelAdd("ATM:comment:progress", "", "", testActor) // comment namespace
 	got := s.Namespaces("ATM")
-	want := []string{"comment", "context", "custom", "priority", "status"}
-	if len(got) != 5 || got[0] != "comment" || got[4] != "status" {
+	want := []string{"comment", "custom", "priority", "status"}
+	if len(got) != 4 || got[0] != "comment" || got[3] != "status" {
 		t.Fatalf("Namespaces = %v want %v", got, want)
 	}
 }
@@ -241,15 +244,22 @@ func TestLabelAddRejectsSelfReference(t *testing.T) {
 	}
 }
 
-func TestSeedAddsNamespaceDescriptors(t *testing.T) {
+func TestNamespaceDescriptorIsComputed(t *testing.T) {
+	// Task 6: namespace descriptors are no longer auto-seeded by CreateProject;
+	// they come from a capability's EnsureVocabulary. The store contract that
+	// this test guards — a `:*` descriptor is computed and carries a
+	// description when present — is exercised by adding one directly.
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:status:*", "lifecycle state of a task", "", testActor); err != nil {
+		t.Fatalf("LabelAdd status:*: %v", err)
+	}
 	l, err := s.LabelShow("ATM:status:*")
 	if err != nil {
-		t.Fatalf("namespace descriptor must be seeded: %v", err)
+		t.Fatalf("namespace descriptor missing: %v", err)
 	}
 	if l.Description == "" {
-		t.Error("seeded namespace descriptor must carry a description")
+		t.Error("a namespace descriptor must carry a description")
 	}
 	if !l.IsComputed() {
 		t.Error("a namespace label is computed")

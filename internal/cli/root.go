@@ -141,9 +141,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))
 
-	for _, c := range st.registry.Commands(st) {
-		root.AddCommand(c)
-	}
+	root.AddCommand(newCapabilityCmd(st))
 
 	return root
 }

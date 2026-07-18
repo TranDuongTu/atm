@@ -13,6 +13,11 @@ func newTaskCommentCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comment",
 		Short: "Task comment commands",
+		Long: "A per-task, append-mostly thread of classified comments. Each comment carries a " +
+			"<CODE>:comment:<kind> label chosen by the writer; kinds are invented on demand (e.g. " +
+			"progress, decision, open-question) so the vocabulary grows with how the work actually " +
+			"unfolds. Use --reply-to <COMMENT-ID> to thread a reply within the same task. Comments " +
+			"are individually labelled and editable via set-body; removal is supported but rare.",
 	}
 	cmd.AddCommand(newCommentAddCmd(st))
 	cmd.AddCommand(newCommentListCmd(st))

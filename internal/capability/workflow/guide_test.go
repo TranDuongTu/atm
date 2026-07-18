@@ -13,15 +13,17 @@ func TestSummaryIsOneLine(t *testing.T) {
 }
 
 // The guide is the single source of the capability's semantics: it must name
-// every verb and the invariant the capability maintains, and carry a manager
-// section (the composed manager prompt points here).
+// every verb and the invariant the capability maintains, and carry the Brief
+// and Autopilot sections (the composed manager prompt points here).
 func TestGuideCarriesSemantics(t *testing.T) {
 	g := Cap{}.Guide()
 	for _, want := range []string{
-		"atm workflow start", "atm workflow open", "atm workflow block",
-		"atm workflow complete", "atm workflow status", "atm workflow seed",
+		"atm capability workflow start",
+		"atm capability workflow status",
+		"atm capability workflow seed",
 		"exactly-one-status", "backlog", "open-tasks", "in-progress-tasks",
-		"all-tasks", "## Manager duty", "paved road, not a fence",
+		"all-tasks", "paved road, not a fence",
+		"start|open|block",
 	} {
 		if !strings.Contains(g, want) {
 			t.Errorf("guide missing %q", want)
@@ -29,8 +31,17 @@ func TestGuideCarriesSemantics(t *testing.T) {
 	}
 }
 
-func TestNoManagerActions(t *testing.T) {
-	if acts := (Cap{}).ManagerActions(); acts != nil {
-		t.Fatalf("workflow contributes no manager action, got %+v", acts)
+func TestGuideHasBriefAndAutopilotSections(t *testing.T) {
+	g := Cap{}.Guide()
+	for _, section := range []string{"\n## Brief\n", "\n## Autopilot\n"} {
+		if !strings.Contains(g, section) {
+			t.Errorf("guide missing %q section", strings.TrimSpace(section))
+		}
+	}
+	if strings.Contains(g, "Manager duty") {
+		t.Error("guide still has the old Manager duty section")
+	}
+	if strings.Contains(g, "`atm workflow") || strings.Contains(g, "`atm context ") {
+		t.Error("guide references pre-namespace command paths")
 	}
 }

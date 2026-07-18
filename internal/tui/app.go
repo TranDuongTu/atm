@@ -183,7 +183,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	// projects.go. Kept in case a future caller constructs a Model with a
 	// pre-populated projectScope.
 	if m.projectScope != "" {
-		if err := m.regFor(m.projectScope).EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
+		if _, err := m.regFor(m.projectScope).EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
 			m.showToast("ensure workflow boards: " + err.Error())
 		}
 		m.boards.selectDefault()

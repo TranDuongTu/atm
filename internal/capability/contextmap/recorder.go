@@ -26,7 +26,7 @@ func projectOf(taskID string) string {
 // the first provenance stamp.
 func (rec *Recorder) Add(taskID, kind string, sources []Source) error {
 	code := projectOf(taskID)
-	if err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
+	if _, err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
 		return err
 	}
 	if err := rec.Store.TaskLabelAdd(taskID, LabelContextKind(code, kind), rec.Actor); err != nil {
@@ -44,7 +44,7 @@ func (rec *Recorder) Stamp(taskID string) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s has no provenance to re-stamp; use `atm context add` first", taskID)
+		return fmt.Errorf("%s has no provenance to re-stamp; use `atm capability contextmap add` first", taskID)
 	}
 	sources := make([]Source, 0, len(prev.Witnesses))
 	for _, w := range prev.Witnesses {
@@ -57,7 +57,7 @@ func (rec *Recorder) Stamp(taskID string) error {
 // The task ID is stable, so anything referencing it keeps working.
 func (rec *Recorder) Retarget(taskID string, sources []Source) error {
 	code := projectOf(taskID)
-	if err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
+	if _, err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
 		return err
 	}
 	return rec.writeStamp(taskID, code, sources)
@@ -68,7 +68,7 @@ func (rec *Recorder) Retarget(taskID string, sources []Source) error {
 // current, so it drops out of the context-current board.
 func (rec *Recorder) Supersede(taskID, byID, reason string) error {
 	code := projectOf(taskID)
-	if err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
+	if _, err := EnsureVocabulary(rec.Store, code, rec.Actor); err != nil {
 		return err
 	}
 	if _, err := rec.Store.GetTask(byID); err != nil {

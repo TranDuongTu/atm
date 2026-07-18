@@ -11,23 +11,7 @@
       "name": "ATM:backlog"
     },
     {
-      "description": "the kinds of narrative an agent writes on a task",
-      "name": "ATM:comment:*"
-    },
-    {
-      "description": "task comment kind: a decision recorded during work",
-      "name": "ATM:comment:decision"
-    },
-    {
-      "description": "task comment kind: an open question raised during work",
-      "name": "ATM:comment:open-question"
-    },
-    {
-      "description": "task comment kind: a progress note during work",
-      "name": "ATM:comment:progress"
-    },
-    {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm context` -- do not hand-edit.",
+      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
       "name": "ATM:comment:provenance"
     },
     {
@@ -65,21 +49,13 @@
       "name": "ATM:knowledge:*"
     },
     {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm context supersede`.",
+      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
       "name": "ATM:knowledge:superseded"
     },
     {
       "description": "every open task: the project's active work.",
       "expr": "status:open",
       "name": "ATM:open-tasks"
-    },
-    {
-      "description": "optional urgency ranking; absent means default priority",
-      "name": "ATM:priority:*"
-    },
-    {
-      "description": "optional prioritization: high; do this first, everything untagged is default priority",
-      "name": "ATM:priority:high"
     },
     {
       "description": "lifecycle state of a task; exactly one status label should be present",
@@ -120,23 +96,7 @@
       "name": "DEMO:backlog"
     },
     {
-      "description": "the kinds of narrative an agent writes on a task",
-      "name": "DEMO:comment:*"
-    },
-    {
-      "description": "task comment kind: a decision recorded during work",
-      "name": "DEMO:comment:decision"
-    },
-    {
-      "description": "task comment kind: an open question raised during work",
-      "name": "DEMO:comment:open-question"
-    },
-    {
-      "description": "task comment kind: a progress note during work",
-      "name": "DEMO:comment:progress"
-    },
-    {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm context` -- do not hand-edit.",
+      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
       "name": "DEMO:comment:provenance"
     },
     {
@@ -174,21 +134,13 @@
       "name": "DEMO:knowledge:*"
     },
     {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm context supersede`.",
+      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
       "name": "DEMO:knowledge:superseded"
     },
     {
       "description": "every open task: the project's active work.",
       "expr": "status:open",
       "name": "DEMO:open-tasks"
-    },
-    {
-      "description": "optional urgency ranking; absent means default priority",
-      "name": "DEMO:priority:*"
-    },
-    {
-      "description": "optional prioritization: high; do this first, everything untagged is default priority",
-      "name": "DEMO:priority:high"
     },
     {
       "description": "lifecycle state of a task; exactly one status label should be present",

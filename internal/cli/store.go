@@ -10,6 +10,11 @@ func newStoreCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "store",
 		Short: "Store inspection commands",
+		Long: "Event-log administration for the machine-global store under $ATM_HOME. The " +
+			"subcommands are log (inspect the event stream), upgrade (import a v1 project log " +
+			"into side-by-side EventSource v2 storage), prune-v1 (retire an upgraded project's " +
+			"frozen v1 log.jsonl, archived by default), and set-format (choose the store default " +
+			"format that governs project birth and the legacy default).",
 	}
 	pathCmd := &cobra.Command{
 		Use:   "path",

@@ -1,119 +1,41 @@
 {
   "conventions": {
-    "actor_identity": "Every mutation (task, comment, label, project, persona, config) stamps an actor of the form persona@agent:model (e.g. developer@claude:opus-4.8). The store rejects anything else: all three segments must be non-empty, and the persona segment must be a registered persona — create it first with atm persona create --name <name> --prompt \"...\". The built-in personas developer, manager, and admin (the human operator) are seeded automatically on first use and cannot be removed. The agent and model segments are supplied by the host agent: autonomous sessions stamp their real agent:model, while a human driving the CLI or TUI directly defaults to admin@cli:unset / admin@tui:unset (the unset model placeholder stays until real model configuration arrives). An unresolved (empty) persona renders as (none) in activity views. Start a developer session with a persona via atm dev --project <CODE> --persona <name>, which injects the persona's prompt + description into the session context and defaults the actor to <persona>@<agent>:unset; the host agent replaces :unset with its real model. Legacy actor strings in older logs are inferred to a persona at read time by atm activity — there is no migration step and no alias table. See who has been doing what with atm activity --project <CODE> [--group-by persona|agent|model], or the TUI's Projects pane (press P to expand the \"activity by persona\" chart into an overlay; p adds a persona).",
-    "advisory": "Conventions are advisory only — nothing in the store validates or special-cases the documented namespaces.",
-    "agent_first_contact_sequence": [
-      "read this guide, including the code-of-conduct",
-      "atm label list --project <CODE> — read every label's description first to learn the project's vocabulary before touching tasks",
-      "read the Capabilities section of this guide, then run each listed capability's guide (atm <command> guide) before operating in its territory. Capabilities own their semantics — how to read the project's knowledge, how to move work through status, whatever else the project enabled — and this document does not restate them.",
-      "atm task list --project <CODE> — see the project's tasks; use the boards the label list revealed for the groupings the project actually uses",
-      "atm store log <CODE> — read the project's append-only audit log to observe recent activity",
-      "atm task comment list --task <ID> — read the running narrative on a task before acting on it",
-      "atm index models --project <CODE> — see which embedding models have a vector index; if none, configure one with atm project set-embedding then atm embed --project <CODE>",
-      "atm search --project <CODE> \"query\" — semantic search over tasks + comments (text fallback if no index)",
-      "to get a synthesized answer, run a manager recall session with atm manage --project <CODE> --recall"
-    ],
-    "boards": "A label may carry an expression over other labels. Such a label is a BOARD: its membership is computed, not asserted. ATM:next-sprint with the expression status:open AND sprint:next matches every open task in the next sprint, and nothing carries that label directly. Three kinds of label: stored (ATM:status:open — tasks assert it), namespace (ATM:status:* — any label with that prefix; emergent; describable), board (ATM:next-sprint — has an expression; computed; cannot be assigned). Expressions use AND / OR / NOT / parentheses over bare label names (the project prefix is implied). Boards may reference other boards. NOT status:* means carries no status label — i.e. untriaged. Agents author boards for the groupings the project actually needs, and give each one a description — the description is what the next agent reads to know what the board means. Boards are how a human asks for the release board without knowing the label vocabulary. The Boards pane is the human's review surface; a namespace with no description shows a warning there.",
-    "capabilities": [
+    "actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin. See `atm dev -h`.",
+    "capabilities": "Semantics beyond the substrate live in capabilities; a project enables a per-project subset, and commands for disabled capabilities are not mounted. Enumerate with `atm capability list`; discover one with `atm capability <name> -h` and `atm capability <name> guide`.",
+    "substrate": [
       {
-        "command": "workflow",
-        "consult": "atm workflow guide",
-        "name": "workflow",
-        "summary": "Status-transition verbs and boards — the paved road for task status."
+        "namespace": "atm task",
+        "summary": "tasks (ID, title, description, labels)"
       },
       {
-        "command": "context",
-        "consult": "atm context guide",
-        "name": "contextmap",
-        "summary": "Context pointers with provenance — record what knowledge derives from, detect drift."
+        "namespace": "atm task comment",
+        "summary": "per-task append-mostly thread, classified by a label"
+      },
+      {
+        "namespace": "atm label",
+        "summary": "labels (<CODE>:<ns>:<value> or <CODE>:<tag>); a label's description records its intention; three kinds: stored (asserted), namespace (prefix, emergent), board (computed from an expression)"
+      },
+      {
+        "namespace": "atm project",
+        "summary": "project lifecycle"
+      },
+      {
+        "namespace": "atm persona",
+        "summary": "actor identity"
+      },
+      {
+        "namespace": "atm activity",
+        "summary": "audit log"
+      },
+      {
+        "namespace": "atm store",
+        "summary": "store administration"
+      },
+      {
+        "namespace": "atm search",
+        "summary": "semantic search"
       }
     ],
-    "code_of_conduct": [
-      "Read before you write. Run atm label list --project <CODE> and read every label's description before introducing any new label.",
-      "Default setup is the baseline. Prefer seeded labels; do not reinvent them under new names.",
-      "Invent only when nothing fits. Agents are free to self-organize, but a human reviewing the Boards pane should understand why a new label exists.",
-      "State the intention in the label description. A label with no description is a flag for human review.",
-      "One label, one meaning. If intent diverges from an existing label's description, create a new label with a distinct name.",
-      "Author boards for real groupings. A board is a label with an expression over other labels; its membership is computed, not asserted. Create one with atm label add --name <CODE>:<board> --description \"<what this board is for>\" --expr \"<expression>\". Give every board a description; never assign a board label directly to a task.",
-      "Humans reconcile. The Boards pane is the human's review surface for overlapping, contradictory, or undescribed labels."
-    ],
-    "day_to_day_development": "First run setup: atm init initializes the store, installs selected ATM agent plugins, records the default agent, and can save default host-agent args. Then run atm manage --project <CODE> --action mapping from a repository to let the manager learn and organize the project. Day-to-day development starts with atm dev --project <CODE>. Override the agent for a single launch with --agent <name> or ATM_AGENT. To pass per-agent flags, append them after -- (e.g. atm dev --project ATM -- --yolo), or set per-agent defaults with atm agents args <name> -- <flags>. Manager work starts with atm manage --project <CODE> --curate|--recall|--action <name>. Use atm agents list|select|args later to inspect readiness or change agent defaults after setup.",
-    "first_time_human_sequence": [
-      "atm (auto-inits the store and opens the TUI)",
-      "create the project (Add in the Projects tab); project create auto-seeds the default labels with descriptions",
-      "create seed index tasks (context:agent, context:repository, context:documentation) and initial work tasks, labeling as you go"
-    ],
-    "how_to_narrate_progress": "Comments are the running narrative on a task: a progress note, a decision, an open question, a bug, a pointer to a design doc. Comments live in the store as a per-task append-mostly thread. Add a comment with atm task comment add --task <ID> --body <text> --label <CODE>:<kind>. The label is the classification (ATM:comment:progress, ATM:comment:decision, ATM:comment:open-question are the seeded kinds; invent others only when none fits). Comments support --reply-to <COMMENT-ID> for threading within the same task. Edit a comment's body with atm task comment set-body; remove one with atm task comment remove.",
-    "how_to_read_a_task_and_its_labels": "A task is read as: its title (one line of intent), its description (the running narrative), and its labels (the faceted classification). The labels are the query surface; the description is the working memory. A context:agent task's description holds agent directions for this project. A context:repository task points at a repo to read. A context:documentation task points at a doc to read. Labels are advisory — nothing in the store enforces them, but reading them is how you understand a task without re-reading its whole history.",
-    "how_to_search": "Use labels as the filter. atm task list --project <CODE> --label <CODE>:<ns>:<value> returns tasks carrying that exact label. Wildcard labels (e.g. <CODE>:status:*) drive faceted grouping via atm task list --facets. Combine labels to narrow: --label <CODE>:status:open --label <CODE>:priority:high is high-priority open work. A board name is also a valid --label value: --label <CODE>:next-sprint returns every task whose labels satisfy that board's expression.",
-    "seeded_labels": [
-      {
-        "description": "lifecycle state of a task; exactly one status label should be present",
-        "suffix": "status:*"
-      },
-      {
-        "description": "workflow state: open; task is not started or is being considered",
-        "suffix": "status:open"
-      },
-      {
-        "description": "workflow state: in-progress; someone is actively working on this",
-        "suffix": "status:in-progress"
-      },
-      {
-        "description": "workflow state: done; task is complete",
-        "suffix": "status:done"
-      },
-      {
-        "description": "workflow state: blocked; task cannot proceed pending something else",
-        "suffix": "status:blocked"
-      },
-      {
-        "description": "optional urgency ranking; absent means default priority",
-        "suffix": "priority:*"
-      },
-      {
-        "description": "optional prioritization: high; do this first, everything untagged is default priority",
-        "suffix": "priority:high"
-      },
-      {
-        "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
-        "suffix": "context:*"
-      },
-      {
-        "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
-        "suffix": "context:agent"
-      },
-      {
-        "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
-        "suffix": "context:repository"
-      },
-      {
-        "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-        "suffix": "context:documentation"
-      },
-      {
-        "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
-        "suffix": "context:question"
-      },
-      {
-        "description": "the kinds of narrative an agent writes on a task",
-        "suffix": "comment:*"
-      },
-      {
-        "description": "task comment kind: a progress note during work",
-        "suffix": "comment:progress"
-      },
-      {
-        "description": "task comment kind: a decision recorded during work",
-        "suffix": "comment:decision"
-      },
-      {
-        "description": "task comment kind: an open question raised during work",
-        "suffix": "comment:open-question"
-      }
-    ],
-    "what_atm_is": "ATM (Agent Tasks Management) is a label-substrate task store for AI agents and the humans steering them. A project holds tasks; each task carries free-form text (title, description) and a set of labels. There is no status field, no claim entity, no review queue, no links table, no state machine — status, type, priority, ownership, and relationships are all expressed as labels and interpreted by the agent reading them. Workflow lives in capabilities (internal/capability/workflow), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.",
-    "where_labels_live": "Labels are global and per-project. The seeded defaults (status, priority, context, comment) are written into every new project by atm project create and re-applied idempotently by atm label seed --project <CODE> / the Boards pane [S] key. The full, authoritative list with descriptions is in the store — do not memorize or duplicate it here. To see the labels that exist in this project, run atm label list --project <CODE>. Each label carries a description; that description is the label's intention record.",
-    "where_tasks_live": "Tasks live in the store, scoped to a project, as entries in the project's append-only event log (events.v2.jsonl) — there is no per-task file. atm task list --project <CODE> lists them. Every new project is born on this format, so its tasks get hex IDs like <CODE>-<hex>; a project imported from a legacy v1 log.jsonl via atm store upgrade keeps its old numeric ids (<CODE>-<NNNN>) and mints hex ones for new tasks. Each task has an ID, a title, a description, and a label set. The description is free-form text — agents write what they are doing, what they found, what they decided, so the next agent or human can pick up where they left off."
+    "what_atm_is": "ATM (Agent Tasks Management) is a label-substrate task store. A project holds tasks; each task has free-form text (title, description) and a set of labels. No status field, no claims, no review queue, no state machine — status, type, priority, ownership, relationships are all labels, interpreted by the agent reading them. The store keeps the substrate legible; capabilities own the semantics."
   }
 }

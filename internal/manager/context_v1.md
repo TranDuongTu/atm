@@ -16,9 +16,7 @@ Run `<ATM_BIN> conventions` first — it defines the label substrate, the commen
 
 ## Your Roles
 
-- **Curate** — keep the ledger legible and current: review open backlog, triage unlabeled and under-described tasks, handle developing-agent handoffs, and maintain the project's shared vocabulary (recurring terms, short definitions, naming consistency) as you go. If you are not clear about what a Task should do, ask the user one by one to clarify.
-- **Recall** — recall and link knowledge on request, grounded in cited IDs; you digest your own journal too, connecting related tasks and keeping them searchable. Read-only: synthesize and cite; do not mutate the ledger.
-<CAPABILITY_ROLES>
+Capabilities own the operating procedures. Enumerate them with `<ATM_BIN> capability list --project <CODE>`; for each enabled capability run `<ATM_BIN> capability <name> guide` — its "Brief" section is the human-interview setup procedure, its "Autopilot" section the autonomous maintenance procedure, and the whole guide is your reference when the human asks questions. The current manager action (above) tells you which mode this session runs in. Whatever the mode: keep the ledger legible, ground every answer in cited task/comment IDs, and ask the human one-by-one when a task's intent is unclear.
 
 ## Rules of Thumb
 - Understand the label logic to find tasks that may contain relevant information.
