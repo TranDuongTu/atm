@@ -431,6 +431,33 @@ func TestInitNonInteractiveWithoutAgentDoesNotPrompt(t *testing.T) {
 	}
 }
 
+func TestSubstrateNamespacesHaveInformativeHelp(t *testing.T) {
+	st := &cliState{}
+	root := newRootCmdWithState(st)
+	want := map[string]string{
+		"task":         "<CODE>-<hex>",
+		"task comment": "kind",
+		"label":        "board",
+		"project":      "capabilit",
+		"persona":      "persona@agent:model",
+		"activity":     "--group-by",
+		"store":        "prune-v1",
+		"search":       "semantic",
+	}
+	for path, phrase := range want {
+		cmd, _, err := root.Find(strings.Fields(path))
+		if err != nil {
+			t.Fatalf("find %q: %v", path, err)
+		}
+		if len(cmd.Long) < 100 {
+			t.Errorf("atm %s -h Long is thin (%d chars)", path, len(cmd.Long))
+		}
+		if !strings.Contains(cmd.Long, phrase) {
+			t.Errorf("atm %s -h Long missing %q", path, phrase)
+		}
+	}
+}
+
 func installFakeCodexForCLI(t *testing.T, home string) {
 	t.Helper()
 	binDir := filepath.Join(home, "bin")

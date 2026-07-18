@@ -15,6 +15,11 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
 		Short: "Project commands",
+		Long: "A project is a label namespace identified by a short code, not a 1:1 mapping to a " +
+			"repo. Creation is minimal: only --code (matching ^[A-Z]{3,6}$) and --name are required; " +
+			"everything else is added later. Per-project capability enablement " +
+			"(project capability list/add/remove) gates which atm capability <name> commands mount " +
+			"for that project, so a project only exposes the substrates its capabilities depend on.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newProjectCreateCmd(st))

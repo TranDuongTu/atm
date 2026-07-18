@@ -10,6 +10,13 @@ func newLabelCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "label",
 		Short: "Label registry commands",
+		Long: "Label names are <CODE>:<ns>:<value> or <CODE>:<tag> (status lives on the " +
+			"<CODE>:status:<state> axis, not a dedicated field). There are three kinds: stored " +
+			"labels that tasks assert on create/label-add, namespace labels (an <ns>:* prefix " +
+			"that emerges as tasks use it and that the registry can describe) and board labels " +
+			"(declared with --expr, computed at query time, never assigned directly). The " +
+			"description field is the label's intention record; a label without one is a flag for " +
+			"human review.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newLabelAddCmd(st))

@@ -8,7 +8,15 @@ import (
 )
 
 func newPersonaCmd(st *cliState) *cobra.Command {
-	cmd := &cobra.Command{Use: "persona", Short: "Persona registry commands"}
+	cmd := &cobra.Command{
+		Use:   "persona",
+		Short: "Persona registry commands",
+		Long: "A persona is a named system prompt that an agent runs under; personas are " +
+			"referenced by the actor string, whose format is persona@agent:model. The persona " +
+			"segment must be a registered persona before an agent can claim it. The built-ins " +
+			"developer, manager and admin are seeded on first use so a fresh store is immediately " +
+			"usable; custom personas are created and edited here.",
+	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newPersonaCreateCmd(st))
 	cmd.AddCommand(newPersonaListCmd(st))

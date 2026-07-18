@@ -13,6 +13,10 @@ func newActivityCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "activity",
 		Short: "Aggregate actor activity for a project",
+		Long: "An audit-log view over the project's event stream, aggregated by actor. Use " +
+			"--group-by persona|agent|model to roll events up along that axis and see who (or " +
+			"what) is actually doing the work. Reads the same append-only log the rest of the " +
+			"substrate reads, so activity is derived, not stored separately.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch groupBy {
 			case "persona", "agent", "model":

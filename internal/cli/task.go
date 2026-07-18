@@ -41,6 +41,11 @@ func newTaskCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
 		Short: "Task commands",
+		Long: "A task is the unit of tracked work: an ID, a title, a description, and a label " +
+			"set. The description is the running narrative that agents append to over the life of " +
+			"the task; everything else is structured metadata. Task IDs are project-scoped: " +
+			"<CODE>-<hex> for v2-born tasks and <CODE>-<NNNN> for v1 imports. The key verbs are " +
+			"list/show/create/set-title/set-description/label/comment/remove.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newTaskCreateCmd(st))
