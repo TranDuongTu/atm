@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS projects (
 	identity TEXT NOT NULL DEFAULT '',
 	-- capabilities is NULL when no capability event was ever recorded (a
 	-- legacy project, read as "all built-ins enabled" by consumers), or a
-	-- comma-joined list otherwise ('' encodes a non-nil empty set, i.e.
-	-- explicitly none). Mirrors core.Project.Capabilities's nil-vs-empty split.
+	-- JSON array otherwise: [] for a non-nil empty set (explicitly none), or
+	-- ["workflow",...] for a populated set. Mirrors core.Project.Capabilities's nil-vs-empty split.
 	capabilities TEXT
 );
 

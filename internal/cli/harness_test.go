@@ -139,7 +139,7 @@ func newGoldenHarness(t *testing.T) *goldenHarness {
 	// clock / crypto-rand and are not reproducible.
 	opts := deterministicSeamOpts()
 	openService, openAdmin := storeOpeners(opts...)
-	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), fullRegistry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
@@ -165,7 +165,7 @@ func newGoldenHarnessAt(t *testing.T, storePath string) *goldenHarness {
 	}
 	opts := deterministicSeamOpts()
 	openService, openAdmin := storeOpeners(opts...)
-	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
+	st := &cliState{flags: globalFlags{output: outputJSON}, registry: testRegistry(), fullRegistry: testRegistry(), openServiceFn: openService, openAdminFn: openAdmin}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf
