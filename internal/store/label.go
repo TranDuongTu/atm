@@ -173,11 +173,10 @@ func (s *Store) labelUpsertV2(code, name, actor string, f core.LabelFields) erro
 // labelSeedV2 is LabelSeed's v2 body. cs.SeedLabel is itself the no-op guard:
 // it folds under the lock and appends nothing when the label is already live,
 // so it carries the exact begin/observe sequence (and therefore the exact HLC
-// trajectory) the pre-carve labelSeedV2 had — a separate LabelLive pre-check
-// here would insert an extra begin, whose per-event Observe advances the shared
-// HLC clock and shifts every downstream event's stamp. The trailing
-// reprojectTxn is clock-free (a strict re-read + cache rewrite, no append), so
-// running it even on the no-op path never changes event bytes.
+// trajectory) the pre-carve labelSeedV2 had. When it appends nothing the txn
+// stays clean and reprojectTxn skips entirely — the pre-carve early-return
+// semantics (ATM-d402aa restored them after the carve briefly reprojected
+// unconditionally, freezing the TUI on every project select).
 func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
 	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
 		if err := cs.SeedLabel(name, description, expr, actor); err != nil {

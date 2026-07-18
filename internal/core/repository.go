@@ -114,6 +114,12 @@ type ChangeSet interface {
 	CommentHasLabel(id, label string) (bool, error)
 	HasLiveTasks() (bool, error)
 
+	// Dirty reports whether this transaction has recorded at least one
+	// change. Idempotent verbs (SeedLabel on a live label, EnsureLabels
+	// with only live names) leave it false; the facade uses it to skip
+	// read-model projection for transactions that changed nothing.
+	Dirty() bool
+
 	Snapshot() (*ProjectSnapshot, error)
 }
 

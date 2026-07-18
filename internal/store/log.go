@@ -62,10 +62,12 @@ func (s *Store) readLogForViews(code string) ([]LogEntry, error) {
 
 // ReadLogCached returns the project's log entries, memoizing the parsed
 // result in memory for the Store's lifetime. The snapshot is invalidated
-// whenever the cached snapshot's builtSeq falls behind LastLogSeq (now O(1)
-// from cache.db): a local append bumps the v2 event count immediately, and a
-// remote process's append bumps it the same way, so one freshness check
-// covers both cases without a separate local-invalidation call.
+// whenever the cached snapshot's builtSeq falls behind LastLogSeq: a local
+// append bumps the v2 event count immediately, and a remote process's append
+// bumps it the same way, so one freshness check covers both cases without a
+// separate local-invalidation call. LastLogSeq is NOT free — the v2
+// ChangeCount reads the whole event file to count committed lines — but it is
+// parse-free and far cheaper than re-folding, which is what the memo avoids.
 // UpgradeProjectToV2 is the one write path that still calls
 // invalidateLogSnapshot directly, since an upgrade replaces the project's
 // format/media rather than advancing its event count.
@@ -81,7 +83,7 @@ func (s *Store) ReadLogCached(code string) ([]LogEntry, error) {
 	s.logSnapMu.Unlock()
 
 	// Cross-process freshness: if the cached last_seq advanced, drop the
-	// snapshot. LastLogSeq is O(1) when the meta row is present.
+	// snapshot. LastLogSeq counts committed lines without parsing.
 	if ok {
 		cur, err := s.LastLogSeq(code)
 		if err != nil && !core.IsIntegrity(err) {

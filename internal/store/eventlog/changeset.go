@@ -11,6 +11,7 @@ type changeSet struct {
 	e             *Engine
 	code          string
 	rootCommitted bool
+	dirty         bool
 }
 
 var _ core.ChangeSet = (*changeSet)(nil)
@@ -94,6 +95,7 @@ func (cs *changeSet) CreateProject(name, actor string) error {
 		return err
 	}
 	cs.rootCommitted = true
+	cs.dirty = true
 	return nil
 }
 
@@ -114,6 +116,9 @@ func (cs *changeSet) SetProjectName(name, actor string) error {
 		Subject: eventsource.Subject{Kind: "project", ID: ref, Code: cs.code},
 		Payload: map[string]any{"name": name},
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
@@ -158,6 +163,9 @@ func (cs *changeSet) ForgetProject() error {
 
 func (cs *changeSet) CreateTask(d core.TaskDraft, actor string) (string, error) {
 	_, alias, err := cs.e.appendTaskCreatedLocked(cs.code, d.Title, d.Description, d.Labels, actor)
+	if err == nil {
+		cs.dirty = true
+	}
 	return alias, err
 }
 
@@ -202,6 +210,9 @@ func (cs *changeSet) mutateTask(id, action, actor string, payload map[string]any
 		Subject: eventsource.Subject{Kind: "task", ID: ref},
 		Payload: payload,
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
@@ -209,6 +220,9 @@ func (cs *changeSet) mutateTask(id, action, actor string, payload map[string]any
 
 func (cs *changeSet) CreateComment(d core.CommentDraft, actor string) (string, error) {
 	_, alias, err := cs.e.appendCommentCreatedLocked(cs.code, d.TaskID, d.Body, d.Labels, d.ReplyTo, actor)
+	if err == nil {
+		cs.dirty = true
+	}
 	return alias, err
 }
 
@@ -245,6 +259,9 @@ func (cs *changeSet) mutateComment(id, action, actor string, payload map[string]
 		Subject: eventsource.Subject{Kind: "comment", ID: ref},
 		Payload: payload,
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
@@ -268,12 +285,17 @@ func (cs *changeSet) UpsertLabel(name string, f core.LabelFields, actor string) 
 		Subject: eventsource.Subject{Kind: "label", Name: name},
 		Payload: payload,
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
 // SeedLabel is a no-op when the label is already live in the fold (the fold,
 // not cache.db, is the authority for a v2 project); otherwise it upserts
-// description-always and expr-if-nonempty.
+// description-always and expr-if-nonempty. Only the append branch marks the
+// transaction dirty — the no-op path leaves it clean so the facade can skip
+// projection (ATM-d402aa).
 func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
 	ctx, err := cs.e.beginAuthorLocked(cs.code)
 	if err != nil {
@@ -292,11 +314,20 @@ func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
 		Subject: eventsource.Subject{Kind: "label", Name: name},
 		Payload: payload,
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
 func (cs *changeSet) EnsureLabels(names []string, actor string) error {
-	return cs.e.appendLabelUpsertsLocked(cs.code, names, actor)
+	appended, err := cs.e.appendLabelUpsertsLocked(cs.code, names, actor)
+	// appended > 0 even when err != nil: a partial multi-label registration
+	// did append events, and the flag must never under-report.
+	if appended > 0 {
+		cs.dirty = true
+	}
+	return err
 }
 
 // RemoveLabel emits label.removed; ErrNotFound when the fold does not hold the
@@ -314,6 +345,9 @@ func (cs *changeSet) RemoveLabel(name, actor string) error {
 		Action:  actionLabelRemoved,
 		Subject: eventsource.Subject{Kind: "label", Name: name},
 	})
+	if err == nil {
+		cs.dirty = true
+	}
 	return err
 }
 
@@ -398,6 +432,18 @@ func (cs *changeSet) HasLiveTasks() (bool, error) {
 	}
 	return false, nil
 }
+
+// Dirty reports whether this transaction appended at least one event.
+// Idempotent no-ops (SeedLabel on a live label, EnsureLabels with only live
+// names) leave it false — the facade's reprojection gate keys off this.
+//
+// Known slack in the invariant: a verb whose append committed but whose
+// trailing HLC persist failed (commitAuthorLocked's MutateStoreMeta) returns
+// an error WITHOUT flipping dirty, under-reporting a durable event. Every
+// caller propagates that error, so the projection gate never sees such a txn
+// today, and the freshness probe heals the cache on the next read — but a
+// future caller that swallows a verb's error must not rely on Dirty there.
+func (cs *changeSet) Dirty() bool { return cs.dirty }
 
 // Snapshot is the strict re-read the facade projects at the end of a
 // transaction — exactly reprojectV2Locked's read posture, now including this
