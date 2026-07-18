@@ -160,7 +160,7 @@ func newLabelSeedCmd(st *cliState) *cobra.Command {
 			if err := s.SeedLabels(project, actor); err != nil {
 				return err
 			}
-			if err := st.registry.EnsureVocabulary(s, project, actor); err != nil {
+			if _, err := st.registry.EnsureVocabulary(s, project, actor); err != nil {
 				return err
 			}
 			names := make([]string, 0, len(seed.Labels))

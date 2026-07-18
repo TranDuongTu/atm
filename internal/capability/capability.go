@@ -71,14 +71,13 @@ type Capability interface {
 	// meaning, verb usage, operating procedure, and a "Manager duty"
 	// section. Served verbatim by the uniform `guide` subcommand.
 	Guide() string
-	// EnsureVocabulary seeds the capability's labels and boards for a
-	// project. Idempotent; never overwrites curated descriptions.
-	EnsureVocabulary(svc core.LabelService, code, actor string) error
+	// EnsureVocabulary seeds ALL the capability's labels (stored, namespace,
+	// boards) for a project, idempotently, and returns the BOARD labels
+	// (Expr != "") the capability owns. One call leaves the project fully
+	// seeded for this capability.
+	EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error)
 	// Command returns the capability's cobra verb tree, built over env.
 	Command(env Env) *cobra.Command
-	// DefaultBoard nominates the board a UI should select by default for
-	// the project, or "" when this capability nominates none.
-	DefaultBoard(code string) string
 	// ManagerActions lists the manager session modes this capability
 	// contributes (nil for none). The manager core (curate, recall) is not
 	// a capability action — it exists for every project.
@@ -93,7 +92,7 @@ type Registry struct {
 }
 
 // NewRegistry builds a registry; order is significant (mount order,
-// EnsureVocabulary order, DefaultBoard precedence).
+// EnsureVocabulary order).
 func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
 
 // Description is one capability's enumeration entry: its stable name, the
@@ -153,31 +152,21 @@ func newGuideCmd(c Capability, env Env) *cobra.Command {
 }
 
 // EnsureVocabulary seeds every capability's vocabulary for the project,
-// stopping at the first error.
-func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+// stopping at the first error, and returns the union of the boards the
+// capabilities own, in registration order.
+func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	if r == nil {
-		return nil
+		return nil, nil
 	}
+	var boards []core.Label
 	for _, c := range r.caps {
-		if err := c.EnsureVocabulary(svc, code, actor); err != nil {
-			return err
+		bs, err := c.EnsureVocabulary(svc, code, actor)
+		if err != nil {
+			return nil, err
 		}
+		boards = append(boards, bs...)
 	}
-	return nil
-}
-
-// DefaultBoard returns the first non-empty default-board nomination in
-// registration order, or "" when no capability nominates one.
-func (r *Registry) DefaultBoard(code string) string {
-	if r == nil {
-		return ""
-	}
-	for _, c := range r.caps {
-		if b := c.DefaultBoard(code); b != "" {
-			return b
-		}
-	}
-	return ""
+	return boards, nil
 }
 
 // ManagerActions aggregates the enabled capabilities' contributed manager

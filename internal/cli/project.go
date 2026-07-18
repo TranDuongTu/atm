@@ -59,7 +59,7 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.registry.For(proj).EnsureVocabulary(s, p.Code, actor); err != nil {
+			if _, err := st.registry.For(proj).EnsureVocabulary(s, p.Code, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(proj, nil)}, func() {
@@ -174,7 +174,7 @@ func newProjectCapabilityAddCmd(st *cliState) *cobra.Command {
 			// Seed from the FULL registry narrowed to the project's NEW enabled
 			// set (p was refetched after the enable). st.registry still reflects
 			// the pre-add set and would filter the just-added capability out.
-			if err := st.fullRegistry.For(p).EnsureVocabulary(s, project, actor); err != nil {
+			if _, err := st.fullRegistry.For(p).EnsureVocabulary(s, project, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": project, "enabled": name}, func() {

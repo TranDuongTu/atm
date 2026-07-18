@@ -13,7 +13,7 @@ import (
 // assert call order across a registry.
 type fakeCap struct {
 	name    string
-	board   string
+	boards  []core.Label
 	ensure  error
 	calls   *[]string
 	cmdName string
@@ -27,9 +27,9 @@ func (f *fakeCap) Summary() string { return f.summary }
 
 func (f *fakeCap) Guide() string { return f.guide }
 
-func (f *fakeCap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+func (f *fakeCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	*f.calls = append(*f.calls, f.name+"/"+code+"/"+actor)
-	return f.ensure
+	return f.boards, f.ensure
 }
 
 func (f *fakeCap) Command(env Env) *cobra.Command {
@@ -39,8 +39,6 @@ func (f *fakeCap) Command(env Env) *cobra.Command {
 	}
 	return &cobra.Command{Use: use}
 }
-
-func (f *fakeCap) DefaultBoard(code string) string { return f.board }
 
 func (f *fakeCap) ManagerActions() []ActionSpec { return nil }
 
@@ -62,7 +60,7 @@ func TestEnsureVocabularyLoopsAllInOrder(t *testing.T) {
 		&fakeCap{name: "workflow", calls: &calls},
 		&fakeCap{name: "contextmap", calls: &calls},
 	)
-	if err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil {
+	if _, err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil {
 		t.Fatalf("EnsureVocabulary: %v", err)
 	}
 	if len(calls) != 2 || calls[0] != "workflow/ATM/tester" || calls[1] != "contextmap/ATM/tester" {
@@ -77,7 +75,7 @@ func TestEnsureVocabularyStopsAtFirstError(t *testing.T) {
 		&fakeCap{name: "workflow", ensure: boom, calls: &calls},
 		&fakeCap{name: "contextmap", calls: &calls},
 	)
-	if err := reg.EnsureVocabulary(nil, "ATM", "tester"); !errors.Is(err, boom) {
+	if _, err := reg.EnsureVocabulary(nil, "ATM", "tester"); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	if len(calls) != 1 {
@@ -85,14 +83,37 @@ func TestEnsureVocabularyStopsAtFirstError(t *testing.T) {
 	}
 }
 
-func TestDefaultBoardFirstNonEmptyWins(t *testing.T) {
+// TestEnsureVocabularyAggregatesBoardsInRegistrationOrder asserts the
+// registry unions each capability's returned boards in registration order.
+func TestEnsureVocabularyAggregatesBoardsInRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(
-		&fakeCap{name: "contextmap", board: "", calls: &calls},
-		&fakeCap{name: "workflow", board: "ATM:open-tasks", calls: &calls},
+		&fakeCap{
+			name:   "workflow",
+			calls:  &calls,
+			boards: []core.Label{{Name: "ATM:open-tasks", Expr: "status:open"}},
+		},
+		&fakeCap{
+			name:   "contextmap",
+			calls:  &calls,
+			boards: []core.Label{{Name: "ATM:context-current", Expr: "context:*"}},
+		},
 	)
-	if got := reg.DefaultBoard("ATM"); got != "ATM:open-tasks" {
-		t.Fatalf("DefaultBoard = %q, want ATM:open-tasks", got)
+	boards, err := reg.EnsureVocabulary(nil, "ATM", "tester")
+	if err != nil {
+		t.Fatalf("EnsureVocabulary: %v", err)
+	}
+	want := []core.Label{
+		{Name: "ATM:open-tasks", Expr: "status:open"},
+		{Name: "ATM:context-current", Expr: "context:*"},
+	}
+	if len(boards) != len(want) {
+		t.Fatalf("boards = %v, want %v", boards, want)
+	}
+	for i, b := range boards {
+		if b != want[i] {
+			t.Errorf("boards[%d] = %+v, want %+v", i, b, want[i])
+		}
 	}
 }
 
@@ -101,10 +122,7 @@ func TestNilRegistryIsSafeAndEmpty(t *testing.T) {
 	if got := reg.Commands(nil); got != nil {
 		t.Fatalf("Commands on nil = %v, want nil", got)
 	}
-	if err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil {
-		t.Fatalf("EnsureVocabulary on nil = %v, want nil", err)
-	}
-	if got := reg.DefaultBoard("ATM"); got != "" {
-		t.Fatalf("DefaultBoard on nil = %q, want empty", got)
+	if boards, err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil || boards != nil {
+		t.Fatalf("EnsureVocabulary on nil = (%v, %v), want (nil, nil)", boards, err)
 	}
 }

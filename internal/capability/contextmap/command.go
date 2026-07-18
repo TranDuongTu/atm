@@ -20,13 +20,9 @@ func New() capability.Capability { return Cap{} }
 
 func (Cap) Name() string { return "contextmap" }
 
-// DefaultBoard nominates no board: context-current is a knowledge surface,
-// not a work queue.
-func (Cap) DefaultBoard(code string) string { return "" }
-
 // EnsureVocabulary implements capability.Capability by delegating to this
 // package's vocabulary bootstrap.
-func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
+func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	return EnsureVocabulary(svc, code, actor)
 }
 

@@ -36,8 +36,9 @@ func allTasksExpr() string        { return "*" }
 // EnsureVocabulary seeds this capability's full vocabulary: the status:*
 // namespace it owns (absorbed from the deleted internal/seed default set)
 // and the four workflow boards. Idempotent: LabelSeed upserts only when the
-// label is absent, so a human's curated description is never overwritten.
-func EnsureVocabulary(s core.LabelService, code, actor string) error {
+// label is absent, so a human's curated description is never overwritten. It
+// returns the board labels (Expr != "") it owns, in the documented order.
+func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	stored := []struct{ suffix, desc string }{
 		{"status:*", "lifecycle state of a task; exactly one status label should be present"},
 		{"status:open", "workflow state: open; task is not started or is being considered"},
@@ -47,7 +48,7 @@ func EnsureVocabulary(s core.LabelService, code, actor string) error {
 	}
 	for _, l := range stored {
 		if err := s.LabelSeed(code+":"+l.suffix, l.desc, "", actor); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	boards := []struct{ name, desc, expr string }{
@@ -56,10 +57,12 @@ func EnsureVocabulary(s core.LabelService, code, actor string) error {
 		{BoardInProgressTasks(code), "tasks someone is actively working on (status:in-progress).", inProgressTasksExpr()},
 		{BoardAllTasks(code), "every task in the project, ordered by recent activity. Default board in the TUI.", allTasksExpr()},
 	}
+	out := make([]core.Label, 0, len(boards))
 	for _, b := range boards {
 		if err := s.LabelSeed(b.name, b.desc, b.expr, actor); err != nil {
-			return err
+			return nil, err
 		}
+		out = append(out, core.Label{Name: b.name, Description: b.desc, Expr: b.expr})
 	}
-	return nil
+	return out, nil
 }

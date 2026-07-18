@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
+	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
 	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
@@ -18,7 +19,7 @@ func TestSelectDefaultPicksAllTasksBoard(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
@@ -37,7 +38,7 @@ func TestSelectDefaultOpenTasksRemainsSelectableInRing(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
@@ -57,6 +58,89 @@ func TestSelectDefaultOpenTasksRemainsSelectableInRing(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("open-tasks not reachable by cycling from all-tasks; ring = %v", m.boards.rowNames())
+	}
+}
+
+// TestSelectDefaultPicksAllTasksWithoutRegistryConsultation re-anchors the
+// post-DefaultBoard policy: the UI picks <CODE>:all-tasks when present, else
+// the first ring row, with NO registry consultation. A model whose registry
+// holds ONLY contextmap (workflow disabled) still selects all-tasks the
+// moment that board is seeded directly — the registry is not the source of
+// the default. To prove the pick is BY NAME (not "first row"), a second board
+// that sorts before all-tasks is seeded; the old registry-consult code would
+// have picked that first row instead.
+func TestSelectDefaultPicksAllTasksWithoutRegistryConsultation(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// contextmap-only registry: DefaultBoard would nominate nothing (and the
+	// method is gone entirely after Task 2). all-tasks is a workflow board; it
+	// is absent from this registry's vocabulary. Seed it directly to prove the
+	// UI picks it by NAME, not by any registry nomination.
+	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(contextmap.New())})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := contextmap.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure contextmap: %v", err)
+	}
+	// Seed a board that sorts BEFORE all-tasks, so it becomes rows[0]. The old
+	// code (want = reg.DefaultBoard(code) == "" for a contextmap-only
+	// registry) would pick rows[0] = ATM:aardvark. The new code picks
+	// ATM:all-tasks by name.
+	if err := m.store.LabelAdd("ATM:aardvark", "sorts before all-tasks", "*", m.actor); err != nil {
+		t.Fatalf("LabelAdd aardvark: %v", err)
+	}
+	if err := m.store.LabelAdd("ATM:all-tasks", "every task", "*", m.actor); err != nil {
+		t.Fatalf("LabelAdd all-tasks: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	if len(m.boards.rows) < 2 || m.boards.rows[0].FullName != "ATM:aardvark" {
+		t.Fatalf("precondition: rows[0] = %v, want ATM:aardvark (sorts before all-tasks)", m.boards.rowNames())
+	}
+	m.boards.selectDefault()
+	if m.boards.selected != "ATM:all-tasks" {
+		t.Errorf("selected = %q, want ATM:all-tasks (UI policy: all-tasks by name, not registry)", m.boards.selected)
+	}
+}
+
+// TestSelectDefaultFallsBackToFirstWhenAllTasksAbsent re-anchors the fallback
+// branch: with workflow disabled and all-tasks absent, the FIRST ring row is
+// selected, with no registry consultation.
+func TestSelectDefaultFallsBackToFirstWhenAllTasksAbsent(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// contextmap-only registry: context-current is the only board it seeds.
+	// all-tasks is absent, so the fallback fires.
+	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(contextmap.New())})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := contextmap.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure contextmap: %v", err)
+	}
+	seedTask(t, m, "ATM", "context pointer", "ATM:context:documentation")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if len(m.boards.rows) == 0 {
+		t.Fatal("expected at least one ring row (context-current)")
+	}
+	if m.boards.selected != m.boards.rows[0].FullName {
+		t.Errorf("selected = %q, want first ring row %q (fallback, no registry)", m.boards.selected, m.boards.rows[0].FullName)
 	}
 }
 
@@ -1359,7 +1443,7 @@ func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")

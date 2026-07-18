@@ -131,16 +131,24 @@ func TestWorkflowStatusReporterIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestWorkflowSeedEnsuresAllThreeBoards(t *testing.T) {
+func TestWorkflowSeedEnsuresAllFourBoards(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := seedWorkflowProject(t, h)
-	_, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
+	out, _, code := h.run("workflow", "seed", "--store", sp, "--project", "ATM", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("seed exit=%d stderr=%s", code, h.stderr.String())
 	}
-	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks"} {
+	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:all-tasks"} {
 		if _, err := h.store.LabelShow(name); err != nil {
 			t.Errorf("%s not ensured by workflow seed: %v", name, err)
+		}
+	}
+	// The JSON envelope's boards list comes from EnsureVocabulary's return,
+	// not a hand-maintained copy, so all-tasks (the previously-omitted
+	// fourth board) is now present.
+	for _, name := range []string{"ATM:backlog", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:all-tasks"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("%s missing from workflow seed JSON boards: %s", name, out)
 		}
 	}
 }

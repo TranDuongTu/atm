@@ -1,9 +1,11 @@
 package contextmap
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 )
 
@@ -22,9 +24,25 @@ func newTestStore(t *testing.T) (*store.Store, string) {
 	return s, actor
 }
 
+// TestEnsureVocabularyReturnsBoards asserts EnsureVocabulary returns exactly
+// the one board this capability owns (context-current), and nothing else.
+func TestEnsureVocabularyReturnsBoards(t *testing.T) {
+	s, actor := newTestStore(t)
+	boards, err := EnsureVocabulary(s, "TST", actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []core.Label{
+		{Name: BoardCurrent("TST"), Description: "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.", Expr: currentExpr()},
+	}
+	if !reflect.DeepEqual(boards, want) {
+		t.Errorf("boards = %+v, want %+v", boards, want)
+	}
+}
+
 func TestEnsureVocabularyCreatesLabelsAndBoard(t *testing.T) {
 	s, actor := newTestStore(t)
-	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("EnsureVocabulary: %v", err)
 	}
 
@@ -58,17 +76,17 @@ func TestEnsureVocabularyCreatesLabelsAndBoard(t *testing.T) {
 
 func TestEnsureVocabularyIsIdempotent(t *testing.T) {
 	s, actor := newTestStore(t)
-	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("second: %v", err)
 	}
 }
 
 func TestEnsureVocabularySeedsContextNamespaceDescriptor(t *testing.T) {
 	s, actor := newTestStore(t)
-	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	if _, err := s.LabelShow("TST:context:*"); err != nil {
@@ -114,7 +132,7 @@ func TestEnsureVocabularyPreservesHumanDescription(t *testing.T) {
 	if err := s.LabelAdd(name, "my own wording", "", actor); err != nil {
 		t.Fatalf("LabelAdd: %v", err)
 	}
-	if err := EnsureVocabulary(s, "TST", actor); err != nil {
+	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
 		t.Fatalf("EnsureVocabulary: %v", err)
 	}
 	l, err := s.LabelShow(name)

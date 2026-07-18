@@ -12,7 +12,7 @@ import (
 // the pinned stack) when the grouped body fills the visible window.
 func TestGroupedListFooterVisibleWithPins(t *testing.T) {
 	m := newTestModel(t)
-	workflow.EnsureVocabulary(m.store, "ATM", m.actor)
+	_, _ = workflow.EnsureVocabulary(m.store, "ATM", m.actor)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	// Many rows across statuses so the grouped body exceeds the window.

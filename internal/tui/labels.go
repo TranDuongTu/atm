@@ -254,7 +254,9 @@ func (b *boardsModel) refresh() {
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
-	want := b.m.regFor(b.m.projectScope).DefaultBoard(b.m.projectScope)
+	// UI policy, not a capability concern: all-tasks if the ring has it
+	// (workflow enabled), else the first board any capability seeded.
+	want := b.m.projectScope + ":all-tasks"
 	for _, r := range b.rows {
 		if r.FullName == want {
 			b.selected = want

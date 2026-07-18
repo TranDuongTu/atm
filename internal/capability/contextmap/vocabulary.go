@@ -25,8 +25,9 @@ func currentExpr() string { return "context:* AND NOT knowledge:superseded" }
 // when the label is absent).
 //
 // This is what makes the capability self-bootstrapping: it works in any
-// project, whether or not `atm label seed` ever ran.
-func EnsureVocabulary(s core.LabelService, code, actor string) error {
+// project, whether or not `atm label seed` ever ran. It returns the board
+// labels (Expr != "") it owns — exactly the context-current board.
+func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	type lbl struct{ name, desc, expr string }
 	want := []lbl{
 		{code + ":context:*", "index tasks whose description is the payload: agent directions, repos, docs, questions", ""},
@@ -44,10 +45,14 @@ func EnsureVocabulary(s core.LabelService, code, actor string) error {
 	for _, kind := range ContextKinds {
 		want = append(want, lbl{LabelContextKind(code, kind), kindDesc[kind], ""})
 	}
+	var boards []core.Label
 	for _, l := range want {
 		if err := s.LabelSeed(l.name, l.desc, l.expr, actor); err != nil {
-			return err
+			return nil, err
+		}
+		if l.expr != "" {
+			boards = append(boards, core.Label{Name: l.name, Description: l.desc, Expr: l.expr})
 		}
 	}
-	return nil
+	return boards, nil
 }

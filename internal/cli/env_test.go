@@ -63,14 +63,12 @@ func (f *fakeMountCap) Summary() string { return "fake capability for mount test
 
 func (f *fakeMountCap) Guide() string { return "fake capability guide" }
 
-func (f *fakeMountCap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
-	return nil
+func (f *fakeMountCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
+	return nil, nil
 }
 
 func (f *fakeMountCap) Command(env capability.Env) *cobra.Command {
 	return &cobra.Command{Use: f.name}
 }
-
-func (f *fakeMountCap) DefaultBoard(code string) string { return "" }
 
 func (f *fakeMountCap) ManagerActions() []capability.ActionSpec { return nil }
