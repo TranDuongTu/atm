@@ -14,7 +14,12 @@ CREATE TABLE IF NOT EXISTS projects (
 	created_by TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	updated_by TEXT NOT NULL,
-	identity TEXT NOT NULL DEFAULT ''
+	identity TEXT NOT NULL DEFAULT '',
+	-- capabilities is NULL when no capability event was ever recorded (a
+	-- legacy project, read as "all built-ins enabled" by consumers), or a
+	-- comma-joined list otherwise ('' encodes a non-nil empty set, i.e.
+	-- explicitly none). Mirrors core.Project.Capabilities's nil-vs-empty split.
+	capabilities TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (

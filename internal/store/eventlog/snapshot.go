@@ -75,12 +75,13 @@ func projectFromV2(p *eventsource.ProjectState) *core.Project {
 	// A v2 project has no per-project ordinal (only tasks/comments/labels do),
 	// so Ordinal is left 0 here.
 	return &core.Project{
-		Code:      p.Code,
-		Name:      p.Name,
-		CreatedAt: p.CreatedAt,
-		CreatedBy: p.CreatedBy,
-		UpdatedAt: p.UpdatedAt,
-		UpdatedBy: p.UpdatedBy,
+		Code:         p.Code,
+		Name:         p.Name,
+		Capabilities: p.Capabilities,
+		CreatedAt:    p.CreatedAt,
+		CreatedBy:    p.CreatedBy,
+		UpdatedAt:    p.UpdatedAt,
+		UpdatedBy:    p.UpdatedBy,
 	}
 }
 

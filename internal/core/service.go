@@ -32,6 +32,8 @@ type ProjectService interface {
 	ListProjects() []*Project
 	ProjectCodes() ([]string, error)
 	SetProjectName(code, name, actor string) error
+	EnableProjectCapability(code, name, actor string) error
+	DisableProjectCapability(code, name, actor string) error
 	RemoveProject(code, actor string) error
 	GetProjectConfig(code string) (*ProjectConfig, error)
 	ProjectRemotes(code string) (map[string]string, error)

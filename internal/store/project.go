@@ -231,6 +231,52 @@ func (s *Store) setProjectNameV2(code, name, actor string) error {
 	})
 }
 
+// EnableProjectCapability records that the project enabled a capability.
+func (s *Store) EnableProjectCapability(code, name, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if _, err := s.eng.DispatchFormat(code); err != nil {
+		return err
+	}
+	return s.enableProjectCapabilityV2(code, name, actor)
+}
+
+// enableProjectCapabilityV2 emits project.capability-enabled against the
+// project's identity (never its code: the fold keys slot writes off
+// subject.id).
+func (s *Store) enableProjectCapabilityV2(code, name, actor string) error {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.EnableCapability(name, actor); err != nil {
+			return err
+		}
+		return s.reprojectTxn(code, cs)
+	})
+}
+
+// DisableProjectCapability records that the project disabled a capability.
+func (s *Store) DisableProjectCapability(code, name, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if _, err := s.eng.DispatchFormat(code); err != nil {
+		return err
+	}
+	return s.disableProjectCapabilityV2(code, name, actor)
+}
+
+// disableProjectCapabilityV2 emits project.capability-disabled against the
+// project's identity (never its code: the fold keys slot writes off
+// subject.id).
+func (s *Store) disableProjectCapabilityV2(code, name, actor string) error {
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		if err := cs.DisableCapability(name, actor); err != nil {
+			return err
+		}
+		return s.reprojectTxn(code, cs)
+	})
+}
+
 func (s *Store) RemoveProject(code, actor string) error {
 	if err := s.hasTasksGuard(code); err != nil {
 		return err

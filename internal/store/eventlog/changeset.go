@@ -117,6 +117,36 @@ func (cs *changeSet) SetProjectName(name, actor string) error {
 	return err
 }
 
+// EnableCapability / DisableCapability emit the project's capability
+// membership events. The store enforces nothing about the name — which
+// capabilities exist is the composition root's knowledge; the log just
+// records the choice.
+func (cs *changeSet) EnableCapability(name, actor string) error {
+	return cs.capabilityEvent(actionProjectCapabilityEnabled, name, actor)
+}
+
+func (cs *changeSet) DisableCapability(name, actor string) error {
+	return cs.capabilityEvent(actionProjectCapabilityDisabled, name, actor)
+}
+
+func (cs *changeSet) capabilityEvent(action, name, actor string) error {
+	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	if err != nil {
+		return err
+	}
+	ref, err := ctx.resolveProjectRef(cs.code)
+	if err != nil {
+		return err
+	}
+	_, err = cs.e.appendLocked(cs.code, draft{
+		Actor:   actor,
+		Action:  action,
+		Subject: eventsource.Subject{Kind: "project", ID: ref, Code: cs.code},
+		Payload: map[string]any{"capability": name},
+	})
+	return err
+}
+
 // ForgetProject drops the storage registration; the facade removes the media
 // and cache rows. No project.removed tombstone is written locally (that DAG
 // event exists for remote observers; local removal is a filesystem op).

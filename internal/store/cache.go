@@ -135,7 +135,7 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 		// was run. A fresh DB reports user_version 0, so it takes the same
 		// path and lands at the current version. Bump cacheSchemaVersion
 		// whenever cacheSchema changes shape.
-		const cacheSchemaVersion = 2
+		const cacheSchemaVersion = 3
 		var uv int
 		if err := db.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil {
 			s.cacheErr = err
@@ -173,22 +173,45 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 
 // ---- project cache ----
 
+// capabilitiesToCache and capabilitiesFromCache round-trip core.Project's
+// nil-vs-empty Capabilities slice through the cache's single nullable TEXT
+// column: NULL for nil (legacy/no capability event), "" for a non-nil empty
+// slice (explicitly none), and a comma-joined list otherwise.
+func capabilitiesToCache(caps []string) any {
+	if caps == nil {
+		return nil
+	}
+	return strings.Join(caps, ",")
+}
+
+func capabilitiesFromCache(v sql.NullString) []string {
+	if !v.Valid {
+		return nil
+	}
+	if v.String == "" {
+		return []string{}
+	}
+	return strings.Split(v.String, ",")
+}
+
 func cacheUpsertProject(db *sql.DB, p *Project) error {
-	_, err := db.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, err := db.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by, capabilities)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(code) DO UPDATE SET
 			name=excluded.name, ordinal=excluded.ordinal,
-			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		p.Code, p.Name, p.Ordinal, core.RFC3339UTC(p.CreatedAt), p.CreatedBy, core.RFC3339UTC(p.UpdatedAt), p.UpdatedBy)
+			updated_at=excluded.updated_at, updated_by=excluded.updated_by,
+			capabilities=excluded.capabilities`,
+		p.Code, p.Name, p.Ordinal, core.RFC3339UTC(p.CreatedAt), p.CreatedBy, core.RFC3339UTC(p.UpdatedAt), p.UpdatedBy, capabilitiesToCache(p.Capabilities))
 	return err
 }
 
 func cacheGetProject(db *sql.DB, code string) (*Project, bool, error) {
 	var p Project
 	var createdAt, updatedAt string
-	err := db.QueryRow(`SELECT code, name, ordinal, created_at, created_by, updated_at, updated_by
+	var caps sql.NullString
+	err := db.QueryRow(`SELECT code, name, ordinal, created_at, created_by, updated_at, updated_by, capabilities
 		FROM projects WHERE code = ?`, code).
-		Scan(&p.Code, &p.Name, &p.Ordinal, &createdAt, &p.CreatedBy, &updatedAt, &p.UpdatedBy)
+		Scan(&p.Code, &p.Name, &p.Ordinal, &createdAt, &p.CreatedBy, &updatedAt, &p.UpdatedBy, &caps)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -197,6 +220,7 @@ func cacheGetProject(db *sql.DB, code string) (*Project, bool, error) {
 	}
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	p.Capabilities = capabilitiesFromCache(caps)
 	return &p, true, nil
 }
 

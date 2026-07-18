@@ -54,6 +54,10 @@ type ProjectWriter interface {
 	// WithProjectBirth (the file must be empty).
 	CreateProject(name, actor string) error
 	SetProjectName(name, actor string) error
+	// EnableCapability / DisableCapability record the project's capability
+	// choice as membership events on the project entity.
+	EnableCapability(name, actor string) error
+	DisableCapability(name, actor string) error
 	// ForgetProject drops the project's storage registration so a removed
 	// project can be recreated. The caller deletes the media and read-model.
 	ForgetProject() error

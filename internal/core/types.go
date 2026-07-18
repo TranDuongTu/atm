@@ -18,13 +18,18 @@ type Label struct {
 func (l Label) IsComputed() bool { return l.Expr != "" || IsNamespaceName(l.Name) }
 
 type Project struct {
-	Code      string    `json:"code"`
-	Name      string    `json:"name"`
-	Ordinal   int       `json:"ordinal,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	CreatedBy string    `json:"created_by"`
-	UpdatedAt time.Time `json:"updated_at"`
-	UpdatedBy string    `json:"updated_by"`
+	Code    string `json:"code"`
+	Name    string `json:"name"`
+	Ordinal int    `json:"ordinal,omitempty"`
+	// Capabilities is the project's enabled capability set. nil means no
+	// capability choice was ever recorded — a legacy project — which
+	// consumers (the capability registry) read as "all built-ins enabled".
+	// A non-nil empty slice means explicitly none.
+	Capabilities []string  `json:"capabilities,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	CreatedBy    string    `json:"created_by"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	UpdatedBy    string    `json:"updated_by"`
 }
 
 type Task struct {
