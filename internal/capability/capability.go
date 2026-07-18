@@ -158,3 +158,37 @@ func (r *Registry) DefaultBoard(code string) string {
 	}
 	return ""
 }
+
+// Names lists the registered capability names in registration order.
+func (r *Registry) Names() []string {
+	if r == nil {
+		return nil
+	}
+	out := make([]string, 0, len(r.caps))
+	for _, c := range r.caps {
+		out = append(out, c.Name())
+	}
+	return out
+}
+
+// For narrows the registry to the project's enabled set. A nil project or a
+// project with no recorded capability choice (Capabilities == nil — every
+// project born before enablement existed) keeps the full registry: legacy
+// projects read as "all built-ins enabled", with no migration event. The
+// fence is on the tooling surface only; the store keeps accepting anything.
+func (r *Registry) For(p *core.Project) *Registry {
+	if r == nil || p == nil || p.Capabilities == nil {
+		return r
+	}
+	enabled := make(map[string]bool, len(p.Capabilities))
+	for _, n := range p.Capabilities {
+		enabled[n] = true
+	}
+	kept := make([]Capability, 0, len(r.caps))
+	for _, c := range r.caps {
+		if enabled[c.Name()] {
+			kept = append(kept, c)
+		}
+	}
+	return &Registry{caps: kept}
+}
