@@ -8,6 +8,7 @@
 package capability
 
 import (
+	"fmt"
 	"io"
 
 	"atm/internal/core"
@@ -46,6 +47,13 @@ type Env interface {
 type Capability interface {
 	// Name is the stable identifier ("contextmap", "workflow").
 	Name() string
+	// Summary is a one-line description for enumeration surfaces
+	// (conventions, manager prompt). No trailing newline.
+	Summary() string
+	// Guide is the capability's full agent-facing semantics: vocabulary
+	// meaning, verb usage, operating procedure, and a "Manager duty"
+	// section. Served verbatim by the uniform `guide` subcommand.
+	Guide() string
 	// EnsureVocabulary seeds the capability's labels and boards for a
 	// project. Idempotent; never overwrites curated descriptions.
 	EnsureVocabulary(svc core.LabelService, code, actor string) error
@@ -67,16 +75,60 @@ type Registry struct {
 // EnsureVocabulary order, DefaultBoard precedence).
 func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
 
+// Description is one capability's enumeration entry: its stable name, the
+// cobra command it mounts as (what an agent types), and its one-line summary.
+type Description struct {
+	Name    string
+	Command string
+	Summary string
+}
+
+// Describe enumerates the registered capabilities in registration order.
+// Command is taken from the built command tree so the consult instruction
+// can never drift from what is actually mounted.
+func (r *Registry) Describe(env Env) []Description {
+	if r == nil {
+		return nil
+	}
+	out := make([]Description, 0, len(r.caps))
+	for _, c := range r.caps {
+		out = append(out, Description{Name: c.Name(), Command: c.Command(env).Name(), Summary: c.Summary()})
+	}
+	return out
+}
+
 // Commands returns each capability's command tree in registration order.
+// The registry, not the capability, mounts the uniform `guide` subcommand,
+// so its shape is identical everywhere and cannot be forgotten.
 func (r *Registry) Commands(env Env) []*cobra.Command {
 	if r == nil {
 		return nil
 	}
 	out := make([]*cobra.Command, 0, len(r.caps))
 	for _, c := range r.caps {
-		out = append(out, c.Command(env))
+		cmd := c.Command(env)
+		cmd.AddCommand(newGuideCmd(c, env))
+		out = append(out, cmd)
 	}
 	return out
+}
+
+// newGuideCmd is the uniform read-only guide printer. It opens no store.
+func newGuideCmd(c Capability, env Env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "guide",
+		Short: "Print this capability's agent guide (semantics and operating mode)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return env.Emit(map[string]any{
+				"capability": c.Name(),
+				"summary":    c.Summary(),
+				"guide":      c.Guide(),
+			}, func() {
+				fmt.Fprint(env.Stdout(), c.Guide())
+			})
+		},
+	}
 }
 
 // EnsureVocabulary seeds every capability's vocabulary for the project,

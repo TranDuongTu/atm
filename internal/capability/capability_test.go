@@ -12,20 +12,33 @@ import (
 // fakeCap records EnsureVocabulary calls into a shared slice so tests can
 // assert call order across a registry.
 type fakeCap struct {
-	name   string
-	board  string
-	ensure error
-	calls  *[]string
+	name    string
+	board   string
+	ensure  error
+	calls   *[]string
+	cmdName string
+	summary string
+	guide   string
 }
 
 func (f *fakeCap) Name() string { return f.name }
+
+func (f *fakeCap) Summary() string { return f.summary }
+
+func (f *fakeCap) Guide() string { return f.guide }
 
 func (f *fakeCap) EnsureVocabulary(svc core.LabelService, code, actor string) error {
 	*f.calls = append(*f.calls, f.name+"/"+code+"/"+actor)
 	return f.ensure
 }
 
-func (f *fakeCap) Command(env Env) *cobra.Command { return &cobra.Command{Use: f.name} }
+func (f *fakeCap) Command(env Env) *cobra.Command {
+	use := f.cmdName
+	if use == "" {
+		use = f.name
+	}
+	return &cobra.Command{Use: use}
+}
 
 func (f *fakeCap) DefaultBoard(code string) string { return f.board }
 
