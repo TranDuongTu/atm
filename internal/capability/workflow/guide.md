@@ -4,25 +4,35 @@ Status transitions for tasks: the paved road for the `status:*` namespace.
 
 ## What it means
 
-Status transitions are exposed as four mutating verbs — `atm workflow start` (in-progress), `atm workflow open`, `atm workflow block` (blocked), `atm workflow complete` (done) — plus a read-only `atm workflow status` reporter and `atm workflow seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (adds the target, then removes any other), so exactly-one-status is an invariant the capability maintains. The store still enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works and a human may hand-assign, rename, or delete any status label. This capability is a paved road, not a fence — a project can replace it with a different transition model.
+Four mutating verbs — `atm capability workflow start` (in-progress), `open`, `block` (blocked), `complete` (done) — plus a read-only `atm capability workflow status` reporter and `atm capability workflow seed` to ensure the boards. Each mutating verb swaps the task's `status:*` label (adds the target, removes any other), so exactly-one-status is an invariant the capability maintains. The store enforces nothing: raw `atm task label add/remove --label <CODE>:status:<value>` works; a human may hand-assign, rename, or delete any status label. This is a paved road, not a fence.
 
 ## Vocabulary
 
-`status:open` means not done; `status:in-progress` means someone is on it; `status:blocked` means stuck; `status:done` means stop.
+- `status:open` — not done.
+- `status:in-progress` — someone is on it.
+- `status:blocked` — stuck.
+- `status:done` — stop.
 
-Boards ensured on project create / label seed / TUI use:
-
+Boards (declared by this capability, seeded by `atm capability workflow seed` / project create):
 - `<CODE>:backlog` (`NOT status:*`) — untriaged jottings.
-- `<CODE>:open-tasks` (`status:open`) — active work.
+- `<CODE>:open-tasks` (`status:open`).
 - `<CODE>:in-progress-tasks` (`status:in-progress`).
-- `<CODE>:all-tasks` — every task; the default board a UI selects.
+- `<CODE>:all-tasks` (`*`) — every task; the TUI's default-selected board.
 
-In an older project where a board is absent, the expression fallback applies (`--label <CODE>:status:open` etc.).
+## Brief
 
-## How to use it
+Interview the human to set up this project's status model. Ask:
+- "Do you use these four status values, or do you want different ones (e.g. `status:review`, `status:wip`)?" — record the answer by creating any extra `status:<value>` labels with descriptions via `atm label add`.
+- "What does 'done' mean for this project — merged, shipped, closed?" — write the answer into the `status:done` label's description.
+- "Is there a board you want beyond backlog/open-tasks/in-progress-tasks/all-tasks?" — create it with `atm label add --expr`.
 
-Prefer the verbs over raw `task label add/remove --label status:*`. Check where a task stands with `atm workflow status --task <ID>`; claim work with `atm workflow start --task <ID>`; finish with `atm workflow complete --task <ID>`. Review untriaged jottings via `atm task list --project <CODE> --label <CODE>:backlog`.
+Leave the human's answers in the label descriptions; the boards read them.
 
-## Manager duty
+## Autopilot
 
-None. This capability contributes no dedicated manager action: status hygiene (untriaged tasks, stale in-progress work) falls under the manager's core curate role.
+Keep status hygiene:
+1. Run `atm task list --project <CODE> --label <CODE>:backlog` — triage untriaged tasks: assign a status with `atm capability workflow start|open|block` (or hand-assign the label).
+2. Run `atm task list --project <CODE> --label <CODE>:in-progress-tasks` — confirm each is still in progress; `complete` what's done, `block` what's stuck.
+3. Ensure boards exist: `atm capability workflow seed --project <CODE>` (idempotent).
+
+Do not invent new status values on the human's behalf; ask first (Brief) or leave untriaged.
