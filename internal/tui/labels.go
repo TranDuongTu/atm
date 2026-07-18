@@ -254,7 +254,7 @@ func (b *boardsModel) refresh() {
 func (b *boardsModel) selectDefault() {
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
-	want := b.m.reg.DefaultBoard(b.m.projectScope)
+	want := b.m.regFor(b.m.projectScope).DefaultBoard(b.m.projectScope)
 	for _, r := range b.rows {
 		if r.FullName == want {
 			b.selected = want

@@ -24,6 +24,10 @@ type projectsModel struct {
 	cursor        int
 	detail        detailState
 
+	// capCursor indexes into the registry's Names() for the [c]/[space]
+	// capability cursor on the project detail view.
+	capCursor int
+
 	// history toggle on project detail.
 	showHistory bool
 }
@@ -239,7 +243,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.boards.reset()
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
-			if err := p.m.reg.EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
+			if err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
 			// D15: auto-start the indexer for the newly-selected project
@@ -290,8 +294,63 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		p.renderDetail()
 	case "x":
 		return p.requestRemoveProject(p.detail.code)
+	case "c":
+		names := p.m.reg.Names()
+		if len(names) > 0 {
+			p.capCursor = (p.capCursor + 1) % len(names)
+			p.renderDetail()
+		}
+	case " ":
+		p.toggleCapability()
 	}
 	return nil
+}
+
+// toggleCapability flips the enabled state of the capability under the
+// detail view's capability cursor (set by the "c" key). A legacy (nil
+// Capabilities) project reads as "all enabled" per Registry.For; disabling
+// one of its capabilities must first make that reading EXPLICIT — before the
+// Disable call, every OTHER registered name is enabled so the stored set
+// becomes "all but this one", matching what the (default) view already
+// implied. Errors are swallowed (mirrors the plan's other detail mutations,
+// e.g. requestRemoveProject's guard toast pattern is the exception, not the
+// rule) since a failed toggle simply leaves the view unchanged on refresh.
+func (p *projectsModel) toggleCapability() {
+	names := p.m.reg.Names()
+	if len(names) == 0 {
+		return
+	}
+	name := names[p.capCursor%len(names)]
+	code := p.detail.code
+	proj, err := p.m.store.GetProject(code)
+	if err != nil {
+		return
+	}
+	isEnabled := proj.Capabilities == nil // legacy: everything enabled
+	for _, n := range proj.Capabilities {
+		if n == name {
+			isEnabled = true
+		}
+	}
+	if isEnabled {
+		if proj.Capabilities == nil {
+			for _, n := range names {
+				if n != name {
+					_ = p.m.store.EnableProjectCapability(code, n, p.m.actor)
+				}
+			}
+		}
+		_ = p.m.store.DisableProjectCapability(code, name, p.m.actor)
+	} else {
+		_ = p.m.store.EnableProjectCapability(code, name, p.m.actor)
+	}
+	// Refresh the detail view's cached project + rendered lines so the
+	// toggle is visible immediately (mirrors the H history-toggle refresh
+	// above: mutate, then re-render from the freshly read project).
+	if pr, err := p.m.store.GetProject(code); err == nil {
+		p.detail.project = pr
+	}
+	p.renderDetail()
 }
 
 func (p *projectsModel) selected() (projRow, bool) {
@@ -308,6 +367,7 @@ func (p *projectsModel) openDetail(code string) {
 		return
 	}
 	p.detail = detailState{code: code, project: pr, historyOn: false}
+	p.capCursor = 0
 	p.view = pViewDetail
 	p.renderDetail()
 }
@@ -338,6 +398,11 @@ func (p *projectsModel) renderDetail() {
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("created   %s   by %s", core.RFC3339UTC(pr.CreatedAt), pr.CreatedBy)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("updated   %s   by %s", core.RFC3339UTC(pr.UpdatedAt), pr.UpdatedBy)))
 
+	b.WriteString("\n")
+	b.WriteString(sectionCaption(p.m.styles, p.width, "CAPABILITIES"))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.renderCapabilitiesLine(pr)))
+
 	if p.detail.historyOn {
 		b.WriteString("\n")
 		b.WriteString(sectionCaption(p.m.styles, p.width, "HISTORY"))
@@ -355,6 +420,41 @@ func (p *projectsModel) renderDetail() {
 
 	p.detail.lines = strings.Split(b.String(), "\n")
 	p.clampDetail()
+}
+
+// renderCapabilitiesLine renders the "capabilities: [x]/[ ] name ..." line
+// for the project detail view. A legacy project (nil Capabilities) reads as
+// "all enabled" (Registry.For's own contract), so every registered name
+// shows [x] with a trailing "(default)" marker distinguishing it from an
+// explicit all-enabled project. The name under the capability cursor (set by
+// the "c" key, toggled by " ") is highlighted with the same RowCursor style
+// the list view uses for its cursor row.
+func (p *projectsModel) renderCapabilitiesLine(pr *core.Project) string {
+	names := p.m.reg.Names()
+	enabled := map[string]bool{}
+	explicit := pr.Capabilities != nil
+	if explicit {
+		for _, n := range pr.Capabilities {
+			enabled[n] = true
+		}
+	}
+	parts := make([]string, 0, len(names))
+	for i, n := range names {
+		mark := "[ ]"
+		if !explicit || enabled[n] {
+			mark = "[x]"
+		}
+		cell := fmt.Sprintf("%s %s", mark, n)
+		if i == p.capCursor {
+			cell = p.m.styles.RowCursor.Render(cell)
+		}
+		parts = append(parts, cell)
+	}
+	suffix := ""
+	if !explicit {
+		suffix = "  (default)"
+	}
+	return "capabilities: " + strings.Join(parts, "  ") + suffix
 }
 
 func (p *projectsModel) clampDetail() {
@@ -940,7 +1040,7 @@ func (p *projectsModel) statusHint() string {
 		}
 		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new [?]keys"
 	case pViewDetail:
-		return "[N]ame [H]istory [x]remove [P]ersona [p]new [Esc]back"
+		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
 	}
 	return "[?]keys"
 }

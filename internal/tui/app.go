@@ -183,7 +183,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	// projects.go. Kept in case a future caller constructs a Model with a
 	// pre-populated projectScope.
 	if m.projectScope != "" {
-		if err := m.reg.EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
+		if err := m.regFor(m.projectScope).EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
 			m.showToast("ensure workflow boards: " + err.Error())
 		}
 		m.boards.selectDefault()
@@ -338,6 +338,17 @@ func (m *Model) refreshAll() {
 // set (defaults to "admin@tui:unset" when none was provided at launch).
 func (m *Model) actorOr() string {
 	return m.actor
+}
+
+// regFor narrows the registry to the project's enabled set, degrading to
+// the full registry when the project cannot be read (never blank a pane
+// over a read failure).
+func (m *Model) regFor(code string) *capability.Registry {
+	p, err := m.store.GetProject(code)
+	if err != nil {
+		return m.reg
+	}
+	return m.reg.For(p)
 }
 
 func (m *Model) cycleTheme() {
