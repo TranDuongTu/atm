@@ -2,10 +2,11 @@
 
 This document describes what ATM is made of, and how it is extended. It is the architectural reference behind `atm conventions` (which is the agent-facing summary) and behind every design spec in `docs/superpowers/specs/`.
 
-Two ideas carry the whole system:
+Three ideas carry the whole system:
 
 1. **The label substrate** — there is one entity (the task) and one uniform mechanism (the label). Everything else is interpretation.
 2. **Capability commands** — new behaviour is added as a CLI command that owns a slice of that substrate, not as a new entity or a new enforced field.
+3. **Capability semantics** — a capability explains itself. Agents do not learn a project from one hand-written master document; they read the substrate core plus an enumeration of the project's enabled capabilities, and consult each capability's own guide for its semantics and operating mode.
 
 ## Part 1: the label substrate
 
@@ -13,7 +14,7 @@ Two ideas carry the whole system:
 
 A project holds tasks. A task carries free-form text (title, description), an append-mostly comment thread, and a set of labels. That is the entire data model.
 
-There is **no status field, no claim entity, no review queue, no links table, no state machine, no priority column, no assignee**. Status, type, priority, ownership, and relationships are all expressed as labels and interpreted by whoever reads them. Workflow lives in capabilities (`internal/workflow`), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.
+There is **no status field, no claim entity, no review queue, no links table, no state machine, no priority column, no assignee**. Status, type, priority, ownership, and relationships are all expressed as labels and interpreted by whoever reads them. Workflow lives in capabilities (`internal/capability/workflow`), not in the store; the store only keeps the substrate legible. A capability is a paved road, not a fence — a project can replace it.
 
 This is a deliberate refusal. Every field a task store adds is a decision imposed on every future workflow that uses it. A `status` enum forces every project to agree on what the states are. A `links` table forces every project to agree on what a relationship is. ATM declines to decide, and the cost of that refusal is paid once, in the reader: **an agent must read the labels to understand a task.** The benefit is paid forever: a project can invent whatever vocabulary it needs, and nothing in the store objects.
 
@@ -52,7 +53,7 @@ Sooner or later a subsystem needs structure the substrate does not have. The con
 
 ### The pattern
 
-A **capability command** is a CLI subsystem that owns a slice of the label substrate. It has three obligations:
+A **capability command** is a CLI subsystem that owns a slice of the label substrate. It has four obligations:
 
 **1. It ensures its own vocabulary.** Before using a label or a board, it creates it — idempotently, with a description. It never assumes `atm label seed` ran. It never assumes the project's labels have a particular shape. It works in a project whose human curated the vocabulary differently, and in one created five minutes ago.
 
@@ -66,9 +67,13 @@ A **capability command** is a CLI subsystem that owns a slice of the label subst
 
 *Consequence: the format is private and can change freely. It also means the format belongs in a comment or a description — somewhere the substrate already stores free text — rather than in a new field.*
 
+**4. It explains itself.** A capability carries its own agent-facing semantics — what its vocabulary means, how its verbs are used, its operating procedure, and its manager duty — retrievable at runtime as a `guide` verb (`atm <cap> guide`) and a one-line summary for enumeration. `atm conventions` and the manager prompt enumerate capabilities and point at their guides; they do not restate them. Prose about a capability living outside the capability is a defect — the same drift class as label names hardcoded in prompts.
+
+*Consequence: a capability's semantics have exactly one source. Adding a capability is one package implementing the interface; conventions, the manager scope, and agent behaviour follow by registration, with no prose sites to keep in sync.*
+
 ### What a capability may not do
 
-- **It may not enforce.** The store still validates nothing. A capability's labels can be hand-assigned, renamed, or deleted by a human, and nothing breaks. The capability reports what it can prove and stays quiet about the rest. **A capability is a paved road, not a fence.**
+- **It may not enforce.** The store still validates nothing. A capability's labels can be hand-assigned, renamed, or deleted by a human, and nothing breaks. The capability reports what it can prove and stays quiet about the rest. **A capability is a paved road, not a fence.** Enablement (below) does not weaken this: it decides *which paved roads get built* for a project — never what the store accepts.
 - **It may not judge.** Read-only reporters (`check`) report; deciders (agents, humans) decide. A tool that automatically marked knowledge stale because a file changed would be wrong most of the time — a helper function added to a package does not invalidate "this package is the stable in-process API." Machines say *where to look*; models say *what it means*.
 - **It may not grow integrations.** ATM speaks no third-party API and holds no credentials. Where a source cannot be witnessed locally (a Jira ticket, a Notion page), the capability records what it can and reports *age* instead of *change* — a weaker signal, but an honest one. The agent, which already has tools, does the verifying.
 
@@ -84,6 +89,23 @@ Every capability separates the two:
 
 The reporter's purity is testable and should be tested: the store is byte-identical before and after it runs.
 
+### Enablement: which paved roads get built
+
+Capabilities are registered at compile time, but **chosen per project**. A project's enabled set is a project-level fact in its event log — selected at project create, editable later, audited like every other mutation. A capability a project has not enabled is absent from that project's tooling surface: its commands are not mounted, its vocabulary is not seeded, its boards are not ensured, and its manager action is not offered.
+
+This is a fence on the **tooling surface**, not on the substrate. "Advisory, always" continues to describe the store: no validation, no privileged namespaces, and a human hand-assigning a disabled capability's labels breaks nothing. What a project chooses is which interpretations it is offered, and that choice is itself part of the ledger.
+
+### The composed semantic surface
+
+Because capabilities explain themselves (obligation 4) and are chosen per project (enablement), the agent-facing surfaces are **composed, not written**:
+
+- `atm conventions` = the substrate core + an enumeration of the project's enabled capabilities (name, summary, and how to consult its guide). It teaches the substrate; the capabilities teach themselves.
+- The manager scope = an irreducible substrate core (curate — keep the ledger legible; recall — grounded synthesis) + the actions the enabled capabilities contribute (the context map contributes `mapping`). The manager prompt enumerates and points; procedures live in the guides.
+
+An agent's consultation sequence mirrors this: read the substrate core, read the enumeration, then consult each enabled capability's guide before operating in its territory — progressive disclosure, the same shape as agent skills.
+
+See `docs/superpowers/specs/2026-07-18-capability-semantics-initiative-design.md` for the initiative roadmap (describe → enable → manage) and the current implementation status of each phase.
+
 ### First instance: `atm context`
 
 The context map is the pattern's first realisation. It owns `context:*` (pointer kinds), `knowledge:superseded` (lifecycle), `comment:provenance` (its private format), and the `context-current` board (`context:* AND NOT knowledge:superseded`). It exposes five verbs, of which exactly one is read-only. It witnesses git and local files provably, URLs opportunistically, and external systems by age alone.
@@ -96,5 +118,5 @@ When a subsystem needs structure the substrate lacks, ask in order:
 
 1. **Can a board express it?** A grouping, a filter, a "current view" — these are saved queries, not features. Write the expression; write no code.
 2. **Can existing labels express it?** Read every label's description first. The vocabulary is usually larger than it looks.
-3. **Does it need a private machine-readable format?** Then it is a capability. Put the format in a comment kind that only that capability parses, ensure the vocabulary on first use, and expose verbs — not labels — to the callers.
+3. **Does it need a private machine-readable format?** Then it is a capability. Put the format in a comment kind that only that capability parses, ensure the vocabulary on first use, expose verbs — not labels — to the callers, and write its guide: the capability explains itself, or its semantics will end up hand-written somewhere they will drift.
 4. **Does it truly need a new store field?** Almost certainly not. If the answer is genuinely yes, it belongs to the substrate itself, applies to *every* task, and needs its own design discussion — because it is a decision imposed on every project ATM will ever hold.
