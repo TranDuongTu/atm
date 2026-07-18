@@ -406,6 +406,13 @@ func (cs *changeSet) HasLiveTasks() (bool, error) {
 // Dirty reports whether this transaction appended at least one event.
 // Idempotent no-ops (SeedLabel on a live label, EnsureLabels with only live
 // names) leave it false — the facade's reprojection gate keys off this.
+//
+// Known slack in the invariant: a verb whose append committed but whose
+// trailing HLC persist failed (commitAuthorLocked's MutateStoreMeta) returns
+// an error WITHOUT flipping dirty, under-reporting a durable event. Every
+// caller propagates that error, so the projection gate never sees such a txn
+// today, and the freshness probe heals the cache on the next read — but a
+// future caller that swallows a verb's error must not rely on Dirty there.
 func (cs *changeSet) Dirty() bool { return cs.dirty }
 
 // Snapshot is the strict re-read the facade projects at the end of a
