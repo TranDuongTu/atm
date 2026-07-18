@@ -3,6 +3,7 @@ package store
 import (
 	"atm/internal/core"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -175,23 +176,29 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 
 // capabilitiesToCache and capabilitiesFromCache round-trip core.Project's
 // nil-vs-empty Capabilities slice through the cache's single nullable TEXT
-// column: NULL for nil (legacy/no capability event), "" for a non-nil empty
-// slice (explicitly none), and a comma-joined list otherwise.
+// column: NULL for nil (legacy/no capability event), and a JSON array
+// otherwise — "[]" for a non-nil empty slice (explicitly none) and
+// `["workflow",...]` for a populated one. JSON (rather than comma-joining) is
+// robust to capability names containing commas or other separators.
 func capabilitiesToCache(caps []string) any {
 	if caps == nil {
 		return nil
 	}
-	return strings.Join(caps, ",")
+	// caps is a []string; json.Marshal on a []string never errors.
+	b, _ := json.Marshal(caps)
+	return string(b)
 }
 
 func capabilitiesFromCache(v sql.NullString) []string {
 	if !v.Valid {
 		return nil
 	}
-	if v.String == "" {
-		return []string{}
-	}
-	return strings.Split(v.String, ",")
+	var out []string
+	// Cache rows are only ever written by capabilitiesToCache, so malformed
+	// JSON here would mean a corrupt cache.db; out stays nil in that case,
+	// same as the pre-JSON code's implicit behavior on unexpected input.
+	_ = json.Unmarshal([]byte(v.String), &out)
+	return out
 }
 
 func cacheUpsertProject(db *sql.DB, p *Project) error {

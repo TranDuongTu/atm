@@ -29,6 +29,27 @@ func TestProjectCapabilityEnableDisable(t *testing.T) {
 	}
 }
 
+func TestProjectCapabilityDisableAllReadsNonNilEmpty(t *testing.T) {
+	s := newTestStore(t)
+	actor := "admin@cli:unset"
+	if _, err := s.CreateProject("PCE", "cap empty", actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnableProjectCapability("PCE", "workflow", actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DisableProjectCapability("PCE", "workflow", actor); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetProject("PCE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Capabilities == nil || len(p.Capabilities) != 0 {
+		t.Fatalf("Capabilities = %v, want non-nil empty (explicitly all-disabled)", p.Capabilities)
+	}
+}
+
 func TestProjectWithoutCapabilityEventsReadsNil(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("PLG", "legacy-like", "admin@cli:unset"); err != nil {
