@@ -318,6 +318,15 @@ Because conventions now defers to `-h`, the cobra `Short`/`Long` on each substra
 - **`atm capability list` shape**: `NAME, SUMMARY, ENABLED` columns; JSON envelope `{"capabilities":[{"name","summary","enabled"}]}`.
 - **Default-board policy**: `<CODE>:all-tasks` if present, else first row (TUI and CLI).
 
+## Clarifications (2026-07-18 follow-up review, user-approved)
+
+Resolved during plan-writing review; these amend the sections above where they conflict.
+
+1. **Mount by `Name()`** — the spec wrote both `atm capability context add` (command name) and `atm capability <name> guide` / `--capability contextmap` (capability name). Resolution: one identifier everywhere — each capability's tree mounts under its `Name()`, so contextmap's verbs read `atm capability contextmap add/stamp/…`. The registry enforces this structurally (`Commands` sets the mounted command's `Use` to `Name()`), and contextmap's own `Use` string changes from `context` to `contextmap`. Every `atm capability context …` occurrence in §2/§7 reads as `atm capability contextmap …`. `Description` drops its `Command` field (name IS the command) and `Describe` no longer needs `Env`.
+2. **`atm label seed` is REMOVED entirely** (supersedes §4's "reshape") — per-capability `EnsureVocabulary` is the only seeding path, running at: project create, `atm project capability add`, TUI project select, the TUI Boards [S] key (now a direct `EnsureVocabulary` re-run), and `atm capability workflow seed`. `EnsureVocabulary` returns **boards only** (`[]core.Label` with `Expr` set), per §3; §4's "emits the seeded label names" is void — callers emit the returned boards.
+3. **Capabilities absorb the substrate labels they own** — workflow's `EnsureVocabulary` seeds the `status:*` namespace descriptor + the four status values (with `seed.go`'s descriptions) alongside its 4 boards; contextmap seeds the `context:*` descriptor and adopts `seed.go`'s richer per-kind descriptions. `comment:*` and `priority:*` are not seeded anywhere (invented on demand).
+4. **Extra ripple found in review** (missing from the list below): `internal/store/project.go` `createProjectV2` writes `seed.Labels` as `label.upserted` events inside the project-birth changeset, and `core.Service`'s `LabelService` interface carries `SeedLabels` — both go away with `seed.go`. The CLI half of the §6 default-board policy is already today's behavior (`atm task list` with no `--label` lists everything and `all-tasks` is the `*` expression), so §6 is a TUI-only change. `conventions --project` becomes vestigial once the enumeration section dies and is removed. The TUI help's embedded conventions copy (`internal/tui/help.go` `conventionsTextTUI`) and the developing-session template (`internal/developing/context_v1.md`) restate removed prose and are updated. Label descriptions seeded by contextmap that say ``applied by `atm context supersede` `` update to the new command path.
+
 ## Doctrine notes
 
 This initiative amends the capability doctrine established in `2026-07-18-capability-semantics-initiative-design.md`:
