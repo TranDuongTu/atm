@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -139,4 +141,94 @@ func appendAgentArgs(base, envArgs, extraArgs []string) []string {
 	out = append(out, envArgs...)
 	out = append(out, extraArgs...)
 	return out
+}
+
+// contextCachePath returns the stable on-disk path for a rendered context
+// prompt keyed on (project, role, persona, action, capability). Repeated
+// launches of the same tuple reuse the same file.
+//
+// role is "dev" or "manage". For "dev", action and capability are ignored.
+// For "manage", an empty capability becomes "all" in the filename.
+func contextCachePath(storePath, code, role, persona, action, capability string) string {
+	key := cacheKey(role, persona, action, capability)
+	return filepath.Join(storePath, "projects", code, "cache", key+".md")
+}
+
+// cacheKey builds the filename stem for a context cache file. Non-alphanumeric
+// characters collapse to a single "-"; the result is lowercased and trimmed
+// of leading/trailing "-".
+func cacheKey(role, persona, action, capability string) string {
+	parts := []string{role, persona}
+	if role == "manage" {
+		parts = append(parts, action)
+		if capability == "" {
+			parts = append(parts, "all")
+		} else {
+			parts = append(parts, capability)
+		}
+	}
+	for i, p := range parts {
+		parts[i] = sanitizeCacheSegment(p)
+	}
+	return strings.Join(parts, "-")
+}
+
+// sanitizeCacheSegment lowercases and collapses non-alphanumeric runs to "-".
+func sanitizeCacheSegment(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	prevDash := true // suppress leading "-"
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+		} else {
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	out := strings.TrimRight(b.String(), "-")
+	if out == "" {
+		return "x"
+	}
+	return out
+}
+
+// writeContextIfDiff writes content to path only when the existing file's
+// bytes differ. When the existing file matches byte-for-byte, it is a no-op
+// (mtime unchanged). Parent dirs are created with MkdirAll. The write is
+// atomic via a temp file in the same dir followed by a rename.
+func writeContextIfDiff(path string, content []byte) error {
+	if existing, err := os.ReadFile(path); err == nil {
+		if bytes.Equal(existing, content) {
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing context %s: %w", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create context dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".ctx-*.md")
+	if err != nil {
+		return fmt.Errorf("create temp context: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("write temp context: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close temp context: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
+		return fmt.Errorf("rename temp context: %w", err)
+	}
+	return nil
 }
