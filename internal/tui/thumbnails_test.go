@@ -329,3 +329,65 @@ func TestSelectedCellUmbrellaRenderDoesNotLeakDrillState(t *testing.T) {
 		t.Errorf("umbrellaRows leaked after L0 umbrella preview: %d rows, want %d", len(m.boards.umbrellaRows), len(before))
 	}
 }
+
+// TestUmbrellaShiftUpDownMovesCursor guards Shift-↑/↓ inside the umbrella
+// sub-table. The key routes to chartCursorMove, which bailed on
+// `b.level != lLevelChart` — so the umbrella level, added later, silently
+// swallowed every Shift-↑/↓ and the cursor was stuck on the first namespace.
+func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
+	m, _ := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	if got := len(m.boards.umbrellaRows); got < 2 {
+		t.Fatalf("fixture needs >= 2 umbrella rows, got %d", got)
+	}
+	if m.boards.cursor != 0 {
+		t.Fatalf("cursor after drill-in = %d, want 0", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor != 1 {
+		t.Errorf("Shift-↓ in umbrella: cursor = %d, want 1", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("Shift-↑ in umbrella: cursor = %d, want 0", m.boards.cursor)
+	}
+	// Clamped at both ends.
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("Shift-↑ past the top: cursor = %d, want 0", m.boards.cursor)
+	}
+	for range m.boards.umbrellaRows {
+		m.boards.chartCursorMove(1)
+	}
+	if want := len(m.boards.umbrellaRows) - 1; m.boards.cursor != want {
+		t.Errorf("Shift-↓ past the bottom: cursor = %d, want %d", m.boards.cursor, want)
+	}
+}
+
+// TestUmbrellaRendersAsChartNotOwnerTable guards that the umbrella sub-table
+// renders in the same meter-bar shape as any other namespace board (status:*,
+// priority:*). It used to render a LABEL/DESCRIPTION/OWNER/COUNT table whose
+// OWNER cell was always "—" — unmanaged labels have no owner by definition, so
+// the column carried no information and made the umbrella look like a
+// different kind of surface than the boards beside it.
+func TestUmbrellaRendersAsChartNotOwnerTable(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	cell := m.boards.renderSelectedCell(80, 14, umb)
+	if strings.Contains(cell, "OWNER") {
+		t.Errorf("umbrella sub-table must not render an OWNER column:\n%s", cell)
+	}
+	if !strings.Contains(cell, "unmanaged  ·  2 tasks") {
+		t.Errorf("umbrella sub-table missing the chart header 'unmanaged  ·  2 tasks':\n%s", cell)
+	}
+	// Meter bars, like every other namespace chart.
+	if !strings.Contains(cell, "█") {
+		t.Errorf("umbrella sub-table missing meter bars:\n%s", cell)
+	}
+	// Rows are named by full label name, matching renderChart.
+	for _, want := range []string{"ATM:comment:*", "ATM:type:*"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella sub-table missing row %q:\n%s", want, cell)
+		}
+	}
+}

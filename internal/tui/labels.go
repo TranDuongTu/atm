@@ -200,6 +200,15 @@ type labelDetailState struct {
 	leaf string // "" for a real label; "unset" for the synthetic leaf
 }
 
+// umbrellaDescription is the sentinel row's blurb in the L0 ring's DESCRIPTION
+// cell. umbrellaCaption is the sub-table's header caption: the same sentence
+// minus the "drill in" hint, which is spent once the user is already inside —
+// and short enough to hold one line at the strip's usual width.
+const (
+	umbrellaDescription = "labels no capability owns; drill in to browse, triage via atm capability unmanaged"
+	umbrellaCaption     = "labels no capability owns; triage via atm capability unmanaged"
+)
+
 type chartRow struct {
 	full  string
 	count int
@@ -581,21 +590,28 @@ func (b *boardsModel) drillOut() {
 }
 
 // chartCursorMove moves the SELECTED thumbnail's chart cursor (the member row
-// that d, l target). Only meaningful at the chart level; no-op elsewhere.
+// that d, l target). Meaningful at the chart level and inside the umbrella
+// sub-table, whose rows are navigated by the same Shift-↑/↓ keys; no-op
+// elsewhere.
 func (b *boardsModel) chartCursorMove(dir int) {
-	if b.level != lLevelChart {
+	var n int
+	switch b.level {
+	case lLevelChart:
+		n = len(b.chartRows())
+	case lLevelUmbrella:
+		n = len(b.umbrellaRows)
+	default:
 		return
 	}
-	rows := b.chartRows()
-	if len(rows) == 0 {
+	if n == 0 {
 		return
 	}
 	b.cursor += dir
 	if b.cursor < 0 {
 		b.cursor = 0
 	}
-	if b.cursor >= len(rows) {
-		b.cursor = len(rows) - 1
+	if b.cursor >= n {
+		b.cursor = n - 1
 	}
 }
 
@@ -691,7 +707,7 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 		out = append(out, boardRow{
 			Name:        "unmanaged",
 			FullName:    sentinel,
-			Description: "labels no capability owns; drill in to browse, triage via atm capability unmanaged",
+			Description: umbrellaDescription,
 			Count:       b.unmanagedTaskCount(unmanaged),
 			Expandable:  true,
 			Umbrella:    true,
@@ -953,42 +969,29 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// renderUmbrella mirrors renderTable over b.umbrellaRows. The owner cell is
-// always "—" (the umbrella holds only unmanaged labels — no owner).
+// renderUmbrella draws the unmanaged sub-table in the same meter-bar shape as
+// any other namespace board (see renderChart): a "unmanaged · N tasks" header,
+// the umbrella's description, then one bar per unmanaged label. It deliberately
+// carries no OWNER column — every row here is unowned by definition, so the
+// column would repeat "—" and make the umbrella read as a different kind of
+// surface than the boards beside it.
 func (b *boardsModel) renderUmbrella() string {
 	if len(b.umbrellaRows) == 0 {
 		return padToHeight("no unmanaged labels", b.contentHeight)
 	}
-	var sb strings.Builder
-	header := boardTableLine(b.width, "LABEL", "DESCRIPTION", "OWNER", "COUNT")
-	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
-	sb.WriteString("\n")
-
-	var lines []string
-	for i, r := range b.umbrellaRows {
-		name := r.Name
-		if r.NeedsDescription {
-			name = name + " " + b.m.styles.Warning.Render("⚠")
-		}
-		if r.Broken {
-			name = name + " " + b.m.styles.Warning.Render("⚠ broken")
-		}
-		count := fmt.Sprintf("%d", r.Count)
-		if r.Broken {
-			count = "-"
-		}
-		owner := b.m.styles.Muted.Render("—")
-		line := boardTableLine(b.width, name, r.Description, owner, count)
-		if i == b.cursor {
-			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
-		}
-		lines = append(lines, dashboardLine(b.width, line))
+	rows := make([]chartRow, 0, len(b.umbrellaRows))
+	for _, r := range b.umbrellaRows {
+		rows = append(rows, chartRow{full: r.FullName, count: r.Count})
 	}
-	start, end := windowLines(len(lines), b.cursor, b.pageSize)
-	for i := start; i < end; i++ {
-		sb.WriteString(lines[i])
+
+	var sb strings.Builder
+	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("unmanaged  ·  %d tasks", b.unmanagedTaskCount(b.unmanaged))))
+	sb.WriteString("\n")
+	for _, line := range strings.Split(wordwrap.String(umbrellaCaption, b.width), "\n") {
+		sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render(line)))
 		sb.WriteString("\n")
 	}
+	sb.WriteString(b.renderMeterRows(rows))
 	return padToHeight(sb.String(), b.contentHeight)
 }
 
@@ -1500,15 +1503,8 @@ func (b *boardsModel) namespaceDescription(ns string) string {
 }
 
 func (b *boardsModel) renderChart() string {
-	title := b.ns
-	rows := b.chartRows()
-	barTotal := 0
-	for _, r := range rows {
-		barTotal += r.count
-	}
-
 	var sb strings.Builder
-	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%s  ·  %d tasks", title, b.activeNamespaceTaskCount())))
+	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("%s  ·  %d tasks", b.ns, b.activeNamespaceTaskCount())))
 	sb.WriteString("\n")
 	if desc := b.namespaceDescription(b.ns); desc != "" {
 		for _, line := range strings.Split(wordwrap.String(desc, b.width), "\n") {
@@ -1516,7 +1512,20 @@ func (b *boardsModel) renderChart() string {
 			sb.WriteString("\n")
 		}
 	}
+	sb.WriteString(b.renderMeterRows(b.chartRows()))
+	return padToHeight(sb.String(), b.contentHeight)
+}
 
+// renderMeterRows draws a chart body: one cursor-aware meter bar per row,
+// windowed to pageSize. Shared by renderChart and renderUmbrella so a namespace
+// board and the unmanaged umbrella read as the same kind of surface.
+func (b *boardsModel) renderMeterRows(rows []chartRow) string {
+	barTotal := 0
+	for _, r := range rows {
+		barTotal += r.count
+	}
+
+	var sb strings.Builder
 	nameW := 0
 	for _, r := range rows {
 		if w := len(r.full); w > nameW {
@@ -1549,7 +1558,7 @@ func (b *boardsModel) renderChart() string {
 		sb.WriteString(lines[i])
 		sb.WriteString("\n")
 	}
-	return padToHeight(sb.String(), b.contentHeight)
+	return sb.String()
 }
 
 func (b *boardsModel) renderDetail() string {
