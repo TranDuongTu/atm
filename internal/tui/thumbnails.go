@@ -118,8 +118,22 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 		inner = b.renderChart()
 	case lLevelDetail:
 		inner = b.renderDetail()
+	case lLevelUmbrella:
+		inner = b.renderUmbrella()
 	default: // lLevelTable
-		if r.Expandable {
+		if r.Umbrella {
+			// The umbrella is Expandable but is NOT a namespace: it has no
+			// ATM:unmanaged:* members, so rendering it as a chart would show a
+			// lone "(unset)" bar counting every task in the project. Its L0
+			// preview is the unmanaged sub-table, mirroring "default view for a
+			// namespace at L0 is its chart".
+			savedLevel, savedCursor, savedRows := b.level, b.cursor, b.umbrellaRows
+			b.level = lLevelUmbrella
+			b.cursor = 0
+			b.umbrellaRows = b.buildUmbrellaRows()
+			defer func() { b.level, b.cursor, b.umbrellaRows = savedLevel, savedCursor, savedRows }()
+			inner = b.renderUmbrella()
+		} else if r.Expandable {
 			// Default view for a namespace at L0 is its chart.
 			savedLevel, savedNS, savedCursor := b.level, b.ns, b.cursor
 			b.level = lLevelChart

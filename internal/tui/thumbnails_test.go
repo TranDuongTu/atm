@@ -240,3 +240,92 @@ func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 		t.Errorf("empty tabbed box body missing the center board name:\n%s", box)
 	}
 }
+
+// seedUmbrellaFixture builds a project whose ring carries the umbrella row
+// over two unmanaged namespaces (comment:*, type:*), mirroring the shape of a
+// real ATM project. Returns the model and the umbrella's ring row.
+func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
+	t.Helper()
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"ATM:comment:decision", "ATM:type:bug"} {
+		if err := m.store.LabelAdd(n, "", "", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:comment:decision")
+	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:type:bug")
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Umbrella {
+			m.boards.selected = r.FullName
+			m.boards.pinFocus = -1
+			m.boards.applyFocus()
+			return m, r
+		}
+	}
+	t.Fatalf("no umbrella row in ring: %v", m.boards.rowNames())
+	return nil, boardRow{}
+}
+
+// TestSelectedCellRendersUmbrellaSubTableAtL0 guards the strip's SELECTED cell
+// against treating the umbrella sentinel as a namespace board. The umbrella row
+// is Expandable, so renderSelectedCell's L0 branch used to force
+// level=lLevelChart with ns="unmanaged" — a namespace with no members — which
+// rendered a single "(unset)" bar counting EVERY task in the project. The
+// umbrella's L0 preview must be its unmanaged sub-table instead.
+func TestSelectedCellRendersUmbrellaSubTableAtL0(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	cell := m.boards.renderSelectedCell(60, 14, umb)
+	if strings.Contains(cell, "(unset)") {
+		t.Errorf("umbrella L0 preview must not render a namespace chart's (unset) bar:\n%s", cell)
+	}
+	for _, want := range []string{"comment", "type"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella L0 preview missing unmanaged namespace %q:\n%s", want, cell)
+		}
+	}
+}
+
+// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the same cell at
+// lLevelUmbrella. renderSelectedCell's switch had no case for the level Task 5
+// introduced, so a drilled-in umbrella fell through to the L0 default and
+// rendered the same bogus "(unset)" chart the user was trying to drill past.
+func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("drillIn on umbrella: level = %d, want lLevelUmbrella", m.boards.level)
+	}
+	cell := m.boards.renderSelectedCell(60, 14, umb)
+	if strings.Contains(cell, "(unset)") {
+		t.Errorf("drilled-in umbrella must not render a namespace chart's (unset) bar:\n%s", cell)
+	}
+	for _, want := range []string{"comment", "type"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella sub-table missing unmanaged namespace %q:\n%s", want, cell)
+		}
+	}
+}
+
+// TestSelectedCellUmbrellaRenderDoesNotLeakDrillState guards that previewing
+// the umbrella at L0 restores level/ns/cursor and the cached umbrellaRows —
+// renderSelectedCell is a pure render and must not mutate drill state.
+func TestSelectedCellUmbrellaRenderDoesNotLeakDrillState(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	before := m.boards.umbrellaRows
+	_ = m.boards.renderSelectedCell(60, 14, umb)
+	if m.boards.level != lLevelTable {
+		t.Errorf("level leaked after L0 umbrella preview: got %d, want lLevelTable", m.boards.level)
+	}
+	if m.boards.ns != "" {
+		t.Errorf("ns leaked after L0 umbrella preview: %q", m.boards.ns)
+	}
+	if len(m.boards.umbrellaRows) != len(before) {
+		t.Errorf("umbrellaRows leaked after L0 umbrella preview: %d rows, want %d", len(m.boards.umbrellaRows), len(before))
+	}
+}
