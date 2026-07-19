@@ -388,12 +388,14 @@ func gotToSlice(m map[string]string) []string {
 func normalizeManagerOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
-		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/manager/FOO-\d{14}-[0-9a-f]{6}\.md`)
-		s = contextPathRe.ReplaceAllString(s, "/STORE/manager/FOO-RUNID.md")
+		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/projects/FOO/cache/manage-manager-autopilot-all\.md`)
+		s = contextPathRe.ReplaceAllString(s, "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md")
+		contextPathRe = regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/projects/FOO/cache/manage-manager-brief-all\.md`)
+		s = contextPathRe.ReplaceAllString(s, "/STORE/projects/FOO/cache/manage-manager-brief-all.md")
 	}
 	runIDRe := regexp.MustCompile(`FOO-\d{14}-[0-9a-f]{6}`)
 	s = runIDRe.ReplaceAllString(s, "FOO-RUNID")
-	atmBinRe := regexp.MustCompile(`"ATM_BIN": "[^"]+"`)
-	s = atmBinRe.ReplaceAllString(s, `"ATM_BIN": "/ATM_BIN"`)
+	timestampRe := regexp.MustCompile(`"ATM_TIMESTAMP": "[^"]+"`)
+	s = timestampRe.ReplaceAllString(s, `"ATM_TIMESTAMP": "TIMESTAMP"`)
 	return s
 }

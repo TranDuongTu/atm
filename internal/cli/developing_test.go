@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -147,7 +148,26 @@ func TestDevWriteIfDiffNoOp(t *testing.T) {
 }
 
 func TestDevelopingLauncherNotFound(t *testing.T) {
-	t.Setenv("PATH", "/nonexistent")
+	// The PATH guard (exec.LookPath("atm")) runs before runChild and exits
+	// early if `atm` is not on PATH. To exercise the launcher-not-found path
+	// (codex absent), put a directory containing an `atm` binary on PATH while
+	// leaving `codex` unresolvable. Build the project's own binary into a temp
+	// dir and prepend it to PATH.
+	atmDir := t.TempDir()
+	atmBin := filepath.Join(atmDir, "atm")
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH; cannot build atm for PATH guard")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", atmBin, "./cmd/atm")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./cmd/atm: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", atmDir)
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
@@ -293,13 +313,13 @@ func TestDevAgentFlagOverridesSelected(t *testing.T) {
 func normalizeDevelopingOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
-		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/developing/FOO-\d{14}-[0-9a-f]{6}\.md`)
-		s = contextPathRe.ReplaceAllString(s, "/STORE/developing/FOO-RUNID.md")
+		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/projects/FOO/cache/dev-developer\.md`)
+		s = contextPathRe.ReplaceAllString(s, "/STORE/projects/FOO/cache/dev-developer.md")
 	}
 	runIDRe := regexp.MustCompile(`FOO-\d{14}-[0-9a-f]{6}`)
 	s = runIDRe.ReplaceAllString(s, "FOO-RUNID")
-	atmBinRe := regexp.MustCompile(`"ATM_BIN": "[^"]+"`)
-	s = atmBinRe.ReplaceAllString(s, `"ATM_BIN": "/ATM_BIN"`)
+	timestampRe := regexp.MustCompile(`"ATM_TIMESTAMP": "[^"]+"`)
+	s = timestampRe.ReplaceAllString(s, `"ATM_TIMESTAMP": "TIMESTAMP"`)
 	return s
 }
 
