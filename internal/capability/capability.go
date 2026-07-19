@@ -10,6 +10,7 @@ package capability
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"atm/internal/core"
 
@@ -192,4 +193,98 @@ func (r *Registry) For(p *core.Project) *Registry {
 		}
 	}
 	return &Registry{caps: kept}
+}
+
+// UmbrellaFullName is the synthetic "unmanaged" umbrella row's identifier for
+// a project: a TUI/CLI sentinel, never a real label. It is used only as a ring
+// row FullName and as an order/hidden key in the project's boards config.
+func UmbrellaFullName(code string) string { return code + ":unmanaged" }
+
+// ExposedLabel is one ring entry: a capability-surfaced label tagged with the
+// owning capability's name (rendered as the muted owner column in the TUI).
+type ExposedLabel struct {
+	Label core.Label
+	Owner string
+}
+
+// Exposed enumerates every registered capability's exposed labels in
+// registration order (each capability's own preferred order preserved
+// within its block), tagged with the owner name.
+func (r *Registry) Exposed(code string) []ExposedLabel {
+	if r == nil {
+		return nil
+	}
+	var out []ExposedLabel
+	for _, c := range r.caps {
+		for _, l := range c.Exposed(code) {
+			out = append(out, ExposedLabel{Label: l, Owner: c.Name()})
+		}
+	}
+	return out
+}
+
+// Unmanaged returns labels in the project's LabelList that no registered
+// capability owns via Vocabulary. A label is owned when its FullName is in
+// the vocabulary union, or when it sits under an owned namespace descriptor
+// (<code>:<ns>:<value> with <code>:<ns>:* owned). Derived, not stored. The
+// TUI renders these under the synthetic umbrella row; `atm capability
+// unmanaged` exposes the same set to the manager agent for triage. Callers
+// narrow to the enabled set first: reg.For(project).Unmanaged(...).
+func (r *Registry) Unmanaged(svc core.LabelService, code string) ([]core.Label, error) {
+	owned := map[string]bool{}
+	var ownedPrefixes []string
+	if r != nil {
+		for _, c := range r.caps {
+			for _, l := range c.Vocabulary(code) {
+				owned[l.Name] = true
+				if core.IsNamespaceName(l.Name) {
+					// "<code>:<ns>:*" -> member prefix "<code>:<ns>:"
+					ownedPrefixes = append(ownedPrefixes, strings.TrimSuffix(l.Name, "*"))
+				}
+			}
+		}
+	}
+	var out []core.Label
+	for _, l := range svc.LabelList(code, "") {
+		if owned[l.Name] {
+			continue
+		}
+		member := false
+		for _, p := range ownedPrefixes {
+			if strings.HasPrefix(l.Name, p) {
+				member = true
+				break
+			}
+		}
+		if !member {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+// OrderFullNames applies a partial order override to an effective ring order:
+// override names present in effective come first (override order, duplicates
+// dropped), then every remaining effective name in its original order.
+// Override entries naming nothing in effective are silently ignored —
+// defensive against typos and stale entries after a capability is disabled.
+func OrderFullNames(effective, override []string) []string {
+	present := make(map[string]bool, len(effective))
+	for _, n := range effective {
+		present[n] = true
+	}
+	out := make([]string, 0, len(effective))
+	taken := make(map[string]bool, len(effective))
+	for _, n := range override {
+		if present[n] && !taken[n] {
+			out = append(out, n)
+			taken[n] = true
+		}
+	}
+	for _, n := range effective {
+		if !taken[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
