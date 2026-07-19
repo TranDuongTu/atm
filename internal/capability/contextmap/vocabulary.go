@@ -19,6 +19,42 @@ func BoardCurrent(code string) string { return code + ":context-current" }
 // exists.
 func currentExpr() string { return "context:* AND NOT knowledge:superseded" }
 
+// vocabulary is the single literal list every contract method derives from.
+func vocabulary(code string) []core.Label {
+	out := []core.Label{
+		{Name: code + ":context:*", Description: "index tasks whose description is the payload: agent directions, repos, docs, questions"},
+		{Name: code + ":knowledge:*", Description: "lifecycle of a piece of recorded knowledge; absence means current"},
+		{Name: LabelSuperseded(code), Description: "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`."},
+		{Name: LabelProvenance(code), Description: "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit."},
+		{Name: BoardCurrent(code), Description: "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.", Expr: currentExpr()},
+	}
+	kindDesc := map[string]string{
+		"agent":         "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
+		"repository":    "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
+		"documentation": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
+		"question":      "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
+	}
+	for _, kind := range ContextKinds {
+		out = append(out, core.Label{Name: LabelContextKind(code, kind), Description: kindDesc[kind]})
+	}
+	return out
+}
+
+// Vocabulary returns every label this capability owns for code. Pure.
+func Vocabulary(code string) []core.Label { return vocabulary(code) }
+
+// Exposed returns the ring surface: exactly the context-current board. The
+// context:*/knowledge:* namespaces are deliberately not exposed — they are
+// capability bookkeeping, not browsing surfaces.
+func Exposed(code string) []core.Label {
+	for _, l := range vocabulary(code) {
+		if l.Name == BoardCurrent(code) {
+			return []core.Label{l}
+		}
+	}
+	return nil
+}
+
 // EnsureVocabulary creates the labels and the board this capability uses, with
 // descriptions, if they are absent. Idempotent, and it never overwrites a
 // description a human already curated (the LabelSeed contract upserts only
@@ -28,30 +64,13 @@ func currentExpr() string { return "context:* AND NOT knowledge:superseded" }
 // project, whether or not `atm label seed` ever ran. It returns the board
 // labels (Expr != "") it owns — exactly the context-current board.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
-	type lbl struct{ name, desc, expr string }
-	want := []lbl{
-		{code + ":context:*", "index tasks whose description is the payload: agent directions, repos, docs, questions", ""},
-		{code + ":knowledge:*", "lifecycle of a piece of recorded knowledge; absence means current", ""},
-		{LabelSuperseded(code), "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.", ""},
-		{LabelProvenance(code), "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.", ""},
-		{BoardCurrent(code), "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.", currentExpr()},
-	}
-	kindDesc := map[string]string{
-		"agent":         "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
-		"repository":    "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
-		"documentation": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-		"question":      "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
-	}
-	for _, kind := range ContextKinds {
-		want = append(want, lbl{LabelContextKind(code, kind), kindDesc[kind], ""})
-	}
 	var boards []core.Label
-	for _, l := range want {
-		if err := s.LabelSeed(l.name, l.desc, l.expr, actor); err != nil {
+	for _, l := range vocabulary(code) {
+		if err := s.LabelSeed(l.Name, l.Description, l.Expr, actor); err != nil {
 			return nil, err
 		}
-		if l.expr != "" {
-			boards = append(boards, core.Label{Name: l.name, Description: l.desc, Expr: l.expr})
+		if l.Expr != "" {
+			boards = append(boards, l)
 		}
 	}
 	return boards, nil

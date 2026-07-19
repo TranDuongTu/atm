@@ -2,6 +2,8 @@ package store
 
 import (
 	"atm/internal/core"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -197,5 +199,108 @@ func TestProjectRemotesAbsentConfigReturnsNilMapNoError(t *testing.T) {
 	}
 	if len(remotes) != 0 {
 		t.Errorf("remotes = %+v, want empty", remotes)
+	}
+}
+
+func TestBoardsConfigRoundTripAndMerge(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	// Absent config: empty (non-nil) BoardsConfig.
+	b, err := s.GetBoardsConfig("ATM")
+	if err != nil || b == nil {
+		t.Fatalf("GetBoardsConfig absent = (%v, %v), want empty non-nil", b, err)
+	}
+	if len(b.Order) != 0 || len(b.Hidden) != 0 || len(b.Pins) != 0 {
+		t.Fatalf("absent config not empty: %+v", b)
+	}
+	want := &core.BoardsConfig{
+		Order:  []string{"ATM:all-tasks", "ATM:unmanaged"},
+		Hidden: []string{"ATM:context-current"},
+		Pins:   []string{"ATM:all-tasks"},
+	}
+	if err := s.SetProjectBoards("ATM", want, testActor); err != nil {
+		t.Fatalf("SetProjectBoards: %v", err)
+	}
+	got, err := s.GetBoardsConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Order[0] != "ATM:all-tasks" || got.Hidden[0] != "ATM:context-current" || got.Pins[0] != "ATM:all-tasks" {
+		t.Errorf("round-trip = %+v, want %+v", got, want)
+	}
+	// Boards write preserves other config fields.
+	cfg := EmbeddingConfig{Model: "m1", Endpoint: "http://x", Dim: 4, Threshold: 0.5}
+	if err := s.SetEmbeddingConfig("ATM", cfg, testActor); err != nil {
+		t.Fatal(err)
+	}
+	pc, _ := s.GetProjectConfig("ATM")
+	if pc.Boards == nil || pc.Embedding == nil {
+		t.Errorf("config lost a field after both writes: %+v", pc)
+	}
+}
+
+// TestGetProjectConfigBoardsOnlyIsNotAbsent guards the emptiness check: a
+// config carrying only a boards key must not read as nil.
+func TestGetProjectConfigBoardsOnlyIsNotAbsent(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Hidden: []string{"ATM:backlog"}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil || got == nil || got.Boards == nil {
+		t.Fatalf("GetProjectConfig = (%+v, %v), want non-nil with Boards", got, err)
+	}
+}
+
+func TestSetProjectBoardsValidation(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectBoards("ATM", nil, testActor); !core.IsUsage(err) {
+		t.Errorf("nil boards: err = %v, want usage", err)
+	}
+	four := &core.BoardsConfig{Pins: []string{"ATM:a", "ATM:b", "ATM:c", "ATM:d"}}
+	if err := s.SetProjectBoards("ATM", four, testActor); !core.IsUsage(err) {
+		t.Errorf("4 pins: err = %v, want usage (MaxBoardPins=3)", err)
+	}
+	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{}, ""); !core.IsUsage(err) {
+		t.Errorf("missing actor: err = %v, want usage", err)
+	}
+}
+
+// TestGetBoardsConfigFoldsLegacyPins is the migration read: boards nil +
+// pins.json present -> Pins folded in (capped at 3); first SetProjectBoards
+// persists, after which pins.json is ignored.
+func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	// Task 7 retired WritePins; the fold-in read still consumes a raw
+	// pins.json, so the fixture writes one directly under the project dir.
+	pinsPath := filepath.Join(s.StorePath(), "projects", "ATM", "pins.json")
+	if err := os.WriteFile(pinsPath, []byte(`{"boards":["ATM:open-tasks","ATM:backlog"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.GetBoardsConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Pins) != 2 || b.Pins[0] != "ATM:open-tasks" {
+		t.Fatalf("legacy fold-in = %+v, want the pins.json boards", b.Pins)
+	}
+	// Persist with different pins; pins.json is now dead.
+	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Pins: []string{"ATM:all-tasks"}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := s.GetBoardsConfig("ATM")
+	if len(b2.Pins) != 1 || b2.Pins[0] != "ATM:all-tasks" {
+		t.Fatalf("after persist = %+v, pins.json must be ignored", b2.Pins)
 	}
 }

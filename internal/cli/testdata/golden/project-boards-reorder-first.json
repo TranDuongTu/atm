@@ -1,0 +1,12 @@
+{
+  "order": [
+    "PBX:status:*",
+    "PBX:all-tasks",
+    "PBX:open-tasks",
+    "PBX:in-progress-tasks",
+    "PBX:backlog",
+    "PBX:priority:*",
+    "PBX:unmanaged"
+  ],
+  "project": "PBX"
+}

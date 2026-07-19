@@ -305,6 +305,88 @@ func TestEnsureVocabularyReturnsBoards(t *testing.T) {
 	}
 }
 
+// seedRecorder is a minimal core.LabelService capturing LabelSeed order.
+type seedRecorder struct{ seeded []string }
+
+func (r *seedRecorder) LabelSeed(name, description, expr, actor string) error {
+	r.seeded = append(r.seeded, name)
+	return nil
+}
+func (r *seedRecorder) LabelAdd(name, description, expr, actor string) error { return nil }
+func (r *seedRecorder) LabelList(project, namespace string) []core.Label     { return nil }
+func (r *seedRecorder) LabelShow(name string) (core.Label, error)            { return core.Label{}, nil }
+func (r *seedRecorder) LabelRemove(name, actor string) (*core.LabelRemoveResult, error) {
+	return nil, nil
+}
+func (r *seedRecorder) LabelUsageGrouped(projectCode string) (map[string]int, error) {
+	return nil, nil
+}
+
+func TestVocabularyAndExposedSets(t *testing.T) {
+	vocab := Vocabulary("ATM")
+	if len(vocab) != 13 {
+		t.Fatalf("Vocabulary = %d labels, want 13", len(vocab))
+	}
+	byName := map[string]core.Label{}
+	for _, l := range vocab {
+		byName[l.Name] = l
+	}
+	exp := Exposed("ATM")
+	wantOrder := []string{
+		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:backlog",
+		"ATM:status:*", "ATM:priority:*",
+	}
+	if len(exp) != len(wantOrder) {
+		t.Fatalf("Exposed = %d labels, want %d", len(exp), len(wantOrder))
+	}
+	for i, l := range exp {
+		if l.Name != wantOrder[i] {
+			t.Errorf("Exposed[%d] = %s, want %s", i, l.Name, wantOrder[i])
+		}
+		// Exposed ⊆ Vocabulary, with identical content.
+		if v, ok := byName[l.Name]; !ok || v != l {
+			t.Errorf("Exposed[%d] %s not identical to Vocabulary entry (%+v vs %+v)", i, l.Name, l, byName[l.Name])
+		}
+	}
+	if exp[0].Expr == "" || exp[4].Expr != "" {
+		t.Errorf("expected boards first (Expr set) then descriptors (Expr empty): %+v", exp)
+	}
+}
+
+// TestEnsureVocabularySeedsExactlyVocabulary proves the seed-time verb and the
+// pure ownership read are the same list: every seeded name is in Vocabulary
+// and vice versa, and the board return equals Vocabulary's Expr subset.
+func TestEnsureVocabularySeedsExactlyVocabulary(t *testing.T) {
+	rec := &seedRecorder{}
+	boards, err := EnsureVocabulary(rec, "ATM", "developer@claude:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vocab := Vocabulary("ATM")
+	if len(rec.seeded) != len(vocab) {
+		t.Fatalf("seeded %d labels, Vocabulary has %d", len(rec.seeded), len(vocab))
+	}
+	for i, l := range vocab {
+		if rec.seeded[i] != l.Name {
+			t.Errorf("seeded[%d] = %s, want %s", i, rec.seeded[i], l.Name)
+		}
+	}
+	var wantBoards []core.Label
+	for _, l := range vocab {
+		if l.Expr != "" {
+			wantBoards = append(wantBoards, l)
+		}
+	}
+	if len(boards) != len(wantBoards) {
+		t.Fatalf("boards = %d, want %d", len(boards), len(wantBoards))
+	}
+	for i := range boards {
+		if boards[i] != wantBoards[i] {
+			t.Errorf("boards[%d] = %+v, want %+v", i, boards[i], wantBoards[i])
+		}
+	}
+}
+
 func TestEnsureVocabularyPreservesHumanAllTasksDescription(t *testing.T) {
 	// Extends the never-overwrite contract to all-tasks: a human-curated
 	// all-tasks description survives a re-ensure, exactly as open-tasks and

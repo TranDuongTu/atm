@@ -30,7 +30,6 @@ type LabelGroup = core.LabelGroup
 type LogEntry = core.LogEntry
 type Subject = core.Subject
 type HistoryView = core.HistoryView
-type Pins = core.Pins
 type Vocabulary = core.Vocabulary
 type VocabularyTerm = core.VocabularyTerm
 type EmbeddingConfig = core.EmbeddingConfig

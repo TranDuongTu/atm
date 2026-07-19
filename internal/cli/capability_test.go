@@ -62,3 +62,24 @@ func TestCapabilityGuideMountedByName(t *testing.T) {
 		t.Fatalf("atm capability contextmap guide: exit %d, out %q", code, stdout)
 	}
 }
+
+// TestGoldenCapabilityUnmanaged: the manager's triage read — labels no
+// enabled capability owns, with usage counts. Workflow-owned labels
+// (status:open via the seeded vocabulary) must NOT appear.
+func TestGoldenCapabilityUnmanaged(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "PCX", "--name", "cap demo",
+		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--name", "PCX:type:bug", "--actor", "admin@cli:unset")
+	h.run("label", "add", "--name", "PCX:urgent", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--project", "PCX", "--title", "t1",
+		"--label", "PCX:type:bug", "--label", "PCX:status:open", "--actor", "admin@cli:unset")
+	out, _, code := h.run("--output", "json", "capability", "unmanaged", "--project", "PCX")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if strings.Contains(out, "status:open") {
+		t.Fatalf("workflow-owned label leaked into unmanaged: %s", out)
+	}
+	compareGolden(t, "capability-unmanaged", out)
+}

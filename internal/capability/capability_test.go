@@ -19,6 +19,8 @@ type fakeCap struct {
 	cmdName string
 	summary string
 	guide   string
+	vocab   []core.Label
+	exposed []core.Label
 }
 
 func (f *fakeCap) Name() string { return f.name }
@@ -26,6 +28,10 @@ func (f *fakeCap) Name() string { return f.name }
 func (f *fakeCap) Summary() string { return f.summary }
 
 func (f *fakeCap) Guide() string { return f.guide }
+
+func (f *fakeCap) Vocabulary(code string) []core.Label { return f.vocab }
+
+func (f *fakeCap) Exposed(code string) []core.Label { return f.exposed }
 
 func (f *fakeCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	*f.calls = append(*f.calls, f.name+"/"+code+"/"+actor)
@@ -122,5 +128,128 @@ func TestNilRegistryIsSafeAndEmpty(t *testing.T) {
 	}
 	if boards, err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil || boards != nil {
 		t.Fatalf("EnsureVocabulary on nil = (%v, %v), want (nil, nil)", boards, err)
+	}
+}
+
+// listOnlyService is a core.LabelService whose only live method is LabelList.
+type listOnlyService struct{ labels []core.Label }
+
+func (s *listOnlyService) LabelList(project, namespace string) []core.Label { return s.labels }
+func (s *listOnlyService) LabelAdd(name, description, expr, actor string) error  { return nil }
+func (s *listOnlyService) LabelSeed(name, description, expr, actor string) error { return nil }
+func (s *listOnlyService) LabelShow(name string) (core.Label, error)             { return core.Label{}, nil }
+func (s *listOnlyService) LabelRemove(name, actor string) (*core.LabelRemoveResult, error) {
+	return nil, nil
+}
+func (s *listOnlyService) LabelUsageGrouped(projectCode string) (map[string]int, error) {
+	return nil, nil
+}
+
+func TestRegistryExposedTagsOwnerInRegistrationOrder(t *testing.T) {
+	var calls []string
+	reg := NewRegistry(
+		&fakeCap{name: "workflow", calls: &calls, exposed: []core.Label{
+			{Name: "ATM:all-tasks", Expr: "*"}, {Name: "ATM:status:*"},
+		}},
+		&fakeCap{name: "contextmap", calls: &calls, exposed: []core.Label{
+			{Name: "ATM:context-current", Expr: "context:*"},
+		}},
+	)
+	got := reg.Exposed("ATM")
+	want := []ExposedLabel{
+		{Label: core.Label{Name: "ATM:all-tasks", Expr: "*"}, Owner: "workflow"},
+		{Label: core.Label{Name: "ATM:status:*"}, Owner: "workflow"},
+		{Label: core.Label{Name: "ATM:context-current", Expr: "context:*"}, Owner: "contextmap"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Exposed = %+v, want %+v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("Exposed[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	var nilReg *Registry
+	if nilReg.Exposed("ATM") != nil {
+		t.Error("nil registry must return nil")
+	}
+}
+
+// TestRegistryUnmanagedSubtractsOwnership is the core diff: owned = vocabulary
+// FullNames + members under owned :* descriptors. Capability-internal labels
+// (status:open) and ad-hoc members of an owned namespace (status:wip) are
+// managed; loose tags, unowned namespaces, and leftover descriptors are not.
+func TestRegistryUnmanagedSubtractsOwnership(t *testing.T) {
+	var calls []string
+	wf := &fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{
+		{Name: "ATM:status:*"}, {Name: "ATM:status:open"},
+		{Name: "ATM:all-tasks", Expr: "*"},
+	}}
+	svc := &listOnlyService{labels: []core.Label{
+		{Name: "ATM:all-tasks", Expr: "*"},      // owned board
+		{Name: "ATM:status:*"},                  // owned descriptor
+		{Name: "ATM:status:open"},               // owned member (exact)
+		{Name: "ATM:status:wip"},                // ad-hoc member of owned ns -> managed
+		{Name: "ATM:type:bug"},                  // unowned ns member -> unmanaged
+		{Name: "ATM:type:*"},                    // unowned descriptor -> unmanaged
+		{Name: "ATM:urgent"},                    // loose tag -> unmanaged
+		{Name: "ATM:my-board", Expr: "urgent"},  // user board -> unmanaged
+	}}
+	reg := NewRegistry(wf)
+	got, err := reg.Unmanaged(svc, "ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNames := []string{"ATM:type:bug", "ATM:type:*", "ATM:urgent", "ATM:my-board"}
+	if len(got) != len(wantNames) {
+		t.Fatalf("Unmanaged = %+v, want names %v", got, wantNames)
+	}
+	for i, l := range got {
+		if l.Name != wantNames[i] {
+			t.Errorf("Unmanaged[%d] = %s, want %s", i, l.Name, wantNames[i])
+		}
+	}
+	// Repeated calls are stable (pure read).
+	again, _ := reg.Unmanaged(svc, "ATM")
+	if len(again) != len(got) {
+		t.Errorf("second call = %d labels, want %d", len(again), len(got))
+	}
+}
+
+func TestRegistryUnmanagedEmptyWhenAllOwned(t *testing.T) {
+	var calls []string
+	wf := &fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{{Name: "ATM:status:*"}}}
+	svc := &listOnlyService{labels: []core.Label{{Name: "ATM:status:*"}, {Name: "ATM:status:open"}}}
+	got, err := NewRegistry(wf).Unmanaged(svc, "ATM")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Unmanaged = (%v, %v), want empty", got, err)
+	}
+	// Disabled capability (empty registry): everything is unmanaged.
+	all, _ := NewRegistry().Unmanaged(svc, "ATM")
+	if len(all) != 2 {
+		t.Fatalf("empty registry Unmanaged = %v, want both labels", all)
+	}
+}
+
+func TestOrderFullNames(t *testing.T) {
+	effective := []string{"a", "b", "c", "d"}
+	got := OrderFullNames(effective, []string{"c", "zzz-stale", "a"})
+	want := []string{"c", "a", "b", "d"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("OrderFullNames = %v, want %v", got, want)
+		}
+	}
+	if len(OrderFullNames(nil, []string{"x"})) != 0 {
+		t.Error("empty effective must return empty")
+	}
+	if g := OrderFullNames(effective, nil); g[0] != "a" || g[3] != "d" {
+		t.Errorf("no override must keep original order, got %v", g)
+	}
+}
+
+func TestUmbrellaFullName(t *testing.T) {
+	if UmbrellaFullName("ATM") != "ATM:unmanaged" {
+		t.Fatalf("UmbrellaFullName = %q", UmbrellaFullName("ATM"))
 	}
 }

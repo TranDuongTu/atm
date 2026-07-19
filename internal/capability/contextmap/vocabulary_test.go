@@ -124,6 +124,26 @@ func TestEnsureVocabularySeedsContextNamespaceDescriptor(t *testing.T) {
 	}
 }
 
+func TestVocabularyAndExposedSets(t *testing.T) {
+	vocab := Vocabulary("ATM")
+	if len(vocab) != 9 {
+		t.Fatalf("Vocabulary = %d labels, want 9", len(vocab))
+	}
+	exp := Exposed("ATM")
+	if len(exp) != 1 || exp[0].Name != "ATM:context-current" || exp[0].Expr == "" {
+		t.Fatalf("Exposed = %+v, want exactly the context-current board", exp)
+	}
+	found := false
+	for _, l := range vocab {
+		if l == exp[0] {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Exposed[0] must be identical to its Vocabulary entry")
+	}
+}
+
 func TestEnsureVocabularyPreservesHumanDescription(t *testing.T) {
 	// A human curated the description. The capability must not clobber it:
 	// paved road, not fence.

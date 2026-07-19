@@ -115,6 +115,70 @@ func TestGoldenProjectShowEmbedding(t *testing.T) {
 	}
 }
 
+// TestGoldenProjectBoardsHideShowReorder: display preferences round-trip
+// through config.json.boards; reorder materializes the effective ring order.
+func TestGoldenProjectBoardsHideShowReorder(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "PBX", "--name", "boards demo",
+		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+
+	out, _, code := h.run("--output", "json", "project", "boards", "hide",
+		"--project", "PBX", "--name", "PBX:backlog", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("hide exit %d: %s", code, out)
+	}
+	compareGolden(t, "project-boards-hide", out)
+
+	// Hiding is idempotent.
+	if _, _, code := h.run("project", "boards", "hide", "--project", "PBX",
+		"--name", "PBX:backlog", "--actor", "admin@cli:unset"); code != 0 {
+		t.Fatalf("second hide exit %d", code)
+	}
+
+	out2, _, code := h.run("--output", "json", "project", "boards", "reorder",
+		"--project", "PBX", "--name", "PBX:status:*", "--first", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("reorder exit %d: %s", code, out2)
+	}
+	compareGolden(t, "project-boards-reorder-first", out2)
+
+	out3, _, code := h.run("--output", "json", "project", "boards", "show",
+		"--project", "PBX", "--name", "PBX:backlog", "--actor", "admin@cli:unset")
+	if code != 0 {
+		t.Fatalf("show exit %d: %s", code, out3)
+	}
+	compareGolden(t, "project-boards-show", out3)
+}
+
+func TestProjectBoardsReorderValidation(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "PBX", "--name", "boards demo",
+		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+	// Exactly one placement flag required.
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder with no placement flag must fail")
+	}
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--first", "--last", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder with two placement flags must fail")
+	}
+	// Unknown board name errors (nothing to move).
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:nosuch", "--first", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder of a name not in the effective ring must fail")
+	}
+	// name == anchor is a usage error, not a panic.
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--before", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder --name X --before X must fail (not panic)")
+	}
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--after", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder --name X --after X must fail (not panic)")
+	}
+}
+
 func TestGoldenProjectRemoveZeroTaskGuard(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()

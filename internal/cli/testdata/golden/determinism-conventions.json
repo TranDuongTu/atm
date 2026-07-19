@@ -1,7 +1,7 @@
 {
   "conventions": {
     "actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin. See `atm dev -h`.",
-    "capabilities": "Semantics beyond the substrate live in capabilities; a project enables a per-project subset, and commands for disabled capabilities are not mounted. Enumerate with `atm capability list`; discover one with `atm capability <name> -h` and `atm capability <name> guide`.",
+    "capabilities": "Semantics beyond the substrate live in capabilities; a project enables a per-project subset, and commands for disabled capabilities are not mounted. Enumerate with `atm capability list`; discover one with `atm capability <name> -h` and `atm capability <name> guide`; surface unmanaged labels with `atm capability unmanaged --project <CODE>`.",
     "substrate": [
       {
         "namespace": "atm task",

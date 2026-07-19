@@ -1,0 +1,15 @@
+{
+  "labels": [
+    {
+      "description": "",
+      "name": "PCX:type:bug",
+      "usage": 1
+    },
+    {
+      "description": "",
+      "name": "PCX:urgent",
+      "usage": 0
+    }
+  ],
+  "project": "PCX"
+}

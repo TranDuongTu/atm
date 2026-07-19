@@ -13,20 +13,44 @@ import (
 // scrollable task list height must NOT change as boards are pinned or
 // unpinned. The single tabbed pinned box always reserves pinnedBoxHeight lines,
 // so listContentHeight subtracts a constant. Proven across 0..maxPins pins.
+//
+// Rule 3 of the Task 4 brief: pin workflow's exposed boards (ATM:all-tasks,
+// ATM:open-tasks, ATM:in-progress-tasks) — custom boards are no longer ring
+// rows, so they are no longer pin candidates. Seeding workflow's vocabulary
+// first makes them real ring members so togglePin actually appends them; the
+// height invariant is then asserted over real pins (not vacuously over ghost
+// ad-hoc labels that ringIndex cannot find).
 func TestListContentHeightConstantAcrossPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	var boards []string
-	for i := 0; i < maxPins; i++ {
-		name := fmt.Sprintf("ATM:board-%02d", i)
-		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
-			t.Fatal(err)
-		}
-		boards = append(boards, name)
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	boards := []string{
+		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks",
+	}
+	if len(boards) > maxPins {
+		t.Fatalf("fixture pins %d exceeds maxPins %d", len(boards), maxPins)
 	}
 	m.boards.refresh()
 	m.SetSize(100, 40)
+
+	// Sanity: each fixture board is a real ring member so togglePin will
+	// actually append it (ringIndex >= 0). Without this, the height invariant
+	// would pass vacuously.
+	for _, full := range boards {
+		found := false
+		for _, r := range m.boards.rows {
+			if r.FullName == full {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("fixture board %s is not a ring member: %v", full, m.boards.rowNames())
+		}
+	}
 
 	want := m.tasks.listContentHeight() // 0 pins
 	// The reservation is a constant: pane content height minus the strip minus

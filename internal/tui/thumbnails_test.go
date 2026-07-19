@@ -52,19 +52,17 @@ func TestRenderPinnedTabsShowsTabsAndActiveDescription(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := m.store.LabelAdd("ATM:next-sprint", "work slated for the next sprint", "status:open", m.actor); err != nil {
-		t.Fatal(err)
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
-	if err := m.store.LabelAdd("ATM:blocked-items", "tasks currently blocked", "status:blocked", m.actor); err != nil {
-		t.Fatal(err)
-	}
+	// Pin two workflow-exposed boards: open-tasks and in-progress-tasks.
 	m.boards.refresh()
-	m.boards.selected = "ATM:next-sprint"
+	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
-	m.boards.selected = "ATM:blocked-items"
+	m.boards.selected = "ATM:in-progress-tasks"
 	m.boards.togglePin()
 	// Focus the center board (the ring selection), not a pin.
-	m.boards.selected = "ATM:next-sprint"
+	m.boards.selected = "ATM:open-tasks"
 	m.boards.pinFocus = -1
 
 	box := m.boards.renderPinnedTabs(100)
@@ -77,10 +75,18 @@ func TestRenderPinnedTabsShowsTabsAndActiveDescription(t *testing.T) {
 			t.Errorf("tabbed box missing the Shift-%d tab:\n%s", n, box)
 		}
 	}
-	if !strings.Contains(box, "next-sprint") {
+	if !strings.Contains(box, "open-tasks") {
 		t.Errorf("tabbed box body should name the active board:\n%s", box)
 	}
-	if !strings.Contains(box, "work slated for the next sprint") {
+	// open-tasks's workflow-seeded description must show in the body.
+	l, err := m.store.LabelShow("ATM:open-tasks")
+	if err != nil {
+		t.Fatalf("LabelShow: %v", err)
+	}
+	if l.Description == "" {
+		t.Fatal("open-tasks has no seeded description")
+	}
+	if !strings.Contains(box, l.Description) {
 		t.Errorf("tabbed box body should show the active board's description:\n%s", box)
 	}
 }
@@ -97,11 +103,11 @@ func TestPinnedTabsHighlightsCenterTabWhenPinFocusIsStrip(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := m.store.LabelAdd("ATM:next-sprint", "work slated for the next sprint", "status:open", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
 	m.boards.refresh()
-	m.boards.selected = "ATM:next-sprint"
+	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.pinFocus = -1 // center board is the active filter
 
@@ -168,16 +174,13 @@ func TestPinnedTabsMovesHighlightToPinTabOnJump(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if err := m.store.LabelAdd("ATM:next-sprint", "work slated for the next sprint", "status:open", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:blocked-items", "tasks currently blocked", "status:blocked", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
 	m.boards.refresh()
-	m.boards.selected = "ATM:next-sprint"
+	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
-	m.boards.selected = "ATM:blocked-items"
+	m.boards.selected = "ATM:in-progress-tasks"
 	m.boards.togglePin()
 	if !m.boards.jumpPin(1) { // pinFocus == 0, active board == pins[0]
 		t.Fatal("jumpPin(1) returned false with 2 pins")
@@ -193,7 +196,16 @@ func TestPinnedTabsMovesHighlightToPinTabOnJump(t *testing.T) {
 	if strings.Contains(box, m.styles.PaneActiveStrong.Render("Shift-0")) {
 		t.Errorf("Shift-0 (center) tab must NOT be strong-highlighted after a pin jump:\n%s", box)
 	}
-	if !strings.Contains(box, "work slated for the next sprint") {
+	// The body shows the jumped-to pin's description (open-tasks's seeded
+	// description).
+	l, err := m.store.LabelShow("ATM:open-tasks")
+	if err != nil {
+		t.Fatalf("LabelShow: %v", err)
+	}
+	if l.Description == "" {
+		t.Fatal("open-tasks has no seeded description")
+	}
+	if !strings.Contains(box, l.Description) {
 		t.Errorf("body should show the jumped-to pin's description:\n%s", box)
 	}
 }
@@ -226,5 +238,156 @@ func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 	}
 	if !strings.Contains(box, "all-tasks") {
 		t.Errorf("empty tabbed box body missing the center board name:\n%s", box)
+	}
+}
+
+// seedUmbrellaFixture builds a project whose ring carries the umbrella row
+// over two unmanaged namespaces (comment:*, type:*), mirroring the shape of a
+// real ATM project. Returns the model and the umbrella's ring row.
+func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
+	t.Helper()
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"ATM:comment:decision", "ATM:type:bug"} {
+		if err := m.store.LabelAdd(n, "", "", m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:comment:decision")
+	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:type:bug")
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Umbrella {
+			m.boards.selected = r.FullName
+			m.boards.pinFocus = -1
+			m.boards.applyFocus()
+			return m, r
+		}
+	}
+	t.Fatalf("no umbrella row in ring: %v", m.boards.rowNames())
+	return nil, boardRow{}
+}
+
+// TestSelectedCellRendersUmbrellaSubTableAtL0 guards the strip's SELECTED cell
+// against treating the umbrella sentinel as a namespace board. The umbrella row
+// is Expandable, so renderSelectedCell's L0 branch used to force
+// level=lLevelChart with ns="unmanaged" — a namespace with no members — which
+// rendered a single "(unset)" bar counting EVERY task in the project. The
+// umbrella's L0 preview must be its unmanaged sub-table instead.
+func TestSelectedCellRendersUmbrellaSubTableAtL0(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	cell := m.boards.renderSelectedCell(60, 14, umb)
+	if strings.Contains(cell, "(unset)") {
+		t.Errorf("umbrella L0 preview must not render a namespace chart's (unset) bar:\n%s", cell)
+	}
+	for _, want := range []string{"comment", "type"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella L0 preview missing unmanaged namespace %q:\n%s", want, cell)
+		}
+	}
+}
+
+// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the same cell at
+// lLevelUmbrella. renderSelectedCell's switch had no case for the level Task 5
+// introduced, so a drilled-in umbrella fell through to the L0 default and
+// rendered the same bogus "(unset)" chart the user was trying to drill past.
+func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("drillIn on umbrella: level = %d, want lLevelUmbrella", m.boards.level)
+	}
+	cell := m.boards.renderSelectedCell(60, 14, umb)
+	if strings.Contains(cell, "(unset)") {
+		t.Errorf("drilled-in umbrella must not render a namespace chart's (unset) bar:\n%s", cell)
+	}
+	for _, want := range []string{"comment", "type"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella sub-table missing unmanaged namespace %q:\n%s", want, cell)
+		}
+	}
+}
+
+// TestSelectedCellUmbrellaRenderDoesNotLeakDrillState guards that previewing
+// the umbrella at L0 restores level/ns/cursor and the cached umbrellaRows —
+// renderSelectedCell is a pure render and must not mutate drill state.
+func TestSelectedCellUmbrellaRenderDoesNotLeakDrillState(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	before := m.boards.umbrellaRows
+	_ = m.boards.renderSelectedCell(60, 14, umb)
+	if m.boards.level != lLevelTable {
+		t.Errorf("level leaked after L0 umbrella preview: got %d, want lLevelTable", m.boards.level)
+	}
+	if m.boards.ns != "" {
+		t.Errorf("ns leaked after L0 umbrella preview: %q", m.boards.ns)
+	}
+	if len(m.boards.umbrellaRows) != len(before) {
+		t.Errorf("umbrellaRows leaked after L0 umbrella preview: %d rows, want %d", len(m.boards.umbrellaRows), len(before))
+	}
+}
+
+// TestUmbrellaShiftUpDownMovesCursor guards Shift-↑/↓ inside the umbrella
+// sub-table. The key routes to chartCursorMove, which bailed on
+// `b.level != lLevelChart` — so the umbrella level, added later, silently
+// swallowed every Shift-↑/↓ and the cursor was stuck on the first namespace.
+func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
+	m, _ := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	if got := len(m.boards.umbrellaRows); got < 2 {
+		t.Fatalf("fixture needs >= 2 umbrella rows, got %d", got)
+	}
+	if m.boards.cursor != 0 {
+		t.Fatalf("cursor after drill-in = %d, want 0", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(1)
+	if m.boards.cursor != 1 {
+		t.Errorf("Shift-↓ in umbrella: cursor = %d, want 1", m.boards.cursor)
+	}
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("Shift-↑ in umbrella: cursor = %d, want 0", m.boards.cursor)
+	}
+	// Clamped at both ends.
+	m.boards.chartCursorMove(-1)
+	if m.boards.cursor != 0 {
+		t.Errorf("Shift-↑ past the top: cursor = %d, want 0", m.boards.cursor)
+	}
+	for range m.boards.umbrellaRows {
+		m.boards.chartCursorMove(1)
+	}
+	if want := len(m.boards.umbrellaRows) - 1; m.boards.cursor != want {
+		t.Errorf("Shift-↓ past the bottom: cursor = %d, want %d", m.boards.cursor, want)
+	}
+}
+
+// TestUmbrellaRendersAsChartNotOwnerTable guards that the umbrella sub-table
+// renders in the same meter-bar shape as any other namespace board (status:*,
+// priority:*). It used to render a LABEL/DESCRIPTION/OWNER/COUNT table whose
+// OWNER cell was always "—" — unmanaged labels have no owner by definition, so
+// the column carried no information and made the umbrella look like a
+// different kind of surface than the boards beside it.
+func TestUmbrellaRendersAsChartNotOwnerTable(t *testing.T) {
+	m, umb := seedUmbrellaFixture(t)
+	m.boards.drillIn()
+	cell := m.boards.renderSelectedCell(80, 14, umb)
+	if strings.Contains(cell, "OWNER") {
+		t.Errorf("umbrella sub-table must not render an OWNER column:\n%s", cell)
+	}
+	if !strings.Contains(cell, "unmanaged  ·  2 tasks") {
+		t.Errorf("umbrella sub-table missing the chart header 'unmanaged  ·  2 tasks':\n%s", cell)
+	}
+	// Meter bars, like every other namespace chart.
+	if !strings.Contains(cell, "█") {
+		t.Errorf("umbrella sub-table missing meter bars:\n%s", cell)
+	}
+	// Rows are named by full label name, matching renderChart.
+	for _, want := range []string{"ATM:comment:*", "ATM:type:*"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("umbrella sub-table missing row %q:\n%s", want, cell)
+		}
 	}
 }
