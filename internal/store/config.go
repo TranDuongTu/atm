@@ -4,6 +4,7 @@ import (
 	"atm/internal/core"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
@@ -108,6 +109,19 @@ func (s *Store) ProjectRemotes(code string) (map[string]string, error) {
 	return c.Remotes, nil
 }
 
+// legacyPinBoards reads the board list from a pre-boards pins.json, kept
+// only for the lazy migration into config.json.boards.pins. Missing or
+// malformed reads as nil: display preferences are not worth failing over.
+func (s *Store) legacyPinBoards(code string) []string {
+	var p struct {
+		Boards []string `json:"boards"`
+	}
+	if err := ReadJSON(filepath.Join(s.projectDir(code), "pins.json"), &p); err != nil {
+		return nil
+	}
+	return p.Boards
+}
+
 // GetBoardsConfig returns the project's boards display preferences, never nil
 // on success. While config.json carries no boards key, a legacy pins.json is
 // folded into Pins — the read half of the pins.json migration. The merged
@@ -124,8 +138,8 @@ func (s *Store) GetBoardsConfig(code string) (*core.BoardsConfig, error) {
 		return c.Boards, nil
 	}
 	b := &core.BoardsConfig{}
-	if p, err := s.GetPins(code); err == nil && p != nil {
-		b.Pins = p.Boards
+	if pins := s.legacyPinBoards(code); len(pins) > 0 {
+		b.Pins = pins
 		if len(b.Pins) > core.MaxBoardPins {
 			b.Pins = b.Pins[:core.MaxBoardPins]
 		}

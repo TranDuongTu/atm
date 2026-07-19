@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -437,11 +439,11 @@ func TestSelectDefaultReturnsPinFocusToStrip(t *testing.T) {
 // dropped to 3 (or edited by hand) is clamped on load rather than rendering
 // or being jumpable past what the fixed slot holds.
 //
-// This is the ONE test exercising the legacy pins.json fold-in path: it writes
-// via the legacy WritePins (pins.json only, no config.json.boards), then asserts
-// the TUI still loads the pins via GetBoardsConfig's fold-in. It proves the
-// fold-in end-to-end; Task 7 retires WritePins and this test then switches to
-// writing a raw pins.json file with os.WriteFile.
+// This is the ONE test exercising the legacy pins.json fold-in path: it
+// writes a raw pins.json (pins.json only, no config.json.boards), then
+// asserts the TUI still loads the pins via GetBoardsConfig's fold-in. It
+// proves the fold-in end-to-end; Task 7 retired the WritePins API so the
+// fixture now writes pins.json directly with os.WriteFile.
 func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -457,8 +459,10 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 		"ATM:backlog", "ATM:status:*", "ATM:priority:*",
 	}
 	m.boards.refresh()
-	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: boards}); err != nil {
-		t.Fatalf("write pins: %v", err)
+	pinsPath := filepath.Join(m.store.StorePath(), "projects", "ATM", "pins.json")
+	pinsJSON := `{"boards":["` + strings.Join(boards, `","`) + `"]}`
+	if err := os.WriteFile(pinsPath, []byte(pinsJSON), 0o644); err != nil {
+		t.Fatalf("write pins.json: %v", err)
 	}
 	m.boards.refresh()
 	if len(m.boards.pins) != maxPins {

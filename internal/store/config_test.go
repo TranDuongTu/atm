@@ -2,6 +2,8 @@ package store
 
 import (
 	"atm/internal/core"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -280,8 +282,10 @@ func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	legacy := &Pins{Actor: testActor, Boards: []string{"ATM:open-tasks", "ATM:backlog"}}
-	if err := s.WritePins("ATM", legacy); err != nil {
+	// Task 7 retired WritePins; the fold-in read still consumes a raw
+	// pins.json, so the fixture writes one directly under the project dir.
+	pinsPath := filepath.Join(s.StorePath(), "projects", "ATM", "pins.json")
+	if err := os.WriteFile(pinsPath, []byte(`{"boards":["ATM:open-tasks","ATM:backlog"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.GetBoardsConfig("ATM")

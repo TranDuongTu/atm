@@ -93,11 +93,6 @@ type IndexService interface {
 	Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error)
 }
 
-type PinService interface {
-	GetPins(code string) (*Pins, error)
-	WritePins(code string, p *Pins) error
-}
-
 type AgentService interface {
 	GetAgentsConfig() (AgentsConfig, error)
 	SetSelectedAgent(name, actor string) error
@@ -120,7 +115,6 @@ type Service interface {
 	VocabularyService
 	ActivityService
 	IndexService
-	PinService
 	AgentService
 	MaintenanceService
 }

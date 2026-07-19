@@ -43,15 +43,6 @@ type AgentsConfig struct {
 	Args      map[string][]string `json:"args,omitempty"`
 }
 
-// Pins is the per-project ordered list of pinned board full names, persisted
-// to <store>/projects/<CODE>/pins.json. Missing file == empty state (GetPins
-// returns nil, nil), mirroring Vocabulary.
-type Pins struct {
-	UpdatedAt time.Time `json:"updated_at"`
-	Actor     string    `json:"actor"`
-	Boards    []string  `json:"boards"`
-}
-
 type VocabularyTerm struct {
 	Term   string `json:"term"`
 	Weight int    `json:"weight"`
