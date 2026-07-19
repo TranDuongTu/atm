@@ -29,10 +29,15 @@ func captureChild(h *goldenHarness) *capturedChild {
 	return &c
 }
 
+func stubLookPath(h *goldenHarness) {
+	h.st.lookPathFn = func(string) (string, error) { return "/fake/atm", nil }
+}
+
 func TestDeveloperCodexLaunchJSON(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
@@ -49,6 +54,7 @@ func TestDeveloperCodexLaunchJSON(t *testing.T) {
 func TestDeveloperLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
+	stubLookPath(h)
 
 	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
@@ -118,6 +124,7 @@ func TestDevWriteIfDiffNoOp(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	// First launch writes the context file.
@@ -183,6 +190,7 @@ func TestDeveloperCodexExtraArgs(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO", "--", "--yolo", "--auto")
@@ -199,6 +207,7 @@ func TestDeveloperOllamaLaunch(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("dev", "--agent", "ollama:codex", "--project", "FOO", "--", "--yolo")
@@ -218,6 +227,7 @@ func TestDeveloperCodexEnvArgs(t *testing.T) {
 	t.Cleanup(func() { os.Setenv("ATM_CODEX_ARGS", prev) })
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("dev", "--agent", "codex", "--project", "FOO")
@@ -235,6 +245,7 @@ func TestDeveloperPersonaEnvAndActor(t *testing.T) {
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.run("persona", "create", "--name", "staff", "--prompt", "high bar", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	out, _, code := h.run("dev", "--agent", "claude", "--project", "FOO", "--persona", "staff")
@@ -277,6 +288,7 @@ func TestDeveloperLaunchRejectsDryRunAndActor(t *testing.T) {
 func TestDevLaunchesSelectedAgent(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
+	stubLookPath(h)
 
 	// no selection and no --agent -> non-zero exit
 	if _, _, code := h.run("dev", "--project", "FOO"); code == ExitSuccess {
@@ -300,6 +312,7 @@ func TestDevLaunchesSelectedAgent(t *testing.T) {
 func TestDevAgentFlagOverridesSelected(t *testing.T) {
 	h := newGoldenHarness(t)
 	c := captureChild(h)
+	stubLookPath(h)
 	h.run("agents", "select", "opencode")
 	h.reset()
 	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {

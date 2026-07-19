@@ -33,6 +33,7 @@ func TestManageCodexAutopilotLaunchJSON(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
@@ -50,6 +51,7 @@ func TestManageCodexActionBriefLaunch(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "brief")
@@ -69,6 +71,7 @@ func TestManageCodexActionBriefLaunch(t *testing.T) {
 func TestManageLaunchAutoCreatesProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	captureChild(h)
+	stubLookPath(h)
 
 	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
 	if code != ExitSuccess {
@@ -87,6 +90,7 @@ func TestManageActionSelection(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 
 	// No action flag: autopilot is the default, so this succeeds.
 	_, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
@@ -99,6 +103,7 @@ func TestManageAutopilotIsDefault(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	c := captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	out, _, code := h.run("manage", "--agent", "codex", "--project", "FOO")
@@ -166,6 +171,7 @@ func TestManageCapabilityScopeEnv(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	out, _, code := h.run("manage", "--agent", "codex", "--project", "FOO", "--action", "ask", "--capability", "contextmap")
@@ -201,6 +207,7 @@ func TestManagePersonaEnvAndActor(t *testing.T) {
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.run("persona", "create", "--name", "ops", "--prompt", "curate well", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	out, _, code := h.run("manage", "--agent", "claude", "--project", "FOO", "--persona", "ops")
@@ -343,6 +350,7 @@ func TestManageWriteIfDiffNoOp(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
+	stubLookPath(h)
 	h.reset()
 
 	if _, _, code := h.run("manage", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
 	"time"
 
 	"atm/internal/core"
@@ -78,7 +77,7 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	personaDescription := pp.Description
 	actor := effectivePersona + "@" + l.Name() + ":unset"
 
-	if _, err := exec.LookPath("atm"); err != nil {
+	if _, err := st.lookPath("atm"); err != nil {
 		return fmt.Errorf("%w: atm is not on PATH; the developing/manager prompt assumes `atm` resolves on PATH. Either add the directory containing the `atm` binary to PATH, or invoke atm from a shell where it resolves.", ErrUsage)
 	}
 

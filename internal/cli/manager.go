@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -241,7 +240,7 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	}
 	actor := effectivePersona + "@" + l.Name() + ":unset"
 
-	if _, err := exec.LookPath("atm"); err != nil {
+	if _, err := st.lookPath("atm"); err != nil {
 		return fmt.Errorf("%w: atm is not on PATH; the developing/manager prompt assumes `atm` resolves on PATH. Either add the directory containing the `atm` binary to PATH, or invoke atm from a shell where it resolves.", ErrUsage)
 	}
 

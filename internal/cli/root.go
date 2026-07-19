@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"atm/internal/capability"
@@ -46,6 +47,7 @@ type cliState struct {
 	runChildFn      childRunner
 	runTUI          tuiRunner
 	stdinIsTerminal func() bool
+	lookPathFn      func(string) (string, error)
 
 	// openServiceFn / openAdminFn construct the store for a --store path. The
 	// CLI never names the concrete store; the composition root injects these
@@ -174,6 +176,13 @@ func (s *cliState) runChild(name string, argv []string, env []string, notFoundHi
 		return s.runChildFn(name, argv, env, notFoundHint)
 	}
 	return runChild(name, argv, env, notFoundHint)
+}
+
+func (s *cliState) lookPath(file string) (string, error) {
+	if s.lookPathFn != nil {
+		return s.lookPathFn(file)
+	}
+	return exec.LookPath(file)
 }
 
 func (s *cliState) openStore() (core.Service, error) {
