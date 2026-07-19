@@ -17,20 +17,43 @@ func (s *Store) Rebuild() (*core.RebuildReport, error) {
 	if err != nil {
 		return rep, err
 	}
+	if err := s.wipeCacheForRebuild(db); err != nil {
+		return rep, err
+	}
+	return s.reprojectAllV2(db)
+}
+
+// wipeCacheForRebuild clears every cache table AND the per-project v2
+// freshness rows (last_v2_event_count:<code>) in ONE transaction. The
+// freshness rows MUST be cleared in the same tx as the row tables: a crash
+// between this commit and reprojectAllV2's re-projection leaves empty row
+// tables with no freshness row, so a later read's ensureV2CacheFresh sees
+// "never projected from a v2 file" and self-heals. Before ATM-5b1db5, the
+// wipe touched only the six row tables and left the freshness rows behind,
+// so a crash in that window left freshness asserting "fresh over empty
+// tables" — ensureV2CacheFresh's count-matched probe skipped self-heal and
+// the cache stayed empty despite intact v2 logs on disk.
+func (s *Store) wipeCacheForRebuild(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
-		return rep, err
+		return err
 	}
 	for _, table := range []string{"task_labels", "comment_labels", "tasks", "comments", "projects", "labels"} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 			tx.Rollback()
-			return rep, err
+			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return rep, err
+	// Sweep every v2 freshness key in one statement: the keys share the
+	// "last_v2_event_count:" prefix and there is one per projected v2
+	// project. Deleting by prefix (rather than enumerating codes from disk
+	// and deleting per-code) keeps the wipe and the row-table clear in the
+	// same single tx, which is the whole point of this helper.
+	if _, err := tx.Exec(`DELETE FROM meta WHERE key LIKE 'last_v2_event_count:%'`); err != nil {
+		tx.Rollback()
+		return err
 	}
-	return s.reprojectAllV2(db)
+	return tx.Commit()
 }
 
 // reprojectAllV2 re-projects every on-disk v2 project's cache rows from its
