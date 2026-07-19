@@ -34,10 +34,13 @@ func inProgressTasksExpr() string { return "status:in-progress" }
 func allTasksExpr() string        { return "*" }
 
 // EnsureVocabulary seeds this capability's full vocabulary: the status:*
-// namespace it owns (absorbed from the deleted internal/seed default set)
-// and the four workflow boards. Idempotent: LabelSeed upserts only when the
-// label is absent, so a human's curated description is never overwritten. It
-// returns the board labels (Expr != "") it owns, in the documented order.
+// namespace it owns (absorbed from the deleted internal/seed default set),
+// the priority:* namespace it owns (priority is a planning concern, and
+// workflow is the planning/status capability), and the four workflow boards.
+// Idempotent: LabelSeed upserts only when the label is absent, so a human's
+// curated description is never overwritten. It returns the board labels
+// (Expr != "") it owns, in the documented order; status and priority labels
+// are stored/namespace labels (Expr == "") and are not returned.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	stored := []struct{ suffix, desc string }{
 		{"status:*", "lifecycle state of a task; exactly one status label should be present"},
@@ -45,6 +48,10 @@ func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, er
 		{"status:in-progress", "workflow state: in-progress; someone is actively working on this"},
 		{"status:blocked", "workflow state: blocked; task cannot proceed pending something else"},
 		{"status:done", "workflow state: done; task is complete"},
+		{"priority:*", "urgency ranking for planning; at most one priority label per task, absent means default priority"},
+		{"priority:high", "planning priority: high; do this first, everything untagged is default priority"},
+		{"priority:medium", "planning priority: medium; do after high-priority work"},
+		{"priority:low", "planning priority: low; do when no higher-priority work remains"},
 	}
 	for _, l := range stored {
 		if err := s.LabelSeed(code+":"+l.suffix, l.desc, "", actor); err != nil {

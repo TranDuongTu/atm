@@ -1,20 +1,24 @@
 {
-  "comment": {
-    "body": "Body here",
+  "task": {
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
+    "description": "",
     "history": [
       {
-        "action": "comment.created",
+        "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 31
+        "seq": 29
       }
     ],
-    "id": "ATM-0807f1-c2451",
-    "labels": [],
+    "id": "ATM-e78eea",
+    "labels": [
+      "ATM:status:open",
+      "ATM:type:bug"
+    ],
     "ordinal": 1,
-    "task_id": "ATM-0807f1",
+    "project_code": "ATM",
+    "title": "Fix label reconciliation",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }

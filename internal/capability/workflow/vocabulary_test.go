@@ -241,6 +241,48 @@ func TestEnsureVocabularySeedsStatusLabels(t *testing.T) {
 	}
 }
 
+// TestEnsureVocabularySeedsPriorityLabels asserts the workflow capability owns
+// the priority:* namespace (descriptor + the three priority values). Priority
+// is a planning concern and workflow is the planning/status capability, so it
+// seeds priority:* alongside status:*. Like status labels, priority labels
+// are stored/namespace labels (Expr == ""), not boards.
+func TestEnsureVocabularySeedsPriorityLabels(t *testing.T) {
+	s := newTestStore(t)
+	rec := &recordingLabelService{LabelService: s}
+	if _, err := EnsureVocabulary(rec, "ATM", "admin@cli:unset"); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	wantPriority := []string{
+		"ATM:priority:*", "ATM:priority:high", "ATM:priority:medium", "ATM:priority:low",
+	}
+	seen := map[string]labelSeedCall{}
+	for _, c := range rec.seedCalls {
+		seen[c.name] = c
+	}
+	for _, want := range wantPriority {
+		c, ok := seen[want]
+		if !ok {
+			t.Errorf("EnsureVocabulary did not LabelSeed %s (calls: %v)", want, rec.seedCalls)
+			continue
+		}
+		if c.expr != "" {
+			t.Errorf("%s seeded with expr %q, want empty (priority labels are not boards)", want, c.expr)
+		}
+	}
+	for _, want := range wantPriority {
+		l, err := s.LabelShow(want)
+		if err != nil {
+			t.Fatalf("EnsureVocabulary did not seed %s: %v", want, err)
+		}
+		if l.Description == "" {
+			t.Errorf("%s seeded without a description", want)
+		}
+		if l.Expr != "" {
+			t.Errorf("%s is a stored/namespace label, seeded with expr %q", want, l.Expr)
+		}
+	}
+}
+
 // TestEnsureVocabularyReturnsBoards asserts EnsureVocabulary returns the
 // board labels (Expr != "") this capability owns, in the documented order,
 // and never returns a stored/namespace label.

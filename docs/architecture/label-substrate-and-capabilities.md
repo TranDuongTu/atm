@@ -116,6 +116,10 @@ The context map is the pattern's first realisation. It owns `context:*` (pointer
 
 See `docs/superpowers/specs/2026-07-13-context-map-refresh-design.md` for the full design.
 
+### Second instance: `atm capability workflow`
+
+The workflow capability owns the paved road for status and priority. Its `EnsureVocabulary` seeds the `status:*` namespace (four values: `open`, `in-progress`, `blocked`, `done`) and the `priority:*` namespace (three values: `high`, `medium`, `low`) — priority is a planning concern, and workflow is the planning/status capability, so it owns the vocabulary alongside status. It also seeds four boards (`backlog`, `open-tasks`, `in-progress-tasks`, `all-tasks`). Its mutating verbs (`start`/`open`/`block`/`complete`) swap the `status:*` label and maintain the exactly-one-status invariant; they do not touch priority (assign by hand). `comment:*` is not seeded by any capability — agents invent comment kinds on demand.
+
 ### Adding the next one
 
 When a subsystem needs structure the substrate lacks, ask in order:

@@ -58,6 +58,22 @@
       "name": "ATM:open-tasks"
     },
     {
+      "description": "urgency ranking for planning; at most one priority label per task, absent means default priority",
+      "name": "ATM:priority:*"
+    },
+    {
+      "description": "planning priority: high; do this first, everything untagged is default priority",
+      "name": "ATM:priority:high"
+    },
+    {
+      "description": "planning priority: low; do when no higher-priority work remains",
+      "name": "ATM:priority:low"
+    },
+    {
+      "description": "planning priority: medium; do after high-priority work",
+      "name": "ATM:priority:medium"
+    },
+    {
       "description": "lifecycle state of a task; exactly one status label should be present",
       "name": "ATM:status:*"
     },

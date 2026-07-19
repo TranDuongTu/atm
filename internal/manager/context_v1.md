@@ -20,5 +20,4 @@ Capabilities own the operating procedures. Enumerate them with `<ATM_BIN> capabi
 
 ## Rules of Thumb
 - Understand the label logic to find tasks that may contain relevant information.
-- Bookmark repository links, documents, code paths, … and constantly keep them fresh during manager sessions.
-- Most projects follow a spec → plan → issues → implementation process. Respect these processes; don't disrupt their prompts. Just capture their designs, decisions, and tickets into the ledger.
+- Understand each capability's own organization rules and use them to self-organize the project.

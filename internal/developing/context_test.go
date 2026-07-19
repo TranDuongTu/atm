@@ -28,6 +28,7 @@ func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 		"actor `codex-dev`",
 		"atm `/usr/local/bin/atm`",
 		"conventions",
+		"capability list --project FOO",
 		"search --project FOO",
 	} {
 		if !strings.Contains(got, want) {
@@ -51,13 +52,12 @@ func TestRenderContext_Persona(t *testing.T) {
 	}
 }
 
-func TestRenderContextDelegatesWritesToManager(t *testing.T) {
+func TestRenderContextPromptsJournaling(t *testing.T) {
 	got := RenderContext(ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "ollama-dev", RunID: "R1", Timestamp: "2026-07-08T00:00:00Z"})
 	for _, frag := range []string{
 		"atm search",
-		"atm-manager",
-		"write to the atm-manager",
-		"When in doubt",
+		"visible ledger",
+		"Journal",
 	} {
 		if !strings.Contains(got, frag) {
 			t.Errorf("developing context missing %q", frag)

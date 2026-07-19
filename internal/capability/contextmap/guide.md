@@ -25,13 +25,15 @@ Read the project's current knowledge from `<CODE>:context-current` (`atm task li
 
 ## Brief
 
-Interview the human to map this project's knowledge. Ask:
-- "What repos does this project depend on? Where are they?" → create `context:repository` tasks, `add` with `--source git:<path>` / `--source url:<url>`.
-- "What docs should a new agent read first?" → create `context:documentation` tasks, `add` with the doc locator.
-- "What are the agent-direction notes for this project (build/test/lint commands, gotchas)?" → create one `context:agent` task, write the notes in its description, `add` with the source.
-- "Are there open questions about the project a human should clarify?" → create `context:question` tasks.
+Interview the human to map this project's knowledge. The goal is to record what an agent needs to know — and where each piece came from — so future drift is detectable. Ask, one topic at a time:
 
-For each, the description is the payload; the provenance stamp records where it came from.
+- **Repos.** "Which repositories does this project involve — its own, and the ones it depends on or builds against? Where do they live, and which branches/tags matter right now?" → `context:repository` tasks, `add` with `--source git:<path>` / `--source url:<url>`.
+- **External sources.** "Are there external systems this project references — issue trackers, design docs, runbooks, dashboards, upstream APIs?" → `context:documentation` (or `context:repository` when it's another repo) tasks, `add` with the appropriate `--source`.
+- **Docs to read first.** "What docs should a new agent read first to orient? Architecture, ADRs, specs, READMEs, the AGENTS.md / CLAUDE.md equivalent?" → `context:documentation` tasks, `add` with the doc locator.
+- **Process, conventions, skills.** "What process does this repo run — spec → plan → issues → implementation? What conventions (build/test/lint, commit style, branch model) and which agent skills or prompts are in force?" → one `context:agent` task whose description carries the agent-direction notes, `add` with the source.
+- **Open questions.** "Are there open questions about the project a human should clarify?" → `context:question` tasks.
+
+For each, the description is the payload; the provenance stamp records where it came from. When the human is unsure, capture what they do know as a `context:question` rather than guessing — pointers with unknowns are still useful.
 
 ## Autopilot
 
