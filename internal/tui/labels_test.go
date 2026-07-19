@@ -2050,6 +2050,101 @@ func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	}
 }
 
+// TestUmbrellaChartHidesUnsetRow guards that the (unset) synthetic row — which
+// measures "tasks in the project lacking this namespace" — is suppressed when
+// the chart was entered from the umbrella sub-table. The (unset) row is a
+// backlog-triage affordance for owned namespaces (where "tasks with no
+// status" is meaningful). Inside the umbrella the user is browsing unmanaged
+// labels, not triaging "tasks missing this namespace"; the project-wide
+// "others" count is nonsensical there (it includes tasks that have nothing to
+// do with unmanaged labels at all). fromUmbrella gates it off.
+func TestUmbrellaChartHidesUnsetRow(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	// Unmanaged type:* namespace with two members; one task lacks a type:*
+	// label entirely (it carries only owned status:* labels).
+	if err := m.store.LabelAdd("ATM:type:*", "task type axis", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:type:bug", "a defect", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:type:feature", "an enhancement", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
+	seedTask(t, m, "ATM", "feature one", "ATM:status:open", "ATM:type:feature")
+	seedTask(t, m, "ATM", "no type", "ATM:status:open") // no type:* label
+	m.boards.refresh()
+
+	// Enter the umbrella, then drill the type namespace row.
+	m.boards.selected = "ATM:unmanaged"
+	m.boards.drillIn()
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	var typeIdx int
+	for i, r := range m.boards.umbrellaRows {
+		if r.Name == "type" {
+			typeIdx = i
+		}
+	}
+	m.boards.cursor = typeIdx
+	m.boards.handleUmbrellaKey(keyMsg("enter"))
+	if m.boards.level != lLevelChart || m.boards.ns != "type" {
+		t.Fatalf("enter on type row: level=%v ns=%q, want chart/type", m.boards.level, m.boards.ns)
+	}
+	if !m.boards.fromUmbrella {
+		t.Fatalf("fromUmbrella = false after umbrella-entered chart; want true")
+	}
+	rows := m.boards.chartRows()
+	for _, r := range rows {
+		if r.unset {
+			t.Errorf("umbrella-entered chart must not show (unset) row; got %+v (project-wide others count is meaningless under the umbrella)", r)
+		}
+	}
+	// The descriptor row (ATM:type:*) plus the 2 members, no (unset) row.
+	if len(rows) != 3 {
+		t.Fatalf("chart rows = %+v, want descriptor + 2 members (no unset)", rows)
+	}
+}
+
+// TestRingChartStillShowsUnsetRow guards the existing behavior: a chart
+// entered from the L0 ring (status:*) keeps the (unset) row. Only the
+// umbrella-entered path suppresses it.
+func TestRingChartStillShowsUnsetRow(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	seedTask(t, m, "ATM", "no status", "ATM:priority:high") // unset status
+	m.boards.refresh()
+	m.boards.selected = "ATM:status:*"
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart || m.boards.ns != "status" {
+		t.Fatalf("level=%v ns=%q, want chart/status", m.boards.level, m.boards.ns)
+	}
+	if m.boards.fromUmbrella {
+		t.Fatalf("fromUmbrella = true for ring-entered chart; want false")
+	}
+	var sawUnset bool
+	for _, r := range m.boards.chartRows() {
+		if r.unset {
+			sawUnset = true
+		}
+	}
+	if !sawUnset {
+		t.Error("ring-entered status chart must still show the (unset) row")
+	}
+}
+
 // TestUmbrellaDrillInShowsEmergentSubTable: drilling into the umbrella lists
 // the OLD emergent derivation scoped to unmanaged labels only — namespace
 // rows for unmanaged prefixes, plus loose labels/boards — and drilling a

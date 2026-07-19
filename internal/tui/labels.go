@@ -1057,7 +1057,13 @@ func (b *boardsModel) enterBoard(r boardRow) {
 }
 
 // chartRows returns the active namespace's per-label task counts plus a
-// trailing (unset) row for tasks lacking the namespace.
+// trailing (unset) row for tasks lacking the namespace. The (unset) row is
+// suppressed when the chart was entered from the umbrella sub-table: there,
+// "tasks lacking this namespace" measures the whole project (including tasks
+// that have nothing to do with unmanaged labels), which is nonsensical inside
+// a browse-unmanaged-labels view. The ring-entered chart keeps it — (unset)
+// is a backlog-triage affordance for owned namespaces (e.g. tasks with no
+// status label).
 func (b *boardsModel) chartRows() []chartRow {
 	scope := b.m.projectScope
 	var rows []chartRow
@@ -1073,7 +1079,7 @@ func (b *boardsModel) chartRows() []chartRow {
 		}
 	}
 	unset = len(others)
-	if unset > 0 {
+	if unset > 0 && !b.fromUmbrella {
 		rows = append(rows, chartRow{full: "(unset)", count: unset, unset: true})
 	}
 	return rows
