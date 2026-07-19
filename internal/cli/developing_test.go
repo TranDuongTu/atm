@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 type capturedChild struct {
@@ -73,14 +75,15 @@ func TestDevelopingTailSummaryJSON(t *testing.T) {
 }
 
 func TestDevelopingEnvIncludesATMValues(t *testing.T) {
-	got := assembleEnv(developingEnvValues("FOO", "/bin/atm", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer"))
+	os.Unsetenv("ATM_BIN")
+	got := assembleEnv(developingEnvValues("FOO", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer", "2026-07-19T00:00:00Z"))
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{
 		"ATM_ROLE=developing",
 		"ATM_PROJECT=FOO",
-		"ATM_BIN=/bin/atm",
 		"ATM_ACTOR=developer@codex:unset",
 		"ATM_RUN_ID=FOO-RUNID",
+		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
 		"ATM_CONTEXT_FILE=/tmp/context.md",
 		"ATM_AGENT=codex",
 		"ATM_PERSONA=developer",
@@ -89,10 +92,82 @@ func TestDevelopingEnvIncludesATMValues(t *testing.T) {
 			t.Errorf("developing env missing %q", want)
 		}
 	}
+	if strings.Contains(joined, "ATM_BIN=") {
+		t.Errorf("developing env must not set ATM_BIN; got:\n%s", joined)
+	}
+}
+
+func TestDevPATHGuard(t *testing.T) {
+	// PATH must NOT resolve `atm`. Use a PATH that has only the harness's
+	// own directories (none contain `atm`).
+	t.Setenv("PATH", "/nonexistent")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+	_, stderr, code := h.run("dev", "--agent", "codex", "--project", "FOO")
+	if code == ExitSuccess {
+		t.Fatalf("expected non-zero exit when atm is not on PATH")
+	}
+	if !strings.Contains(stderr, "atm is not on PATH") {
+		t.Fatalf("expected 'atm is not on PATH' in stderr; got:\n%s", stderr)
+	}
+}
+
+func TestDevWriteIfDiffNoOp(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+
+	// First launch writes the context file.
+	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("first dev exit=%d stderr=%s", code, h.stderr.String())
+	}
+	path := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "dev-developer.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file not created at %s: %v", path, err)
+	}
+	prev := info.ModTime()
+
+	// Sleep so a rewrite would change mtime.
+	time.Sleep(15 * time.Millisecond)
+
+	// Second launch of the same tuple should be a no-op on the file.
+	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("second dev exit=%d stderr=%s", code, h.stderr.String())
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file disappeared: %v", err)
+	}
+	if !info.ModTime().Equal(prev) {
+		t.Fatalf("context file mtime changed on second launch; write-if-diff should be a no-op")
+	}
 }
 
 func TestDevelopingLauncherNotFound(t *testing.T) {
-	t.Setenv("PATH", "/nonexistent")
+	// The PATH guard (exec.LookPath("atm")) runs before runChild and exits
+	// early if `atm` is not on PATH. To exercise the launcher-not-found path
+	// (codex absent), put a directory containing an `atm` binary on PATH while
+	// leaving `codex` unresolvable. Build the project's own binary into a temp
+	// dir and prepend it to PATH.
+	atmDir := t.TempDir()
+	atmBin := filepath.Join(atmDir, "atm")
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH; cannot build atm for PATH guard")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", atmBin, "./cmd/atm")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./cmd/atm: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", atmDir)
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
@@ -238,13 +313,13 @@ func TestDevAgentFlagOverridesSelected(t *testing.T) {
 func normalizeDevelopingOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
-		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/developing/FOO-\d{14}-[0-9a-f]{6}\.md`)
-		s = contextPathRe.ReplaceAllString(s, "/STORE/developing/FOO-RUNID.md")
+		contextPathRe := regexp.MustCompile(strings.ReplaceAll(filepath.ToSlash(storePath), `/`, `\/`) + `/projects/FOO/cache/dev-developer\.md`)
+		s = contextPathRe.ReplaceAllString(s, "/STORE/projects/FOO/cache/dev-developer.md")
 	}
 	runIDRe := regexp.MustCompile(`FOO-\d{14}-[0-9a-f]{6}`)
 	s = runIDRe.ReplaceAllString(s, "FOO-RUNID")
-	atmBinRe := regexp.MustCompile(`"ATM_BIN": "[^"]+"`)
-	s = atmBinRe.ReplaceAllString(s, `"ATM_BIN": "/ATM_BIN"`)
+	timestampRe := regexp.MustCompile(`"ATM_TIMESTAMP": "[^"]+"`)
+	s = timestampRe.ReplaceAllString(s, `"ATM_TIMESTAMP": "TIMESTAMP"`)
 	return s
 }
 

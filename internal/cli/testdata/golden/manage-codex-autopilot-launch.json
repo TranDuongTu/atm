@@ -2,19 +2,19 @@
   "agent": "codex",
   "argv": [
     "codex",
-    "Read the manager instructions in the file at /STORE/manager/FOO-RUNID.md and follow them exactly."
+    "Read the manager instructions in the file at /STORE/projects/FOO/cache/manage-manager-autopilot-all.md and follow them exactly."
   ],
-  "context_path": "/STORE/manager/FOO-RUNID.md",
+  "context_path": "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md",
   "env": {
     "ATM_ACTOR": "manager@codex:unset",
-    "ATM_BIN": "/ATM_BIN",
-    "ATM_CONTEXT_FILE": "/STORE/manager/FOO-RUNID.md",
+    "ATM_CONTEXT_FILE": "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md",
     "ATM_MANAGER_ACTION": "autopilot",
     "ATM_MANAGER_CAPABILITY": "",
     "ATM_PERSONA": "manager",
     "ATM_PROJECT": "FOO",
     "ATM_ROLE": "manager",
-    "ATM_RUN_ID": "FOO-RUNID"
+    "ATM_RUN_ID": "FOO-RUNID",
+    "ATM_TIMESTAMP": "TIMESTAMP"
   },
   "project": "FOO",
   "role": "manager",
@@ -23,7 +23,7 @@
 {
   "agent": "codex",
   "agent_exit": 0,
-  "context_path": "/STORE/manager/FOO-RUNID.md",
+  "context_path": "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md",
   "project": "FOO",
   "role": "manager",
   "run_id": "FOO-RUNID"

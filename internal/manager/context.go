@@ -10,12 +10,9 @@ import (
 var contextV1 string
 
 type ContextData struct {
-	Code      string
-	Name      string
-	ATMBin    string
-	Actor     string
-	RunID     string
-	Timestamp string
+	Code  string
+	Name  string
+	Actor string
 
 	// Persona, PersonaPrompt, PersonaDescription describe the persona the
 	// manager is operating as. Rendered into a persona block by RenderContext
@@ -43,22 +40,21 @@ func RenderContext(data ContextData) string {
 	}
 	actionBlock := ""
 	if data.Action != "" {
-		bin := binOr(data.ATMBin)
 		code := data.Code
 		if code == "" {
 			code = "<CODE>"
 		}
-		scope := fmt.Sprintf("each enabled capability (`%s capability list --project %s` enumerates them)", bin, code)
+		scope := fmt.Sprintf("each enabled capability (`atm capability list --project %s` enumerates them)", code)
 		if data.Capability != "" {
 			scope = fmt.Sprintf("the `%s` capability", data.Capability)
 		}
 		switch data.Action {
 		case "brief":
-			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **brief**. For %s, run `%s capability <name> guide` and follow its \"Brief\" section — interview the human to set up that capability's territory.\n", scope, bin)
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **brief**. For %s, run `atm capability <name> guide` and follow its \"Brief\" section — interview the human to set up that capability's territory.\n", scope)
 		case "autopilot":
-			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **autopilot**. For %s, run `%s capability <name> guide` and follow its \"Autopilot\" section — autonomously keep that capability's territory following its guide.\n", scope, bin)
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **autopilot**. For %s, run `atm capability <name> guide` and follow its \"Autopilot\" section — autonomously keep that capability's territory following its guide.\n", scope)
 		case "ask":
-			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **ask**. Standby for the human to ask questions; do not act proactively and do not mutate the ledger. Read the guide of %s (`%s capability <name> guide`) to be ready to answer.\n", scope, bin)
+			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **ask**. Standby for the human to ask questions; do not act proactively and do not mutate the ledger. Read the guide of %s (`atm capability <name> guide`) to be ready to answer.\n", scope)
 		default:
 			actionBlock = fmt.Sprintf("## Current manager action\n\nFocus this session on **%s**.\n", data.Action)
 		}
@@ -68,15 +64,12 @@ func RenderContext(data ContextData) string {
 	// template can still be produced by `atm manage-context` with no --project).
 	// <PERSONA_BLOCK> and <ACTION_BLOCK> are exceptions: when absent, the blocks
 	// are genuinely omitted, so they substitute with "" (no placeholders
-	// survive). The action block already embeds concrete bin/code, so it never
+	// survive). The action block already embeds concrete code, so it never
 	// carries a placeholder the replacer would skip.
 	pairs := []string{
 		"<CODE>", data.Code,
 		"<PROJECT_NAME>", data.Name,
-		"<ATM_BIN>", data.ATMBin,
 		"<ACTOR>", data.Actor,
-		"<RUN_ID>", data.RunID,
-		"<TIMESTAMP>", data.Timestamp,
 		"<PERSONA_BLOCK>", personaBlock,
 		"<ACTION_BLOCK>", actionBlock,
 	}
@@ -90,13 +83,4 @@ func RenderContext(data ContextData) string {
 		}
 	}
 	return strings.NewReplacer(final...).Replace(contextV1)
-}
-
-// binOr keeps the <ATM_BIN> placeholder alive in a generic render (no
-// project), matching the replacer's convention for empty fields.
-func binOr(bin string) string {
-	if bin == "" {
-		return "<ATM_BIN>"
-	}
-	return bin
 }

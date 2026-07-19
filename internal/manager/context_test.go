@@ -7,31 +7,47 @@ import (
 
 func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 	got := RenderContext(ContextData{
-		Code:   "ATM",
-		Name:   "Agent Tasks Management",
-		ATMBin: "/usr/local/bin/atm",
-		Actor:  "opencode-manager",
+		Code:   "FOO",
+		Name:   "Foo Project",
+		Actor:  "manager@codex:unset",
+		Action: "autopilot",
 	})
-	for _, placeholder := range []string{"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>"} {
+	for _, placeholder := range []string{
+		"<CODE>", "<PROJECT_NAME>", "<ACTOR>", "<ACTION_BLOCK>",
+	} {
 		if strings.Contains(got, placeholder) {
 			t.Errorf("rendered context still contains %s", placeholder)
 		}
 	}
+	for _, placeholder := range []string{
+		"<RUN_ID>", "<TIMESTAMP>", "<ATM_BIN>",
+	} {
+		if strings.Contains(got, placeholder) {
+			t.Errorf("rendered context still contains volatile placeholder %s", placeholder)
+		}
+	}
 	for _, want := range []string{
-		"ATM manager — ATM",
-		"Project `ATM` (`Agent Tasks Management`)",
-		"atm `/usr/local/bin/atm`",
-		"autonomous owner",
-		"conventions",
+		"# ATM manager — FOO",
+		"Project `FOO` (`Foo Project`)",
+		"actor `manager@codex:unset`",
+		"atm conventions",
+		"atm capability list --project FOO",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered context missing %q", want)
 		}
 	}
+	if strings.Contains(got, "/usr/local/bin/atm") {
+		t.Errorf("rendered context must not contain an absolute atm path")
+	}
+	// The action block builds commands with the literal "atm", not <ATM_BIN>.
+	if !strings.Contains(got, "atm capability <name> guide") {
+		t.Errorf("action block should reference literal `atm capability <name> guide`")
+	}
 }
 
 func TestRenderContextPrinciplesPresent(t *testing.T) {
-	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", ATMBin: "/bin/atm", Actor: "m"})
+	got := RenderContext(ContextData{Code: "ATM", Name: "ATM", Actor: "m"})
 	for _, frag := range []string{
 		"autonomous owner",
 		"relentlessly and frequently organize",
@@ -45,13 +61,15 @@ func TestRenderContextPrinciplesPresent(t *testing.T) {
 }
 
 func TestRenderContextGenericKeepsPlaceholders(t *testing.T) {
-	// The generic body (no project) is produced by leaving placeholders in place
-	// so `atm manage-context` with no --project still renders a template.
 	got := RenderContext(ContextData{})
-	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
+	for _, placeholder := range []string{"<CODE>", "<ACTOR>"} {
 		if !strings.Contains(got, placeholder) {
-			t.Errorf("generic render stripped %s; placeholders must survive for template use", placeholder)
+			t.Errorf("generic render stripped %s", placeholder)
 		}
+	}
+	// <ATM_BIN> is gone from the template; the generic render must not contain it.
+	if strings.Contains(got, "<ATM_BIN>") {
+		t.Errorf("generic render must not contain <ATM_BIN>; literal `atm` is used")
 	}
 }
 
@@ -67,14 +85,14 @@ func TestManagerContextInjectsPersona(t *testing.T) {
 }
 
 func TestRenderContextActionBlocks(t *testing.T) {
-	base := ContextData{Code: "ATM", Name: "Agent Tasks Management", ATMBin: "/usr/local/bin/atm", Actor: "manager@claude:test"}
+	base := ContextData{Code: "ATM", Name: "Agent Tasks Management", Actor: "manager@claude:test"}
 
 	brief := base
 	brief.Action = "brief"
 	out := RenderContext(brief)
 	if !strings.Contains(out, "Focus this session on **brief**") ||
 		!strings.Contains(out, `"Brief" section`) ||
-		!strings.Contains(out, "/usr/local/bin/atm capability list --project ATM") {
+		!strings.Contains(out, "atm capability list --project ATM") {
 		t.Errorf("brief block wrong:\n%s", out)
 	}
 

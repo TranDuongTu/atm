@@ -1,6 +1,6 @@
-# ATM developing session <RUN_ID>
+# ATM developing session
 
-Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>` · atm `<ATM_BIN>`
+Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>`
 
 <PERSONA_BLOCK>
 

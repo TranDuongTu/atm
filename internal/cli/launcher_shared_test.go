@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestAgentEnvArgs_DirectHosts(t *testing.T) {
@@ -76,5 +79,105 @@ func TestAppendAgentArgs_DoesNotMutateBase(t *testing.T) {
 	_ = appendAgentArgs(base, []string{"--x"}, []string{"--y"})
 	if base[0] != "codex" || len(base) != 1 {
 		t.Errorf("appendAgentArgs mutated base: %v", base)
+	}
+}
+
+func TestContextCachePathDev(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "dev", "developer", "", "")
+	want := "/STORE/projects/FOO/cache/dev-developer.md"
+	if got != want {
+		t.Fatalf("contextCachePath dev = %q, want %q", got, want)
+	}
+}
+
+func TestContextCachePathManageAllCapabilities(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "manage", "manager", "autopilot", "")
+	want := "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md"
+	if got != want {
+		t.Fatalf("contextCachePath manage-all = %q, want %q", got, want)
+	}
+}
+
+func TestContextCachePathManageScopedCapability(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "manage", "manager", "brief", "boards")
+	want := "/STORE/projects/FOO/cache/manage-manager-brief-boards.md"
+	if got != want {
+		t.Fatalf("contextCachePath manage-scoped = %q, want %q", got, want)
+	}
+}
+
+func TestContextCachePathNormalizes(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "dev", "Dev-Staff", "", "")
+	want := "/STORE/projects/FOO/cache/dev-dev-staff.md"
+	if got != want {
+		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
+	}
+}
+
+func TestWriteContextIfDiffCreates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache", "dev-developer.md")
+	content := []byte("# prompt\n")
+	if err := writeContextIfDiff(path, content); err != nil {
+		t.Fatalf("writeContextIfDiff: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("file content mismatch")
+	}
+}
+
+func TestWriteContextIfDiffNoOpOnMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache", "dev-developer.md")
+	content := []byte("# prompt\n")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	prevMtime := info.ModTime()
+
+	// Sleep so a new write would change mtime if it happened.
+	time.Sleep(10 * time.Millisecond)
+
+	if err := writeContextIfDiff(path, content); err != nil {
+		t.Fatalf("writeContextIfDiff: %v", err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !info.ModTime().Equal(prevMtime) {
+		t.Fatalf("writeContextIfDiff should be a no-op when content matches; mtime changed")
+	}
+}
+
+func TestWriteContextIfDiffOverwritesOnDiff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache", "dev-developer.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("# old\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := writeContextIfDiff(path, []byte("# new\n")); err != nil {
+		t.Fatalf("writeContextIfDiff: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "# new\n" {
+		t.Fatalf("file not overwritten; got %q", got)
 	}
 }

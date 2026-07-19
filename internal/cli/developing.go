@@ -2,8 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"os/exec"
 	"time"
 
 	"atm/internal/core"
@@ -79,36 +78,31 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	personaDescription := pp.Description
 	actor := effectivePersona + "@" + l.Name() + ":unset"
 
-	atmBin, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve atm binary: %w", err)
+	if _, err := exec.LookPath("atm"); err != nil {
+		return fmt.Errorf("%w: atm is not on PATH; the developing/manager prompt assumes `atm` resolves on PATH. Either add the directory containing the `atm` binary to PATH, or invoke atm from a shell where it resolves.", ErrUsage)
 	}
 
+	now := time.Now().UTC()
 	runID := newRunID(opts.Project)
-	contextPath := filepath.Join(s.StorePath(), "developing", runID+".md")
-	if err := os.MkdirAll(filepath.Dir(contextPath), 0o755); err != nil {
-		return fmt.Errorf("create developing dir: %w", err)
-	}
+	timestamp := core.RFC3339UTC(now)
+	contextPath := contextCachePath(s.StorePath(), p.Code, "dev", effectivePersona, "", "")
 
 	rendered := developing.RenderContext(developing.ContextData{
 		Code:               p.Code,
 		Name:               p.Name,
-		ATMBin:             atmBin,
 		Actor:              actor,
-		RunID:              runID,
-		Timestamp:          core.RFC3339UTC(time.Now().UTC()),
 		Persona:            effectivePersona,
 		PersonaPrompt:      personaPrompt,
 		PersonaDescription: personaDescription,
 	})
-	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
+	if err := writeContextIfDiff(contextPath, []byte(rendered)); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
 	base := l.BuildArgv()
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
-	envValues := developingEnvValues(opts.Project, atmBin, actor, runID, contextPath, l.Name(), effectivePersona)
+	envValues := developingEnvValues(opts.Project, actor, runID, contextPath, l.Name(), effectivePersona, timestamp)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "developing", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
@@ -124,13 +118,13 @@ func runDeveloping(st *cliState, l developing.Launcher, agent, integration strin
 	return nil
 }
 
-func developingEnvValues(project, atmBin, actor, runID, contextPath, agent, persona string) map[string]string {
+func developingEnvValues(project, actor, runID, contextPath, agent, persona, timestamp string) map[string]string {
 	m := map[string]string{
 		"ATM_ROLE":         "developing",
 		"ATM_PROJECT":      project,
-		"ATM_BIN":          atmBin,
 		"ATM_ACTOR":        actor,
 		"ATM_RUN_ID":       runID,
+		"ATM_TIMESTAMP":    timestamp,
 		"ATM_CONTEXT_FILE": contextPath,
 		"ATM_AGENT":        agent,
 	}
