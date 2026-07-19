@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 type capturedChild struct {
@@ -73,14 +74,15 @@ func TestDevelopingTailSummaryJSON(t *testing.T) {
 }
 
 func TestDevelopingEnvIncludesATMValues(t *testing.T) {
-	got := assembleEnv(developingEnvValues("FOO", "/bin/atm", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer"))
+	os.Unsetenv("ATM_BIN")
+	got := assembleEnv(developingEnvValues("FOO", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer", "2026-07-19T00:00:00Z"))
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{
 		"ATM_ROLE=developing",
 		"ATM_PROJECT=FOO",
-		"ATM_BIN=/bin/atm",
 		"ATM_ACTOR=developer@codex:unset",
 		"ATM_RUN_ID=FOO-RUNID",
+		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
 		"ATM_CONTEXT_FILE=/tmp/context.md",
 		"ATM_AGENT=codex",
 		"ATM_PERSONA=developer",
@@ -88,6 +90,59 @@ func TestDevelopingEnvIncludesATMValues(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("developing env missing %q", want)
 		}
+	}
+	if strings.Contains(joined, "ATM_BIN=") {
+		t.Errorf("developing env must not set ATM_BIN; got:\n%s", joined)
+	}
+}
+
+func TestDevPATHGuard(t *testing.T) {
+	// PATH must NOT resolve `atm`. Use a PATH that has only the harness's
+	// own directories (none contain `atm`).
+	t.Setenv("PATH", "/nonexistent")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+	_, stderr, code := h.run("dev", "--agent", "codex", "--project", "FOO")
+	if code == ExitSuccess {
+		t.Fatalf("expected non-zero exit when atm is not on PATH")
+	}
+	if !strings.Contains(stderr, "atm is not on PATH") {
+		t.Fatalf("expected 'atm is not on PATH' in stderr; got:\n%s", stderr)
+	}
+}
+
+func TestDevWriteIfDiffNoOp(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+
+	// First launch writes the context file.
+	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("first dev exit=%d stderr=%s", code, h.stderr.String())
+	}
+	path := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "dev-developer.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file not created at %s: %v", path, err)
+	}
+	prev := info.ModTime()
+
+	// Sleep so a rewrite would change mtime.
+	time.Sleep(15 * time.Millisecond)
+
+	// Second launch of the same tuple should be a no-op on the file.
+	if _, _, code := h.run("dev", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("second dev exit=%d stderr=%s", code, h.stderr.String())
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file disappeared: %v", err)
+	}
+	if !info.ModTime().Equal(prev) {
+		t.Fatalf("context file mtime changed on second launch; write-if-diff should be a no-op")
 	}
 }
 
