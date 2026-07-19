@@ -538,6 +538,9 @@ func newProjectBoardsReorderCmd(st *cliState) *cobra.Command {
 			case after != "":
 				anchor = after
 			}
+			if anchor != "" && anchor == name {
+				return fmt.Errorf("%w: cannot place %q relative to itself", ErrUsage, name)
+			}
 			if anchor != "" {
 				if i := indexOf(order, anchor); i < 0 {
 					return fmt.Errorf("%w: anchor board %q not in the ring", ErrNotFound, anchor)
@@ -559,6 +562,9 @@ func newProjectBoardsReorderCmd(st *cliState) *cobra.Command {
 				insertAt = indexOf(order, before)
 			case after != "":
 				insertAt = indexOf(order, after) + 1
+			}
+			if insertAt < 0 || insertAt > len(order) {
+				return fmt.Errorf("%w: anchor board %q not in the ring", ErrNotFound, anchor)
 			}
 			order = append(order[:insertAt], append([]string{name}, order[insertAt:]...)...)
 			cfg.Order = order

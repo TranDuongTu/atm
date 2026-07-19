@@ -168,6 +168,15 @@ func TestProjectBoardsReorderValidation(t *testing.T) {
 		"--name", "PBX:nosuch", "--first", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder of a name not in the effective ring must fail")
 	}
+	// name == anchor is a usage error, not a panic.
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--before", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder --name X --before X must fail (not panic)")
+	}
+	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
+		"--name", "PBX:backlog", "--after", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		t.Fatal("reorder --name X --after X must fail (not panic)")
+	}
 }
 
 func TestGoldenProjectRemoveZeroTaskGuard(t *testing.T) {
