@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 
 	"github.com/charmbracelet/bubbletea"
@@ -122,9 +123,11 @@ type boardRow struct {
 	Description      string
 	Expr             string // empty for a namespace
 	Count            int
-	Expandable       bool // true for namespaces (they have members)
-	NeedsDescription bool // renders the warning mark — conventions rule 6
-	Broken           bool // expression invalid or cyclic -> render as broken
+	Expandable       bool   // true for namespaces (they have members)
+	NeedsDescription bool   // renders the warning mark — conventions rule 6
+	Broken           bool   // expression invalid or cyclic -> render as broken
+	Owner            string // owning capability name; "" for the umbrella
+	Umbrella         bool   // the synthetic unmanaged umbrella row
 }
 
 type boardsModel struct {
@@ -148,6 +151,15 @@ type boardsModel struct {
 	selected string
 
 	pins []string // ordered pinned board FullNames; loaded from core.GetPins
+
+	// unmanaged holds labels no enabled capability owns — the umbrella's
+	// contents. Populated by buildBoardRows via reg.Unmanaged; Task 5's
+	// buildUmbrellaRows consumes it to render the drill-in sub-table.
+	unmanaged []core.Label // labels no enabled capability owns (umbrella contents)
+
+	// boardsCfg is the per-project boards display preference set (hidden,
+	// order, pins), loaded each refresh. Never nil once a project is scoped.
+	boardsCfg *core.BoardsConfig
 
 	// pinFocus is WHERE the strong current-filter highlight is drawn: -1 means
 	// the strip's SELECTED board is the active filter (the default — set by
@@ -218,6 +230,11 @@ func (b *boardsModel) refresh() {
 		return
 	}
 	scope := b.m.projectScope
+	cfg, err := b.m.store.GetBoardsConfig(scope)
+	if err != nil || cfg == nil {
+		cfg = &core.BoardsConfig{}
+	}
+	b.boardsCfg = cfg
 	ls := b.m.store.LabelList(scope, "")
 	usage, _ := b.m.store.LabelUsageGrouped(scope)
 	for _, lab := range ls {
@@ -264,11 +281,17 @@ func (b *boardsModel) selectDefault() {
 		}
 	}
 	if len(b.rows) > 0 {
-		b.selected = b.rows[0].FullName
-		b.applyFocus()
-		return
+		for _, r := range b.rows {
+			if r.Umbrella {
+				continue
+			}
+			b.selected = r.FullName
+			b.applyFocus()
+			return
+		}
 	}
 	b.selected = ""
+	b.applyFocus()
 }
 
 // loadPins reads the project's pins from the store and prunes any whose board
@@ -305,7 +328,7 @@ func (b *boardsModel) loadPins() {
 // pinnedBoxHeight lines for it (see listContentHeight), so its height never
 // changes as pins are added or removed — an empty slot's tab just renders
 // dimmed rather than collapsing.
-const maxPins = 3
+const maxPins = core.MaxBoardPins
 
 // togglePin adds the selected board to the pin list (at the end) if absent, or
 // removes it if present, then persists. Adding past maxPins (3) is ignored
@@ -315,6 +338,9 @@ const maxPins = 3
 func (b *boardsModel) togglePin() {
 	if b.selected == "" || b.m.projectScope == "" {
 		return
+	}
+	if idx := b.ringIndex(); idx >= 0 && b.rows[idx].Umbrella {
+		return // the sentinel is not a pinnable board
 	}
 	pinned := false
 	for _, full := range b.pins {
@@ -548,6 +574,12 @@ func (b *boardsModel) applyFocus() {
 		return
 	}
 	r := b.rows[idx]
+	if r.Umbrella {
+		// The umbrella is not a filter: ATM:unmanaged is a sentinel, not a
+		// label. Selecting it shows the whole project.
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+		return
+	}
 	if r.Expandable {
 		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
 	} else {
@@ -555,90 +587,98 @@ func (b *boardsModel) applyFocus() {
 	}
 }
 
-// buildBoardRows constructs the flat L0 list: every board (a label with an
-// Expr) and every emergent namespace (derived from stored label names,
-// joined to its ATM:<ns>:* descriptor when one exists). Boards and
-// namespaces are intermixed and sorted by display name; the result is a
-// single flat list of computed labels.
+// buildBoardRows constructs the flat L0 ring: every enabled capability's
+// Exposed labels in registration order (owner-tagged), plus the synthetic
+// "unmanaged" umbrella when any label no capability owns exists. The stored
+// label's description wins over the Exposed literal (a human may have curated
+// it). Hidden rows are dropped; the boards-config order override is applied
+// as a partial reorder (unmatched rows keep registration order, umbrella
+// last). The old emergent derivation lives on only inside the umbrella's
+// drill-in (buildUmbrellaRows).
 func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	scope := b.m.projectScope
-	byName := map[string]core.Label{}
+	stored := map[string]core.Label{}
 	for _, l := range ls {
-		byName[l.Name] = l
+		stored[l.Name] = l
 	}
+	reg := b.m.regFor(scope)
 	var out []boardRow
 	seen := map[string]bool{}
-	// Boards: every label with a non-empty Expr.
-	for _, l := range ls {
-		if l.Expr == "" {
+	for _, e := range reg.Exposed(scope) {
+		l := e.Label
+		if seen[l.Name] {
 			continue
 		}
-		name := strings.TrimPrefix(l.Name, scope+":")
-		full := l.Name
-		count, broken := b.boardCount(full)
-		seen[name] = true
-		out = append(out, boardRow{
-			Name:        name,
-			FullName:    full,
-			Description: l.Description,
-			Expr:        l.Expr,
-			Count:       count,
-			Expandable:  false,
-			Broken:      broken,
-		})
-	}
-	// Emergent namespaces: derived from stored label names (any label of
-	// the form <scope>:<ns>:<value> introduces namespace <ns>), plus any
-	// namespace descriptor label (<scope>:<ns>:*) even with no members.
-	nsOrder := []string{}
-	nsSeen := map[string]bool{}
-	for _, l := range ls {
+		seen[l.Name] = true
+		if s, ok := stored[l.Name]; ok && s.Description != "" {
+			l.Description = s.Description
+		}
 		suffix := strings.TrimPrefix(l.Name, scope+":")
 		if core.IsNamespaceName(l.Name) {
 			ns := strings.TrimSuffix(suffix, ":*")
-			if !nsSeen[ns] {
-				nsSeen[ns] = true
-				nsOrder = append(nsOrder, ns)
-			}
+			out = append(out, boardRow{
+				Name:             ns,
+				FullName:         l.Name,
+				Description:      l.Description,
+				Count:            b.namespaceTaskCount(ns),
+				Expandable:       true,
+				NeedsDescription: l.Description == "",
+				Owner:            e.Owner,
+			})
 			continue
 		}
-		parts := strings.SplitN(suffix, ":", 2)
-		if len(parts) == 2 {
-			ns := parts[0]
-			if !nsSeen[ns] {
-				nsSeen[ns] = true
-				nsOrder = append(nsOrder, ns)
-			}
-		}
-	}
-	sort.Strings(nsOrder)
-	for _, ns := range nsOrder {
-		if seen[ns] {
-			continue
-		}
-		descFull := scope + ":" + ns + ":*"
-		descLabel, hasDesc := byName[descFull]
-		desc := ""
-		needsDesc := false
-		if hasDesc {
-			desc = descLabel.Description
-			if desc == "" {
-				needsDesc = true
-			}
-		} else {
-			needsDesc = true
-		}
+		count, broken := b.boardCount(l.Name)
 		out = append(out, boardRow{
-			Name:             ns,
-			FullName:         descFull,
-			Description:      desc,
-			Expr:             "",
-			Count:            b.namespaceTaskCount(ns),
-			Expandable:       true,
-			NeedsDescription: needsDesc,
+			Name:        suffix,
+			FullName:    l.Name,
+			Description: l.Description,
+			Expr:        l.Expr,
+			Count:       count,
+			Broken:      broken,
+			Owner:       e.Owner,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	// Umbrella: present only when unmanaged labels exist AND no real label
+	// shadows the sentinel (a hand-made ATM:unmanaged tag or ATM:unmanaged:*
+	// namespace wins; it then renders as a normal unmanaged label instead).
+	unmanaged, _ := reg.Unmanaged(b.m.store, scope)
+	b.unmanaged = unmanaged
+	sentinel := capability.UmbrellaFullName(scope)
+	_, tagShadow := stored[sentinel]
+	_, nsShadow := stored[sentinel+":*"]
+	if len(unmanaged) > 0 && !tagShadow && !nsShadow {
+		out = append(out, boardRow{
+			Name:        "unmanaged",
+			FullName:    sentinel,
+			Description: "labels no capability owns; drill in to browse, triage via atm capability unmanaged",
+			Count:       len(unmanaged),
+			Expandable:  true,
+			Umbrella:    true,
+		})
+	}
+	// Hidden filter, then partial order override.
+	hidden := map[string]bool{}
+	for _, n := range b.boardsCfg.Hidden {
+		hidden[n] = true
+	}
+	kept := out[:0:0]
+	for _, r := range out {
+		if !hidden[r.FullName] {
+			kept = append(kept, r)
+		}
+	}
+	out = kept
+	if len(b.boardsCfg.Order) > 0 {
+		effective := make([]string, len(out))
+		for i, r := range out {
+			effective[i] = r.FullName
+		}
+		pos := map[string]int{}
+		for i, n := range capability.OrderFullNames(effective, b.boardsCfg.Order) {
+			pos[n] = i
+		}
+		sort.SliceStable(out, func(i, j int) bool { return pos[out[i].FullName] < pos[out[j].FullName] })
+	}
 	return out
 }
 
@@ -1067,7 +1107,7 @@ func (b *boardsModel) renderTable() string {
 		return padToHeight("no boards", b.contentHeight)
 	}
 	var sb strings.Builder
-	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "COUNT")
+	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "OWNER", "COUNT")
 	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
 	sb.WriteString("\n")
 
@@ -1084,7 +1124,11 @@ func (b *boardsModel) renderTable() string {
 		if r.Broken {
 			count = "-"
 		}
-		line := boardTableLine(b.width, name, r.Description, count)
+		owner := r.Owner
+		if owner == "" {
+			owner = "—"
+		}
+		line := boardTableLine(b.width, name, r.Description, b.m.styles.Muted.Render(owner), count)
 		if i == b.cursor {
 			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -1098,17 +1142,15 @@ func (b *boardsModel) renderTable() string {
 	return padToHeight(sb.String(), b.contentHeight)
 }
 
-// boardTableLine renders one row of the flat Boards list: a fixed-width
-// name column, a flexible description column, and an 8-wide count column.
-// Padding is by display width (lipgloss.Width), not byte length, so
-// ANSI-styled markers and the multi-byte warning glyph do not push the
-// count column out of alignment. The name column is narrow (16) so the
-// description — the human's curation signal — gets the bulk of the width.
-func boardTableLine(width int, name, description, count string) string {
+// boardTableLine renders one row of the flat Boards list: fixed-width name,
+// flexible description, a narrow muted owner tag, and an 8-wide count.
+// Padding is by display width (lipgloss.Width), not byte length.
+func boardTableLine(width int, name, description, owner, count string) string {
 	nameW := 16
+	ownerW := 10
 	countW := 8
-	// leading space (1) + 2 inter-column separators (2) = 3
-	descW := width - nameW - countW - 3
+	// leading space (1) + 3 inter-column separators (3) = 4
+	descW := width - nameW - ownerW - countW - 4
 	if descW < 8 {
 		descW = 8
 	}
@@ -1121,7 +1163,12 @@ func boardTableLine(width int, name, description, count string) string {
 	if descPad < 0 {
 		descPad = 0
 	}
-	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
+	ownerCell := truncateRunes(owner, ownerW)
+	ownerPad := ownerW - lipgloss.Width(ownerCell)
+	if ownerPad < 0 {
+		ownerPad = 0
+	}
+	return fitLine(fmt.Sprintf(" %s%s %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), ownerCell, spaces(ownerPad), count), width)
 }
 
 // namespaceDescription returns the description of ns's namespace descriptor

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"atm/internal/capability/workflow"
 )
 
 // These tests cover Task 9b: the board-authoring keys (n/e/S/d/l) wired into
@@ -44,27 +46,25 @@ func TestTasksPaneNKeyOpensNewBoardForm(t *testing.T) {
 func TestTasksPaneEKeyEditsSelectedBoard(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	// Two real boards (labels with an Expr). Sorted by Name the ring is
-	// [alpha-board, comment, context, omega-board, open-tasks, priority,
-	// status]; alpha-board is index 0, omega-board is not.
-	if err := m.store.LabelAdd("ATM:alpha-board", "a", "status:open", testActor); err != nil {
-		t.Fatalf("LabelAdd alpha: %v", err)
+	// Seed workflow so the ring is capability-authored. The Exposed order is
+	// [all-tasks, open-tasks, in-progress-tasks, backlog, status, priority];
+	// all-tasks is index 0, open-tasks is index 1.
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
-	if err := m.store.LabelAdd("ATM:omega-board", "z", "status:done", testActor); err != nil {
-		t.Fatalf("LabelAdd omega: %v", err)
-	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	scopeTasksPane(t, m, "ATM")
 
-	// Cycle the ring until omega-board is SELECTED (each cycle resets cursor=0,
+	// Cycle the ring until open-tasks is SELECTED (each cycle resets cursor=0,
 	// the exact trap condition).
-	for i := 0; m.boards.selected != "ATM:omega-board"; i++ {
+	for i := 0; m.boards.selected != "ATM:open-tasks"; i++ {
 		if i > len(m.boards.rows) {
-			t.Fatalf("omega-board never became selected; rows=%v", m.boards.rowNames())
+			t.Fatalf("open-tasks never became selected; rows=%v", m.boards.rowNames())
 		}
 		m.boards.cycleBoard(1)
 	}
-	if m.boards.rows[0].Name == "omega-board" {
-		t.Fatalf("test setup broken: omega-board must not be at ring index 0")
+	if m.boards.rows[0].Name == "open-tasks" {
+		t.Fatalf("test setup broken: open-tasks must not be at ring index 0")
 	}
 
 	update(t, m, "e")
@@ -72,8 +72,8 @@ func TestTasksPaneEKeyEditsSelectedBoard(t *testing.T) {
 	if m.form == nil || m.formKind != formBoardEditor {
 		t.Fatalf("[e] must open the board editor; form=%v kind=%v", m.form, m.formKind)
 	}
-	if m.boardEd == nil || m.boardEd.Name != "omega-board" {
-		t.Fatalf("[e] must edit the SELECTED board (omega-board), got boardEd=%v", m.boardEd)
+	if m.boardEd == nil || m.boardEd.Name != "open-tasks" {
+		t.Fatalf("[e] must edit the SELECTED board (open-tasks), got boardEd=%v", m.boardEd)
 	}
 	if m.boardEd.Name == m.boards.rows[0].Name {
 		t.Fatalf("[e] edited the index-0 board (%q), not the selected one", m.boards.rows[0].Name)

@@ -8,6 +8,7 @@ import (
 	"atm/internal/capability"
 	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
+	"atm/internal/core"
 	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -63,12 +64,12 @@ func TestSelectDefaultOpenTasksRemainsSelectableInRing(t *testing.T) {
 
 // TestSelectDefaultPicksAllTasksWithoutRegistryConsultation re-anchors the
 // post-DefaultBoard policy: the UI picks <CODE>:all-tasks when present, else
-// the first ring row, with NO registry consultation. A model whose registry
-// holds ONLY contextmap (workflow disabled) still selects all-tasks the
-// moment that board is seeded directly — the registry is not the source of
-// the default. To prove the pick is BY NAME (not "first row"), a second board
-// that sorts before all-tasks is seeded; the old registry-consult code would
-// have picked that first row instead.
+// the first non-umbrella ring row, with NO registry consultation. To prove the
+// pick is BY NAME (not "first row"), a second capability (contextmap) is
+// registered BEFORE workflow, so its context-current board becomes rows[0]
+// — yet the UI still picks all-tasks further down the ring. (The DefaultBoard
+// registry method is gone entirely after Task 2; this test pins the
+// name-based replacement.)
 func TestSelectDefaultPicksAllTasksWithoutRegistryConsultation(t *testing.T) {
 	s, err := store.Open(t.TempDir())
 	if err != nil {
@@ -77,11 +78,10 @@ func TestSelectDefaultPicksAllTasksWithoutRegistryConsultation(t *testing.T) {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	// contextmap-only registry: DefaultBoard would nominate nothing (and the
-	// method is gone entirely after Task 2). all-tasks is a workflow board; it
-	// is absent from this registry's vocabulary. Seed it directly to prove the
-	// UI picks it by NAME, not by any registry nomination.
-	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(contextmap.New())})
+	// contextmap registered FIRST so context-current becomes rows[0]; the
+	// old DefaultBoard-consultation code would have picked rows[0]. The new
+	// code picks ATM:all-tasks by name, wherever it sits in the ring.
+	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(contextmap.New(), workflow.New())})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
@@ -90,24 +90,17 @@ func TestSelectDefaultPicksAllTasksWithoutRegistryConsultation(t *testing.T) {
 	if _, err := contextmap.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure contextmap: %v", err)
 	}
-	// Seed a board that sorts BEFORE all-tasks, so it becomes rows[0]. The old
-	// code (want = reg.DefaultBoard(code) == "" for a contextmap-only
-	// registry) would pick rows[0] = ATM:aardvark. The new code picks
-	// ATM:all-tasks by name.
-	if err := m.store.LabelAdd("ATM:aardvark", "sorts before all-tasks", "*", m.actor); err != nil {
-		t.Fatalf("LabelAdd aardvark: %v", err)
-	}
-	if err := m.store.LabelAdd("ATM:all-tasks", "every task", "*", m.actor); err != nil {
-		t.Fatalf("LabelAdd all-tasks: %v", err)
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure workflow: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
-	if len(m.boards.rows) < 2 || m.boards.rows[0].FullName != "ATM:aardvark" {
-		t.Fatalf("precondition: rows[0] = %v, want ATM:aardvark (sorts before all-tasks)", m.boards.rowNames())
+	if len(m.boards.rows) < 2 || m.boards.rows[0].FullName != "ATM:context-current" {
+		t.Fatalf("precondition: rows[0] = %v, want ATM:context-current (registered first)", m.boards.rowNames())
 	}
 	m.boards.selectDefault()
 	if m.boards.selected != "ATM:all-tasks" {
-		t.Errorf("selected = %q, want ATM:all-tasks (UI policy: all-tasks by name, not registry)", m.boards.selected)
+		t.Errorf("selected = %q, want ATM:all-tasks (UI policy: all-tasks by name, not first row)", m.boards.selected)
 	}
 }
 
@@ -415,13 +408,15 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	var boards []string
-	for i := 0; i < 7; i++ {
-		name := fmt.Sprintf("ATM:board-%02d", i)
-		if err := m.store.LabelAdd(name, "", "status:open", m.actor); err != nil {
-			t.Fatal(err)
-		}
-		boards = append(boards, name)
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// Persist a pin list longer than maxPins consisting of workflow's exposed
+	// boards (custom boards are no longer ring rows, so they are no longer
+	// pin candidates). loadPins must clamp to maxPins on load.
+	boards := []string{
+		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks",
+		"ATM:backlog", "ATM:status:*", "ATM:priority:*",
 	}
 	m.boards.refresh()
 	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: boards}); err != nil {
@@ -429,7 +424,7 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	}
 	m.boards.refresh()
 	if len(m.boards.pins) != maxPins {
-		t.Fatalf("pins after loading 7 stored = %d, want %d (clamped)", len(m.boards.pins), maxPins)
+		t.Fatalf("pins after loading %d stored = %d, want %d (clamped)", len(boards), len(m.boards.pins), maxPins)
 	}
 }
 
@@ -444,14 +439,13 @@ func TestUnpinFocusedPinResetsFocusToStrip(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	for _, n := range []string{"alpha", "beta"} {
-		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
+	pinned := []string{"ATM:all-tasks", "ATM:open-tasks"}
 	m.boards.refresh()
-	for _, n := range []string{"alpha", "beta"} {
-		m.boards.selected = "ATM:" + n
+	for _, full := range pinned {
+		m.boards.selected = full
 		m.boards.togglePin()
 	}
 	if len(m.boards.pins) != 2 {
@@ -488,32 +482,31 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	for _, n := range []string{"alpha", "beta", "gamma"} {
-		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
+	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks"}
 	m.boards.refresh()
-	for _, n := range []string{"alpha", "beta", "gamma"} {
-		m.boards.selected = "ATM:" + n
+	for _, full := range pinned {
+		m.boards.selected = full
 		m.boards.togglePin()
 	}
 	if len(m.boards.pins) != 3 {
 		t.Fatalf("pins = %v, want 3", m.boards.pins)
 	}
 
-	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+	if !m.boards.jumpPin(3) { // jump to in-progress-tasks, the last pin
 		t.Fatal("jumpPin(3) returned false with 3 pins")
 	}
-	focused := m.boards.selected // "ATM:gamma"
+	focused := m.boards.selected // "ATM:in-progress-tasks"
 	if m.boards.pinFocus != 2 {
 		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
 	}
 
-	// Another session unpins alpha (index 0, below the focused index)
-	// straight through the store; alpha's label/board stays alive, only the
-	// persisted pin list shrinks.
-	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: []string{"ATM:beta", "ATM:gamma"}}); err != nil {
+	// Another session unpins all-tasks (index 0, below the focused index)
+	// straight through the store; all-tasks's label/board stays alive, only
+	// the persisted pin list shrinks.
+	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: []string{"ATM:open-tasks", "ATM:in-progress-tasks"}}); err != nil {
 		t.Fatalf("write pins: %v", err)
 	}
 	m.boards.refresh()
@@ -537,31 +530,38 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	for _, n := range []string{"alpha", "beta", "gamma"} {
-		if err := m.store.LabelAdd("ATM:"+n, "", "status:open", m.actor); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
+	// Pin three workflow-exposed boards. Pruning is exercised by HIDING
+	// all-tasks via the boards config: a hidden board leaves the ring (and
+	// thus b.rows), so loadPins drops it as no-longer-live — the new
+	// capability-authored ring cannot be pruned by removing a label (Exposed
+	// is pure and survives label deletion), so hiding is the prune path.
+	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:priority:*"}
 	m.boards.refresh()
-	for _, n := range []string{"alpha", "beta", "gamma"} {
-		m.boards.selected = "ATM:" + n
+	for _, full := range pinned {
+		m.boards.selected = full
 		m.boards.togglePin()
 	}
 	if len(m.boards.pins) != 3 {
 		t.Fatalf("pins = %v, want 3", m.boards.pins)
 	}
 
-	if !m.boards.jumpPin(3) { // jump to gamma, the last pin
+	if !m.boards.jumpPin(3) { // jump to priority:*, the last pin
 		t.Fatal("jumpPin(3) returned false with 3 pins")
 	}
-	focused := m.boards.selected // "ATM:gamma"
+	focused := m.boards.selected // "ATM:priority:*"
 	if m.boards.pinFocus != 2 {
 		t.Fatalf("pinFocus after jumpPin(3) = %d, want 2", m.boards.pinFocus)
 	}
 
-	// Remove alpha's label entirely so loadPins prunes it as no-longer-live.
-	if _, err := m.store.LabelRemove("ATM:alpha", m.actor); err != nil {
-		t.Fatalf("LabelRemove: %v", err)
+	// Hide all-tasks so it leaves the ring -> loadPins prunes it on refresh.
+	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{
+		Hidden: []string{"ATM:all-tasks"},
+		Pins:   m.boards.pins, // preserve the pin list
+	}, m.actor); err != nil {
+		t.Fatalf("SetProjectBoards: %v", err)
 	}
 	m.boards.refresh()
 
@@ -569,7 +569,7 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 		t.Fatalf("pins after prune = %v, want 2", m.boards.pins)
 	}
 	if m.boards.selected != focused {
-		t.Fatalf("selected = %q, want unchanged %q (gamma still exists)", m.boards.selected, focused)
+		t.Fatalf("selected = %q, want unchanged %q (priority:* still exists)", m.boards.selected, focused)
 	}
 	if m.boards.pinFocus < 0 || m.boards.pinFocus >= len(m.boards.pins) || m.boards.pins[m.boards.pinFocus] != focused {
 		t.Errorf("pins=%v pinFocus=%d, want pinFocus to still point at %q", m.boards.pins, m.boards.pinFocus, focused)
@@ -638,6 +638,7 @@ func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
+	// An ad-hoc board label: previously an emergent L0 row, now umbrella-only.
 	_ = s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", testActor)
 
 	m := newTestBoardsModel(t, s, "ATM")
@@ -645,14 +646,20 @@ func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
 
 	rows := m.rowNames()
 	// Boards and namespaces sit in ONE flat list, indistinguishable by design.
-	if !contains(rows, "next-sprint") {
+	// The ring is now capability-authored: workflow exposes both boards
+	// (all-tasks, open-tasks, ...) and namespaces (status, priority).
+	if !contains(rows, "all-tasks") {
 		t.Errorf("board missing from rows: %v", rows)
 	}
 	if !contains(rows, "status") {
 		t.Errorf("namespace missing from rows: %v", rows)
 	}
+	// Ad-hoc boards no longer surface at L0 — they live under the umbrella.
+	if contains(rows, "next-sprint") {
+		t.Errorf("ad-hoc board must not appear at L0 (umbrella-only): %v", rows)
+	}
 	// A board is not a namespace, so it must not appear as one.
-	if contains(rows, "next-sprint:*") {
+	if contains(rows, "all-tasks:*") {
 		t.Errorf("a board must not render as a namespace: %v", rows)
 	}
 }
@@ -664,8 +671,8 @@ func TestBoardsPaneListsComputedLabelsFlat(t *testing.T) {
 func TestBoardsPaneBoardCountSumsMatchingTasks(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	if err := s.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", testActor); err != nil {
-		t.Fatalf("LabelAdd: %v", err)
+	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
 	mk := func(title string, labels ...string) {
 		if _, err := s.CreateTask("ATM", title, "", labels, testActor); err != nil {
@@ -679,44 +686,51 @@ func TestBoardsPaneBoardCountSumsMatchingTasks(t *testing.T) {
 	b := newTestBoardsModel(t, s, "ATM")
 	b.refresh()
 
-	row, ok := b.row("next-sprint")
+	// open-tasks is workflow-exposed with Expr "status:open" -> 2 matches.
+	row, ok := b.row("open-tasks")
 	if !ok {
-		t.Fatalf("next-sprint board missing from rows: %v", b.rowNames())
+		t.Fatalf("open-tasks board missing from rows: %v", b.rowNames())
 	}
 	if row.Count != 2 {
-		t.Errorf("next-sprint Count = %d want 2 (matching tasks)", row.Count)
+		t.Errorf("open-tasks Count = %d want 2 (matching tasks)", row.Count)
 	}
 	if row.Broken {
-		t.Errorf("next-sprint marked broken; expression status:open is valid")
+		t.Errorf("open-tasks marked broken; expression status:open is valid")
 	}
 }
 
 func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
-	// An agent invents a namespace without describing it -> the human's
-	// review signal (conventions rule 6) appears in the pane automatically.
+	// Task 4 narrows the ⚠ flag: only capability-Exposed namespace rows can
+	// be flagged at L0, and only when the Exposed literal carries no
+	// description. workflow's seeded namespaces all carry descriptions, so
+	// none are flagged — this test now pins that the seeded namespaces are
+	// NOT flagged (the flag still fires in code for a future capability
+	// that exposes an undescribed namespace).
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	_, _ = s.CreateTask("ATM", "t", "", []string{"ATM:sprint:next"}, testActor)
+	// An unmanaged namespace descriptor — appears under the umbrella, NOT
+	// at L0 (Task 4). It must not surface as a flagged L0 row.
+	_ = s.LabelAdd("ATM:sprint:*", "", "", testActor)
 
 	m := newTestBoardsModel(t, s, "ATM")
 	m.refresh()
 
-	row, ok := m.row("sprint")
-	if !ok {
-		t.Fatalf("sprint namespace missing from rows: %v", m.rowNames())
+	// sprint must NOT appear at L0 — it is umbrella-only now.
+	if _, ok := m.row("sprint"); ok {
+		t.Fatalf("unmanaged sprint namespace must not surface at L0: %v", m.rowNames())
 	}
-	if !row.NeedsDescription {
-		t.Error("an undescribed namespace must be flagged for human reconciliation")
-	}
-	row, ok = m.row("status")
-	if !ok {
-		t.Fatalf("status namespace missing from rows: %v", m.rowNames())
-	}
-	if row.NeedsDescription {
-		t.Error("a seeded namespace has a description and must not be flagged")
+	// Seeded workflow namespaces carry descriptions and must not be flagged.
+	for _, ns := range []string{"status", "priority"} {
+		row, ok := m.row(ns)
+		if !ok {
+			t.Fatalf("%s namespace missing from rows: %v", ns, m.rowNames())
+		}
+		if row.NeedsDescription {
+			t.Errorf("%s namespace has a description and must not be flagged", ns)
+		}
 	}
 }
 
@@ -844,17 +858,23 @@ func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 }
 
 // TestBoardsL0CountColumnAlignsDespiteMarkers guards the boardTableLine
-// display-width fix: rows carrying the ⚠ warning glyph (ANSI-styled and
-// multi-byte) must not push the COUNT column out of alignment. Every row —
-// plain or ⚠-flagged — must render at the pane's display width, so the count
-// column's right edge lines up.
+// display-width fix: rows carrying a multi-byte glyph must not push the COUNT
+// column out of alignment. Every row — plain or marked — must render at the
+// pane's display width, so the count column's right edge lines up. The
+// umbrella row's owner is the multi-byte em-dash "—"; an unmanaged label
+// makes the umbrella appear so the marked row is actually rendered.
 func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.boards.SetSize(72, 12)
-	// A seeded namespace (status) gets a description; an emergent one
-	// (sprint) does not, so it renders the ⚠ marker.
-	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	// An ad-hoc label no capability owns -> umbrella appears with owner "—".
+	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
 
 	lines := strings.Split(m.boards.View(), "\n")
@@ -869,10 +889,10 @@ func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 			t.Errorf("line %d display width = %d want %d (count column drifted on a marked row): %q", i, got, m.boards.width, ln)
 		}
 	}
-	// Confirm at least one marked row was actually rendered, so the
+	// Confirm the umbrella row (owner "—") was actually rendered, so the
 	// test is not vacuously passing on plain rows only.
-	if !strings.Contains(m.boards.View(), "⚠") {
-		t.Fatalf("no ⚠ marker rendered — test is vacuous:\n%s", m.boards.View())
+	if !strings.Contains(m.boards.View(), "unmanaged") {
+		t.Fatalf("no umbrella row rendered — test is vacuous:\n%s", m.boards.View())
 	}
 }
 
@@ -935,19 +955,20 @@ func TestBoardsL0EnterDrillsIntoNamespaceAndFocusesTasks(t *testing.T) {
 func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	if err := m.store.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
 	seedTask(t, m, "ATM", "open1", "ATM:status:open")
 	seedTask(t, m, "ATM", "done1", "ATM:status:done")
 	update(t, m, "s")
-	cursorToBoardRow(t, m, "next-sprint")
+	// open-tasks is a workflow-exposed board (Expr "status:open").
+	cursorToBoardRow(t, m, "open-tasks")
 	m.boards.handleKey(keyMsg("enter"))
 	if m.boards.level != lLevelTable {
 		t.Fatalf("board selection must not leave L0: level = %v", m.boards.level)
 	}
-	if m.tasks.filter != "ATM:next-sprint" {
-		t.Fatalf("tasks filter = %q want ATM:next-sprint", m.tasks.filter)
+	if m.tasks.filter != "ATM:open-tasks" {
+		t.Fatalf("tasks filter = %q want ATM:open-tasks", m.tasks.filter)
 	}
 	if m.tasks.focus.mode != focusOff {
 		t.Fatalf("tasks focus = %+v want focusOff (board is an exact-label filter)", m.tasks.focus)
@@ -959,21 +980,20 @@ func TestBoardsL0EnterBoardFiltersTasksByLabel(t *testing.T) {
 
 // TestBoardsL0EditNamespaceOpensDescriptorEditor guards that [e] on a
 // namespace row (which has no Expr) opens a description-only editor for its
-// <ns>:* descriptor, and that saving upserts the descriptor so the ⚠ flag
-// clears. A human curates undescribed namespaces this way (conventions rule 6).
+// <ns>:* descriptor, and that saving upserts the descriptor so a human's
+// new description overwrites the workflow-seeded one.
 func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	// sprint is emergent (a task carries ATM:sprint:next) and undescribed.
-	seedTask(t, m, "ATM", "in-sprint", "ATM:sprint:next", "ATM:status:open")
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
 
-	// Before: the sprint row is flagged.
-	cursorToNamespaceRow(t, m, "sprint")
-	r, ok := m.boards.row("sprint")
-	if !ok || !r.NeedsDescription {
-		t.Fatalf("sprint must be flagged before describing: %+v", r)
-	}
+	// Cursor on the status namespace row (workflow-exposed, has a seeded
+	// description — [e] still opens the descriptor editor).
+	cursorToNamespaceRow(t, m, "status")
 
 	// [e] on the namespace row opens the descriptor form, not the board editor.
 	m.boards.handleKey(keyMsg("e"))
@@ -981,14 +1001,15 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 		t.Fatalf("[e] on namespace must open formNamespaceDescribe; form=%v kind=%v", m.form, m.formKind)
 	}
 	// The form's read-only namespace field is pre-filled; the description
-	// field is the second field and is empty (it was undescribed).
-	if got := m.form.Fields[0].Value; got != "sprint" {
-		t.Errorf("namespace field = %q want sprint", got)
+	// field is the second field, pre-filled with the seeded description.
+	if got := m.form.Fields[0].Value; got != "status" {
+		t.Errorf("namespace field = %q want status", got)
 	}
-
-	// Type a description into the description field.
-	update(t, m, "tab") // move from namespace to description
-	for _, r := range "work slated for the next sprint" {
+	// Move to the description field and overwrite with a new description.
+	update(t, m, "tab")
+	// Replace the pre-filled seeded description with a new one.
+	m.form.Fields[1].Value = ""
+	for _, r := range "lifecycle state of a task" {
 		update(t, m, string(r))
 	}
 	// Enter on the last field submits.
@@ -997,20 +1018,13 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 		t.Fatalf("form should be closed after submit")
 	}
 
-	// The descriptor was upserted: ATM:sprint:* now has a description.
-	l, err := m.store.LabelShow("ATM:sprint:*")
+	// The descriptor was upserted: ATM:status:* now carries the typed text.
+	l, err := m.store.LabelShow("ATM:status:*")
 	if err != nil {
-		t.Fatalf("LabelShow ATM:sprint:*: %v", err)
+		t.Fatalf("LabelShow ATM:status:*: %v", err)
 	}
-	if l.Description != "work slated for the next sprint" {
+	if l.Description != "lifecycle state of a task" {
 		t.Errorf("descriptor description = %q want the typed text", l.Description)
-	}
-
-	// After refresh the ⚠ flag clears.
-	m.boards.refresh()
-	r, ok = m.boards.row("sprint")
-	if !ok || r.NeedsDescription {
-		t.Errorf("sprint must not be flagged after describing: %+v", r)
 	}
 }
 
@@ -1628,4 +1642,159 @@ func cursorToChartUnsetRow(t *testing.T, m *Model) {
 		}
 	}
 	t.Fatalf("no (unset) chart row found")
+}
+
+// --- Task 4: capability-authored ring tests ---
+
+// TestBuildBoardRowsIsCapabilityAuthored: the ring is exactly what enabled
+// capabilities expose (registration order) plus the umbrella when unmanaged
+// labels exist — emergent namespaces no longer surface at L0.
+func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	// An ad-hoc namespace member: previously an emergent L0 row, now umbrella-only.
+	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	wantRing := []string{
+		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:backlog",
+		"ATM:status:*", "ATM:priority:*", "ATM:unmanaged",
+	}
+	if len(m.boards.rows) != len(wantRing) {
+		t.Fatalf("ring = %+v, want %v", m.boards.rows, wantRing)
+	}
+	for i, r := range m.boards.rows {
+		if r.FullName != wantRing[i] {
+			t.Errorf("rows[%d] = %s, want %s", i, r.FullName, wantRing[i])
+		}
+	}
+	if own := m.boards.rows[0].Owner; own != "workflow" {
+		t.Errorf("all-tasks owner = %q, want workflow", own)
+	}
+	last := m.boards.rows[len(m.boards.rows)-1]
+	if !last.Umbrella || last.Owner != "" || !last.Expandable {
+		t.Errorf("umbrella row = %+v, want Umbrella+Expandable, no owner", last)
+	}
+}
+
+// TestUmbrellaOmittedWhenNoUnmanaged: fully-owned label set -> no umbrella row.
+func TestUmbrellaOmittedWhenNoUnmanaged(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Umbrella {
+			t.Fatalf("umbrella present with no unmanaged labels: %+v", m.boards.rows)
+		}
+	}
+}
+
+// TestUmbrellaSuppressedByRealCollision: a real ATM:unmanaged tag (or
+// ATM:unmanaged:* namespace) shadows the sentinel; the real label renders as
+// a normal unmanaged label under no umbrella (the sentinel loses).
+func TestUmbrellaSuppressedByRealCollision(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:unmanaged", "hand-made collision", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.Umbrella {
+			t.Fatalf("sentinel must lose to a real ATM:unmanaged label; ring = %+v", m.boards.rows)
+		}
+	}
+}
+
+// TestHiddenAndOrderApply: hidden rows leave the ring entirely; order is a
+// partial override with unmatched rows appended in registration order.
+func TestHiddenAndOrderApply(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{
+		Order:  []string{"ATM:status:*", "ATM:open-tasks", "ATM:nosuch"},
+		Hidden: []string{"ATM:backlog"},
+	}, m.actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	want := []string{
+		"ATM:status:*", "ATM:open-tasks", // ordered prefix
+		"ATM:all-tasks", "ATM:in-progress-tasks", "ATM:priority:*", // rest, registration order
+	}
+	if len(m.boards.rows) != len(want) {
+		t.Fatalf("ring = %+v, want %v", m.boards.rows, want)
+	}
+	for i, r := range m.boards.rows {
+		if r.FullName != want[i] {
+			t.Errorf("rows[%d] = %s, want %s", i, r.FullName, want[i])
+		}
+		if r.FullName == "ATM:backlog" {
+			t.Error("hidden board must not appear in the ring")
+		}
+	}
+}
+
+// TestStoredDescriptionWinsOverExposedLiteral: a human-curated label
+// description beats the capability's baked-in text.
+func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:all-tasks", "our everything view", "*", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	for _, r := range m.boards.rows {
+		if r.FullName == "ATM:all-tasks" && r.Description != "our everything view" {
+			t.Errorf("description = %q, want the stored (curated) one", r.Description)
+		}
+	}
+}
+
+// TestSelectDefaultSkipsUmbrella: umbrella is never the default selection;
+// selecting it via cycleBoard applies no task filter.
+func TestSelectDefaultSkipsUmbrella(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:urgent", "", "", m.actor); err != nil { // makes umbrella appear
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	m.boards.selectDefault()
+	if m.boards.selected != "ATM:all-tasks" {
+		t.Fatalf("selected = %q, want ATM:all-tasks", m.boards.selected)
+	}
+	// Cycle to the umbrella (last row) and confirm no filter is applied.
+	for m.boards.selected != "ATM:unmanaged" {
+		m.boards.cycleBoard(1)
+	}
+	if m.tasks.focus.mode != focusOff || m.tasks.filter != "" {
+		t.Errorf("umbrella selection must clear the task filter (focus=%v filter=%q)", m.tasks.focus, m.tasks.filter)
+	}
 }

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"atm/internal/capability/workflow"
 )
 
 // TestBoardEditorLiveValidation drives the board editor directly: a valid
@@ -174,21 +176,23 @@ func TestBoardsTabNewBoardEditorRefusesInvalidExpr(t *testing.T) {
 func TestBoardsTabEditBoardEditorPrefills(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	if err := m.store.LabelAdd("ATM:next-sprint", "the sprint board", "status:open", m.actor); err != nil {
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
+	// open-tasks is workflow-exposed with Expr "status:open".
 	seedTask(t, m, "ATM", "open", "ATM:status:open")
 	update(t, m, "s")
-	cursorToBoardRow(t, m, "next-sprint")
+	cursorToBoardRow(t, m, "open-tasks")
 	m.boards.handleKey(keyMsg("e"))
 	if m.form == nil || m.formKind != formBoardEditor {
 		t.Fatalf("board editor form not open: form=%v kind=%v", m.form, m.formKind)
 	}
-	if got := m.form.Fields[0].Value; got != "next-sprint" {
-		t.Errorf("name field = %q want next-sprint", got)
+	if got := m.form.Fields[0].Value; got != "open-tasks" {
+		t.Errorf("name field = %q want open-tasks", got)
 	}
-	if got := m.form.Fields[1].Value; got != "the sprint board" {
-		t.Errorf("description field = %q want %q", got, "the sprint board")
+	// The description is workflow's seeded description for open-tasks.
+	if got := m.form.Fields[1].Value; got == "" {
+		t.Errorf("description field empty; want the workflow-seeded description")
 	}
 	if got := m.form.Fields[2].Value; got != "status:open" {
 		t.Errorf("expression field = %q want status:open", got)
