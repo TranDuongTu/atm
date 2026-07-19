@@ -36,6 +36,8 @@ type ProjectService interface {
 	DisableProjectCapability(code, name, actor string) error
 	RemoveProject(code, actor string) error
 	GetProjectConfig(code string) (*ProjectConfig, error)
+	GetBoardsConfig(code string) (*BoardsConfig, error)
+	SetProjectBoards(code string, b *BoardsConfig, actor string) error
 	ProjectRemotes(code string) (map[string]string, error)
 	SetProjectRemote(code, name, url, actor string) error
 	RemoveProjectRemote(code, name, actor string) error
