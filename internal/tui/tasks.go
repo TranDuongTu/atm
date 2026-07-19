@@ -63,6 +63,12 @@ const (
 	focusAbsent
 	// focusUnlabeled renders tasks with zero labels.
 	focusUnlabeled
+	// focusUmbrellaIdle renders an empty page with a "press Enter to drill
+	// in" hint. The L0 umbrella row is a sentinel, not a real label: it has
+	// no expression to filter tasks by, and showing the unfiltered all-tasks
+	// list would conflate the umbrella with the all-tasks board. The user
+	// drills into the umbrella sub-table to browse unmanaged labels.
+	focusUmbrellaIdle
 )
 
 // taskFocus is the Tasks-pane view state the board strip sets on each level
@@ -122,6 +128,11 @@ func (t *tasksModel) refresh() {
 	}
 	scope := t.m.projectScope
 	switch t.focus.mode {
+	case focusUmbrellaIdle:
+		// No rows: the umbrella is a browsing surface, not a filter. The
+		// empty-state renderer shows the drill-in hint.
+		t.clampCursor()
+		return
 	case focusUnlabeled:
 		for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope})) {
 			if len(tk.Labels) == 0 {

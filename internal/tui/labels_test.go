@@ -2226,7 +2226,11 @@ func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
 }
 
 // TestSelectDefaultSkipsUmbrella: umbrella is never the default selection;
-// selecting it via cycleBoard applies no task filter.
+// selecting it shows an idle empty page (no task list) and requires drill-in
+// to browse unmanaged labels. The umbrella is a browsing surface, not a
+// filter: ATM:unmanaged is a sentinel, not a real label, so the L0 selection
+// applies no task filter and renders a "press Enter to drill in" empty state
+// instead of the all-tasks list.
 func TestSelectDefaultSkipsUmbrella(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -2237,16 +2241,31 @@ func TestSelectDefaultSkipsUmbrella(t *testing.T) {
 	if err := m.store.LabelAdd("ATM:urgent", "", "", m.actor); err != nil { // makes umbrella appear
 		t.Fatal(err)
 	}
+	// A task must exist so the all-tasks board would show non-empty if the
+	// umbrella wrongly applied an unfiltered view.
+	seedTask(t, m, "ATM", "should not appear under umbrella", "ATM:status:open")
 	m.boards.refresh()
 	m.boards.selectDefault()
 	if m.boards.selected != "ATM:all-tasks" {
 		t.Fatalf("selected = %q, want ATM:all-tasks", m.boards.selected)
 	}
-	// Cycle to the umbrella (last row) and confirm no filter is applied.
+	// Cycle to the umbrella (last row).
 	for m.boards.selected != "ATM:unmanaged" {
 		m.boards.cycleBoard(1)
 	}
-	if m.tasks.focus.mode != focusOff || m.tasks.filter != "" {
-		t.Errorf("umbrella selection must clear the task filter (focus=%v filter=%q)", m.tasks.focus, m.tasks.filter)
+	if m.tasks.focus.mode != focusUmbrellaIdle {
+		t.Errorf("umbrella selection focus = %v, want focusUmbrellaIdle (idle empty page; drill-in required)", m.tasks.focus)
+	}
+	if len(m.tasks.rows) != 0 {
+		t.Errorf("umbrella selection rendered %d task rows, want 0 (idle empty page)", len(m.tasks.rows))
+	}
+	// Drill-in repopulates the umbrella sub-table; the tasks pane stays idle
+	// (the umbrella sub-table is a boards-pane surface, not a tasks filter).
+	m.boards.drillIn()
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("drillIn: level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	if len(m.tasks.rows) != 0 {
+		t.Errorf("after drill-in, tasks rows = %d, want 0 (umbrella sub-table is boards-pane only)", len(m.tasks.rows))
 	}
 }

@@ -613,9 +613,12 @@ func (b *boardsModel) applyFocus() {
 	}
 	r := b.rows[idx]
 	if r.Umbrella {
-		// The umbrella is not a filter: ATM:unmanaged is a sentinel, not a
-		// label. Selecting it shows the whole project.
-		b.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+		// The umbrella is a sentinel, not a real label: it has no
+		// expression to filter tasks by. Show an idle empty page and
+		// require drill-in to browse unmanaged labels. Showing the
+		// unfiltered all-tasks list here would conflate the umbrella
+		// with the all-tasks board.
+		b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
 		return
 	}
 	if r.Expandable {

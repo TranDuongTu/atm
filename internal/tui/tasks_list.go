@@ -337,6 +337,14 @@ func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
 }
 
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
+	if t.focus.mode == focusUmbrellaIdle {
+		t.renderEmptyState(b, []string{
+			t.m.styles.EmptyHead.Render("unmanaged labels"),
+			"",
+			t.m.styles.EmptyText.Render("press Enter to drill in and browse labels no capability owns"),
+		})
+		return
+	}
 	if len(t.rows) == 0 {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
