@@ -7,9 +7,9 @@ import (
 
 func TestRenderContextSubstitutesAllPlaceholders(t *testing.T) {
 	got := RenderContext(ContextData{
-		Code:      "FOO",
-		Name:      "Foo Project",
-		Actor:     "codex-dev",
+		Code:  "FOO",
+		Name:  "Foo Project",
+		Actor: "codex-dev",
 	})
 	for _, placeholder := range []string{
 		"<CODE>", "<PROJECT_NAME>", "<ACTOR>",
