@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -200,7 +200,6 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 				Actor: opts.Actor,
 			}
 			if opts.Project != "" {
-				data.ATMBin = atmBinPath()
 				data.Name = opts.Project // fallback when the project isn't in the store
 				if s, err := st.openStore(); err == nil {
 					if p, err := s.GetProject(opts.Project); err == nil {
@@ -209,7 +208,6 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 				}
 			}
 			rendered := manager.RenderContext(data)
-			// Text mode: print raw markdown. JSON mode: wrap in an envelope.
 			return st.emit(st.stdout(), map[string]any{"context": rendered}, func() {
 				fmt.Fprint(st.stdout(), rendered)
 			})
@@ -243,38 +241,33 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	}
 	actor := effectivePersona + "@" + l.Name() + ":unset"
 
-	atmBin, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve atm binary: %w", err)
+	if _, err := exec.LookPath("atm"); err != nil {
+		return fmt.Errorf("%w: atm is not on PATH; the developing/manager prompt assumes `atm` resolves on PATH. Either add the directory containing the `atm` binary to PATH, or invoke atm from a shell where it resolves.", ErrUsage)
 	}
 
+	now := time.Now().UTC()
 	runID := newRunID(opts.Project)
-	contextPath := filepath.Join(s.StorePath(), "manager", runID+".md")
-	if err := os.MkdirAll(filepath.Dir(contextPath), 0o755); err != nil {
-		return fmt.Errorf("create manager dir: %w", err)
-	}
+	timestamp := core.RFC3339UTC(now)
+	contextPath := contextCachePath(s.StorePath(), p.Code, "manage", effectivePersona, opts.Action, opts.Capability)
 
 	rendered := manager.RenderContext(manager.ContextData{
 		Code:               p.Code,
 		Name:               p.Name,
-		ATMBin:             atmBin,
 		Actor:              actor,
-		RunID:              runID,
-		Timestamp:          core.RFC3339UTC(time.Now().UTC()),
 		Persona:            effectivePersona,
 		PersonaPrompt:      mp.Prompt,
 		PersonaDescription: mp.Description,
 		Action:             opts.Action,
 		Capability:         opts.Capability,
 	})
-	if err := os.WriteFile(contextPath, []byte(rendered), 0o644); err != nil {
+	if err := writeContextIfDiff(contextPath, []byte(rendered)); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
 	}
 
 	base := l.BuildArgvManage(contextPath)
 	envArgs := agentEnvArgs(agent, integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
-	envValues := managerEnvValues(opts.Project, atmBin, actor, runID, contextPath, effectivePersona, opts.Action, opts.Capability)
+	envValues := managerEnvValues(opts.Project, actor, runID, contextPath, effectivePersona, opts.Action, opts.Capability, timestamp)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, "manager", opts.Project, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
@@ -290,24 +283,16 @@ func runManager(st *cliState, l manager.Launcher, agent, integration string, opt
 	return nil
 }
 
-func managerEnvValues(project, atmBin, actor, runID, contextPath, persona, action, capability string) map[string]string {
+func managerEnvValues(project, actor, runID, contextPath, persona, action, capability, timestamp string) map[string]string {
 	return map[string]string{
 		"ATM_ROLE":               "manager",
 		"ATM_PROJECT":            project,
-		"ATM_BIN":                atmBin,
 		"ATM_ACTOR":              actor,
 		"ATM_RUN_ID":             runID,
+		"ATM_TIMESTAMP":          timestamp,
 		"ATM_CONTEXT_FILE":       contextPath,
 		"ATM_PERSONA":            persona,
 		"ATM_MANAGER_ACTION":     action,
 		"ATM_MANAGER_CAPABILITY": capability,
 	}
-}
-
-func atmBinPath() string {
-	bin, err := os.Executable()
-	if err != nil {
-		return "atm"
-	}
-	return bin
 }

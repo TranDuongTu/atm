@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateManagerAction(t *testing.T) {
@@ -274,10 +276,13 @@ func TestManageContextGenericKeepsPlaceholders(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := h.stdout.String()
-	for _, placeholder := range []string{"<CODE>", "<ATM_BIN>"} {
+	for _, placeholder := range []string{"<CODE>"} {
 		if !strings.Contains(got, placeholder) {
 			t.Errorf("generic manage-context stripped %s", placeholder)
 		}
+	}
+	if strings.Contains(got, "<ATM_BIN>") {
+		t.Errorf("generic manage-context must not contain <ATM_BIN>; literal `atm` is used")
 	}
 }
 
@@ -294,7 +299,7 @@ func TestManageContextFillsProjectName(t *testing.T) {
 	if !strings.Contains(got, "Foo Project") {
 		t.Errorf("manage-context did not fill <PROJECT_NAME> from the store:\n%s", got)
 	}
-	for _, ph := range []string{"<CODE>", "<PROJECT_NAME>", "<ATM_BIN>", "<ACTOR>"} {
+	for _, ph := range []string{"<CODE>", "<PROJECT_NAME>", "<ACTOR>"} {
 		if strings.Contains(got, ph) {
 			t.Errorf("manage-context left placeholder %s when --project given", ph)
 		}
@@ -302,16 +307,65 @@ func TestManageContextFillsProjectName(t *testing.T) {
 }
 
 func TestManagerEnvSetsActionAndCapability(t *testing.T) {
-	got := managerEnvValues("FOO", "/bin/atm", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "manager", "autopilot", "")
+	got := managerEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "manager", "autopilot", "", "2026-07-19T00:00:00Z")
 	joined := strings.Join(gotToSlice(got), "\n")
 	for _, want := range []string{
 		"ATM_PERSONA=manager",
 		"ATM_MANAGER_ACTION=autopilot",
 		"ATM_MANAGER_CAPABILITY=",
+		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("manager env missing %q; got:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "ATM_BIN=") {
+		t.Errorf("manager env must not set ATM_BIN; got:\n%s", joined)
+	}
+}
+
+func TestManagePATHGuard(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+	_, stderr, code := h.run("manage", "--agent", "codex", "--project", "FOO")
+	if code == ExitSuccess {
+		t.Fatalf("expected non-zero exit when atm is not on PATH")
+	}
+	if !strings.Contains(stderr, "atm is not on PATH") {
+		t.Fatalf("expected 'atm is not on PATH' in stderr; got:\n%s", stderr)
+	}
+}
+
+func TestManageWriteIfDiffNoOp(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	h.reset()
+
+	if _, _, code := h.run("manage", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("first manage exit=%d stderr=%s", code, h.stderr.String())
+	}
+	path := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "manage-manager-autopilot-all.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file not created at %s: %v", path, err)
+	}
+	prev := info.ModTime()
+
+	time.Sleep(15 * time.Millisecond)
+
+	if _, _, code := h.run("manage", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("second manage exit=%d stderr=%s", code, h.stderr.String())
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("context file disappeared: %v", err)
+	}
+	if !info.ModTime().Equal(prev) {
+		t.Fatalf("context file mtime changed on second launch; write-if-diff should be a no-op")
 	}
 }
 
