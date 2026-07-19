@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 // TestRebuildThenVerifyIsFullySynced is a regression test for a bug where
 // Replay() stored entities with LogSeq=0 (the value baked into the log
@@ -97,4 +100,91 @@ func TestRebuildWritesCommentCachesAndSweepsOrphans(t *testing.T) {
 	if _, ok, _ := cacheGetComment(db, "ATM-0001-c0099"); ok {
 		t.Fatal("orphan comment cache not swept")
 	}
+}
+
+// TestRebuildWipesV2FreshnessInSameTx reproduces ATM-5b1db5: Rebuild() wiped
+// the six row tables in one transaction but left the per-project
+// last_v2_event_count:<code> meta freshness rows in place. If the process
+// crashed between that wipe-commit and reprojectAllV2's projection, a later
+// reader saw freshness rows asserting "fresh over empty tables":
+// ensureV2CacheFresh's probe (cacheGetV2Freshness + eng.ChangeCount) matched
+// the still-present freshness count against the unchanged event file, returned
+// fresh, and skipped self-heal — so the cache stayed empty despite intact v2
+// logs on disk. ListTasksErr, which goes through the freshness gate, returned
+// an empty slice with a nil error.
+//
+// The fix is to delete the freshness keys in the SAME transaction as the row
+// wipe, so the post-wipe state never coexists with stale freshness. This test
+// drives that wipe helper directly — the exact code path Rebuild's first tx
+// runs — and asserts both row tables AND freshness rows are gone, so a crash
+// any time after the wipe-commit leaves no stale freshness row to fool
+// ensureV2CacheFresh. It then confirms ensureV2CacheFresh self-heals the
+// empty cache rather than falsely reporting fresh.
+func TestRebuildWipesV2FreshnessInSameTx(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "x", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	db, err := s.cacheDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Precondition: the projected cache has the task and a freshness row.
+	tasks, err := s.ListTasksErr(QueryFilters{Project: "ATM"})
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("precondition: ListTasksErr = %d tasks, err=%v", len(tasks), err)
+	}
+	gotCount, ok, err := cacheGetV2Freshness(db, "ATM")
+	if err != nil || !ok || gotCount == 0 {
+		t.Fatalf("precondition: freshness = (%d, %v), err=%v", gotCount, ok, err)
+	}
+
+	// Run ONLY the wipe half of Rebuild — the exact state a crash between
+	// the wipe-commit and reprojectAllV2 would leave behind. This is the
+	// code path the fix touches; running it in isolation lets us observe
+	// the post-wipe state directly, which Rebuild's completed call hides
+	// by re-projecting over it.
+	if err := s.wipeCacheForRebuild(db); err != nil {
+		t.Fatalf("wipeCacheForRebuild: %v", err)
+	}
+
+	// Row tables must be empty.
+	if n := countRows(t, db, "tasks"); n != 0 {
+		t.Fatalf("tasks table not wiped: %d rows", n)
+	}
+	if n := countRows(t, db, "projects"); n != 0 {
+		t.Fatalf("projects table not wiped: %d rows", n)
+	}
+
+	// The freshness row MUST be gone — the crux of the fix. Before the
+	// fix, the wipe tx touched only the six row tables and left meta
+	// untouched, so this row survived and fooled ensureV2CacheFresh.
+	if _, ok, err := cacheGetV2Freshness(db, "ATM"); err != nil || ok {
+		t.Fatalf("freshness row survived wipe: ok=%v, err=%v (must be deleted in same tx as row wipe)", ok, err)
+	}
+
+	// And the user-visible payoff: with freshness gone, a list read's
+	// ensureV2CacheFresh probe sees "never projected from a v2 file",
+	// rebuilds the project, and returns the live task — instead of the
+	// pre-fix behavior of returning 0 tasks with nil error.
+	tasks, err = s.ListTasksErr(QueryFilters{Project: "ATM"})
+	if err != nil {
+		t.Fatalf("post-wipe ListTasksErr: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("post-wipe: ensureV2CacheFresh did not self-heal empty cache; got %d tasks, want 1", len(tasks))
+	}
+}
+
+func countRows(t *testing.T, db *sql.DB, table string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return n
 }
