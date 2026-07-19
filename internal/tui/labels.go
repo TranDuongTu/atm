@@ -167,14 +167,25 @@ type boardsModel struct {
 	// Shift-N jumped to. It never changes the filter itself (b.selected still
 	// drives that via applyFocus) — only which element gets the strong border.
 	pinFocus int
+
+	// umbrellaRows holds the emergent derivation over ONLY the unmanaged
+	// labels (the pre-v2 L0 derivation scoped to b.unmanaged). Populated by
+	// enterUmbrella/reenterUmbrella and consumed by renderUmbrella.
+	umbrellaRows []boardRow // emergent rows over unmanaged labels (umbrella drill-in)
+
+	// fromUmbrella records whether the current chart/detail was entered
+	// from the umbrella sub-table, so Esc climbs chart/detail -> sub-table
+	// -> ring instead of chart/detail -> ring.
+	fromUmbrella bool
 }
 
 type lLevel int
 
 const (
-	lLevelTable  lLevel = iota // L0 flat boards list
-	lLevelChart                // L1 per-namespace chart
-	lLevelDetail               // L2 label detail (or unset leaf)
+	lLevelTable    lLevel = iota // L0 flat boards list
+	lLevelChart                 // L1 per-namespace chart
+	lLevelDetail                // L2 label detail (or unset leaf)
+	lLevelUmbrella              // L0.5: the umbrella's unmanaged sub-table
 )
 
 type labelRow struct {
@@ -420,7 +431,9 @@ func (b *boardsModel) focusCenter() {
 	if idx < 0 {
 		return
 	}
-	if r := b.rows[idx]; r.Expandable {
+	if r := b.rows[idx]; r.Umbrella {
+		b.enterUmbrella()
+	} else if r.Expandable {
 		b.enterChart(r.Name)
 	}
 }
@@ -432,6 +445,8 @@ func (b *boardsModel) resetDrill() {
 	b.ns = ""
 	b.cursor = 0
 	b.detail = labelDetailState{}
+	b.fromUmbrella = false
+	b.umbrellaRows = nil
 }
 
 func (b *boardsModel) persistPins() {
@@ -489,6 +504,10 @@ func (b *boardsModel) drillIn() {
 	r := b.rows[idx]
 	switch b.level {
 	case lLevelTable:
+		if r.Umbrella {
+			b.enterUmbrella()
+			return
+		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 		} else {
@@ -512,6 +531,9 @@ func (b *boardsModel) drillIn() {
 				b.enterDetail(rr)
 			}
 		}
+	case lLevelUmbrella:
+		// Shift-→ from the sub-table: same as Enter on the cursor row.
+		b.handleUmbrellaKey(tea.KeyMsg{Type: tea.KeyEnter})
 	case lLevelDetail:
 		// already at the deepest level; no-op
 	}
@@ -530,15 +552,33 @@ func (b *boardsModel) drillOut() {
 			b.reenterChart()
 			return
 		}
-		// Leaf board's detail -> L0; the SELECTED board keeps driving the list.
+		// Loose-tag detail: climb back to the sub-table when entered from
+		// the umbrella, else to L0 (the SELECTED board keeps driving the list).
+		if b.fromUmbrella {
+			b.fromUmbrella = false
+			b.reenterUmbrella()
+			b.applyFocus()
+			return
+		}
 		b.level = lLevelTable
 		b.detail = labelDetailState{}
 		b.applyFocus()
 	case lLevelChart:
+		if b.fromUmbrella {
+			b.fromUmbrella = false
+			b.reenterUmbrella()
+			b.applyFocus()
+			return
+		}
 		b.level = lLevelTable
 		b.ns = ""
 		b.cursor = 0
 		b.applyFocus()
+	case lLevelUmbrella:
+		// Esc from the sub-table climbs back to the ring.
+		b.level = lLevelTable
+		b.cursor = b.tableCursor
+		b.clampCursor()
 	}
 }
 
@@ -713,6 +753,198 @@ func (b *boardsModel) namespaceTaskCount(ns string) int {
 	return count
 }
 
+// buildUmbrellaRows runs the pre-v2 emergent derivation over ONLY the
+// unmanaged labels: every unmanaged label with an Expr is a board row, every
+// unmanaged <ns>:<value> or <ns>:* introduces a namespace row, and every
+// loose tag (no namespace, no Expr) gets a leaf row — the umbrella exists to
+// surface EVERY unmanaged label, unlike the old L0 which hid loose tags.
+// Sorted by display name, exactly like the old L0.
+func (b *boardsModel) buildUmbrellaRows() []boardRow {
+	scope := b.m.projectScope
+	byName := map[string]core.Label{}
+	for _, l := range b.unmanaged {
+		byName[l.Name] = l
+	}
+	var out []boardRow
+	seen := map[string]bool{}
+	for _, l := range b.unmanaged {
+		if l.Expr == "" {
+			continue
+		}
+		name := strings.TrimPrefix(l.Name, scope+":")
+		count, broken := b.boardCount(l.Name)
+		seen[name] = true
+		out = append(out, boardRow{
+			Name: name, FullName: l.Name, Description: l.Description,
+			Expr: l.Expr, Count: count, Broken: broken,
+		})
+	}
+	nsOrder := []string{}
+	nsSeen := map[string]bool{}
+	for _, l := range b.unmanaged {
+		suffix := strings.TrimPrefix(l.Name, scope+":")
+		if core.IsNamespaceName(l.Name) {
+			ns := strings.TrimSuffix(suffix, ":*")
+			if !nsSeen[ns] {
+				nsSeen[ns] = true
+				nsOrder = append(nsOrder, ns)
+			}
+			continue
+		}
+		parts := strings.SplitN(suffix, ":", 2)
+		if len(parts) == 2 {
+			if ns := parts[0]; !nsSeen[ns] {
+				nsSeen[ns] = true
+				nsOrder = append(nsOrder, ns)
+			}
+		}
+	}
+	sort.Strings(nsOrder)
+	for _, ns := range nsOrder {
+		if seen[ns] {
+			continue
+		}
+		descFull := scope + ":" + ns + ":*"
+		descLabel, hasDesc := byName[descFull]
+		desc := ""
+		needsDesc := true
+		if hasDesc && descLabel.Description != "" {
+			desc = descLabel.Description
+			needsDesc = false
+		}
+		out = append(out, boardRow{
+			Name: ns, FullName: descFull, Description: desc,
+			Count: b.namespaceTaskCount(ns), Expandable: true, NeedsDescription: needsDesc,
+		})
+	}
+	// Loose tags (no namespace, no Expr): browsable as leaf details. The old
+	// L0 derivation treated these as invisible; the umbrella surfaces every
+	// unmanaged label, so they get leaf rows here. The usage lookup is hoisted
+	// out of the loop so it runs once for the whole loose-tag pass.
+	usage, _ := b.m.store.LabelUsageGrouped(scope)
+	for _, l := range b.unmanaged {
+		suffix := strings.TrimPrefix(l.Name, scope+":")
+		if l.Expr != "" || core.IsNamespaceName(l.Name) || strings.Contains(suffix, ":") {
+			continue
+		}
+		out = append(out, boardRow{
+			Name: suffix, FullName: l.Name, Description: l.Description,
+			Count: usage[l.Name], NeedsDescription: l.Description == "",
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// enterUmbrella opens the unmanaged sub-table. No task-filter change: the
+// umbrella is a browsing surface, not a filter.
+func (b *boardsModel) enterUmbrella() {
+	b.tableCursor = b.cursor
+	b.level = lLevelUmbrella
+	b.umbrellaRows = b.buildUmbrellaRows()
+	b.cursor = 0
+	b.offset = 0
+}
+
+// reenterUmbrella returns from a chart/detail entered via the umbrella.
+func (b *boardsModel) reenterUmbrella() {
+	b.level = lLevelUmbrella
+	b.umbrellaRows = b.buildUmbrellaRows()
+	b.cursor = 0
+	b.ns = ""
+	b.detail = labelDetailState{}
+}
+
+func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
+	rows := b.umbrellaRows
+	switch k.String() {
+	case "j", "down":
+		if b.cursor < len(rows)-1 {
+			b.cursor++
+		}
+	case "k", "up":
+		if b.cursor > 0 {
+			b.cursor--
+		}
+	case "g":
+		b.cursor = 0
+	case "]":
+		b.cursor += b.pageSize
+		if b.cursor > len(rows)-1 {
+			b.cursor = len(rows) - 1
+		}
+		if b.cursor < 0 {
+			b.cursor = 0
+		}
+	case "[":
+		b.cursor -= b.pageSize
+		if b.cursor < 0 {
+			b.cursor = 0
+		}
+	case "enter":
+		if b.cursor < 0 || b.cursor >= len(rows) {
+			return nil
+		}
+		r := rows[b.cursor]
+		b.fromUmbrella = true
+		if r.Expandable {
+			b.enterChart(r.Name)
+			return nil
+		}
+		b.level = lLevelDetail
+		b.detail = labelDetailState{row: labelRow{
+			suffix:      strings.TrimPrefix(r.FullName, b.m.projectScope+":"),
+			full:        r.FullName,
+			description: r.Description,
+			usage:       r.Count,
+		}}
+	case "esc":
+		b.level = lLevelTable
+		b.cursor = b.tableCursor
+		b.clampCursor()
+	}
+	return nil
+}
+
+// renderUmbrella mirrors renderTable over b.umbrellaRows. The owner cell is
+// always "—" (the umbrella holds only unmanaged labels — no owner).
+func (b *boardsModel) renderUmbrella() string {
+	if len(b.umbrellaRows) == 0 {
+		return padToHeight("no unmanaged labels", b.contentHeight)
+	}
+	var sb strings.Builder
+	header := boardTableLine(b.width, "LABEL", "DESCRIPTION", "OWNER", "COUNT")
+	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
+	sb.WriteString("\n")
+
+	var lines []string
+	for i, r := range b.umbrellaRows {
+		name := r.Name
+		if r.NeedsDescription {
+			name = name + " " + b.m.styles.Warning.Render("⚠")
+		}
+		if r.Broken {
+			name = name + " " + b.m.styles.Warning.Render("⚠ broken")
+		}
+		count := fmt.Sprintf("%d", r.Count)
+		if r.Broken {
+			count = "-"
+		}
+		owner := b.m.styles.Muted.Render("—")
+		line := boardTableLine(b.width, name, r.Description, owner, count)
+		if i == b.cursor {
+			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+		}
+		lines = append(lines, dashboardLine(b.width, line))
+	}
+	start, end := windowLines(len(lines), b.cursor, b.pageSize)
+	for i := start; i < end; i++ {
+		sb.WriteString(lines[i])
+		sb.WriteString("\n")
+	}
+	return padToHeight(sb.String(), b.contentHeight)
+}
+
 func (b *boardsModel) restoreChartCursor(selected chartRow) bool {
 	rows := b.chartRows()
 	for i, r := range rows {
@@ -827,6 +1059,8 @@ func (b *boardsModel) reset() {
 	b.tableCursor = 0
 	b.offset = 0
 	b.detail = labelDetailState{}
+	b.fromUmbrella = false
+	b.umbrellaRows = nil
 }
 
 func (b *boardsModel) handleKey(k tea.KeyMsg) tea.Cmd {
@@ -837,6 +1071,8 @@ func (b *boardsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		return b.handleChartKey(k)
 	case lLevelDetail:
 		return b.handleDetailKey(k)
+	case lLevelUmbrella:
+		return b.handleUmbrellaKey(k)
 	}
 	return nil
 }
@@ -971,6 +1207,10 @@ func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		r := b.rows[b.cursor]
+		if r.Umbrella {
+			b.enterUmbrella()
+			return nil
+		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 			return nil
@@ -1026,6 +1266,12 @@ func (b *boardsModel) handleChartKey(k tea.KeyMsg) tea.Cmd {
 			b.enterDetail(r)
 		}
 	case "esc":
+		if b.fromUmbrella {
+			b.fromUmbrella = false
+			b.reenterUmbrella()
+			b.applyFocus()
+			return nil
+		}
 		b.enterTable()
 	}
 	return nil
@@ -1059,7 +1305,21 @@ func (b *boardsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "esc":
 		// A real label detail and the (unset) leaf sit above the chart.
-		b.reenterChart()
+		if b.ns != "" {
+			b.reenterChart()
+			return nil
+		}
+		// Loose-tag detail (no namespace): climb back to the sub-table when
+		// entered from the umbrella, else to L0.
+		if b.fromUmbrella {
+			b.fromUmbrella = false
+			b.reenterUmbrella()
+			b.applyFocus()
+			return nil
+		}
+		b.level = lLevelTable
+		b.detail = labelDetailState{}
+		b.applyFocus()
 	}
 	return nil
 }
@@ -1097,6 +1357,8 @@ func (b *boardsModel) View() string {
 		return b.renderChart()
 	case lLevelDetail:
 		return b.renderDetail()
+	case lLevelUmbrella:
+		return b.renderUmbrella()
 	default:
 		return b.renderTable()
 	}
@@ -1319,6 +1581,8 @@ func (b *boardsModel) statusHint() string {
 			return "[Esc]back"
 		}
 		return "[d]esc [l]remove [Esc]back"
+	case lLevelUmbrella:
+		return "[Enter]open [Esc]back"
 	default:
 		return "[Enter]open [n]ew [e]dit [a]dd [S]eed [?]keys"
 	}

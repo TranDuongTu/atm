@@ -1930,6 +1930,86 @@ func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	}
 }
 
+// TestUmbrellaDrillInShowsEmergentSubTable: drilling into the umbrella lists
+// the OLD emergent derivation scoped to unmanaged labels only — namespace
+// rows for unmanaged prefixes, plus loose labels/boards — and drilling a
+// namespace row from there opens the normal chart, with Esc climbing back
+// chart -> sub-table -> ring.
+func TestUmbrellaDrillInShowsEmergentSubTable(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct{ name, expr string }{
+		{"ATM:type:bug", ""}, {"ATM:type:feature", ""}, {"ATM:urgent", ""}, {"ATM:my-board", "urgent"},
+	} {
+		if err := m.store.LabelAdd(l.name, "", l.expr, m.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.boards.refresh()
+	m.boards.selected = "ATM:unmanaged"
+	m.boards.drillIn()
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	// Emergent scoped derivation: my-board (board), type (namespace), urgent (loose tag).
+	var names []string
+	for _, r := range m.boards.umbrellaRows {
+		names = append(names, r.Name)
+	}
+	want := []string{"my-board", "type", "urgent"}
+	if len(names) != len(want) {
+		t.Fatalf("umbrellaRows = %v, want %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("umbrellaRows[%d] = %s, want %s", i, names[i], want[i])
+		}
+	}
+	// Drill the "type" namespace row -> chart; Esc -> back to sub-table.
+	for i, r := range m.boards.umbrellaRows {
+		if r.Name == "type" {
+			m.boards.cursor = i
+		}
+	}
+	m.boards.handleUmbrellaKey(keyMsg("enter"))
+	if m.boards.level != lLevelChart || m.boards.ns != "type" {
+		t.Fatalf("enter on namespace row: level=%v ns=%q, want chart/type", m.boards.level, m.boards.ns)
+	}
+	m.boards.handleChartKey(keyMsg("esc"))
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("esc from umbrella-entered chart: level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	m.boards.handleUmbrellaKey(keyMsg("esc"))
+	if m.boards.level != lLevelTable {
+		t.Fatalf("esc from sub-table: level = %v, want lLevelTable", m.boards.level)
+	}
+}
+
+// TestChartEscOutsideUmbrellaStillReturnsToTable guards the fromUmbrella flag:
+// a chart entered from the ring (status:*) still Esc's to L0.
+func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	m.boards.selected = "ATM:status:*"
+	m.boards.drillIn()
+	if m.boards.level != lLevelChart {
+		t.Fatalf("level = %v, want chart", m.boards.level)
+	}
+	m.boards.handleChartKey(keyMsg("esc"))
+	if m.boards.level != lLevelTable {
+		t.Fatalf("esc = %v, want lLevelTable", m.boards.level)
+	}
+}
+
 // TestSelectDefaultSkipsUmbrella: umbrella is never the default selection;
 // selecting it via cycleBoard applies no task filter.
 func TestSelectDefaultSkipsUmbrella(t *testing.T) {
