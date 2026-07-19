@@ -12,6 +12,7 @@ import (
 	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"github.com/spf13/cobra"
 )
 
 // --- Board ring / default selection tests ---
@@ -604,6 +605,79 @@ func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel 
 	return &mm.boards
 }
 
+// newTestBoardsModelWithCaps builds a *boardsModel whose registry is assembled
+// from the given capabilities, so a test can register a synthetic capability
+// (e.g. one that exposes an undescribed namespace) alongside the real ones.
+func newTestBoardsModelWithCaps(t *testing.T, s *store.Store, code string, caps ...capability.Capability) *boardsModel {
+	t.Helper()
+	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(caps...)})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	mm.projectScope = code
+	return &mm.boards
+}
+
+// newTestModelWithCaps builds a full Model whose registry is assembled from
+// the given capabilities, for tests that drive the key harness (forms, etc.)
+// but need a synthetic capability (e.g. an undescribed namespace) registered.
+func newTestModelWithCaps(t *testing.T, caps ...capability.Capability) *Model {
+	t.Helper()
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(caps...)})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	return m
+}
+
+// undescribedCap is a synthetic capability that exposes a single namespace
+// descriptor ("flagme:*") with no description. It exists only to drive the
+// NeedsDescription code path in buildBoardRows ("⚠ flag fires") and the
+// flag-clears-after-edit path, restoring the coverage the Task 4 review
+// flagged. Vocabulary and Exposed return the same single literal so the
+// namespace is owned (not unmanaged) and surfaces at L0.
+type undescribedCap struct {
+	code string
+}
+
+func (u *undescribedCap) Name() string      { return "undescribed-test" }
+func (u *undescribedCap) Summary() string    { return "synthetic test capability" }
+func (u *undescribedCap) Guide() string     { return "" }
+func (u *undescribedCap) Command(_ capability.Env) *cobra.Command {
+	return &cobra.Command{Use: u.Name()}
+}
+
+func (u *undescribedCap) Vocabulary(code string) []core.Label {
+	if code != u.code {
+		return nil
+	}
+	return []core.Label{{Name: code + ":flagme:*"}}
+}
+
+func (u *undescribedCap) Exposed(code string) []core.Label {
+	if code != u.code {
+		return nil
+	}
+	return []core.Label{{Name: code + ":flagme:*"}}
+}
+
+func (u *undescribedCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
+	if code != u.code {
+		return nil, nil
+	}
+	if err := svc.LabelSeed(code+":flagme:*", "", "", actor); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
 // rowNames returns the display Names of the Boards pane's flat row list.
 func (b *boardsModel) rowNames() []string {
 	out := make([]string, 0, len(b.rows))
@@ -703,9 +777,13 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 	// Task 4 narrows the ⚠ flag: only capability-Exposed namespace rows can
 	// be flagged at L0, and only when the Exposed literal carries no
 	// description. workflow's seeded namespaces all carry descriptions, so
-	// none are flagged — this test now pins that the seeded namespaces are
-	// NOT flagged (the flag still fires in code for a future capability
-	// that exposes an undescribed namespace).
+	// none are flagged — this test pins BOTH halves of the contract:
+	//
+	//  1. workflow's described namespaces (status, priority) are NOT flagged.
+	//  2. an undescribed capability-Exposed namespace IS flagged (the
+	//     `NeedsDescription: l.Description == ""` code path in buildBoardRows
+	//     is real coverage, not dead code). A synthetic capability exposes
+	//     such a namespace ("flagme:*" with Description == "").
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
 	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
@@ -715,7 +793,7 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 	// at L0 (Task 4). It must not surface as a flagged L0 row.
 	_ = s.LabelAdd("ATM:sprint:*", "", "", testActor)
 
-	m := newTestBoardsModel(t, s, "ATM")
+	m := newTestBoardsModelWithCaps(t, s, "ATM", workflow.New(), &undescribedCap{code: "ATM"})
 	m.refresh()
 
 	// sprint must NOT appear at L0 — it is umbrella-only now.
@@ -731,6 +809,16 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 		if row.NeedsDescription {
 			t.Errorf("%s namespace has a description and must not be flagged", ns)
 		}
+	}
+	// The synthetic capability's exposed namespace "flagme:*" has no
+	// description: buildBoardRows must mark its row NeedsDescription=true.
+	// This is the real flag-fires coverage the Task 4 review restored.
+	row, ok := m.row("flagme")
+	if !ok {
+		t.Fatalf("flagme namespace missing from rows: %v", m.rowNames())
+	}
+	if !row.NeedsDescription {
+		t.Errorf("flagme namespace has no description and must be flagged (NeedsDescription=true); got row=%+v", row)
 	}
 }
 
@@ -1025,6 +1113,75 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 	}
 	if l.Description != "lifecycle state of a task" {
 		t.Errorf("descriptor description = %q want the typed text", l.Description)
+	}
+}
+
+// TestBoardsL0EditNamespaceClearsNeedsDescriptionFlag restores the
+// "flag clears after edit" half dropped during the Task 4 retarget. A
+// synthetic capability exposes an undescribed namespace (flagme:*) so the
+// ⚠ flag fires at L0; [e] opens the descriptor editor, a description is
+// typed, and after refresh the flag is cleared. This covers the
+// `NeedsDescription: l.Description == ""` code path AND the flag-clears
+// path, so both would fail if the assignment were dropped from
+// buildBoardRows.
+func TestBoardsL0EditNamespaceClearsNeedsDescriptionFlag(t *testing.T) {
+	m := newTestModelWithCaps(t, workflow.New(), &undescribedCap{code: "ATM"})
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a task so flagme namespace has a member and a non-zero count,
+	// making the row visible in the flat list.
+	seedTask(t, m, "ATM", "flagged one", "ATM:flagme:x")
+	update(t, m, "s")
+
+	// Before edit: the flagme namespace row is flagged (no description).
+	flagRow, ok := m.boards.row("flagme")
+	if !ok {
+		t.Fatalf("flagme namespace missing from rows: %v", m.boards.rowNames())
+	}
+	if !flagRow.NeedsDescription {
+		t.Fatalf("flagme row must be flagged before edit: %+v", flagRow)
+	}
+
+	// [e] opens the descriptor editor on the flagme namespace row.
+	cursorToNamespaceRow(t, m, "flagme")
+	m.boards.handleKey(keyMsg("e"))
+	if m.form == nil || m.formKind != formNamespaceDescribe {
+		t.Fatalf("[e] on flagme namespace must open formNamespaceDescribe; form=%v kind=%v", m.form, m.formKind)
+	}
+	if got := m.form.Fields[0].Value; got != "flagme" {
+		t.Errorf("namespace field = %q want flagme", got)
+	}
+	// Type a description into the (empty) description field.
+	update(t, m, "tab")
+	m.form.Fields[1].Value = ""
+	for _, r := range "synthetic test namespace" {
+		update(t, m, string(r))
+	}
+	update(t, m, "enter")
+	if m.form != nil {
+		t.Fatalf("form should be closed after submit")
+	}
+
+	// The descriptor was upserted.
+	l, err := m.store.LabelShow("ATM:flagme:*")
+	if err != nil {
+		t.Fatalf("LabelShow ATM:flagme:*: %v", err)
+	}
+	if l.Description != "synthetic test namespace" {
+		t.Errorf("descriptor description = %q want the typed text", l.Description)
+	}
+
+	// After refresh the flag is cleared: buildBoardRows reads the stored
+	// description and so NeedsDescription is false.
+	m.boards.refresh()
+	flagRow, ok = m.boards.row("flagme")
+	if !ok {
+		t.Fatalf("flagme namespace missing after refresh: %v", m.boards.rowNames())
+	}
+	if flagRow.NeedsDescription {
+		t.Errorf("flagme row must not be flagged after a description was upserted: %+v", flagRow)
 	}
 }
 
