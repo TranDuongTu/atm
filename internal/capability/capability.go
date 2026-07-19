@@ -54,6 +54,17 @@ type Capability interface {
 	// meaning, verb usage, operating procedure, and `## Brief` / `## Autopilot`
 	// sections (spec §7). Served verbatim by the uniform `guide` subcommand.
 	Guide() string
+	// Vocabulary declares every label this capability owns for the project:
+	// stored labels, namespace descriptors, and boards — exactly the set
+	// EnsureVocabulary seeds. Pure read, no store side effect. This is the
+	// OWNERSHIP surface: Registry.Unmanaged subtracts it.
+	Vocabulary(code string) []core.Label
+	// Exposed declares the computed labels (boards + namespace descriptors)
+	// this capability surfaces in the TUI ring for the project. Pure read,
+	// no store side effect. Order within the slice is the capability's
+	// preferred ring order; the registry preserves registration order across
+	// capabilities. Invariant: Exposed ⊆ Vocabulary.
+	Exposed(code string) []core.Label
 	// EnsureVocabulary seeds ALL the capability's labels (stored, namespace,
 	// boards) for a project, idempotently, and returns the BOARD labels
 	// (Expr != "") the capability owns. One call leaves the project fully

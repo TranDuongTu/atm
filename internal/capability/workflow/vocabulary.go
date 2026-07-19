@@ -33,6 +33,49 @@ func backlogExpr() string         { return "NOT status:*" }
 func inProgressTasksExpr() string { return "status:in-progress" }
 func allTasksExpr() string        { return "*" }
 
+// vocabulary is the single literal list every contract method derives from:
+// stored/namespace labels first (Expr == ""), then the four boards, in seed
+// order. Ownership (Vocabulary), ring display (Exposed), and seeding
+// (EnsureVocabulary) all read this list, so they cannot diverge.
+func vocabulary(code string) []core.Label {
+	return []core.Label{
+		{Name: code + ":status:*", Description: "lifecycle state of a task; exactly one status label should be present"},
+		{Name: code + ":status:open", Description: "workflow state: open; task is not started or is being considered"},
+		{Name: code + ":status:in-progress", Description: "workflow state: in-progress; someone is actively working on this"},
+		{Name: code + ":status:blocked", Description: "workflow state: blocked; task cannot proceed pending something else"},
+		{Name: code + ":status:done", Description: "workflow state: done; task is complete"},
+		{Name: code + ":priority:*", Description: "urgency ranking for planning; at most one priority label per task, absent means default priority"},
+		{Name: code + ":priority:high", Description: "planning priority: high; do this first, everything untagged is default priority"},
+		{Name: code + ":priority:medium", Description: "planning priority: medium; do after high-priority work"},
+		{Name: code + ":priority:low", Description: "planning priority: low; do when no higher-priority work remains"},
+		{Name: BoardBacklog(code), Description: "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.", Expr: backlogExpr()},
+		{Name: BoardOpenTasks(code), Description: "every open task: the project's active work.", Expr: openTasksExpr()},
+		{Name: BoardInProgressTasks(code), Description: "tasks someone is actively working on (status:in-progress).", Expr: inProgressTasksExpr()},
+		{Name: BoardAllTasks(code), Description: "every task in the project, ordered by recent activity. Default board in the TUI.", Expr: allTasksExpr()},
+	}
+}
+
+// Vocabulary returns every label this capability owns for code. Pure.
+func Vocabulary(code string) []core.Label { return vocabulary(code) }
+
+// Exposed returns the labels this capability surfaces in the TUI ring, in
+// preferred ring order: the four boards, then the two namespaces it owns.
+func Exposed(code string) []core.Label {
+	byName := map[string]core.Label{}
+	for _, l := range vocabulary(code) {
+		byName[l.Name] = l
+	}
+	names := []string{
+		BoardAllTasks(code), BoardOpenTasks(code), BoardInProgressTasks(code), BoardBacklog(code),
+		code + ":status:*", code + ":priority:*",
+	}
+	out := make([]core.Label, 0, len(names))
+	for _, n := range names {
+		out = append(out, byName[n])
+	}
+	return out
+}
+
 // EnsureVocabulary seeds this capability's full vocabulary: the status:*
 // namespace it owns (absorbed from the deleted internal/seed default set),
 // the priority:* namespace it owns (priority is a planning concern, and
@@ -42,34 +85,14 @@ func allTasksExpr() string        { return "*" }
 // (Expr != "") it owns, in the documented order; status and priority labels
 // are stored/namespace labels (Expr == "") and are not returned.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
-	stored := []struct{ suffix, desc string }{
-		{"status:*", "lifecycle state of a task; exactly one status label should be present"},
-		{"status:open", "workflow state: open; task is not started or is being considered"},
-		{"status:in-progress", "workflow state: in-progress; someone is actively working on this"},
-		{"status:blocked", "workflow state: blocked; task cannot proceed pending something else"},
-		{"status:done", "workflow state: done; task is complete"},
-		{"priority:*", "urgency ranking for planning; at most one priority label per task, absent means default priority"},
-		{"priority:high", "planning priority: high; do this first, everything untagged is default priority"},
-		{"priority:medium", "planning priority: medium; do after high-priority work"},
-		{"priority:low", "planning priority: low; do when no higher-priority work remains"},
-	}
-	for _, l := range stored {
-		if err := s.LabelSeed(code+":"+l.suffix, l.desc, "", actor); err != nil {
+	var boards []core.Label
+	for _, l := range vocabulary(code) {
+		if err := s.LabelSeed(l.Name, l.Description, l.Expr, actor); err != nil {
 			return nil, err
 		}
-	}
-	boards := []struct{ name, desc, expr string }{
-		{BoardBacklog(code), "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.", backlogExpr()},
-		{BoardOpenTasks(code), "every open task: the project's active work.", openTasksExpr()},
-		{BoardInProgressTasks(code), "tasks someone is actively working on (status:in-progress).", inProgressTasksExpr()},
-		{BoardAllTasks(code), "every task in the project, ordered by recent activity. Default board in the TUI.", allTasksExpr()},
-	}
-	out := make([]core.Label, 0, len(boards))
-	for _, b := range boards {
-		if err := s.LabelSeed(b.name, b.desc, b.expr, actor); err != nil {
-			return nil, err
+		if l.Expr != "" {
+			boards = append(boards, l)
 		}
-		out = append(out, core.Label{Name: b.name, Description: b.desc, Expr: b.expr})
 	}
-	return out, nil
+	return boards, nil
 }

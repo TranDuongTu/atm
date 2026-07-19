@@ -72,6 +72,10 @@ func (f *fakeMountCap) EnsureVocabulary(svc core.LabelService, code, actor strin
 	return nil, nil
 }
 
+func (f *fakeMountCap) Vocabulary(code string) []core.Label { return nil }
+
+func (f *fakeMountCap) Exposed(code string) []core.Label { return nil }
+
 func (f *fakeMountCap) Command(env capability.Env) *cobra.Command {
 	return &cobra.Command{Use: f.name}
 }

@@ -26,6 +26,12 @@ func (Cap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.L
 	return EnsureVocabulary(svc, code, actor)
 }
 
+// Vocabulary implements capability.Capability (ownership surface).
+func (Cap) Vocabulary(code string) []core.Label { return Vocabulary(code) }
+
+// Exposed implements capability.Capability (TUI ring surface).
+func (Cap) Exposed(code string) []core.Label { return Exposed(code) }
+
 func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "contextmap",

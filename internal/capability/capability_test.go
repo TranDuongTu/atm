@@ -19,6 +19,8 @@ type fakeCap struct {
 	cmdName string
 	summary string
 	guide   string
+	vocab   []core.Label
+	exposed []core.Label
 }
 
 func (f *fakeCap) Name() string { return f.name }
@@ -26,6 +28,10 @@ func (f *fakeCap) Name() string { return f.name }
 func (f *fakeCap) Summary() string { return f.summary }
 
 func (f *fakeCap) Guide() string { return f.guide }
+
+func (f *fakeCap) Vocabulary(code string) []core.Label { return f.vocab }
+
+func (f *fakeCap) Exposed(code string) []core.Label { return f.exposed }
 
 func (f *fakeCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	*f.calls = append(*f.calls, f.name+"/"+code+"/"+actor)
