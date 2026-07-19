@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -568,7 +567,7 @@ func (p *projectsModel) renderSummary(height int) string {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	project, tasks, entries, vocab, ok := p.projectSummaryData()
+	project, tasks, entries, ok := p.projectSummaryData()
 	if !ok {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
 		return padToHeight(strings.Join(lines, "\n"), height)
@@ -580,11 +579,10 @@ func (p *projectsModel) renderSummary(height int) string {
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 
-	if remaining >= 9 {
-		actorH, stripeH, bubblesH := chartBoxHeights(remaining)
+	if remaining >= 6 {
+		actorH, stripeH := chartBoxHeights(remaining)
 		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
 		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
-		lines = append(lines, strings.Split(p.renderUbiquitousLanguageChart(vocab, bubblesH), "\n")...)
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 
@@ -613,23 +611,19 @@ func (p *projectsModel) renderSummary(height int) string {
 	return padToHeight(strings.Join(lines, "\n"), height)
 }
 
-func chartBoxHeights(total int) (int, int, int) {
-	if total < 9 {
-		return total, 0, 0
+func chartBoxHeights(total int) (int, int) {
+	if total < 6 {
+		return total, 0
 	}
-	actor := total / 3
-	stripe := total / 3
-	bubbles := total - actor - stripe
+	actor := total / 2
+	stripe := total - actor
 	if actor < 3 {
 		actor = 3
 	}
 	if stripe < 3 {
 		stripe = 3
 	}
-	if bubbles < 3 {
-		bubbles = 3
-	}
-	return actor, stripe, bubbles
+	return actor, stripe
 }
 
 func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxLines int) []string {
@@ -847,51 +841,6 @@ func densityFillRune(count int) rune {
 	}
 }
 
-func renderUbiquitousLanguageCanvas(width int, height int, terms []core.VocabularyTerm) string {
-	if width < 18 {
-		width = 18
-	}
-	if height < 3 {
-		height = 3
-	}
-	c := canvas.New(width, height)
-	colors := []lipgloss.Color{"39", "214", "82", "171", "203", "117"}
-	sorted := make([]core.VocabularyTerm, len(terms))
-	copy(sorted, terms)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].Weight != sorted[j].Weight {
-			return sorted[i].Weight > sorted[j].Weight
-		}
-		return sorted[i].Term < sorted[j].Term
-	})
-	for i, term := range sorted {
-		if i >= 12 {
-			break
-		}
-		col := colors[i%len(colors)]
-		style := lipgloss.NewStyle().Foreground(col).Bold(term.Weight >= 7)
-		x := (i * 13) % width
-		y := i % height
-		c.SetStringWithStyle(canvas.Point{X: x, Y: y}, term.Term, style)
-	}
-	return c.View()
-}
-
-func (p *projectsModel) renderUbiquitousLanguageChart(vocab *core.Vocabulary, maxLines int) string {
-	if maxLines < 3 {
-		return dashboardLine(p.width, "Ubiquitous Language")
-	}
-	innerW := chartBoxInnerWidth(p.width)
-	innerH := maxLines - 2
-	var body string
-	if vocab == nil || len(vocab.Terms) == 0 {
-		body = p.m.styles.Muted.Render("no vocabulary yet — manager has not computed it")
-	} else {
-		body = renderUbiquitousLanguageCanvas(innerW, innerH, vocab.Terms)
-	}
-	return p.renderChartBox("Ubiquitous Language", body, maxLines)
-}
-
 func chartBoxWidth(width int) int {
 	if width <= 8 {
 		return width
@@ -986,22 +935,21 @@ func meterBar(percent int, width int) string {
 	return repeat("█", filled) + repeat("░", width-filled)
 }
 
-func (p *projectsModel) projectSummaryData() (*core.Project, []*core.Task, []core.LogEntry, *core.Vocabulary, bool) {
+func (p *projectsModel) projectSummaryData() (*core.Project, []*core.Task, []core.LogEntry, bool) {
 	code := p.m.projectScope
 	if code == "" {
-		return nil, nil, nil, nil, false
+		return nil, nil, nil, false
 	}
 	project, err := p.m.store.GetProject(code)
 	if err != nil {
-		return nil, nil, nil, nil, false
+		return nil, nil, nil, false
 	}
 	tasks := p.m.store.ListTasks(core.QueryFilters{Project: code})
 	entries, err := p.m.store.ReadLogCached(code)
 	if err != nil && !core.IsIntegrity(err) {
-		return nil, nil, nil, nil, false
+		return nil, nil, nil, false
 	}
-	vocab, _ := p.m.store.GetVocabulary(code)
-	return project, tasks, entries, vocab, true
+	return project, tasks, entries, true
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading

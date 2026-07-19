@@ -836,8 +836,6 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	mustContain(t, body, "developer")
 	mustContain(t, body, "%")
 	mustContain(t, body, "activity stripe")
-	mustContain(t, body, "Ubiquitous Language")
-	mustContain(t, body, "no vocabulary yet")
 	mustNotContain(t, body, "Activities by actor")
 	mustNotContain(t, body, "Activity stripe")
 }
@@ -907,7 +905,7 @@ func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Ubiquitous Language")
+	mustContain(t, body, "activity stripe")
 	if m.form != nil {
 		t.Fatalf("bubble placeholder opened form")
 	}

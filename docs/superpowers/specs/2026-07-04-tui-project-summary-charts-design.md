@@ -26,10 +26,9 @@ model.
 - Render summaries only when a project is selected.
 - Render chart content inside large centered boxes that occupy the summary
   region's remaining height.
-- Add three summary chart areas:
+- Add two summary chart areas:
   - activities by actor from the selected project's audit log
   - one-week project activity stripe from the selected project's audit log
-  - sample keyword bubbles placeholder for a future agent integration
 - Keep the charts terminal-friendly, bounded, and non-interactive in this
   iteration.
 - Keep implementation in the TUI layer using existing store reads.
@@ -71,11 +70,6 @@ Inside the Projects pane body, list mode splits vertically:
 │ │ ▁▁▁▁ ▂▂▂▂ ▅▅▅▅ ▁▁▁▁ ▁▁▁▁ ████ ▁▁▁▁ │ │
 │ │ 7d ago                  Yesterday Today │ │
 │ ╰──────────────────────────────────╯ │
-│                                      │
-│ ╭ ubiquitous language ─────────────╮ │
-│ │ no vocabulary yet — manager has │ │
-│ │ not computed it                 │ │
-│ ╰─────────────────────────────────╯ │
 └──────────────────────────────────────┘
 ```
 
@@ -150,30 +144,6 @@ active.
 If there are no log entries, the chart renders seven empty/low bars ending
 today rather than a blank chart.
 
-## Chart 3: Ubiquitous Language
-
-The third chart renders the selected project's ubiquitous language — the
-recurring domain terms mined from task titles, descriptions, and comments by
-the manager (the knowledge-base owner). It is no longer a placeholder: it
-reads `vocabulary.json` written by the manager and renders weighted bubbles
-inside a large centered box titled `ubiquitous language`.
-
-Each vocabulary term carries a weight in the range 1-10. The chart renders the
-top-N terms, capped at 12, sorted by weight descending then term ascending for
-ties. Weight is reflected via bold + color: heavier terms are bold when
-weight >= 7 and use distinct colors (a text canvas does not support size
-scaling cleanly). Bubble labels use distinct colors through Lip Gloss styling. The renderer uses
-`github.com/NimbleMarkets/ntcharts/canvas` so bubbles are laid out inside the
-chart container without overflowing.
-
-When no vocabulary has been computed yet for the selected project, the chart
-renders a quiet empty state instead of the placeholder `events`/`agents`/
-`tasks` sample labels. Vocabulary recompute is explicit and owned by the
-manager: during onboarding, in an interactive manager session, or via a
-developing-agent track call with a `vocabulary` hint. See
-`docs/superpowers/specs/2026-07-08-manager-knowledge-base-onboarding-unification-design.md`
-for the manager knowledge-base design.
-
 ## Data Flow
 
 The implementation should stay in `internal/tui`.
@@ -197,7 +167,6 @@ Pure helper functions are preferred for:
 - aggregating audit-log entries by actor
 - collecting and bucketing audit-log entries into the one-week stripe
 - rendering density glyphs from bucket counts
-- drawing sample bubbles with deterministic placeholder labels
 
 This keeps chart behavior testable without relying on full-screen ANSI
 snapshots.
@@ -213,9 +182,9 @@ section dividers, muted text, dashboard lines, truncation helpers, and stable
 height padding. It should not introduce a new visual theme or dominate the
 right-side Tasks and Labels panes.
 
-The three chart boxes should consume all remaining summary height after the
+The two chart boxes should consume all remaining summary height after the
 summary title and project context lines. On normal terminal heights, the space
-is split across actor activity, activity stripe, and bubbles. On very short
+is split across actor activity and the activity stripe. On very short
 terminals, rendering may gracefully degrade to compact labels/inline charts.
 
 The Projects status hint does not need new keys because charts are
@@ -224,13 +193,12 @@ non-interactive. Existing list keys remain valid.
 ## Error Handling
 
 Rendering must not panic on narrow or short terminals. If there is not enough
-height to show all three charts, the summary region should render as many chart
+height to show both charts, the summary region should render as many chart
 lines as fit in priority order:
 
 1. chart section title / selected project context
 2. activities by actor chart
 3. activity stripe chart
-4. bubbles placeholder
 
 If a selected project cannot be loaded, the summary region should render a
 short error-like empty state and avoid interrupting the rest of the TUI render.
@@ -244,15 +212,13 @@ Implementation must add or update tests for:
 - The Projects pane internal height split is approximately 30 percent list and
   70 percent summary on normal terminal sizes.
 - No project selected renders the summary empty state.
-- Selecting a project renders all three chart sections.
+- Selecting a project renders both chart sections.
 - Activity-by-actor aggregation counts project log events by actor.
 - Activity-by-actor aggregation sorts by count and folds extra actors into
   `others` when more than 10 actors are present.
 - Activity stripe renders exactly seven bars ending today and labels only
   `7d ago`, `Yesterday`, and `Today`.
 - Activity density rendering is deterministic for fixed bucket counts.
-- Bubbles chart renders deterministic sample placeholders and does not invoke
-  an agent.
 - Project detail mode uses the full Projects pane body and does not render
   summary charts.
 - Narrow and short terminal sizes render without panic.

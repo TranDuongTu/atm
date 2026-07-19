@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"atm/internal/core"
-	"atm/internal/store"
 )
 
 func TestRenderPersonaActivityChart(t *testing.T) {
@@ -92,69 +91,5 @@ func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
 	}
 	if strings.ContainsAny(one, "█░") {
 		t.Fatalf("maxLines=1: should not render a bar in one line:\n%s", one)
-	}
-}
-
-func TestRenderUbiquitousLanguageChartEmptyState(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "bug one")
-	m.SetSize(80, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-	got := m.projects.renderSummary(12)
-	mustContain(t, got, "Ubiquitous Language")
-	mustContain(t, got, "no vocabulary yet")
-	mustNotContain(t, got, "events")
-	mustNotContain(t, got, "(agents)")
-}
-
-func TestRenderUbiquitousLanguageChartShowsTerms(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "bug one")
-	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: testActor,
-		Terms: []store.VocabularyTerm{
-			{Term: "labels", Weight: 9},
-			{Term: "audit log", Weight: 7},
-			{Term: "persona", Weight: 5},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	m.SetSize(80, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-	got := m.projects.renderSummary(14)
-	mustContain(t, got, "Ubiquitous Language")
-	mustContain(t, got, "labels")
-	mustContain(t, got, "audit log")
-	mustContain(t, got, "persona")
-	mustNotContain(t, got, "no vocabulary yet")
-}
-
-func TestRenderUbiquitousLanguageChartSortsByWeightDescending(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "bug one")
-	if err := m.store.WriteVocabulary("ATM", &store.Vocabulary{
-		Actor: testActor,
-		Terms: []store.VocabularyTerm{
-			{Term: "alpha", Weight: 5},
-			{Term: "beta", Weight: 9},
-			{Term: "gamma", Weight: 7},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	m.SetSize(120, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-	got := m.projects.renderSummary(20)
-	mustContain(t, got, "beta")
-	mustContain(t, got, "alpha")
-	if strings.Index(got, "beta") >= strings.Index(got, "alpha") {
-		t.Fatalf("beta (weight 9) should appear before alpha (weight 5):\n%s", got)
 	}
 }
