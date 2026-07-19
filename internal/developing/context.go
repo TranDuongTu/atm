@@ -12,10 +12,7 @@ var contextV1 string
 type ContextData struct {
 	Code          string
 	Name          string
-	ATMBin        string
 	Actor         string
-	RunID         string
-	Timestamp     string
 	Persona       string
 	PersonaPrompt string
 
@@ -33,10 +30,7 @@ func RenderContext(data ContextData) string {
 	replacer := strings.NewReplacer(
 		"<CODE>", data.Code,
 		"<PROJECT_NAME>", data.Name,
-		"<ATM_BIN>", data.ATMBin,
 		"<ACTOR>", data.Actor,
-		"<RUN_ID>", data.RunID,
-		"<TIMESTAMP>", data.Timestamp,
 		"<PERSONA_BLOCK>", personaBlock,
 	)
 	return replacer.Replace(contextV1)
