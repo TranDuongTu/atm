@@ -150,7 +150,7 @@ type boardsModel struct {
 	// previously selected board vanished from the rebuilt ring.
 	selected string
 
-	pins []string // ordered pinned board FullNames; loaded from core.GetPins
+	pins []string // ordered pinned board FullNames; loaded from boardsCfg (config.json.boards.pins)
 
 	// unmanaged holds labels no enabled capability owns — the umbrella's
 	// contents. Populated by buildBoardRows via reg.Unmanaged; Task 5's
@@ -305,24 +305,19 @@ func (b *boardsModel) selectDefault() {
 	b.applyFocus()
 }
 
-// loadPins reads the project's pins from the store and prunes any whose board
-// no longer exists. Called on project select and on refresh (cheap read).
-// Also clamps to maxPins so a legacy pins.json written before the cap dropped
-// to 3 (or edited by hand) never renders/jumps past what the fixed slot holds.
+// loadPins reads the project's pins from the boards config (legacy pins.json
+// folds in via GetBoardsConfig until first write) and prunes any whose board
+// is not in the ring. Clamped to maxPins.
 func (b *boardsModel) loadPins() {
 	b.pins = nil
-	if b.m.projectScope == "" {
-		return
-	}
-	p, err := b.m.store.GetPins(b.m.projectScope)
-	if err != nil || p == nil {
+	if b.m.projectScope == "" || b.boardsCfg == nil {
 		return
 	}
 	live := map[string]bool{}
 	for _, r := range b.rows {
 		live[r.FullName] = true
 	}
-	for _, full := range p.Boards {
+	for _, full := range b.boardsCfg.Pins {
 		if live[full] {
 			b.pins = append(b.pins, full)
 		}
@@ -453,10 +448,13 @@ func (b *boardsModel) persistPins() {
 	if b.m.projectScope == "" {
 		return
 	}
-	_ = b.m.store.WritePins(b.m.projectScope, &core.Pins{
-		Actor:  b.m.actor,
-		Boards: b.pins,
-	})
+	cfg, err := b.m.store.GetBoardsConfig(b.m.projectScope)
+	if err != nil || cfg == nil {
+		cfg = &core.BoardsConfig{}
+	}
+	cfg.Pins = b.pins
+	_ = b.m.store.SetProjectBoards(b.m.projectScope, cfg, b.m.actor)
+	b.boardsCfg = cfg
 }
 
 // cycleBoard moves the ring selection by dir (+1 next, -1 prev) with

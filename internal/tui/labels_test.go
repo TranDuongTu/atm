@@ -184,18 +184,49 @@ func TestTogglePinPersists(t *testing.T) {
 	m.boards.refresh()
 	m.boards.selectDefault()
 	m.boards.togglePin()
-	p, err := m.store.GetPins("ATM")
+	b, err := m.store.GetBoardsConfig("ATM")
 	if err != nil {
-		t.Fatalf("get pins: %v", err)
+		t.Fatalf("get boards config: %v", err)
 	}
-	if p == nil || len(p.Boards) != 1 || p.Boards[0] != m.boards.selected {
-		t.Errorf("pins after toggle = %+v, want [%s]", p, m.boards.selected)
+	if len(b.Pins) != 1 || b.Pins[0] != m.boards.selected {
+		t.Errorf("pins after toggle = %v, want [%s]", b.Pins, m.boards.selected)
 	}
 	// Toggle again unpins.
 	m.boards.togglePin()
-	p, _ = m.store.GetPins("ATM")
-	if p != nil && len(p.Boards) != 0 {
-		t.Errorf("pins after second toggle = %v, want empty", p.Boards)
+	b, _ = m.store.GetBoardsConfig("ATM")
+	if len(b.Pins) != 0 {
+		t.Errorf("pins after second toggle = %v, want empty", b.Pins)
+	}
+}
+
+// TestPinsPersistToBoardsConfig: toggling a pin writes config.json.boards.pins
+// (not pins.json), preserving Order/Hidden, and loads back on refresh.
+func TestPinsPersistToBoardsConfig(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Hidden: []string{"ATM:backlog"}}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.boards.refresh()
+	m.boards.selected = "ATM:all-tasks"
+	m.boards.togglePin()
+	b, err := m.store.GetBoardsConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Pins) != 1 || b.Pins[0] != "ATM:all-tasks" {
+		t.Fatalf("pins = %v, want [ATM:all-tasks]", b.Pins)
+	}
+	if len(b.Hidden) != 1 || b.Hidden[0] != "ATM:backlog" {
+		t.Fatalf("hidden clobbered by pin write: %+v", b)
+	}
+	m.boards.refresh()
+	if len(m.boards.pins) != 1 || m.boards.pins[0] != "ATM:all-tasks" {
+		t.Fatalf("pins after refresh = %v", m.boards.pins)
 	}
 }
 
@@ -405,6 +436,12 @@ func TestSelectDefaultReturnsPinFocusToStrip(t *testing.T) {
 // TestLoadPinsClampsToMaxPins verifies a pins.json written before the cap
 // dropped to 3 (or edited by hand) is clamped on load rather than rendering
 // or being jumpable past what the fixed slot holds.
+//
+// This is the ONE test exercising the legacy pins.json fold-in path: it writes
+// via the legacy WritePins (pins.json only, no config.json.boards), then asserts
+// the TUI still loads the pins via GetBoardsConfig's fold-in. It proves the
+// fold-in end-to-end; Task 7 retires WritePins and this test then switches to
+// writing a raw pins.json file with os.WriteFile.
 func TestLoadPinsClampsToMaxPins(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -507,8 +544,8 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 	// Another session unpins all-tasks (index 0, below the focused index)
 	// straight through the store; all-tasks's label/board stays alive, only
 	// the persisted pin list shrinks.
-	if err := m.store.WritePins("ATM", &store.Pins{Actor: m.actor, Boards: []string{"ATM:open-tasks", "ATM:in-progress-tasks"}}); err != nil {
-		t.Fatalf("write pins: %v", err)
+	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Pins: []string{"ATM:open-tasks", "ATM:in-progress-tasks"}}, m.actor); err != nil {
+		t.Fatalf("set project boards: %v", err)
 	}
 	m.boards.refresh()
 
@@ -1688,12 +1725,12 @@ func TestTogglePinCapsAtThree(t *testing.T) {
 	if m.boards.pins[len(m.boards.pins)-1] == boards[3] {
 		t.Errorf("4th board %q was pinned past the cap", boards[3])
 	}
-	p, err := m.store.GetPins("ATM")
+	p, err := m.store.GetBoardsConfig("ATM")
 	if err != nil {
-		t.Fatalf("get pins: %v", err)
+		t.Fatalf("get boards config: %v", err)
 	}
-	if p == nil || len(p.Boards) != 3 {
-		t.Errorf("persisted pins = %+v, want 3", p)
+	if len(p.Pins) != 3 {
+		t.Errorf("persisted pins = %v, want 3", p.Pins)
 	}
 }
 
