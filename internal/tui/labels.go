@@ -689,7 +689,7 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 			Name:        "unmanaged",
 			FullName:    sentinel,
 			Description: "labels no capability owns; drill in to browse, triage via atm capability unmanaged",
-			Count:       len(unmanaged),
+			Count:       b.unmanagedTaskCount(unmanaged),
 			Expandable:  true,
 			Umbrella:    true,
 		})
@@ -746,6 +746,52 @@ func (b *boardsModel) namespaceTaskCount(ns string) int {
 				count++
 				break
 			}
+		}
+	}
+	return count
+}
+
+// unmanagedTaskCount counts distinct tasks carrying any label no enabled
+// capability owns — the population the umbrella row represents. A task is
+// counted once even if it carries several unmanaged labels. A task carrying
+// an ad-hoc member of an unmanaged :* namespace (e.g. ATM:comment:foo under
+// an unmanaged ATM:comment:* descriptor) is counted via the namespace prefix;
+// a task carrying an unmanaged tag or board directly is counted via the
+// exact-name set. This matches what the user sees when they drill into the
+// umbrella: the sub-table's rows collectively cover these tasks.
+//
+// The caller passes b.unmanaged explicitly because buildBoardRows has already
+// fetched it from the registry; we don't re-derive here.
+func (b *boardsModel) unmanagedTaskCount(unmanaged []core.Label) int {
+	scope := b.m.projectScope
+	exact := make(map[string]bool, len(unmanaged))
+	var nsPrefixes []string
+	for _, l := range unmanaged {
+		exact[l.Name] = true
+		if core.IsNamespaceName(l.Name) {
+			nsPrefixes = append(nsPrefixes, strings.TrimSuffix(l.Name, "*"))
+		}
+	}
+	count := 0
+	for _, tk := range b.m.store.ListTasks(core.QueryFilters{Project: scope}) {
+		matched := false
+		for _, full := range tk.Labels {
+			if exact[full] {
+				matched = true
+				break
+			}
+			for _, p := range nsPrefixes {
+				if strings.HasPrefix(full, p) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if matched {
+			count++
 		}
 	}
 	return count

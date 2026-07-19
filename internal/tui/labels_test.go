@@ -1880,6 +1880,85 @@ func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
 	}
 }
 
+// TestUmbrellaCountIsTaskCountNotLabelCount guards the L0 umbrella row's COUNT
+// cell: it must show the number of distinct tasks carrying any unmanaged
+// label (directly or under an unmanaged :* namespace), NOT the number of
+// unmanaged labels. Every other COUNT cell in the ring is a task count; the
+// umbrella showing label count is inconsistent and misleads users into
+// expecting that many tasks under the umbrella when they drill in.
+//
+// Scenario: 2 unmanaged labels (ATM:type:bug, ATM:urgent) across 3 tasks:
+//   - t1 carries ATM:type:bug
+//   - t2 carries ATM:urgent
+//   - t3 carries ATM:type:bug + ATM:urgent (multi-label, must count once)
+// Umbrella Count must be 3 (tasks), not 2 (labels).
+func TestUmbrellaCountIsTaskCountNotLabelCount(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.LabelAdd("ATM:urgent", "", "", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:type:bug")
+	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:urgent")
+	seedTask(t, m, "ATM", "t3", "ATM:status:open", "ATM:type:bug", "ATM:urgent")
+	m.boards.refresh()
+	var umb *boardRow
+	for i := range m.boards.rows {
+		if m.boards.rows[i].Umbrella {
+			umb = &m.boards.rows[i]
+			break
+		}
+	}
+	if umb == nil {
+		t.Fatalf("no umbrella row in ring: %+v", m.boards.rows)
+	}
+	if umb.Count != 3 {
+		t.Errorf("umbrella Count = %d, want 3 (distinct tasks carrying unmanaged labels); len(unmanaged)=%d",
+			umb.Count, len(m.boards.unmanaged))
+	}
+}
+
+// TestUmbrellaCountIncludesTasksUnderUnmanagedNamespace guards that a task
+// carrying ATM:comment:foo (an ad-hoc member of the unmanaged comment:*
+// namespace, even when no ATM:comment:* descriptor label exists in the store)
+// is counted in the umbrella's task count. The ownership rule treats ad-hoc
+// members of unowned namespaces as unmanaged; the umbrella count must reflect
+// the tasks, not just the stored labels.
+func TestUmbrellaCountIncludesTasksUnderUnmanagedNamespace(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatal(err)
+	}
+	// No ATM:comment:* descriptor in the store — but ATM:comment:foo is an
+	// ad-hoc member of an unowned namespace, so it's unmanaged.
+	seedTask(t, m, "ATM", "c1", "ATM:status:open", "ATM:comment:foo")
+	seedTask(t, m, "ATM", "c2", "ATM:status:open", "ATM:comment:bar")
+	seedTask(t, m, "ATM", "owned", "ATM:status:open") // no unmanaged labels
+	m.boards.refresh()
+	var umb *boardRow
+	for i := range m.boards.rows {
+		if m.boards.rows[i].Umbrella {
+			umb = &m.boards.rows[i]
+			break
+		}
+	}
+	if umb == nil {
+		t.Fatalf("no umbrella row: %+v", m.boards.rows)
+	}
+	if umb.Count != 2 {
+		t.Errorf("umbrella Count = %d, want 2 (c1+c2 carry unmanaged comment:* members; owned is excluded)", umb.Count)
+	}
+}
+
 // TestUmbrellaOmittedWhenNoUnmanaged: fully-owned label set -> no umbrella row.
 func TestUmbrellaOmittedWhenNoUnmanaged(t *testing.T) {
 	m := newTestModel(t)
