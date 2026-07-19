@@ -22,6 +22,7 @@ func newCapabilityCmd(st *cliState) *cobra.Command {
 			"for capabilities the project did not enable are not mounted.",
 	}
 	cmd.AddCommand(newCapabilityListCmd(st))
+	cmd.AddCommand(newCapabilityUnmanagedCmd(st))
 	for _, c := range st.registry.Commands(st) {
 		cmd.AddCommand(c)
 	}
@@ -69,5 +70,53 @@ func newCapabilityListCmd(st *cliState) *cobra.Command {
 	// accepts it and help documents it.
 	cmd.Flags().StringVar(&project, "project", "", "project code; enabled column reflects this project's enabled set")
 	cmd.Flags().BoolVar(&all, "all", false, "ignore the project and list every registered capability as enabled")
+	return cmd
+}
+
+// newCapabilityUnmanagedCmd is the manager's triage read: every label in the
+// project that no ENABLED capability owns (the TUI's "unmanaged" umbrella).
+// Read-only; the triage verbs are the existing substrate ones (task label
+// add/remove, project boards hide).
+func newCapabilityUnmanagedCmd(st *cliState) *cobra.Command {
+	var project string
+	cmd := &cobra.Command{
+		Use:   "unmanaged",
+		Short: "List labels no enabled capability owns (the umbrella's contents)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			p, err := s.GetProject(project)
+			if err != nil {
+				return err
+			}
+			labels, err := st.fullRegistry.For(p).Unmanaged(s, project)
+			if err != nil {
+				return err
+			}
+			usage, err := s.LabelUsageGrouped(project)
+			if err != nil {
+				return err
+			}
+			type row struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Usage       int    `json:"usage"`
+			}
+			rows := make([]row, 0, len(labels))
+			for _, l := range labels {
+				rows = append(rows, row{Name: l.Name, Description: l.Description, Usage: usage[l.Name]})
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "labels": rows}, func() {
+				for _, r := range rows {
+					fmt.Fprintf(st.stdout(), "%s\t%d\t%s\n", r.Name, r.Usage, r.Description)
+				}
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
