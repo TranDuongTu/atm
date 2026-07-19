@@ -15,6 +15,7 @@ Semantics beyond the substrate live in capabilities. Each owns a slice of the la
 - `atm capability list` — enumerate registered capabilities (enabled + disabled).
 - `atm capability <name> -h` — the verb tree a capability mounts.
 - `atm capability <name> guide` — the capability's full agent-facing semantics, vocabulary, and operating mode (Brief + Autopilot sections).
+- `atm capability unmanaged --project <CODE>` — labels no enabled capability owns (the TUI's "unmanaged" umbrella); the manager triages these onto capability-owned labels or hides them (`atm project boards hide`).
 
 ## Actor identity
 Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`. `atm dev -h`.
