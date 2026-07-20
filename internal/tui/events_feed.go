@@ -13,8 +13,11 @@ import (
 
 // The Recent Events feed (ATM-793b19) renders the selected project's event
 // log git-log-style: one event per line, newest first, with a commit-graph
-// gutter derived from the v2 parents DAG. Everything in this file is a pure
-// formatting helper over core.LogEntry; the pane wiring lives in projects.go.
+// gutter derived from the v2 parents DAG. This file holds the formatting
+// helpers over core.LogEntry (digest wording, graph lanes, column layout)
+// alongside the pane's own render and key-handling methods (renderEventsFeed,
+// feedLen, handleLogsKey, eventFeedLine); projects.go owns the surrounding
+// pane split and focus wiring.
 
 // shortEventID renders the 7-char short form of a "sha256:…" event id; a v1
 // entry (no id) renders empty and the column shows blank.
@@ -181,6 +184,15 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	return e.Action
 }
 
+// feedIDMinWidth and feedAgeMinWidth are the pane-width thresholds below
+// which eventFeedLine drops the id column, then the age column, to give the
+// space to the message column. See eventFeedLine's doc comment for why the
+// id yields first.
+const (
+	feedIDMinWidth  = 60
+	feedAgeMinWidth = 30
+)
+
 // maxGraphLanes caps the commit-graph gutter width. Local histories are
 // linear (one lane); lanes >1 appear only after a sync merges concurrent
 // replicas, and 3 parallel branches is already an extraordinary display.
@@ -269,18 +281,44 @@ func eventGraphRows(entries []core.LogEntry) [][]rune {
 // an off-screen parent), which is harmless for ATM's linear history.
 const maxFeedEvents = 500
 
+// boundedFeedLen applies the maxFeedEvents cap to a count without touching
+// the underlying entries. newestFeedEntries and feedLen both fold through
+// this so the cap value cannot drift between the copy-producing path and the
+// length-only path.
+func boundedFeedLen(n int) int {
+	if n > maxFeedEvents {
+		return maxFeedEvents
+	}
+	return n
+}
+
 // newestFeedEntries builds the bounded, newest-first feed from ReadLogCached's
 // oldest-first entries: the newest maxFeedEvents are its tail, so the cap is
 // a slice rather than a full reverse-then-truncate.
 func newestFeedEntries(entries []core.LogEntry) []core.LogEntry {
-	if len(entries) > maxFeedEvents {
-		entries = entries[len(entries)-maxFeedEvents:]
+	if n := boundedFeedLen(len(entries)); len(entries) > n {
+		entries = entries[len(entries)-n:]
 	}
 	feed := make([]core.LogEntry, len(entries))
 	for i, e := range entries {
 		feed[len(entries)-1-i] = e
 	}
 	return feed
+}
+
+// readEventLog reads the selected project's event log and applies the
+// tolerance policy shared by renderEventsFeed and feedLen: a v2 integrity
+// failure still hands back the recoverable prefix alongside the error (see
+// ReadLogCached), so it is tolerated; any other read error is rejected. Both
+// callers fold through this one call so the policy lives in exactly one
+// place. Callers own the p.m.projectScope == "" short-circuit themselves,
+// since they render different placeholders (or return 0) for it.
+func (p *projectsModel) readEventLog() (entries []core.LogEntry, ok bool) {
+	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
+	if err != nil && !core.IsIntegrity(err) {
+		return nil, false
+	}
+	return entries, true
 }
 
 // renderEventsFeed renders the Recent Events section: caption, then a
@@ -296,8 +334,8 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 		lines = append(lines, muted("select a project to see events"))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
-	if err != nil && !core.IsIntegrity(err) {
+	entries, ok := p.readEventLog()
+	if !ok {
 		lines = append(lines, muted("events could not be loaded"))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
@@ -322,7 +360,13 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 	}
 	rows := height - 1 // caption
 	start, end := windowLines(len(feed), cursor, rows)
-	graph := eventGraphRows(feed)
+	// eventGraphRows(feed[:end]) rather than eventGraphRows(feed): row i's
+	// lane state depends only on entries[0..i] (the loop walks forward,
+	// carrying `lanes` from earlier iterations), so truncating the input to
+	// the entries the window can possibly read leaves rows[start:end]
+	// byte-identical while skipping the graphing work for everything below
+	// the window — up to 500 entries when only a handful are ever shown.
+	graph := eventGraphRows(feed[:end])
 	laneW := 1
 	for i := start; i < end; i++ {
 		if len(graph[i]) > laneW {
@@ -343,30 +387,35 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 
 // feedLen returns the current bounded Recent Events feed length for the
 // selected project: the same maxFeedEvents-capped count renderEventsFeed
-// computes (via newestFeedEntries), reused here so handleLogsKey can clamp
-// logsCursor against the real feed instead of duplicating the cap
-// arithmetic. Returns 0 when no project is selected. A v2 integrity failure
-// still hands back the recoverable prefix alongside the error (see
-// ReadLogCached), so it is tolerated the same way renderEventsFeed tolerates
-// it; any other read error yields 0.
+// computes, reused here so handleLogsKey can clamp logsCursor against the
+// real feed instead of duplicating the cap arithmetic. Returns 0 when no
+// project is selected, and 0 for a hard read error (readEventLog's !ok);
+// a v2 integrity failure is tolerated the same way renderEventsFeed
+// tolerates it. Deliberately goes through boundedFeedLen rather than
+// newestFeedEntries: this runs on every keypress while the feed is focused,
+// and only the count is needed, so there is no reason to allocate and
+// reverse a copy of up to 500 entries just to take its length.
 func (p *projectsModel) feedLen() int {
 	if p.m.projectScope == "" {
 		return 0
 	}
-	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
-	if err != nil && !core.IsIntegrity(err) {
+	entries, ok := p.readEventLog()
+	if !ok {
 		return 0
 	}
-	return len(newestFeedEntries(entries))
+	return boundedFeedLen(len(entries))
 }
 
 // handleLogsKey drives the Recent Events feed while it holds the pane's
-// subfocus. j/down and ] clamp logsCursor at feedLen's last row so holding j
-// cannot grow the cursor without bound (it used to: nothing else clamps
-// this field — renderEventsFeed clamps only a local copy for display, never
-// writing back to keep the render path pure). Note: esc is ALSO handled at
-// the app level (handleKey's esc branch) because it never reaches pane
-// handlers; the case here documents the intended pair.
+// subfocus. The upper clamp after the switch pins logsCursor to feedLen's
+// last row for every case that can grow it (j/down, ]) — and also for k/up,
+// which cannot grow it but could otherwise walk a cursor parked above the
+// last row (e.g. after the feed shrank) back down one press at a time — so
+// holding j cannot grow the cursor without bound (it used to: nothing else
+// clamps this field — renderEventsFeed clamps only a local copy for display,
+// never writing back to keep the render path pure). Note: esc is ALSO
+// handled at the app level (handleKey's esc branch) because it never reaches
+// pane handlers; the case here documents the intended pair.
 func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
 	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
 	page := eventsH - 1
@@ -385,13 +434,13 @@ func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "]":
 		p.logsCursor += page
-		if p.logsCursor > last {
-			p.logsCursor = last
-		}
 	case "[":
 		p.logsCursor -= page
 	case "L", "esc":
 		p.logsFocus = false
+	}
+	if p.logsCursor > last {
+		p.logsCursor = last
 	}
 	if p.logsCursor < 0 {
 		p.logsCursor = 0
@@ -401,11 +450,11 @@ func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
 
 // eventFeedLine assembles one digest line. Column budget (spec): gutter,
 // id(7, dim), subject(7), actor(8), message(flex), age(right, dim). The id
-// column drops below 60 inner columns, then the age below 30: the id is a
-// lookup key needed only when acting on a specific event, so it yields the
-// message column — the one carrying what the user is actually scanning —
-// first. `plain` suppresses the inner dim styles so a cursor row can be
-// re-styled whole.
+// column drops below feedIDMinWidth inner columns, then the age below
+// feedAgeMinWidth: the id is a lookup key needed only when acting on a
+// specific event, so it yields the message column — the one carrying what
+// the user is actually scanning — first. `plain` suppresses the inner dim
+// styles so a cursor row can be re-styled whole.
 func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
@@ -423,7 +472,7 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 	b.WriteString(string(gutter))
 	b.WriteString(" ")
 	used := laneW + 1
-	if p.width >= 60 {
+	if p.width >= feedIDMinWidth {
 		b.WriteString(dim(fmt.Sprintf("%-7s", shortEventID(e.ID))))
 		b.WriteString(" ")
 		used += 8
@@ -432,7 +481,7 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 	b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
 	used += 17
 	age := ""
-	if p.width >= 30 {
+	if p.width >= feedAgeMinWidth {
 		age = compactAge(e.At, now)
 	}
 	msgW := p.width - used - lipgloss.Width(age)

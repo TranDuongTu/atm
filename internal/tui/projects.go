@@ -172,6 +172,17 @@ func (p *projectsModel) SetSize(w, h int) {
 	p.width = w
 	p.contentHeight = h
 	p.detail.offset = 0
+	// A resize that shrinks the events slot to 0 rows (below
+	// projectPaneSplitHeights' ~12-row collapse threshold) makes renderList
+	// skip the feed section entirely, but handleListKey would keep routing
+	// every key into handleLogsKey while logsFocus stayed set — stranding
+	// the user in an invisible subfocus where list keys are silently
+	// swallowed. Release focus (and reset the cursor, consistent with the
+	// other reset sites) so the list regains its keys.
+	if _, eventsH, _ := projectPaneSplitHeights(p.contentHeight); eventsH == 0 {
+		p.logsFocus = false
+		p.logsCursor = 0
+	}
 }
 
 func (p *projectsModel) refresh() {
@@ -521,6 +532,15 @@ func (p *projectsModel) renderList() string {
 		return p.renderEmpty()
 	}
 	listH, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	if p.m.projectScope == "" {
+		// With no project selected, the feed would render nothing but the
+		// same "select a project" placeholder the summary section already
+		// shows right below it — a doubled message on the fresh-launch
+		// screen. Fold the events rows back into the summary, the same way
+		// projectPaneSplitHeights already collapses eventsH to 0 (and grows
+		// summaryH to match) when the slot is too small to render at all.
+		eventsH, summaryH = 0, summaryH+eventsH
+	}
 	var parts []string
 	if listH > 0 {
 		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
