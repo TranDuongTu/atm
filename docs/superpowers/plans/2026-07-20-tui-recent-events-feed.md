@@ -983,6 +983,12 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 }
 ```
 
+> **Correction (post-launch review):** the renderEventsFeed sample code above
+> contains a stale line: line 918 reads `graph := eventGraphRows(feed)` but the
+> shipped code is `eventGraphRows(feed[:end])`. The truncation to the rendered
+> window (by `end`) bounds row computation: row i's lane state depends only on
+> entries 0..i, so computing the whole feed every frame was unnecessary work.
+
 - [ ] **Step 6: Run the tests**
 
 Run: `go test ./internal/tui -run 'TestProjectPaneSplitHeightsThreeWay|TestRecentEventsFeed|TestProjectsViewUsesThreeWaySplit' -v`

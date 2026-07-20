@@ -331,6 +331,8 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 		return dashboardLine(p.width, p.m.styles.Muted.Render(s))
 	}
 	if p.m.projectScope == "" {
+		// Unreachable via renderList today: it folds the events section away
+		// entirely when scope is empty. Kept as defensive cover for a future caller.
 		lines = append(lines, muted("select a project to see events"))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}

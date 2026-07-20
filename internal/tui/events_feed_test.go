@@ -396,12 +396,26 @@ func TestRecentEventsFeedScrollRendersNewContent(t *testing.T) {
 
 	// The cursor row is visibly highlighted when focused: RowCursor applies
 	// a Reverse SGR attribute, invisible at the default (ascii) test color
-	// profile, so force ANSI256 for this assertion only.
+	// profile, so force ANSI256 for this assertion only. Scope to the feed's
+	// cursor line (the one containing the cursor-positioned digest text) to
+	// prove the highlight comes from the feed, not from the project list's own
+	// cursor row higher up in the same pane.
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 	highlighted := m.projects.View()
-	if !strings.Contains(highlighted, "\x1b[7m") {
-		t.Fatalf("focused feed has no reverse-video cursor row\n--- body ---\n%s", highlighted)
+	lines := strings.Split(highlighted, "\n")
+	var cursorLine string
+	for _, line := range lines {
+		if strings.Contains(line, `created "Task 13"`) {
+			cursorLine = line
+			break
+		}
+	}
+	if cursorLine == "" {
+		t.Fatalf("focused feed has no line with cursor position (Task 13 digest)\n--- body ---\n%s", highlighted)
+	}
+	if !strings.Contains(cursorLine, "\x1b[7m") {
+		t.Fatalf("feed cursor row has no reverse-video escape\n--- cursor line ---\n%s\n--- full body ---\n%s", cursorLine, highlighted)
 	}
 }
 

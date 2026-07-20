@@ -1168,6 +1168,11 @@ func (m *Model) confirmYes() tea.Cmd {
 		}
 		if m.projectScope == code {
 			m.projectScope = ""
+			// Defensive: subfocus routes all keys to handleLogsKey while
+			// logsFocus is set, so leaving it set here could strand the user
+			// in an invisible subfocus if refactored. Reset both fields.
+			m.projects.logsFocus = false
+			m.projects.logsCursor = 0
 			if m.indexer != nil {
 				resetIndexer(m)
 			}
