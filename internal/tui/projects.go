@@ -242,6 +242,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.boards.reset()
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
+			p.m.capability.current = "" // re-resolve for the new project
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
@@ -259,6 +260,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 				resetIndexer(p.m)
 			}
 			cmd := autoStartIndexer(p.m, r.code)
+			p.m.capability.refresh()
 			p.m.tasks.refresh()
 			p.m.boards.refresh()
 			p.m.boards.selectDefault()

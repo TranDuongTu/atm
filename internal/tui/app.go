@@ -88,11 +88,12 @@ type Model struct {
 	// centered modal over the workspace (opened by P in the Projects pane).
 	actorsOverlay bool
 
-	projects projectsModel
-	tasks    tasksModel
-	boards   boardsModel
-	actors   actorsModel
-	help     helpModel
+	projects   projectsModel
+	tasks      tasksModel
+	boards     boardsModel
+	capability capabilityModel
+	actors     actorsModel
+	help       helpModel
 
 	form *Form
 
@@ -170,6 +171,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
+	m.capability = newCapabilityModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 	m.plugins = []plugin{newIndexerPlugin()}
@@ -327,6 +329,7 @@ func innerPaneHeight(height int) int {
 // refreshAll reloads all panes from the store. Called on launch and after
 // every mutation.
 func (m *Model) refreshAll() {
+	m.capability.refresh()
 	m.projects.refresh()
 	m.tasks.refresh()
 	m.boards.refresh()
@@ -1022,4 +1025,36 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// countTasksCarrying counts distinct project tasks carrying at least one
+// label the set owns. Runs on refresh, never per frame.
+func (m *Model) countTasksCarrying(scope string, set capability.LabelSet) int {
+	count := 0
+	for _, tk := range m.store.ListTasks(core.QueryFilters{Project: scope}) {
+		for _, full := range tk.Labels {
+			if set.Contains(full) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+// capabilityTaskCount is the header's capability-owned total: tasks carrying
+// at least one label the named capability owns (ownership rule shared with
+// Registry.Unmanaged via LabelSet). For unmanaged it counts tasks carrying
+// any unmanaged label. Deliberate: workflow's count reflects the paved road
+// (status:/priority:-labeled tasks), not its all-tasks board match.
+func (m *Model) capabilityTaskCount(capName string) int {
+	scope := m.projectScope
+	if scope == "" || capName == "" {
+		return 0
+	}
+	if capName == unmanagedCapability {
+		un, _ := m.regFor(scope).Unmanaged(m.store, scope)
+		return m.countTasksCarrying(scope, capability.NewLabelSet(un))
+	}
+	return m.countTasksCarrying(scope, capability.NewLabelSet(m.reg.OwnedLabels(scope, capName)))
 }
