@@ -20,7 +20,7 @@
       "name": "ATM:context-current"
     },
     {
-      "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
+      "description": "index tasks whose description is the payload: agent directions, repos, docs, conventions",
       "name": "ATM:context:*"
     },
     {
@@ -28,12 +28,12 @@
       "name": "ATM:context:agent"
     },
     {
-      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-      "name": "ATM:context:documentation"
+      "description": "the task's description records a project convention the agent must follow: branch naming, commit style, PR template, build/test/lint hygiene, or any working rule inferred from the repo and confirmed by the human",
+      "name": "ATM:context:convention"
     },
     {
-      "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
-      "name": "ATM:context:question"
+      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
+      "name": "ATM:context:documentation"
     },
     {
       "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
@@ -121,7 +121,7 @@
       "name": "DEMO:context-current"
     },
     {
-      "description": "index tasks whose description is the payload: agent directions, repos, docs, questions",
+      "description": "index tasks whose description is the payload: agent directions, repos, docs, conventions",
       "name": "DEMO:context:*"
     },
     {
@@ -129,12 +129,12 @@
       "name": "DEMO:context:agent"
     },
     {
-      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-      "name": "DEMO:context:documentation"
+      "description": "the task's description records a project convention the agent must follow: branch naming, commit style, PR template, build/test/lint hygiene, or any working rule inferred from the repo and confirmed by the human",
+      "name": "DEMO:context:convention"
     },
     {
-      "description": "the task's description poses an open question or ambiguity about the project that a human or later agent should clarify; not a defect, not a work item, a gap in understanding",
-      "name": "DEMO:context:question"
+      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
+      "name": "DEMO:context:documentation"
     },
     {
       "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",

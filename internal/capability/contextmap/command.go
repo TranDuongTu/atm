@@ -111,7 +111,7 @@ func newAddCmd(env capability.Env) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&task, "task", "", "task id")
-	cmd.Flags().StringVar(&kind, "kind", "", "pointer kind: agent, repository, documentation, or question")
+	cmd.Flags().StringVar(&kind, "kind", "", "pointer kind: agent, repository, documentation, or convention")
 	cmd.Flags().StringArrayVar(&sources, "source", nil,
 		"kinded locator this pointer was derived from, repeatable: git:<path>, file:<path>, url:<url>, external:<system>/<id>")
 	_ = cmd.MarkFlagRequired("task")
