@@ -99,9 +99,19 @@ type AgentService interface {
 	SetAgentArgs(name string, args []string, actor string) error
 }
 
+// StoreStats is the store-wide display summary the TUI status bar renders:
+// total event-log bytes and lines across all projects, and the storage
+// format version ("v1", "v2", or "mixed" when per-project formats disagree).
+type StoreStats struct {
+	SizeBytes  int64
+	EventCount int
+	Version    string
+}
+
 type MaintenanceService interface {
 	Init(storePath string) error
 	StorePath() string
+	StoreStats() (StoreStats, error)
 	Now() time.Time
 }
 

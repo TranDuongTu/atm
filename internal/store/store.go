@@ -224,6 +224,8 @@ func (s *Store) Init(storePath string) error {
 
 func (s *Store) StorePath() string { return s.Root }
 
+func (s *Store) StoreStats() (core.StoreStats, error) { return s.eng.StoreStats() }
+
 // ensureBuiltinPersonas seeds developer/manager/admin once per Store, skipping
 // actor validation (the personas being created cannot yet satisfy it). Called
 // lazily by validateActor before the first mutation that needs a registered
