@@ -1410,6 +1410,9 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	// board; clear it here so this test can verify the unfiltered flat list.
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2") // focus Tasks pane
+	// Task 7: the new CAPABILITY/TOTAL/SORT header is wider than the old
+	// PROJECT/FOCUS/SORT one; size the pane wide enough that it fits intact.
+	m.SetSize(140, 48)
 	v := m.View()
 	body := m.tasks.View()
 	if strings.HasPrefix(body, "Tasks\n") {
@@ -1418,14 +1421,16 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	mustNotContain(t, body, "─ Overview ─")
 	mustContain(t, body, "ID")
 	mustContain(t, body, "TITLE")
-	mustContain(t, body, "LABELS")
+	mustNotContain(t, body, "LABELS") // Task 7: LABELS column removed from the tasks table.
 	mustContain(t, body, "UPDATED")
-	mustContain(t, v, "PROJECT: ATM")
-	mustContain(t, v, "FOCUS: (all)")
+	mustContain(t, v, "CAPABILITY: workflow")
+	mustContain(t, v, "TOTAL: 1/1 tasks")
 	mustContain(t, v, "SORT: updated-desc")
 	mustContain(t, v, "task one")
 	mustContain(t, v, tk.ID)
-	mustContain(t, v, "ATM:status:open")
+	// Task 7: LABELS column removed from the tasks table — the label
+	// "ATM:status:open" is no longer rendered in the flat list view. The
+	// detail view (TestTasksDetail*) still covers label rendering.
 	mustContain(t, v, "showing 1-1 of 1")
 }
 
@@ -1913,7 +1918,7 @@ func TestTasksEmptyStateNoProject(t *testing.T) {
 	// No project selected (projectScope empty).
 	update(t, m, "2")
 	v := m.tasks.View()
-	mustContain(t, v, "PROJECT: (none)")
+	mustContain(t, v, "CAPABILITY: (none)")
 	mustContain(t, v, "no project selected")
 	mustContain(t, v, "press [s] in the Projects pane")
 }

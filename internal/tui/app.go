@@ -92,11 +92,12 @@ type Model struct {
 	// centered modal over the workspace (opened by P in the Projects pane).
 	actorsOverlay bool
 
-	projects projectsModel
-	tasks    tasksModel
-	boards   boardsModel
-	actors   actorsModel
-	help     helpModel
+	projects   projectsModel
+	tasks      tasksModel
+	boards     boardsModel
+	capability capabilityModel
+	actors     actorsModel
+	help       helpModel
 
 	form *Form
 
@@ -174,6 +175,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
+	m.capability = newCapabilityModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 	m.plugins = []plugin{newIndexerPlugin()}
@@ -331,6 +333,7 @@ func innerPaneHeight(height int) int {
 // refreshAll reloads all panes from the store. Called on launch and after
 // every mutation.
 func (m *Model) refreshAll() {
+	m.capability.refresh()
 	m.projects.refresh()
 	m.tasks.refresh()
 	m.boards.refresh()
@@ -565,6 +568,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
 	}
 
+	// Capabilities switcher consumes keys until closed (Esc/C). T still
+	// cycles the theme, mirroring the other overlays.
+	if m.capability.open {
+		return m.capability.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -611,6 +620,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpKeys)
 		return nil
 	case "C":
+		if m.focused == paneTasks && m.projectScope != "" {
+			m.capability.openOverlay()
+			return nil
+		}
 		m.openHelp(helpConventions)
 		return nil
 	case "T":
@@ -816,6 +829,9 @@ func (m *Model) View() string {
 	}
 	if m.pluginOverlay != -1 {
 		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))
+	}
+	if m.capability.open {
+		out = m.placeOverlay(out, m.capability.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.
@@ -1048,4 +1064,36 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// countTasksCarrying counts distinct project tasks carrying at least one
+// label the set owns. Runs on refresh, never per frame.
+func (m *Model) countTasksCarrying(scope string, set capability.LabelSet) int {
+	count := 0
+	for _, tk := range m.store.ListTasks(core.QueryFilters{Project: scope}) {
+		for _, full := range tk.Labels {
+			if set.Contains(full) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+// capabilityTaskCount is the header's capability-owned total: tasks carrying
+// at least one label the named capability owns (ownership rule shared with
+// Registry.Unmanaged via LabelSet). For unmanaged it counts tasks carrying
+// any unmanaged label. Deliberate: workflow's count reflects the paved road
+// (status:/priority:-labeled tasks), not its all-tasks board match.
+func (m *Model) capabilityTaskCount(capName string) int {
+	scope := m.projectScope
+	if scope == "" || capName == "" {
+		return 0
+	}
+	if capName == unmanagedCapability {
+		un, _ := m.regFor(scope).Unmanaged(m.store, scope)
+		return m.countTasksCarrying(scope, capability.NewLabelSet(un))
+	}
+	return m.countTasksCarrying(scope, capability.NewLabelSet(m.reg.OwnedLabels(scope, capName)))
 }

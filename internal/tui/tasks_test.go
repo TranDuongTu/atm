@@ -383,17 +383,18 @@ func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail"
+	want := "[C]apabilities  [↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail"
 	if got := m.tasks.statusHint(); got != want {
 		t.Errorf("statusHint() = %q, want %q", got, want)
 	}
 }
 
 // TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
-// top-to-bottom the pane stacks task list -> tabbed pinned box -> board strip,
-// so the strip is the LAST stripHeight lines and the fixed pinned box
-// (pinnedBoxHeight lines) sits directly above it. The pinned all-tasks board
-// surfaces as the Shift-1 tab, with its name in the box body.
+// top-to-bottom the pane stacks task list -> board strip -> tabbed pinned box,
+// so the pinned box is the LAST pinnedBoxHeight lines (pinned at the very
+// bottom of the pane) and the fixed board strip (stripHeight lines) sits
+// directly above it. The pinned all-tasks board surfaces as the Shift-1 tab,
+// with its name in the box body.
 func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -409,19 +410,19 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 
 	view := m.tasks.View()
 	lines := strings.Split(view, "\n")
-	if !strings.Contains(lines[0], "PROJECT:") {
+	if !strings.Contains(lines[0], "CAPABILITY:") {
 		t.Fatalf("first line = %q, want the task list header first", lines[0])
 	}
-	stripBlock := strings.Join(lines[len(lines)-stripHeight:], "\n")
-	if !strings.Contains(stripBlock, "all-tasks") {
-		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
-	}
-	pinBlock := strings.Join(lines[len(lines)-stripHeight-pinnedBoxHeight:len(lines)-stripHeight], "\n")
+	pinBlock := strings.Join(lines[len(lines)-pinnedBoxHeight:], "\n")
 	if !strings.Contains(pinBlock, "all-tasks") {
-		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
+		t.Errorf("pinned box (last %d lines) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
 	}
 	if !strings.Contains(pinBlock, "Shift-1") {
 		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)
+	}
+	stripBlock := strings.Join(lines[len(lines)-pinnedBoxHeight-stripHeight:len(lines)-pinnedBoxHeight], "\n")
+	if !strings.Contains(stripBlock, "all-tasks") {
+		t.Errorf("board strip (%d lines above the pinned box) missing the board:\n%s", stripHeight, stripBlock)
 	}
 }
 
@@ -446,5 +447,41 @@ func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
 	after := m.tasks.listPageSize()
 	if after != before {
 		t.Errorf("listPageSize after pinning 1 board = %d, want %d (fixed slot, unchanged)", after, before)
+	}
+}
+
+func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "stray", "ATM:needs-triage")
+	m.refreshAll()
+	got := m.tasks.headerLine()
+	want := "CAPABILITY: workflow    TOTAL: 1/2 tasks    SORT: updated-desc"
+	if got != want {
+		t.Fatalf("headerLine = %q, want %q", got, want)
+	}
+}
+
+func TestFlatListDropsLabelsColumn(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.refreshAll()
+	m.boards.selectDefault()
+	out := m.tasks.renderList()
+	if strings.Contains(out, "LABELS") {
+		t.Fatalf("flat list still shows LABELS column:\n%s", out)
+	}
+	if !strings.Contains(out, "TITLE") || !strings.Contains(out, "UPDATED") {
+		t.Fatalf("flat list lost TITLE/UPDATED columns:\n%s", out)
 	}
 }

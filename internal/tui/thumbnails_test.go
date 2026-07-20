@@ -5,25 +5,50 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
 	"atm/internal/capability/workflow"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
 
 func TestSplitStripWidths(t *testing.T) {
-	prev, sel, next := splitStripWidths(80)
+	prev, sel, next := splitStripWidths(80, 3)
 	if prev != 20 || sel != 40 || next != 20 {
-		t.Errorf("splitStripWidths(80) = %d/%d/%d, want 20/40/20", prev, sel, next)
+		t.Errorf("splitStripWidths(80, 3) = %d/%d/%d, want 20/40/20", prev, sel, next)
 	}
 }
 
 func TestSplitStripWidthsClampsSmall(t *testing.T) {
-	prev, sel, next := splitStripWidths(20)
+	prev, sel, next := splitStripWidths(20, 3)
 	if prev < 6 || sel < 8 || next < 6 {
-		t.Errorf("splitStripWidths(20) = %d/%d/%d, each must be >= minimum", prev, sel, next)
+		t.Errorf("splitStripWidths(20, 3) = %d/%d/%d, each must be >= minimum", prev, sel, next)
 	}
 	if prev+sel+next > 20 {
 		t.Errorf("sum %d exceeds pane width 20", prev+sel+next)
+	}
+}
+
+func TestSplitStripWidthsOneBoardFullWidth(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 1)
+	if prev != 0 || next != 0 || sel != 100 {
+		t.Fatalf("got %d/%d/%d, want 0/100/0", prev, sel, next)
+	}
+}
+
+func TestSplitStripWidthsTwoBoards70_30(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 2)
+	if prev != 0 {
+		t.Fatalf("prev = %d, want 0 (no prev cell with 2 boards)", prev)
+	}
+	if sel != 70 || next != 30 {
+		t.Fatalf("sel/next = %d/%d, want 70/30", sel, next)
+	}
+}
+
+func TestSplitStripWidthsThreePlusKeeps25_50_25(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 3)
+	if prev != 25 || sel != 50 || next != 25 {
+		t.Fatalf("got %d/%d/%d, want 25/50/25", prev, sel, next)
 	}
 }
 
@@ -56,7 +81,7 @@ func TestRenderPinnedTabsShowsTabsAndActiveDescription(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	// Pin two workflow-exposed boards: open-tasks and in-progress-tasks.
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.selected = "ATM:in-progress-tasks"
@@ -106,7 +131,7 @@ func TestPinnedTabsHighlightsCenterTabWhenPinFocusIsStrip(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.pinFocus = -1 // center board is the active filter
@@ -177,7 +202,7 @@ func TestPinnedTabsMovesHighlightToPinTabOnJump(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.selected = "ATM:in-progress-tasks"
@@ -241,9 +266,11 @@ func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 	}
 }
 
-// seedUmbrellaFixture builds a project whose ring carries the umbrella row
-// over two unmanaged namespaces (comment:*, type:*), mirroring the shape of a
-// real ATM project. Returns the model and the umbrella's ring row.
+// seedUmbrellaFixture builds a project whose unmanaged surface carries two
+// unmanaged namespaces (comment:*, type:*), mirroring the shape of a real ATM
+// project. Task 5 repurposes the umbrella surface as unmanaged mode's whole
+// pane [2]; this helper drives it through switchTo(unmanagedCapability) so the
+// pane sits at lLevelUmbrella with rows populated and the cursor unset.
 func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
 	t.Helper()
 	m := newTestModel(t)
@@ -259,49 +286,23 @@ func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
 	}
 	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:comment:decision")
 	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:type:bug")
-	m.boards.refresh()
-	for _, r := range m.boards.rows {
-		if r.Umbrella {
-			m.boards.selected = r.FullName
-			m.boards.pinFocus = -1
-			m.boards.applyFocus()
-			return m, r
-		}
-	}
-	t.Fatalf("no umbrella row in ring: %v", m.boards.rowNames())
-	return nil, boardRow{}
+	m.refreshAll()
+	m.capability.switchTo(unmanagedCapability)
+	sentinel := capability.UmbrellaFullName("ATM")
+	return m, boardRow{Name: "unmanaged", FullName: sentinel, Expandable: true}
 }
 
-// TestSelectedCellRendersUmbrellaSubTableAtL0 guards the strip's SELECTED cell
-// against treating the umbrella sentinel as a namespace board. The umbrella row
-// is Expandable, so renderSelectedCell's L0 branch used to force
-// level=lLevelChart with ns="unmanaged" — a namespace with no members — which
-// rendered a single "(unset)" bar counting EVERY task in the project. The
-// umbrella's L0 preview must be its unmanaged sub-table instead.
-func TestSelectedCellRendersUmbrellaSubTableAtL0(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	cell := m.boards.renderSelectedCell(60, 14, umb)
-	if strings.Contains(cell, "(unset)") {
-		t.Errorf("umbrella L0 preview must not render a namespace chart's (unset) bar:\n%s", cell)
-	}
-	for _, want := range []string{"comment", "type"} {
-		if !strings.Contains(cell, want) {
-			t.Errorf("umbrella L0 preview missing unmanaged namespace %q:\n%s", want, cell)
-		}
-	}
-}
-
-// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the same cell at
-// lLevelUmbrella. renderSelectedCell's switch had no case for the level Task 5
-// introduced, so a drilled-in umbrella fell through to the L0 default and
-// rendered the same bogus "(unset)" chart the user was trying to drill past.
+// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the umbrella
+// sub-table's render at lLevelUmbrella in unmanaged mode. The pane sits at
+// lLevelUmbrella after switchTo(unmanagedCapability); renderSelectedCell is
+// then called with a synthetic umbrella row (the strip is not used in
+// unmanaged mode, but the renderer must still produce the meter-bar surface).
 func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	m.boards.drillIn()
+	m, _ := seedUmbrellaFixture(t)
 	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("drillIn on umbrella: level = %d, want lLevelUmbrella", m.boards.level)
+		t.Fatalf("level = %d, want lLevelUmbrella", m.boards.level)
 	}
-	cell := m.boards.renderSelectedCell(60, 14, umb)
+	cell := m.boards.renderSelectedCell(60, 14, boardRow{Name: "unmanaged", FullName: "ATM:unmanaged", Expandable: true})
 	if strings.Contains(cell, "(unset)") {
 		t.Errorf("drilled-in umbrella must not render a namespace chart's (unset) bar:\n%s", cell)
 	}
@@ -312,36 +313,22 @@ func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
 	}
 }
 
-// TestSelectedCellUmbrellaRenderDoesNotLeakDrillState guards that previewing
-// the umbrella at L0 restores level/ns/cursor and the cached umbrellaRows —
-// renderSelectedCell is a pure render and must not mutate drill state.
-func TestSelectedCellUmbrellaRenderDoesNotLeakDrillState(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	before := m.boards.umbrellaRows
-	_ = m.boards.renderSelectedCell(60, 14, umb)
-	if m.boards.level != lLevelTable {
-		t.Errorf("level leaked after L0 umbrella preview: got %d, want lLevelTable", m.boards.level)
-	}
-	if m.boards.ns != "" {
-		t.Errorf("ns leaked after L0 umbrella preview: %q", m.boards.ns)
-	}
-	if len(m.boards.umbrellaRows) != len(before) {
-		t.Errorf("umbrellaRows leaked after L0 umbrella preview: %d rows, want %d", len(m.boards.umbrellaRows), len(before))
-	}
-}
-
 // TestUmbrellaShiftUpDownMovesCursor guards Shift-↑/↓ inside the umbrella
-// sub-table. The key routes to chartCursorMove, which bailed on
-// `b.level != lLevelChart` — so the umbrella level, added later, silently
-// swallowed every Shift-↑/↓ and the cursor was stuck on the first namespace.
+// sub-table in unmanaged mode. The cursor starts unset (-1); the first move
+// lands on row 0 and applies that label's filter; further moves clamp at
+// both ends.
 func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
 	m, _ := seedUmbrellaFixture(t)
-	m.boards.drillIn()
 	if got := len(m.boards.umbrellaRows); got < 2 {
 		t.Fatalf("fixture needs >= 2 umbrella rows, got %d", got)
 	}
+	if m.boards.cursor != -1 {
+		t.Fatalf("cursor after switchTo = %d, want -1 (unset)", m.boards.cursor)
+	}
+	// First move from the unset cursor lands on row 0 regardless of direction.
+	m.boards.chartCursorMove(-1)
 	if m.boards.cursor != 0 {
-		t.Fatalf("cursor after drill-in = %d, want 0", m.boards.cursor)
+		t.Errorf("first Shift-↑ from unset: cursor = %d, want 0", m.boards.cursor)
 	}
 	m.boards.chartCursorMove(1)
 	if m.boards.cursor != 1 {
@@ -371,14 +358,13 @@ func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
 // the column carried no information and made the umbrella look like a
 // different kind of surface than the boards beside it.
 func TestUmbrellaRendersAsChartNotOwnerTable(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	m.boards.drillIn()
-	cell := m.boards.renderSelectedCell(80, 14, umb)
+	m, _ := seedUmbrellaFixture(t)
+	cell := m.boards.renderSelectedCell(80, 14, boardRow{Name: "unmanaged", FullName: "ATM:unmanaged", Expandable: true})
 	if strings.Contains(cell, "OWNER") {
 		t.Errorf("umbrella sub-table must not render an OWNER column:\n%s", cell)
 	}
-	if !strings.Contains(cell, "unmanaged  ·  2 tasks") {
-		t.Errorf("umbrella sub-table missing the chart header 'unmanaged  ·  2 tasks':\n%s", cell)
+	if !strings.Contains(cell, "unmanaged  ·  2 labels") {
+		t.Errorf("umbrella sub-table missing the chart header 'unmanaged  ·  2 labels':\n%s", cell)
 	}
 	// Meter bars, like every other namespace chart.
 	if !strings.Contains(cell, "█") {

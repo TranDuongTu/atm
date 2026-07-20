@@ -7,14 +7,40 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// splitStripWidths divides pane [2] inner width into prev (25%) / SELECTED (50%)
-// / next (25%) with minimum clamps so narrow terminals still render a board name.
-func splitStripWidths(paneW int) (prev, sel, next int) {
+// splitStripWidths divides pane [2] inner width among the strip cells by
+// ring size: 1 board fills the pane; 2 boards split 70% SELECTED / 30% next
+// (no prev cell); 3+ keep prev 25% / SELECTED 50% / next 25%. A returned 0
+// means that cell is absent. Minimum clamps keep names readable on narrow
+// terminals.
+func splitStripWidths(paneW, ringN int) (prev, sel, next int) {
+	const minSide = 6
+	const minSel = 8
+	switch {
+	case ringN <= 1:
+		return 0, paneW, 0
+	case ringN == 2:
+		sel = paneW * 70 / 100
+		if sel < minSel {
+			sel = minSel
+		}
+		next = paneW - sel
+		if next < minSide {
+			next = minSide
+		}
+		for sel+next > paneW && next > minSide {
+			next--
+		}
+		for sel+next > paneW && sel > minSel {
+			sel--
+		}
+		if sel+next > paneW { // degenerate width: selected takes everything
+			return 0, paneW, 0
+		}
+		return 0, sel, next
+	}
 	prev = paneW * 25 / 100
 	sel = paneW * 50 / 100
 	next = paneW - prev - sel
-	const minSide = 6
-	const minSel = 8
 	if prev < minSide {
 		prev = minSide
 	}
@@ -24,7 +50,6 @@ func splitStripWidths(paneW int) (prev, sel, next int) {
 	if sel < minSel {
 		sel = minSel
 	}
-	// Re-fit if the minimums overflow: shrink sides first, then selected.
 	for prev+sel+next > paneW && prev > minSide {
 		prev--
 	}
@@ -35,7 +60,6 @@ func splitStripWidths(paneW int) (prev, sel, next int) {
 		sel--
 	}
 	if prev+sel+next > paneW {
-		// Last resort: hard truncate to pane width keeping selected priority.
 		next = paneW - prev - sel
 		if next < 0 {
 			next = 0
@@ -54,33 +78,60 @@ func splitStripWidths(paneW int) (prev, sel, next int) {
 // render (chart for a namespace board, detail for a leaf board) sized to its
 // width. stripH is the fixed row height.
 func (b *boardsModel) renderStrip(paneW, stripH int) string {
-	if b.m.projectScope == "" || len(b.rows) == 0 {
-		placeholder := titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards", "no project selected", stripH)
-		return placeholder
+	if b.m.projectScope == "" {
+		return titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards", "no project selected", stripH)
 	}
-	prevW, selW, nextW := splitStripWidths(paneW)
+	if b.inUnmanagedMode() {
+		title := fmt.Sprintf("unmanaged · %d %s", len(b.unmanaged), pluralLabels(len(b.unmanaged)))
+		savedW, savedH := b.width, b.contentHeight
+		b.SetSize(paneW-2, stripH-2)
+		var inner string
+		switch b.level {
+		case lLevelChart:
+			inner = b.renderChart()
+		case lLevelDetail:
+			inner = b.renderDetail()
+		default:
+			inner = b.renderUmbrella()
+		}
+		b.SetSize(savedW, savedH)
+		return titledBoxHeight(b.m.styles.PaneActive, paneW, title, inner, stripH)
+	}
+	if len(b.rows) == 0 {
+		return titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards",
+			fmt.Sprintf("%s exposes no boards", b.m.capability.current), stripH)
+	}
+	prevW, selW, nextW := splitStripWidths(paneW, len(b.rows))
 	idx := b.ringIndex()
 	if idx < 0 {
 		idx = 0
 	}
 	selRow := b.rows[idx]
 
-	// Small rings never duplicate a board across cells: one board -> both
-	// sides blank; two boards -> the other board once, on the next side.
-	blank := func(w int) string {
-		return titledBoxHeight(b.m.styles.PaneInactive, w, "", "", stripH)
+	var prevCell, nextCell string
+	if prevW > 0 {
+		prevCell = titledBoxHeight(b.m.styles.PaneInactive, prevW, "", "", stripH)
+		if len(b.rows) >= 3 {
+			prevCell = b.renderSideCell(prevW, stripH, b.rows[(idx-1+len(b.rows))%len(b.rows)], "◂")
+		}
 	}
-	prevCell, nextCell := blank(prevW), blank(nextW)
-	switch {
-	case len(b.rows) >= 3:
-		prevCell = b.renderSideCell(prevW, stripH, b.rows[(idx-1+len(b.rows))%len(b.rows)], "◂")
-		nextCell = b.renderSideCell(nextW, stripH, b.rows[(idx+1)%len(b.rows)], "▸")
-	case len(b.rows) == 2:
-		nextCell = b.renderSideCell(nextW, stripH, b.rows[(idx+1)%len(b.rows)], "▸")
+	if nextW > 0 {
+		nextCell = titledBoxHeight(b.m.styles.PaneInactive, nextW, "", "", stripH)
+		if len(b.rows) >= 2 {
+			nextCell = b.renderSideCell(nextW, stripH, b.rows[(idx+1)%len(b.rows)], "▸")
+		}
 	}
 	selCell := b.renderSelectedCell(selW, stripH, selRow)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, prevCell, selCell, nextCell)
+	cells := make([]string, 0, 3)
+	if prevCell != "" {
+		cells = append(cells, prevCell)
+	}
+	cells = append(cells, selCell)
+	if nextCell != "" {
+		cells = append(cells, nextCell)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 }
 
 // renderSideCell renders a quiet prev/next thumbnail: board name + task count.
@@ -121,19 +172,7 @@ func (b *boardsModel) renderSelectedCell(w, h int, r boardRow) string {
 	case lLevelUmbrella:
 		inner = b.renderUmbrella()
 	default: // lLevelTable
-		if r.Umbrella {
-			// The umbrella is Expandable but is NOT a namespace: it has no
-			// ATM:unmanaged:* members, so rendering it as a chart would show a
-			// lone "(unset)" bar counting every task in the project. Its L0
-			// preview is the unmanaged sub-table, mirroring "default view for a
-			// namespace at L0 is its chart".
-			savedLevel, savedCursor, savedRows := b.level, b.cursor, b.umbrellaRows
-			b.level = lLevelUmbrella
-			b.cursor = 0
-			b.umbrellaRows = b.buildUmbrellaRows()
-			defer func() { b.level, b.cursor, b.umbrellaRows = savedLevel, savedCursor, savedRows }()
-			inner = b.renderUmbrella()
-		} else if r.Expandable {
+		if r.Expandable {
 			// Default view for a namespace at L0 is its chart.
 			savedLevel, savedNS, savedCursor := b.level, b.ns, b.cursor
 			b.level = lLevelChart

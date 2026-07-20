@@ -123,11 +123,9 @@ type boardRow struct {
 	Description      string
 	Expr             string // empty for a namespace
 	Count            int
-	Expandable       bool   // true for namespaces (they have members)
-	NeedsDescription bool   // renders the warning mark — conventions rule 6
-	Broken           bool   // expression invalid or cyclic -> render as broken
-	Owner            string // owning capability name; "" for the umbrella
-	Umbrella         bool   // the synthetic unmanaged umbrella row
+	Expandable       bool // true for namespaces (they have members)
+	NeedsDescription bool // renders the warning mark — conventions rule 6
+	Broken           bool // expression invalid or cyclic -> render as broken
 }
 
 type boardsModel struct {
@@ -177,6 +175,13 @@ type boardsModel struct {
 	// from the umbrella sub-table, so Esc climbs chart/detail -> sub-table
 	// -> ring instead of chart/detail -> ring.
 	fromUmbrella bool
+
+	// umbrellaCursor preserves the umbrella row cursor across a drill-in /
+	// drill-out of one of its rows, so reenterUmbrella lands back on the
+	// row the user drilled from (rather than the top). Set in
+	// handleUmbrellaKey's "enter" case; restored (clamped) in
+	// reenterUmbrella. Only meaningful in unmanaged mode.
+	umbrellaCursor int
 }
 
 type lLevel int
@@ -200,13 +205,11 @@ type labelDetailState struct {
 	leaf string // "" for a real label; "unset" for the synthetic leaf
 }
 
-// umbrellaDescription is the sentinel row's blurb in the L0 ring's DESCRIPTION
-// cell. umbrellaCaption is the sub-table's header caption: the same sentence
-// minus the "drill in" hint, which is spent once the user is already inside —
-// and short enough to hold one line at the strip's usual width.
+// umbrellaCaption is the unmanaged-mode sub-table's header caption: the
+// sentence describing the unmanaged label set, short enough to hold one
+// line at the strip's usual width.
 const (
-	umbrellaDescription = "labels no capability owns; drill in to browse, triage via atm capability unmanaged"
-	umbrellaCaption     = "labels no capability owns; triage via atm capability unmanaged"
+	umbrellaCaption = "labels no capability owns; triage via atm capability unmanaged"
 )
 
 type chartRow struct {
@@ -265,7 +268,30 @@ func (b *boardsModel) refresh() {
 			usage:       usage[lab.Name],
 		})
 	}
+	b.unmanaged = nil
 	b.rows = b.buildBoardRows(ls)
+	if b.inUnmanagedMode() {
+		un, _ := b.m.regFor(scope).Unmanaged(b.m.store, scope)
+		b.unmanaged = un
+		b.rows = nil
+		b.selected = ""
+		switch b.level {
+		case lLevelUmbrella:
+			// Background tick while browsing: rebuild rows, keep the cursor
+			// meaningful (clamped; an unset cursor stays unset).
+			b.umbrellaRows = b.buildUmbrellaRows()
+			if b.cursor >= len(b.umbrellaRows) {
+				b.cursor = len(b.umbrellaRows) - 1
+			}
+		case lLevelChart, lLevelDetail:
+			// Drilled below the sub-table: leave the drill state alone.
+		default:
+			// Just switched in (resetDrill left us at lLevelTable).
+			b.enterUnmanagedBase()
+		}
+		b.loadPins()
+		return
+	}
 	if restoreChart && b.restoreChartCursor(selectedChart) {
 		return
 	}
@@ -288,6 +314,10 @@ func (b *boardsModel) refresh() {
 // always resets the drill state for the same leak-prevention invariant as
 // cycleBoard/jumpPin.
 func (b *boardsModel) selectDefault() {
+	if b.inUnmanagedMode() {
+		b.enterUnmanagedBase()
+		return
+	}
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
 	// UI policy, not a capability concern: all-tasks if the ring has it
@@ -301,33 +331,33 @@ func (b *boardsModel) selectDefault() {
 		}
 	}
 	if len(b.rows) > 0 {
-		for _, r := range b.rows {
-			if r.Umbrella {
-				continue
-			}
-			b.selected = r.FullName
-			b.applyFocus()
-			return
-		}
+		b.selected = b.rows[0].FullName
+		b.applyFocus()
+		return
 	}
 	b.selected = ""
 	b.applyFocus()
 }
 
-// loadPins reads the project's pins from the boards config (legacy pins.json
-// folds in via GetBoardsConfig until first write) and prunes any whose board
-// is not in the ring. Clamped to maxPins.
+// loadPins reads the project's pins from the boards config and prunes any
+// whose board no enabled capability exposes (or that is hidden). Pins are
+// GLOBAL across capabilities: a pin may name a board outside the current
+// ring — jumpPin switches capability to follow it. Clamped to maxPins.
 func (b *boardsModel) loadPins() {
 	b.pins = nil
 	if b.m.projectScope == "" || b.boardsCfg == nil {
 		return
 	}
 	live := map[string]bool{}
-	for _, r := range b.rows {
-		live[r.FullName] = true
+	for _, e := range b.m.regFor(b.m.projectScope).Exposed(b.m.projectScope) {
+		live[e.Label.Name] = true
+	}
+	hidden := map[string]bool{}
+	for _, n := range b.boardsCfg.Hidden {
+		hidden[n] = true
 	}
 	for _, full := range b.boardsCfg.Pins {
-		if live[full] {
+		if live[full] && !hidden[full] {
 			b.pins = append(b.pins, full)
 		}
 		if len(b.pins) >= maxPins {
@@ -353,9 +383,6 @@ const maxPins = core.MaxBoardPins
 func (b *boardsModel) togglePin() {
 	if b.selected == "" || b.m.projectScope == "" {
 		return
-	}
-	if idx := b.ringIndex(); idx >= 0 && b.rows[idx].Umbrella {
-		return // the sentinel is not a pinnable board
 	}
 	pinned := false
 	for _, full := range b.pins {
@@ -398,13 +425,18 @@ func (b *boardsModel) syncPinFocus() {
 	}
 }
 
-// jumpPin moves the ring selection to the nth pinned board (1-based). Returns
+// jumpPin moves the selection to the nth pinned board (1-based), switching
+// the current capability first when the pin belongs to another one. Returns
 // false if n is out of range.
 func (b *boardsModel) jumpPin(n int) bool {
 	if n < 1 || n > len(b.pins) {
 		return false
 	}
-	b.selected = b.pins[n-1]
+	full := b.pins[n-1]
+	if owner := b.ownerOf(full); owner != "" && owner != b.m.capability.current {
+		b.m.capability.switchTo(owner)
+	}
+	b.selected = full
 	// A jump must not leak a stale chart/detail/cursor from whatever board was
 	// previously drilled into (see cycleBoard's resetDrill call for the same
 	// invariant).
@@ -412,6 +444,16 @@ func (b *boardsModel) jumpPin(n int) bool {
 	b.pinFocus = n - 1 // the jumped-to pin becomes the active-filter highlight
 	b.applyFocus()
 	return true
+}
+
+// ownerOf returns the enabled capability exposing full, or "".
+func (b *boardsModel) ownerOf(full string) string {
+	for _, e := range b.m.regFor(b.m.projectScope).Exposed(b.m.projectScope) {
+		if e.Label.Name == full {
+			return e.Owner
+		}
+	}
+	return ""
 }
 
 // focusCenter is the inverse of jumpPin: it moves the strong current-filter
@@ -435,9 +477,7 @@ func (b *boardsModel) focusCenter() {
 	if idx < 0 {
 		return
 	}
-	if r := b.rows[idx]; r.Umbrella {
-		b.enterUmbrella()
-	} else if r.Expandable {
+	if r := b.rows[idx]; r.Expandable {
 		b.enterChart(r.Name)
 	}
 }
@@ -511,10 +551,6 @@ func (b *boardsModel) drillIn() {
 	r := b.rows[idx]
 	switch b.level {
 	case lLevelTable:
-		if r.Umbrella {
-			b.enterUmbrella()
-			return
-		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 		} else {
@@ -564,7 +600,7 @@ func (b *boardsModel) drillOut() {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return
 		}
 		b.level = lLevelTable
@@ -574,7 +610,7 @@ func (b *boardsModel) drillOut() {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return
 		}
 		b.level = lLevelTable
@@ -582,10 +618,8 @@ func (b *boardsModel) drillOut() {
 		b.cursor = 0
 		b.applyFocus()
 	case lLevelUmbrella:
-		// Esc from the sub-table climbs back to the ring.
-		b.level = lLevelTable
-		b.cursor = b.tableCursor
-		b.clampCursor()
+		// Unmanaged mode's base level: there is no ring above.
+		return
 	}
 }
 
@@ -594,24 +628,38 @@ func (b *boardsModel) drillOut() {
 // sub-table, whose rows are navigated by the same Shift-↑/↓ keys; no-op
 // elsewhere.
 func (b *boardsModel) chartCursorMove(dir int) {
-	var n int
 	switch b.level {
 	case lLevelChart:
-		n = len(b.chartRows())
+		n := len(b.chartRows())
+		if n == 0 {
+			return
+		}
+		b.cursor += dir
+		if b.cursor < 0 {
+			b.cursor = 0
+		}
+		if b.cursor >= n {
+			b.cursor = n - 1
+		}
 	case lLevelUmbrella:
-		n = len(b.umbrellaRows)
-	default:
-		return
-	}
-	if n == 0 {
-		return
-	}
-	b.cursor += dir
-	if b.cursor < 0 {
-		b.cursor = 0
-	}
-	if b.cursor >= n {
-		b.cursor = n - 1
+		n := len(b.umbrellaRows)
+		if n == 0 {
+			return
+		}
+		if b.cursor < 0 {
+			// First move from the unset cursor lands on the top row
+			// regardless of direction.
+			b.cursor = 0
+		} else {
+			b.cursor += dir
+			if b.cursor < 0 {
+				b.cursor = 0
+			}
+			if b.cursor >= n {
+				b.cursor = n - 1
+			}
+		}
+		b.applyUmbrellaSelection()
 	}
 }
 
@@ -628,15 +676,6 @@ func (b *boardsModel) applyFocus() {
 		return
 	}
 	r := b.rows[idx]
-	if r.Umbrella {
-		// The umbrella is a sentinel, not a real label: it has no
-		// expression to filter tasks by. Show an idle empty page and
-		// require drill-in to browse unmanaged labels. Showing the
-		// unfiltered all-tasks list here would conflate the umbrella
-		// with the all-tasks board.
-		b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
-		return
-	}
 	if r.Expandable {
 		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
 	} else {
@@ -644,16 +683,17 @@ func (b *boardsModel) applyFocus() {
 	}
 }
 
-// buildBoardRows constructs the flat L0 ring: every enabled capability's
-// Exposed labels in registration order (owner-tagged), plus the synthetic
-// "unmanaged" umbrella when any label no capability owns exists. The stored
-// label's description wins over the Exposed literal (a human may have curated
-// it). Hidden rows are dropped; the boards-config order override is applied
-// as a partial reorder (unmatched rows keep registration order, umbrella
-// last). The old emergent derivation lives on only inside the umbrella's
-// drill-in (buildUmbrellaRows).
+// buildBoardRows constructs the ring for the CURRENT capability: its Exposed
+// labels in the capability's preferred order, hidden rows dropped, then the
+// boards-config order override applied as a partial reorder. Other enabled
+// capabilities' boards are not in this ring — the [C] switcher changes scope.
+// In unmanaged mode the ring is empty (the drill-down is the surface).
 func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	scope := b.m.projectScope
+	current := b.m.capability.current
+	if current == "" || current == unmanagedCapability {
+		return nil
+	}
 	stored := map[string]core.Label{}
 	for _, l := range ls {
 		stored[l.Name] = l
@@ -662,6 +702,9 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	var out []boardRow
 	seen := map[string]bool{}
 	for _, e := range reg.Exposed(scope) {
+		if e.Owner != current {
+			continue
+		}
 		l := e.Label
 		if seen[l.Name] {
 			continue
@@ -680,7 +723,6 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 				Count:            b.namespaceTaskCount(ns),
 				Expandable:       true,
 				NeedsDescription: l.Description == "",
-				Owner:            e.Owner,
 			})
 			continue
 		}
@@ -692,28 +734,9 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 			Expr:        l.Expr,
 			Count:       count,
 			Broken:      broken,
-			Owner:       e.Owner,
 		})
 	}
-	// Umbrella: present only when unmanaged labels exist AND no real label
-	// shadows the sentinel (a hand-made ATM:unmanaged tag or ATM:unmanaged:*
-	// namespace wins; it then renders as a normal unmanaged label instead).
-	unmanaged, _ := reg.Unmanaged(b.m.store, scope)
-	b.unmanaged = unmanaged
-	sentinel := capability.UmbrellaFullName(scope)
-	_, tagShadow := stored[sentinel]
-	_, nsShadow := stored[sentinel+":*"]
-	if len(unmanaged) > 0 && !tagShadow && !nsShadow {
-		out = append(out, boardRow{
-			Name:        "unmanaged",
-			FullName:    sentinel,
-			Description: umbrellaDescription,
-			Count:       b.unmanagedTaskCount(unmanaged),
-			Expandable:  true,
-			Umbrella:    true,
-		})
-	}
-	// Hidden filter, then partial order override.
+	// Hidden filter, then partial order override (unchanged).
 	hidden := map[string]bool{}
 	for _, n := range b.boardsCfg.Hidden {
 		hidden[n] = true
@@ -909,11 +932,60 @@ func (b *boardsModel) enterUmbrella() {
 	b.offset = 0
 }
 
-// reenterUmbrella returns from a chart/detail entered via the umbrella.
+// inUnmanagedMode reports whether pane [2] is in the unmanaged capability
+// view: no ring, the label drill-down is the whole surface.
+func (b *boardsModel) inUnmanagedMode() bool {
+	return b.m.capability.unmanagedCurrent()
+}
+
+// enterUnmanagedBase (re)enters unmanaged mode's base level: the full-width
+// label drill-down with an UNSET cursor (-1) and the idle task focus. The
+// first Shift-↑/↓ sets the cursor and applies that label's filter — until
+// then no task query runs (the performance guarantee of the capability-view
+// spec).
+func (b *boardsModel) enterUnmanagedBase() {
+	b.level = lLevelUmbrella
+	b.umbrellaRows = b.buildUmbrellaRows()
+	b.cursor = -1
+	b.offset = 0
+	b.tableCursor = 0
+	b.fromUmbrella = false
+	b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
+}
+
+// applyUmbrellaSelection pushes the cursor row's label as the tasks filter:
+// namespace rows facet (focusPresent), leaf rows filter exactly. An unset or
+// out-of-range cursor restores the idle state.
+func (b *boardsModel) applyUmbrellaSelection() {
+	if b.cursor < 0 || b.cursor >= len(b.umbrellaRows) {
+		b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
+		return
+	}
+	r := b.umbrellaRows[b.cursor]
+	if r.Expandable {
+		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
+	} else {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, r.FullName)
+	}
+}
+
+// reenterUmbrella returns from a chart/detail entered via the umbrella. The
+// cursor is restored from umbrellaCursor (clamped) so the user lands back on
+// the row they drilled from; in unmanaged mode that row's filter is then
+// re-applied by applyUmbrellaSelection.
 func (b *boardsModel) reenterUmbrella() {
 	b.level = lLevelUmbrella
 	b.umbrellaRows = b.buildUmbrellaRows()
-	b.cursor = 0
+	b.cursor = b.umbrellaCursor
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(b.umbrellaRows) {
+		b.cursor = len(b.umbrellaRows) - 1
+	}
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
 	b.ns = ""
 	b.detail = labelDetailState{}
 }
@@ -950,6 +1022,7 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 		}
 		r := rows[b.cursor]
 		b.fromUmbrella = true
+		b.umbrellaCursor = b.cursor
 		if r.Expandable {
 			b.enterChart(r.Name)
 			return nil
@@ -962,9 +1035,8 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 			usage:       r.Count,
 		}}
 	case "esc":
-		b.level = lLevelTable
-		b.cursor = b.tableCursor
-		b.clampCursor()
+		// Unmanaged mode's base level: there is no ring above to climb to.
+		return nil
 	}
 	return nil
 }
@@ -977,7 +1049,7 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 // surface than the boards beside it.
 func (b *boardsModel) renderUmbrella() string {
 	if len(b.umbrellaRows) == 0 {
-		return padToHeight("no unmanaged labels", b.contentHeight)
+		return padToHeight("nothing unmanaged — every label is capability-owned", b.contentHeight)
 	}
 	rows := make([]chartRow, 0, len(b.umbrellaRows))
 	for _, r := range b.umbrellaRows {
@@ -985,7 +1057,7 @@ func (b *boardsModel) renderUmbrella() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("unmanaged  ·  %d tasks", b.unmanagedTaskCount(b.unmanaged))))
+	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("unmanaged  ·  %d %s", len(b.unmanaged), pluralLabels(len(b.unmanaged)))))
 	sb.WriteString("\n")
 	for _, line := range strings.Split(wordwrap.String(umbrellaCaption, b.width), "\n") {
 		sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render(line)))
@@ -1263,10 +1335,6 @@ func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		r := b.rows[b.cursor]
-		if r.Umbrella {
-			b.enterUmbrella()
-			return nil
-		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 			return nil
@@ -1325,7 +1393,7 @@ func (b *boardsModel) handleChartKey(k tea.KeyMsg) tea.Cmd {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return nil
 		}
 		b.enterTable()
@@ -1370,7 +1438,7 @@ func (b *boardsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return nil
 		}
 		b.level = lLevelTable
@@ -1425,7 +1493,7 @@ func (b *boardsModel) renderTable() string {
 		return padToHeight("no boards", b.contentHeight)
 	}
 	var sb strings.Builder
-	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "OWNER", "COUNT")
+	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "COUNT")
 	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
 	sb.WriteString("\n")
 
@@ -1442,11 +1510,7 @@ func (b *boardsModel) renderTable() string {
 		if r.Broken {
 			count = "-"
 		}
-		owner := r.Owner
-		if owner == "" {
-			owner = "—"
-		}
-		line := boardTableLine(b.width, name, r.Description, b.m.styles.Muted.Render(owner), count)
+		line := boardTableLine(b.width, name, r.Description, count)
 		if i == b.cursor {
 			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -1461,14 +1525,13 @@ func (b *boardsModel) renderTable() string {
 }
 
 // boardTableLine renders one row of the flat Boards list: fixed-width name,
-// flexible description, a narrow muted owner tag, and an 8-wide count.
-// Padding is by display width (lipgloss.Width), not byte length.
-func boardTableLine(width int, name, description, owner, count string) string {
+// flexible description, and an 8-wide count. Padding is by display width
+// (lipgloss.Width), not byte length.
+func boardTableLine(width int, name, description, count string) string {
 	nameW := 16
-	ownerW := 10
 	countW := 8
-	// leading space (1) + 3 inter-column separators (3) = 4
-	descW := width - nameW - ownerW - countW - 4
+	// leading space (1) + 2 inter-column separators (2) = 3
+	descW := width - nameW - countW - 3
 	if descW < 8 {
 		descW = 8
 	}
@@ -1481,12 +1544,7 @@ func boardTableLine(width int, name, description, owner, count string) string {
 	if descPad < 0 {
 		descPad = 0
 	}
-	ownerCell := truncateRunes(owner, ownerW)
-	ownerPad := ownerW - lipgloss.Width(ownerCell)
-	if ownerPad < 0 {
-		ownerPad = 0
-	}
-	return fitLine(fmt.Sprintf(" %s%s %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), ownerCell, spaces(ownerPad), count), width)
+	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
 }
 
 // namespaceDescription returns the description of ns's namespace descriptor
@@ -1553,7 +1611,11 @@ func (b *boardsModel) renderMeterRows(rows []chartRow) string {
 		line := fmt.Sprintf(" %s %s %4d", name, meterBar(percent, meterW), r.count)
 		lines = append(lines, dashboardLine(b.width, line))
 	}
-	start, end := windowLines(len(lines), b.cursor, b.pageSize)
+	cur := b.cursor
+	if cur < 0 {
+		cur = 0
+	}
+	start, end := windowLines(len(lines), cur, b.pageSize)
 	for i := start; i < end; i++ {
 		sb.WriteString(lines[i])
 		sb.WriteString("\n")
@@ -1644,7 +1706,7 @@ func (b *boardsModel) statusHint() string {
 		}
 		return "[d]esc [l]remove [Esc]back"
 	case lLevelUmbrella:
-		return "[Enter]open [Esc]back"
+		return "[Shift-↑/↓]select label  [Shift-→]drill"
 	default:
 		return "[Enter]open [n]ew [e]dit [a]dd [S]eed"
 	}

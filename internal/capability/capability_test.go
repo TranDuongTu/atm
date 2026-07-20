@@ -134,7 +134,7 @@ func TestNilRegistryIsSafeAndEmpty(t *testing.T) {
 // listOnlyService is a core.LabelService whose only live method is LabelList.
 type listOnlyService struct{ labels []core.Label }
 
-func (s *listOnlyService) LabelList(project, namespace string) []core.Label { return s.labels }
+func (s *listOnlyService) LabelList(project, namespace string) []core.Label      { return s.labels }
 func (s *listOnlyService) LabelAdd(name, description, expr, actor string) error  { return nil }
 func (s *listOnlyService) LabelSeed(name, description, expr, actor string) error { return nil }
 func (s *listOnlyService) LabelShow(name string) (core.Label, error)             { return core.Label{}, nil }
@@ -186,14 +186,14 @@ func TestRegistryUnmanagedSubtractsOwnership(t *testing.T) {
 		{Name: "ATM:all-tasks", Expr: "*"},
 	}}
 	svc := &listOnlyService{labels: []core.Label{
-		{Name: "ATM:all-tasks", Expr: "*"},      // owned board
-		{Name: "ATM:status:*"},                  // owned descriptor
-		{Name: "ATM:status:open"},               // owned member (exact)
-		{Name: "ATM:status:wip"},                // ad-hoc member of owned ns -> managed
-		{Name: "ATM:type:bug"},                  // unowned ns member -> unmanaged
-		{Name: "ATM:type:*"},                    // unowned descriptor -> unmanaged
-		{Name: "ATM:urgent"},                    // loose tag -> unmanaged
-		{Name: "ATM:my-board", Expr: "urgent"},  // user board -> unmanaged
+		{Name: "ATM:all-tasks", Expr: "*"},     // owned board
+		{Name: "ATM:status:*"},                 // owned descriptor
+		{Name: "ATM:status:open"},              // owned member (exact)
+		{Name: "ATM:status:wip"},               // ad-hoc member of owned ns -> managed
+		{Name: "ATM:type:bug"},                 // unowned ns member -> unmanaged
+		{Name: "ATM:type:*"},                   // unowned descriptor -> unmanaged
+		{Name: "ATM:urgent"},                   // loose tag -> unmanaged
+		{Name: "ATM:my-board", Expr: "urgent"}, // user board -> unmanaged
 	}}
 	reg := NewRegistry(wf)
 	got, err := reg.Unmanaged(svc, "ATM")
@@ -251,5 +251,25 @@ func TestOrderFullNames(t *testing.T) {
 func TestUmbrellaFullName(t *testing.T) {
 	if UmbrellaFullName("ATM") != "ATM:unmanaged" {
 		t.Fatalf("UmbrellaFullName = %q", UmbrellaFullName("ATM"))
+	}
+}
+
+func TestLabelSetContains(t *testing.T) {
+	s := NewLabelSet([]core.Label{
+		{Name: "ATM:status:*"},
+		{Name: "ATM:all-tasks", Expr: "*"},
+		{Name: "ATM:needs-triage"},
+	})
+	for name, want := range map[string]bool{
+		"ATM:all-tasks":     true,  // exact board
+		"ATM:needs-triage":  true,  // exact tag
+		"ATM:status:*":      true,  // exact descriptor
+		"ATM:status:wip":    true,  // member of owned namespace
+		"ATM:priority:high": false, // unowned namespace member
+		"ATM:other-tag":     false, // unowned tag
+	} {
+		if got := s.Contains(name); got != want {
+			t.Errorf("Contains(%q) = %v, want %v", name, got, want)
+		}
 	}
 }

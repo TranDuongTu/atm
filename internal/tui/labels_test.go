@@ -67,43 +67,27 @@ func TestSelectDefaultOpenTasksRemainsSelectableInRing(t *testing.T) {
 
 // TestSelectDefaultPicksAllTasksWithoutRegistryConsultation re-anchors the
 // post-DefaultBoard policy: the UI picks <CODE>:all-tasks when present, else
-// the first non-umbrella ring row, with NO registry consultation. To prove the
-// pick is BY NAME (not "first row"), a second capability (contextmap) is
-// registered BEFORE workflow, so its context-current board becomes rows[0]
-// — yet the UI still picks all-tasks further down the ring. (The DefaultBoard
-// registry method is gone entirely after Task 2; this test pins the
-// name-based replacement.)
+// the first ring row, with NO registry consultation. The ring is
+// capability-scoped now (Task 4): with only workflow enabled, all-tasks is
+// NOT the first row (workflow's Exposed order starts with all-tasks but the
+// pick is still BY NAME, not "first row", so it survives any future order
+// override). (The DefaultBoard registry method is gone entirely after Task 2;
+// this test pins the name-based replacement within a capability-scoped ring.)
 func TestSelectDefaultPicksAllTasksWithoutRegistryConsultation(t *testing.T) {
-	s, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	if err := s.Init(""); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	// contextmap registered FIRST so context-current becomes rows[0]; the
-	// old DefaultBoard-consultation code would have picked rows[0]. The new
-	// code picks ATM:all-tasks by name, wherever it sits in the ring.
-	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(contextmap.New(), workflow.New())})
-	if err != nil {
-		t.Fatalf("NewModel: %v", err)
-	}
+	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if _, err := contextmap.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatalf("ensure contextmap: %v", err)
-	}
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure workflow: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
 	m.boards.refresh()
-	if len(m.boards.rows) < 2 || m.boards.rows[0].FullName != "ATM:context-current" {
-		t.Fatalf("precondition: rows[0] = %v, want ATM:context-current (registered first)", m.boards.rowNames())
+	if len(m.boards.rows) == 0 {
+		t.Fatalf("precondition: workflow ring empty: %v", m.boards.rowNames())
 	}
 	m.boards.selectDefault()
 	if m.boards.selected != "ATM:all-tasks" {
-		t.Errorf("selected = %q, want ATM:all-tasks (UI policy: all-tasks by name, not first row)", m.boards.selected)
+		t.Errorf("selected = %q, want ATM:all-tasks (UI policy: all-tasks by name within the capability-scoped ring)", m.boards.selected)
 	}
 }
 
@@ -213,7 +197,7 @@ func TestPinsPersistToBoardsConfig(t *testing.T) {
 	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Hidden: []string{"ATM:backlog"}}, m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:all-tasks"
 	m.boards.togglePin()
 	b, err := m.store.GetBoardsConfig("ATM")
@@ -226,7 +210,7 @@ func TestPinsPersistToBoardsConfig(t *testing.T) {
 	if len(b.Hidden) != 1 || b.Hidden[0] != "ATM:backlog" {
 		t.Fatalf("hidden clobbered by pin write: %+v", b)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	if len(m.boards.pins) != 1 || m.boards.pins[0] != "ATM:all-tasks" {
 		t.Fatalf("pins after refresh = %v", m.boards.pins)
 	}
@@ -458,13 +442,13 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks",
 		"ATM:backlog", "ATM:status:*", "ATM:priority:*",
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	pinsPath := filepath.Join(m.store.StorePath(), "projects", "ATM", "pins.json")
 	pinsJSON := `{"boards":["` + strings.Join(boards, `","`) + `"]}`
 	if err := os.WriteFile(pinsPath, []byte(pinsJSON), 0o644); err != nil {
 		t.Fatalf("write pins.json: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	if len(m.boards.pins) != maxPins {
 		t.Fatalf("pins after loading %d stored = %d, want %d (clamped)", len(boards), len(m.boards.pins), maxPins)
 	}
@@ -528,7 +512,7 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks"}
-	m.boards.refresh()
+	m.refreshAll()
 	for _, full := range pinned {
 		m.boards.selected = full
 		m.boards.togglePin()
@@ -551,7 +535,7 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Pins: []string{"ATM:open-tasks", "ATM:in-progress-tasks"}}, m.actor); err != nil {
 		t.Fatalf("set project boards: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 
 	if len(m.boards.pins) != 2 {
 		t.Fatalf("pins after external unpin = %v, want 2", m.boards.pins)
@@ -581,7 +565,7 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 	// capability-authored ring cannot be pruned by removing a label (Exposed
 	// is pure and survives label deletion), so hiding is the prune path.
 	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:priority:*"}
-	m.boards.refresh()
+	m.refreshAll()
 	for _, full := range pinned {
 		m.boards.selected = full
 		m.boards.togglePin()
@@ -605,7 +589,7 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 	}, m.actor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 
 	if len(m.boards.pins) != 2 {
 		t.Fatalf("pins after prune = %v, want 2", m.boards.pins)
@@ -635,7 +619,9 @@ func newTestStore(t *testing.T) *store.Store {
 }
 
 // newTestBoardsModel builds a *boardsModel scoped to code over the given store,
-// for direct row assertions without driving the full key harness.
+// for direct row assertions without driving the full key harness. Sets
+// capability.current to the first registered capability so the
+// capability-scoped ring (Task 4) resolves a non-empty surface.
 func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel {
 	t.Helper()
 	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(workflow.New())})
@@ -643,12 +629,18 @@ func newTestBoardsModel(t *testing.T, s *store.Store, code string) *boardsModel 
 		t.Fatalf("NewModel: %v", err)
 	}
 	mm.projectScope = code
+	if names := mm.regFor(code).Names(); len(names) > 0 {
+		mm.capability.current = names[0]
+	}
 	return &mm.boards
 }
 
 // newTestBoardsModelWithCaps builds a *boardsModel whose registry is assembled
 // from the given capabilities, so a test can register a synthetic capability
 // (e.g. one that exposes an undescribed namespace) alongside the real ones.
+// Sets capability.current to the first registered capability so the
+// capability-scoped ring (Task 4) resolves a non-empty surface; tests that
+// need a different current call switchTo or set it directly.
 func newTestBoardsModelWithCaps(t *testing.T, s *store.Store, code string, caps ...capability.Capability) *boardsModel {
 	t.Helper()
 	mm, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(caps...)})
@@ -656,6 +648,9 @@ func newTestBoardsModelWithCaps(t *testing.T, s *store.Store, code string, caps 
 		t.Fatalf("NewModel: %v", err)
 	}
 	mm.projectScope = code
+	if names := mm.regFor(code).Names(); len(names) > 0 {
+		mm.capability.current = names[0]
+	}
 	return &mm.boards
 }
 
@@ -830,33 +825,39 @@ func TestBoardsPaneFlagsUndescribedRows(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(s, "ATM", testActor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	// An unmanaged namespace descriptor — appears under the umbrella, NOT
-	// at L0 (Task 4). It must not surface as a flagged L0 row.
+	// An unmanaged namespace descriptor — not owned by any capability, so
+	// it does not surface in any capability's ring (Task 4). It must not
+	// appear as a flagged L0 row under any capability.
 	_ = s.LabelAdd("ATM:sprint:*", "", "", testActor)
 
 	m := newTestBoardsModelWithCaps(t, s, "ATM", workflow.New(), &undescribedCap{code: "ATM"})
 	m.refresh()
 
-	// sprint must NOT appear at L0 — it is umbrella-only now.
+	// sprint must NOT appear at L0 — no enabled capability owns it.
 	if _, ok := m.row("sprint"); ok {
 		t.Fatalf("unmanaged sprint namespace must not surface at L0: %v", m.rowNames())
 	}
 	// Seeded workflow namespaces carry descriptions and must not be flagged.
+	// The workflow ring is current (newTestBoardsModelWithCaps sets current
+	// to the first registered capability, workflow).
 	for _, ns := range []string{"status", "priority"} {
 		row, ok := m.row(ns)
 		if !ok {
-			t.Fatalf("%s namespace missing from rows: %v", ns, m.rowNames())
+			t.Fatalf("%s namespace missing from workflow ring: %v", ns, m.rowNames())
 		}
 		if row.NeedsDescription {
 			t.Errorf("%s namespace has a description and must not be flagged", ns)
 		}
 	}
 	// The synthetic capability's exposed namespace "flagme:*" has no
-	// description: buildBoardRows must mark its row NeedsDescription=true.
-	// This is the real flag-fires coverage the Task 4 review restored.
+	// description: buildBoardRows must mark its row NeedsDescription=true
+	// when it is the current capability. This is the real flag-fires
+	// coverage the Task 4 review restored.
+	m.m.capability.current = "undescribed-test"
+	m.refresh()
 	row, ok := m.row("flagme")
 	if !ok {
-		t.Fatalf("flagme namespace missing from rows: %v", m.rowNames())
+		t.Fatalf("flagme namespace missing from undescribed-test ring: %v", m.rowNames())
 	}
 	if !row.NeedsDescription {
 		t.Errorf("flagme namespace has no description and must be flagged (NeedsDescription=true); got row=%+v", row)
@@ -990,20 +991,19 @@ func TestBoardsL0FlatListUsesFullWidth(t *testing.T) {
 // display-width fix: rows carrying a multi-byte glyph must not push the COUNT
 // column out of alignment. Every row — plain or marked — must render at the
 // pane's display width, so the count column's right edge lines up. The
-// umbrella row's owner is the multi-byte em-dash "—"; an unmanaged label
-// makes the umbrella appear so the marked row is actually rendered.
+// multi-byte glyph is the ⚠ flag on a NeedsDescription namespace row.
 func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
-	m := newTestModel(t)
+	m := newTestModelWithCaps(t, workflow.New(), &undescribedCap{code: "ATM"})
 	seedProject(t, m, "ATM", "Acme")
-	m.boards.SetSize(72, 12)
+	m.projectScope = "ATM"
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	// An ad-hoc label no capability owns -> umbrella appears with owner "—".
-	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	seedTask(t, m, "ATM", "open", "ATM:status:open")
+	m.capability.switchTo("undescribed-test")
+	// Seed a task so the flagme namespace has a member and surfaces in the
+	// ring with the ⚠ flag (its Exposed literal carries no description).
+	seedTask(t, m, "ATM", "flagged one", "ATM:flagme:x")
+	m.boards.SetSize(72, 12)
 	update(t, m, "s")
 
 	lines := strings.Split(m.boards.View(), "\n")
@@ -1018,10 +1018,10 @@ func TestBoardsL0CountColumnAlignsDespiteMarkers(t *testing.T) {
 			t.Errorf("line %d display width = %d want %d (count column drifted on a marked row): %q", i, got, m.boards.width, ln)
 		}
 	}
-	// Confirm the umbrella row (owner "—") was actually rendered, so the
-	// test is not vacuously passing on plain rows only.
-	if !strings.Contains(m.boards.View(), "unmanaged") {
-		t.Fatalf("no umbrella row rendered — test is vacuous:\n%s", m.boards.View())
+	// Confirm the flagged row was actually rendered, so the test is not
+	// vacuously passing on plain rows only.
+	if !strings.Contains(m.boards.View(), "flagme") || !strings.Contains(m.boards.View(), "⚠") {
+		t.Fatalf("no flagged ⚠ row rendered — test is vacuous:\n%s", m.boards.View())
 	}
 }
 
@@ -1168,9 +1168,14 @@ func TestBoardsL0EditNamespaceOpensDescriptorEditor(t *testing.T) {
 func TestBoardsL0EditNamespaceClearsNeedsDescriptionFlag(t *testing.T) {
 	m := newTestModelWithCaps(t, workflow.New(), &undescribedCap{code: "ATM"})
 	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
+	// Switch to the synthetic capability so flagme:* is in the ring (the
+	// ring is capability-scoped after Task 4 — flagme is owned by
+	// undescribed-test, not workflow).
+	m.capability.switchTo("undescribed-test")
 	// Seed a task so flagme namespace has a member and a non-zero count,
 	// making the row visible in the flat list.
 	seedTask(t, m, "ATM", "flagged one", "ATM:flagme:x")
@@ -1680,10 +1685,10 @@ func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
 		t.Fatalf("level = %v, want lLevelTable", m.boards.level)
 	}
 	// The task list must still be filtered by the SELECTED board (assert via
-	// the tasks pane's focus caption / filter — check the exact accessor in
-	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
-	if got := m.tasks.focusCaption(); !strings.Contains(got, "all-tasks") {
-		t.Errorf("focus caption = %q, want it to reference all-tasks after drillOut", got)
+	// the tasks pane's filter — focusCaption was removed in Task 7; the
+	// invariant is: NOT the unfiltered focusOff+"" state).
+	if got := m.tasks.filter; !strings.Contains(got, "all-tasks") {
+		t.Errorf("tasks.filter = %q, want it to reference all-tasks after drillOut", got)
 	}
 }
 
@@ -1842,11 +1847,12 @@ func cursorToChartUnsetRow(t *testing.T, m *Model) {
 	t.Fatalf("no (unset) chart row found")
 }
 
-// --- Task 4: capability-authored ring tests ---
+// --- Task 4: capability-scoped ring tests ---
 
-// TestBuildBoardRowsIsCapabilityAuthored: the ring is exactly what enabled
-// capabilities expose (registration order) plus the umbrella when unmanaged
-// labels exist — emergent namespaces no longer surface at L0.
+// TestBuildBoardRowsIsCapabilityAuthored: the ring is exactly the current
+// capability's Exposed labels (registration order) — no umbrella, no emergent
+// rows, no Owner field. Ad-hoc labels a capability does not own no longer
+// surface at L0 (they live in unmanaged mode, Task 5).
 func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -1854,14 +1860,15 @@ func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	// An ad-hoc namespace member: previously an emergent L0 row, now umbrella-only.
+	// An ad-hoc namespace member: previously an emergent L0 row, now
+	// unmanaged-only (Task 5 surfaces it via unmanaged mode).
 	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	wantRing := []string{
 		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:backlog",
-		"ATM:status:*", "ATM:priority:*", "ATM:unmanaged",
+		"ATM:status:*", "ATM:priority:*",
 	}
 	if len(m.boards.rows) != len(wantRing) {
 		t.Fatalf("ring = %+v, want %v", m.boards.rows, wantRing)
@@ -1871,127 +1878,9 @@ func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
 			t.Errorf("rows[%d] = %s, want %s", i, r.FullName, wantRing[i])
 		}
 	}
-	if own := m.boards.rows[0].Owner; own != "workflow" {
-		t.Errorf("all-tasks owner = %q, want workflow", own)
-	}
-	last := m.boards.rows[len(m.boards.rows)-1]
-	if !last.Umbrella || last.Owner != "" || !last.Expandable {
-		t.Errorf("umbrella row = %+v, want Umbrella+Expandable, no owner", last)
-	}
-}
-
-// TestUmbrellaCountIsTaskCountNotLabelCount guards the L0 umbrella row's COUNT
-// cell: it must show the number of distinct tasks carrying any unmanaged
-// label (directly or under an unmanaged :* namespace), NOT the number of
-// unmanaged labels. Every other COUNT cell in the ring is a task count; the
-// umbrella showing label count is inconsistent and misleads users into
-// expecting that many tasks under the umbrella when they drill in.
-//
-// Scenario: 2 unmanaged labels (ATM:type:bug, ATM:urgent) across 3 tasks:
-//   - t1 carries ATM:type:bug
-//   - t2 carries ATM:urgent
-//   - t3 carries ATM:type:bug + ATM:urgent (multi-label, must count once)
-// Umbrella Count must be 3 (tasks), not 2 (labels).
-func TestUmbrellaCountIsTaskCountNotLabelCount(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:urgent", "", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:type:bug")
-	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:urgent")
-	seedTask(t, m, "ATM", "t3", "ATM:status:open", "ATM:type:bug", "ATM:urgent")
-	m.boards.refresh()
-	var umb *boardRow
-	for i := range m.boards.rows {
-		if m.boards.rows[i].Umbrella {
-			umb = &m.boards.rows[i]
-			break
-		}
-	}
-	if umb == nil {
-		t.Fatalf("no umbrella row in ring: %+v", m.boards.rows)
-	}
-	if umb.Count != 3 {
-		t.Errorf("umbrella Count = %d, want 3 (distinct tasks carrying unmanaged labels); len(unmanaged)=%d",
-			umb.Count, len(m.boards.unmanaged))
-	}
-}
-
-// TestUmbrellaCountIncludesTasksUnderUnmanagedNamespace guards that a task
-// carrying ATM:comment:foo (an ad-hoc member of the unmanaged comment:*
-// namespace, even when no ATM:comment:* descriptor label exists in the store)
-// is counted in the umbrella's task count. The ownership rule treats ad-hoc
-// members of unowned namespaces as unmanaged; the umbrella count must reflect
-// the tasks, not just the stored labels.
-func TestUmbrellaCountIncludesTasksUnderUnmanagedNamespace(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	// No ATM:comment:* descriptor in the store — but ATM:comment:foo is an
-	// ad-hoc member of an unowned namespace, so it's unmanaged.
-	seedTask(t, m, "ATM", "c1", "ATM:status:open", "ATM:comment:foo")
-	seedTask(t, m, "ATM", "c2", "ATM:status:open", "ATM:comment:bar")
-	seedTask(t, m, "ATM", "owned", "ATM:status:open") // no unmanaged labels
-	m.boards.refresh()
-	var umb *boardRow
-	for i := range m.boards.rows {
-		if m.boards.rows[i].Umbrella {
-			umb = &m.boards.rows[i]
-			break
-		}
-	}
-	if umb == nil {
-		t.Fatalf("no umbrella row: %+v", m.boards.rows)
-	}
-	if umb.Count != 2 {
-		t.Errorf("umbrella Count = %d, want 2 (c1+c2 carry unmanaged comment:* members; owned is excluded)", umb.Count)
-	}
-}
-
-// TestUmbrellaOmittedWhenNoUnmanaged: fully-owned label set -> no umbrella row.
-func TestUmbrellaOmittedWhenNoUnmanaged(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	m.boards.refresh()
 	for _, r := range m.boards.rows {
-		if r.Umbrella {
-			t.Fatalf("umbrella present with no unmanaged labels: %+v", m.boards.rows)
-		}
-	}
-}
-
-// TestUmbrellaSuppressedByRealCollision: a real ATM:unmanaged tag (or
-// ATM:unmanaged:* namespace) shadows the sentinel; the real label renders as
-// a normal unmanaged label under no umbrella (the sentinel loses).
-func TestUmbrellaSuppressedByRealCollision(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:unmanaged", "hand-made collision", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	m.boards.refresh()
-	for _, r := range m.boards.rows {
-		if r.Umbrella {
-			t.Fatalf("sentinel must lose to a real ATM:unmanaged label; ring = %+v", m.boards.rows)
+		if r.FullName == "ATM:unmanaged" {
+			t.Errorf("umbrella row must not appear in the capability-scoped ring: %+v", r)
 		}
 	}
 }
@@ -2012,7 +1901,7 @@ func TestHiddenAndOrderApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	want := []string{
 		"ATM:status:*", "ATM:open-tasks", // ordered prefix
 		"ATM:all-tasks", "ATM:in-progress-tasks", "ATM:priority:*", // rest, registration order
@@ -2050,69 +1939,6 @@ func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	}
 }
 
-// TestUmbrellaChartHidesUnsetRow guards that the (unset) synthetic row — which
-// measures "tasks in the project lacking this namespace" — is suppressed when
-// the chart was entered from the umbrella sub-table. The (unset) row is a
-// backlog-triage affordance for owned namespaces (where "tasks with no
-// status" is meaningful). Inside the umbrella the user is browsing unmanaged
-// labels, not triaging "tasks missing this namespace"; the project-wide
-// "others" count is nonsensical there (it includes tasks that have nothing to
-// do with unmanaged labels at all). fromUmbrella gates it off.
-func TestUmbrellaChartHidesUnsetRow(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	// Unmanaged type:* namespace with two members; one task lacks a type:*
-	// label entirely (it carries only owned status:* labels).
-	if err := m.store.LabelAdd("ATM:type:*", "task type axis", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:type:bug", "a defect", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.store.LabelAdd("ATM:type:feature", "an enhancement", "", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
-	seedTask(t, m, "ATM", "feature one", "ATM:status:open", "ATM:type:feature")
-	seedTask(t, m, "ATM", "no type", "ATM:status:open") // no type:* label
-	m.boards.refresh()
-
-	// Enter the umbrella, then drill the type namespace row.
-	m.boards.selected = "ATM:unmanaged"
-	m.boards.drillIn()
-	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
-	}
-	var typeIdx int
-	for i, r := range m.boards.umbrellaRows {
-		if r.Name == "type" {
-			typeIdx = i
-		}
-	}
-	m.boards.cursor = typeIdx
-	m.boards.handleUmbrellaKey(keyMsg("enter"))
-	if m.boards.level != lLevelChart || m.boards.ns != "type" {
-		t.Fatalf("enter on type row: level=%v ns=%q, want chart/type", m.boards.level, m.boards.ns)
-	}
-	if !m.boards.fromUmbrella {
-		t.Fatalf("fromUmbrella = false after umbrella-entered chart; want true")
-	}
-	rows := m.boards.chartRows()
-	for _, r := range rows {
-		if r.unset {
-			t.Errorf("umbrella-entered chart must not show (unset) row; got %+v (project-wide others count is meaningless under the umbrella)", r)
-		}
-	}
-	// The descriptor row (ATM:type:*) plus the 2 members, no (unset) row.
-	if len(rows) != 3 {
-		t.Fatalf("chart rows = %+v, want descriptor + 2 members (no unset)", rows)
-	}
-}
-
 // TestRingChartStillShowsUnsetRow guards the existing behavior: a chart
 // entered from the L0 ring (status:*) keeps the (unset) row. Only the
 // umbrella-entered path suppresses it.
@@ -2145,65 +1971,6 @@ func TestRingChartStillShowsUnsetRow(t *testing.T) {
 	}
 }
 
-// TestUmbrellaDrillInShowsEmergentSubTable: drilling into the umbrella lists
-// the OLD emergent derivation scoped to unmanaged labels only — namespace
-// rows for unmanaged prefixes, plus loose labels/boards — and drilling a
-// namespace row from there opens the normal chart, with Esc climbing back
-// chart -> sub-table -> ring.
-func TestUmbrellaDrillInShowsEmergentSubTable(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range []struct{ name, expr string }{
-		{"ATM:type:bug", ""}, {"ATM:type:feature", ""}, {"ATM:urgent", ""}, {"ATM:my-board", "urgent"},
-	} {
-		if err := m.store.LabelAdd(l.name, "", l.expr, m.actor); err != nil {
-			t.Fatal(err)
-		}
-	}
-	m.boards.refresh()
-	m.boards.selected = "ATM:unmanaged"
-	m.boards.drillIn()
-	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
-	}
-	// Emergent scoped derivation: my-board (board), type (namespace), urgent (loose tag).
-	var names []string
-	for _, r := range m.boards.umbrellaRows {
-		names = append(names, r.Name)
-	}
-	want := []string{"my-board", "type", "urgent"}
-	if len(names) != len(want) {
-		t.Fatalf("umbrellaRows = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Errorf("umbrellaRows[%d] = %s, want %s", i, names[i], want[i])
-		}
-	}
-	// Drill the "type" namespace row -> chart; Esc -> back to sub-table.
-	for i, r := range m.boards.umbrellaRows {
-		if r.Name == "type" {
-			m.boards.cursor = i
-		}
-	}
-	m.boards.handleUmbrellaKey(keyMsg("enter"))
-	if m.boards.level != lLevelChart || m.boards.ns != "type" {
-		t.Fatalf("enter on namespace row: level=%v ns=%q, want chart/type", m.boards.level, m.boards.ns)
-	}
-	m.boards.handleChartKey(keyMsg("esc"))
-	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("esc from umbrella-entered chart: level = %v, want lLevelUmbrella", m.boards.level)
-	}
-	m.boards.handleUmbrellaKey(keyMsg("esc"))
-	if m.boards.level != lLevelTable {
-		t.Fatalf("esc from sub-table: level = %v, want lLevelTable", m.boards.level)
-	}
-}
-
 // TestChartEscOutsideUmbrellaStillReturnsToTable guards the fromUmbrella flag:
 // a chart entered from the ring (status:*) still Esc's to L0.
 func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
@@ -2213,7 +1980,7 @@ func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:status:*"
 	m.boards.drillIn()
 	if m.boards.level != lLevelChart {
@@ -2225,47 +1992,157 @@ func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
 	}
 }
 
-// TestSelectDefaultSkipsUmbrella: umbrella is never the default selection;
-// selecting it shows an idle empty page (no task list) and requires drill-in
-// to browse unmanaged labels. The umbrella is a browsing surface, not a
-// filter: ATM:unmanaged is a sentinel, not a real label, so the L0 selection
-// applies no task filter and renders a "press Enter to drill in" empty state
-// instead of the all-tasks list.
-func TestSelectDefaultSkipsUmbrella(t *testing.T) {
+// TestRingScopedToCurrentCapability pins Task 4's core invariant: the ring
+// is exactly the current capability's Exposed labels (hidden/order still
+// applied). Switching capability via the [C] switcher re-scopes the ring —
+// other enabled capabilities' boards do NOT coexist in one mixed ring.
+func TestRingScopedToCurrentCapability(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: capability.NewRegistry(workflow.New(), contextmap.New())})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	m.refreshAll()
+	if m.capability.current != "workflow" {
+		t.Fatalf("precondition: current = %q", m.capability.current)
+	}
+	// workflow exposes 6 labels; contextmap's context-current must NOT appear.
+	if len(m.boards.rows) != 6 {
+		t.Fatalf("ring len = %d, want 6; rows = %v", len(m.boards.rows), m.boards.rowNames())
+	}
+	for _, r := range m.boards.rows {
+		if r.FullName == "ATM:context-current" {
+			t.Fatalf("contextmap board leaked into workflow ring")
+		}
+	}
+	m.capability.switchTo("contextmap")
+	if len(m.boards.rows) != 1 || m.boards.rows[0].FullName != "ATM:context-current" {
+		t.Fatalf("contextmap ring = %v, want [ATM:context-current]", m.boards.rowNames())
+	}
+}
+
+// TestRingHasNoUmbrellaRow pins that the synthetic umbrella row is gone from
+// the capability-scoped ring. Unmanaged labels live in unmanaged mode (Task
+// 5), not as a sentinel row in a managed capability's ring.
+func TestRingHasNoUmbrellaRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatal(err)
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
-	if err := m.store.LabelAdd("ATM:urgent", "", "", m.actor); err != nil { // makes umbrella appear
-		t.Fatal(err)
+	seedTask(t, m, "ATM", "stray", "ATM:needs-triage") // creates an unmanaged label
+	m.refreshAll()
+	for _, r := range m.boards.rows {
+		if r.FullName == "ATM:unmanaged" {
+			t.Fatalf("umbrella row must not be in the capability-scoped ring")
+		}
 	}
-	// A task must exist so the all-tasks board would show non-empty if the
-	// umbrella wrongly applied an unfiltered view.
-	seedTask(t, m, "ATM", "should not appear under umbrella", "ATM:status:open")
-	m.boards.refresh()
-	m.boards.selectDefault()
-	if m.boards.selected != "ATM:all-tasks" {
-		t.Fatalf("selected = %q, want ATM:all-tasks", m.boards.selected)
+}
+
+// --- Task 5: unmanaged mode (full-width label drill-down, unset-cursor) ---
+
+// setupUnmanagedMode seeds a project whose ring is empty in unmanaged mode:
+// the only label-bearing tasks carry unmanaged labels (needs-triage, type:bug),
+// so the umbrella surface is the whole of pane [2]. switchTo(unmanagedCapability)
+// then drives enterUnmanagedBase via refresh()'s default branch.
+func setupUnmanagedMode(t *testing.T, m *Model) {
+	t.Helper()
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
 	}
-	// Cycle to the umbrella (last row).
-	for m.boards.selected != "ATM:unmanaged" {
-		m.boards.cycleBoard(1)
+	seedTask(t, m, "ATM", "stray one", "ATM:needs-triage")
+	seedTask(t, m, "ATM", "typed", "ATM:type:bug")
+	m.refreshAll()
+	m.capability.switchTo(unmanagedCapability)
+}
+
+func TestUnmanagedModeStartsIdleWithUnsetCursor(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	if m.boards.cursor != -1 {
+		t.Fatalf("cursor = %d, want -1 (unset)", m.boards.cursor)
 	}
 	if m.tasks.focus.mode != focusUmbrellaIdle {
-		t.Errorf("umbrella selection focus = %v, want focusUmbrellaIdle (idle empty page; drill-in required)", m.tasks.focus)
+		t.Fatalf("focus = %v, want focusUmbrellaIdle", m.tasks.focus.mode)
 	}
 	if len(m.tasks.rows) != 0 {
-		t.Errorf("umbrella selection rendered %d task rows, want 0 (idle empty page)", len(m.tasks.rows))
+		t.Fatalf("tasks rows = %d, want 0 before any label selection", len(m.tasks.rows))
 	}
-	// Drill-in repopulates the umbrella sub-table; the tasks pane stays idle
-	// (the umbrella sub-table is a boards-pane surface, not a tasks filter).
-	m.boards.drillIn()
+	if len(m.boards.rows) != 0 {
+		t.Fatalf("ring rows = %d, want 0 in unmanaged mode", len(m.boards.rows))
+	}
+}
+
+func TestUnmanagedFirstCursorMoveSelectsAndFilters(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	m.boards.chartCursorMove(1) // first Shift-↓: -1 -> 0 and applies the filter
+	if m.boards.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", m.boards.cursor)
+	}
+	if m.tasks.focus.mode == focusUmbrellaIdle {
+		t.Fatalf("focus still idle after first cursor move")
+	}
+	if len(m.tasks.rows) == 0 && len(m.tasks.groups) == 0 {
+		t.Fatalf("no tasks listed after selecting the first unmanaged label")
+	}
+}
+
+func TestUnmanagedEscDoesNotClimbOut(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	m.boards.drillOut() // Shift-← / Esc at the base level: nowhere to go
 	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("drillIn: level = %v, want lLevelUmbrella", m.boards.level)
+		t.Fatalf("level = %v after drillOut, want lLevelUmbrella (no ring above)", m.boards.level)
 	}
-	if len(m.tasks.rows) != 0 {
-		t.Errorf("after drill-in, tasks rows = %d, want 0 (umbrella sub-table is boards-pane only)", len(m.tasks.rows))
+}
+
+// TestPinJumpSwitchesCapability: pins are GLOBAL across capabilities — a pin
+// survives a capability switch (loadPins prunes against ALL enabled exposed,
+// not the current ring), and jumpPin switches capability first when the pin's
+// owner differs from current, then selects the board.
+func TestPinJumpSwitchesCapability(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	m.refreshAll()
+	m.boards.selectDefault()
+	// Pin workflow's all-tasks, then switch to contextmap.
+	m.boards.togglePin()
+	if len(m.boards.pins) != 1 {
+		t.Fatalf("pins = %v, want the selected board pinned", m.boards.pins)
+	}
+	m.capability.switchTo("contextmap")
+	if len(m.boards.pins) != 1 {
+		t.Fatalf("pin vanished after capability switch: %v (loadPins must prune against ALL enabled exposed, not the current ring)", m.boards.pins)
+	}
+	if !m.boards.jumpPin(1) {
+		t.Fatalf("jumpPin(1) returned false")
+	}
+	if m.capability.current != "workflow" {
+		t.Fatalf("current = %q after pin jump, want workflow", m.capability.current)
+	}
+	if m.boards.selected != "ATM:all-tasks" {
+		t.Fatalf("selected = %q, want ATM:all-tasks", m.boards.selected)
 	}
 }
