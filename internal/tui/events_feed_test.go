@@ -121,3 +121,63 @@ func TestEventDigestMessage(t *testing.T) {
 		t.Errorf("label.upserted digest = %q, want label status:open", got)
 	}
 }
+
+func TestEventGraphRowsLinearChain(t *testing.T) {
+	entries := []core.LogEntry{ // newest first
+		{ID: "sha256:cc", Parents: []string{"sha256:bb"}},
+		{ID: "sha256:bb", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:aa"},
+	}
+	rows := eventGraphRows(entries)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %d, want 3", len(rows))
+	}
+	for i, r := range rows {
+		if string(r) != "●" {
+			t.Fatalf("row %d = %q, want single ●", i, string(r))
+		}
+	}
+}
+
+func TestEventGraphRowsForkAndMerge(t *testing.T) {
+	// DAG: root a; concurrent b and c (both parent a); d merges b+c.
+	// Newest-first display order: d, c, b, a.
+	entries := []core.LogEntry{
+		{ID: "sha256:dd", Parents: []string{"sha256:bb", "sha256:cc"}},
+		{ID: "sha256:cc", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:bb", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:aa"},
+	}
+	rows := eventGraphRows(entries)
+	want := []string{"●", "│●", "●│", "●│"}
+	for i, w := range want {
+		if string(rows[i]) != w {
+			t.Fatalf("row %d = %q, want %q\nall rows: %q", i, string(rows[i]), w, rows)
+		}
+	}
+}
+
+func TestEventGraphRowsLaneCap(t *testing.T) {
+	// Four concurrent tips (no lane awaits them): lanes must cap at 3.
+	entries := []core.LogEntry{
+		{ID: "sha256:t1", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:t2", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:t3", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:t4", Parents: []string{"sha256:aa"}},
+		{ID: "sha256:aa"},
+	}
+	for i, r := range eventGraphRows(entries) {
+		if len(r) > maxGraphLanes {
+			t.Fatalf("row %d has %d lanes, cap is %d", i, len(r), maxGraphLanes)
+		}
+	}
+}
+
+func TestEventGraphRowsV1EntriesSingleLane(t *testing.T) {
+	entries := []core.LogEntry{{Action: "task.created"}, {Action: "project.created"}}
+	for i, r := range eventGraphRows(entries) {
+		if string(r) != "●" {
+			t.Fatalf("v1 row %d = %q, want ●", i, string(r))
+		}
+	}
+}

@@ -178,3 +178,79 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	}
 	return e.Action
 }
+
+// maxGraphLanes caps the commit-graph gutter width. Local histories are
+// linear (one lane); lanes >1 appear only after a sync merges concurrent
+// replicas, and 3 parallel branches is already an extraordinary display.
+const maxGraphLanes = 3
+
+// eventGraphRows assigns commit-graph lanes to entries rendered NEWEST-FIRST
+// (entries[0] is the newest event). Walking downward, each lane "awaits" an
+// event id: the row's event takes the first lane awaiting its id (or opens a
+// new lane — a branch tip), other lanes awaiting the same id converge into
+// it, and the event's lane then awaits its first parent while extra parents
+// open new lanes (a fork, i.e. a merge event read top-down). Overflow beyond
+// maxGraphLanes reuses the last lane; extra parents past the cap are simply
+// not tracked — the chain re-anchors when an awaited id appears. Entries
+// without ids (v1 logs) render a single static lane.
+func eventGraphRows(entries []core.LogEntry) [][]rune {
+	rows := make([][]rune, len(entries))
+	var lanes []string
+	for i, e := range entries {
+		if e.ID == "" {
+			rows[i] = []rune{'●'}
+			continue
+		}
+		lane := -1
+		for j, want := range lanes {
+			if want == e.ID {
+				lane = j
+				break
+			}
+		}
+		if lane == -1 {
+			if len(lanes) < maxGraphLanes {
+				lanes = append(lanes, e.ID)
+				lane = len(lanes) - 1
+			} else {
+				lane = len(lanes) - 1
+				lanes[lane] = e.ID
+			}
+		}
+		row := make([]rune, len(lanes))
+		for j := range lanes {
+			if j == lane {
+				row[j] = '●'
+			} else {
+				row[j] = '│'
+			}
+		}
+		rows[i] = row
+		// Converge: every other lane awaiting this id merges into `lane`.
+		next := lanes[:0:0]
+		for j, want := range lanes {
+			if j != lane && want == e.ID {
+				continue
+			}
+			if j == lane {
+				lane = len(next)
+			}
+			next = append(next, want)
+		}
+		lanes = next
+		// Advance: await the first parent; extra parents open lanes (capped).
+		// A parentless event is the root — its lane closes.
+		if len(e.Parents) == 0 {
+			lanes = append(lanes[:lane], lanes[lane+1:]...)
+			continue
+		}
+		lanes[lane] = e.Parents[0]
+		for _, parent := range e.Parents[1:] {
+			if len(lanes) >= maxGraphLanes {
+				break
+			}
+			lanes = append(lanes, parent)
+		}
+	}
+	return rows
+}
