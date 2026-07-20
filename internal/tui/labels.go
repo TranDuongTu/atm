@@ -123,11 +123,9 @@ type boardRow struct {
 	Description      string
 	Expr             string // empty for a namespace
 	Count            int
-	Expandable       bool   // true for namespaces (they have members)
-	NeedsDescription bool   // renders the warning mark — conventions rule 6
-	Broken           bool   // expression invalid or cyclic -> render as broken
-	Owner            string // owning capability name; "" for the umbrella
-	Umbrella         bool   // the synthetic unmanaged umbrella row
+	Expandable       bool // true for namespaces (they have members)
+	NeedsDescription bool // renders the warning mark — conventions rule 6
+	Broken           bool // expression invalid or cyclic -> render as broken
 }
 
 type boardsModel struct {
@@ -249,6 +247,14 @@ func (b *boardsModel) refresh() {
 	if b.m.projectScope == "" {
 		return
 	}
+	// If capability state hasn't been initialized yet (e.g. a test calls
+	// b.refresh() directly after setting projectScope), resolve it now so
+	// the ring is scoped to a real capability. refreshAll normally does
+	// this before boards.refresh; this is a defensive self-sufficiency
+	// measure, not a substitute for the normal ordering.
+	if b.m.capability.current == "" {
+		b.m.capability.refresh()
+	}
 	scope := b.m.projectScope
 	cfg, err := b.m.store.GetBoardsConfig(scope)
 	if err != nil || cfg == nil {
@@ -265,6 +271,7 @@ func (b *boardsModel) refresh() {
 			usage:       usage[lab.Name],
 		})
 	}
+	b.unmanaged = nil
 	b.rows = b.buildBoardRows(ls)
 	if restoreChart && b.restoreChartCursor(selectedChart) {
 		return
@@ -301,14 +308,9 @@ func (b *boardsModel) selectDefault() {
 		}
 	}
 	if len(b.rows) > 0 {
-		for _, r := range b.rows {
-			if r.Umbrella {
-				continue
-			}
-			b.selected = r.FullName
-			b.applyFocus()
-			return
-		}
+		b.selected = b.rows[0].FullName
+		b.applyFocus()
+		return
 	}
 	b.selected = ""
 	b.applyFocus()
@@ -353,9 +355,6 @@ const maxPins = core.MaxBoardPins
 func (b *boardsModel) togglePin() {
 	if b.selected == "" || b.m.projectScope == "" {
 		return
-	}
-	if idx := b.ringIndex(); idx >= 0 && b.rows[idx].Umbrella {
-		return // the sentinel is not a pinnable board
 	}
 	pinned := false
 	for _, full := range b.pins {
@@ -435,9 +434,7 @@ func (b *boardsModel) focusCenter() {
 	if idx < 0 {
 		return
 	}
-	if r := b.rows[idx]; r.Umbrella {
-		b.enterUmbrella()
-	} else if r.Expandable {
+	if r := b.rows[idx]; r.Expandable {
 		b.enterChart(r.Name)
 	}
 }
@@ -511,10 +508,6 @@ func (b *boardsModel) drillIn() {
 	r := b.rows[idx]
 	switch b.level {
 	case lLevelTable:
-		if r.Umbrella {
-			b.enterUmbrella()
-			return
-		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 		} else {
@@ -628,15 +621,6 @@ func (b *boardsModel) applyFocus() {
 		return
 	}
 	r := b.rows[idx]
-	if r.Umbrella {
-		// The umbrella is a sentinel, not a real label: it has no
-		// expression to filter tasks by. Show an idle empty page and
-		// require drill-in to browse unmanaged labels. Showing the
-		// unfiltered all-tasks list here would conflate the umbrella
-		// with the all-tasks board.
-		b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
-		return
-	}
 	if r.Expandable {
 		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
 	} else {
@@ -644,16 +628,17 @@ func (b *boardsModel) applyFocus() {
 	}
 }
 
-// buildBoardRows constructs the flat L0 ring: every enabled capability's
-// Exposed labels in registration order (owner-tagged), plus the synthetic
-// "unmanaged" umbrella when any label no capability owns exists. The stored
-// label's description wins over the Exposed literal (a human may have curated
-// it). Hidden rows are dropped; the boards-config order override is applied
-// as a partial reorder (unmatched rows keep registration order, umbrella
-// last). The old emergent derivation lives on only inside the umbrella's
-// drill-in (buildUmbrellaRows).
+// buildBoardRows constructs the ring for the CURRENT capability: its Exposed
+// labels in the capability's preferred order, hidden rows dropped, then the
+// boards-config order override applied as a partial reorder. Other enabled
+// capabilities' boards are not in this ring — the [C] switcher changes scope.
+// In unmanaged mode the ring is empty (the drill-down is the surface).
 func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	scope := b.m.projectScope
+	current := b.m.capability.current
+	if current == "" || current == unmanagedCapability {
+		return nil
+	}
 	stored := map[string]core.Label{}
 	for _, l := range ls {
 		stored[l.Name] = l
@@ -662,6 +647,9 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 	var out []boardRow
 	seen := map[string]bool{}
 	for _, e := range reg.Exposed(scope) {
+		if e.Owner != current {
+			continue
+		}
 		l := e.Label
 		if seen[l.Name] {
 			continue
@@ -680,7 +668,6 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 				Count:            b.namespaceTaskCount(ns),
 				Expandable:       true,
 				NeedsDescription: l.Description == "",
-				Owner:            e.Owner,
 			})
 			continue
 		}
@@ -692,28 +679,9 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 			Expr:        l.Expr,
 			Count:       count,
 			Broken:      broken,
-			Owner:       e.Owner,
 		})
 	}
-	// Umbrella: present only when unmanaged labels exist AND no real label
-	// shadows the sentinel (a hand-made ATM:unmanaged tag or ATM:unmanaged:*
-	// namespace wins; it then renders as a normal unmanaged label instead).
-	unmanaged, _ := reg.Unmanaged(b.m.store, scope)
-	b.unmanaged = unmanaged
-	sentinel := capability.UmbrellaFullName(scope)
-	_, tagShadow := stored[sentinel]
-	_, nsShadow := stored[sentinel+":*"]
-	if len(unmanaged) > 0 && !tagShadow && !nsShadow {
-		out = append(out, boardRow{
-			Name:        "unmanaged",
-			FullName:    sentinel,
-			Description: umbrellaDescription,
-			Count:       b.unmanagedTaskCount(unmanaged),
-			Expandable:  true,
-			Umbrella:    true,
-		})
-	}
-	// Hidden filter, then partial order override.
+	// Hidden filter, then partial order override (unchanged).
 	hidden := map[string]bool{}
 	for _, n := range b.boardsCfg.Hidden {
 		hidden[n] = true
@@ -1263,10 +1231,6 @@ func (b *boardsModel) handleTableKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		r := b.rows[b.cursor]
-		if r.Umbrella {
-			b.enterUmbrella()
-			return nil
-		}
 		if r.Expandable {
 			b.enterChart(r.Name)
 			return nil
@@ -1425,7 +1389,7 @@ func (b *boardsModel) renderTable() string {
 		return padToHeight("no boards", b.contentHeight)
 	}
 	var sb strings.Builder
-	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "OWNER", "COUNT")
+	header := boardTableLine(b.width, "BOARD", "DESCRIPTION", "COUNT")
 	sb.WriteString(dashboardLine(b.width, b.m.styles.HeaderLabel.Render(header)))
 	sb.WriteString("\n")
 
@@ -1442,11 +1406,7 @@ func (b *boardsModel) renderTable() string {
 		if r.Broken {
 			count = "-"
 		}
-		owner := r.Owner
-		if owner == "" {
-			owner = "—"
-		}
-		line := boardTableLine(b.width, name, r.Description, b.m.styles.Muted.Render(owner), count)
+		line := boardTableLine(b.width, name, r.Description, count)
 		if i == b.cursor {
 			line = " " + b.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -1461,14 +1421,13 @@ func (b *boardsModel) renderTable() string {
 }
 
 // boardTableLine renders one row of the flat Boards list: fixed-width name,
-// flexible description, a narrow muted owner tag, and an 8-wide count.
-// Padding is by display width (lipgloss.Width), not byte length.
-func boardTableLine(width int, name, description, owner, count string) string {
+// flexible description, and an 8-wide count. Padding is by display width
+// (lipgloss.Width), not byte length.
+func boardTableLine(width int, name, description, count string) string {
 	nameW := 16
-	ownerW := 10
 	countW := 8
-	// leading space (1) + 3 inter-column separators (3) = 4
-	descW := width - nameW - ownerW - countW - 4
+	// leading space (1) + 2 inter-column separators (2) = 3
+	descW := width - nameW - countW - 3
 	if descW < 8 {
 		descW = 8
 	}
@@ -1481,12 +1440,7 @@ func boardTableLine(width int, name, description, owner, count string) string {
 	if descPad < 0 {
 		descPad = 0
 	}
-	ownerCell := truncateRunes(owner, ownerW)
-	ownerPad := ownerW - lipgloss.Width(ownerCell)
-	if ownerPad < 0 {
-		ownerPad = 0
-	}
-	return fitLine(fmt.Sprintf(" %s%s %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), ownerCell, spaces(ownerPad), count), width)
+	return fitLine(fmt.Sprintf(" %s%s %s%s %8s", name, spaces(namePad), desc, spaces(descPad), count), width)
 }
 
 // namespaceDescription returns the description of ns's namespace descriptor

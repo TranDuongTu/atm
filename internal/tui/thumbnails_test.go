@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
 	"atm/internal/capability/workflow"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -244,6 +245,12 @@ func TestRenderPinnedTabsFixedHeightWhenNoPins(t *testing.T) {
 // seedUmbrellaFixture builds a project whose ring carries the umbrella row
 // over two unmanaged namespaces (comment:*, type:*), mirroring the shape of a
 // real ATM project. Returns the model and the umbrella's ring row.
+//
+// NOTE: Task 4 removed the umbrella row from the capability-scoped ring; this
+// helper is retained for Task 5, which repurposes the umbrella surface as
+// unmanaged mode. The ring-driven tests that consumed it (the L0 preview and
+// drill-in preview of the umbrella row) are deleted; Task 5 re-anchors them
+// around unmanaged mode.
 func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
 	t.Helper()
 	m := newTestModel(t)
@@ -260,48 +267,34 @@ func seedUmbrellaFixture(t *testing.T) (*Model, boardRow) {
 	seedTask(t, m, "ATM", "t1", "ATM:status:open", "ATM:comment:decision")
 	seedTask(t, m, "ATM", "t2", "ATM:status:open", "ATM:type:bug")
 	m.boards.refresh()
-	for _, r := range m.boards.rows {
-		if r.Umbrella {
-			m.boards.selected = r.FullName
-			m.boards.pinFocus = -1
-			m.boards.applyFocus()
-			return m, r
-		}
-	}
-	t.Fatalf("no umbrella row in ring: %v", m.boards.rowNames())
-	return nil, boardRow{}
+	// The ring no longer carries the umbrella sentinel (Task 4); return a
+	// synthetic boardRow standing in for it so callers that still reference
+	// the umbrella FullName compile. Task 5 repopulates b.unmanaged and
+	// drives the surface via unmanaged mode.
+	sentinel := capability.UmbrellaFullName("ATM")
+	m.boards.selected = sentinel
+	m.boards.pinFocus = -1
+	m.boards.applyFocus()
+	return m, boardRow{Name: "unmanaged", FullName: sentinel, Expandable: true}
 }
 
-// TestSelectedCellRendersUmbrellaSubTableAtL0 guards the strip's SELECTED cell
-// against treating the umbrella sentinel as a namespace board. The umbrella row
-// is Expandable, so renderSelectedCell's L0 branch used to force
-// level=lLevelChart with ns="unmanaged" — a namespace with no members — which
-// rendered a single "(unset)" bar counting EVERY task in the project. The
-// umbrella's L0 preview must be its unmanaged sub-table instead.
-func TestSelectedCellRendersUmbrellaSubTableAtL0(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	cell := m.boards.renderSelectedCell(60, 14, umb)
-	if strings.Contains(cell, "(unset)") {
-		t.Errorf("umbrella L0 preview must not render a namespace chart's (unset) bar:\n%s", cell)
-	}
-	for _, want := range []string{"comment", "type"} {
-		if !strings.Contains(cell, want) {
-			t.Errorf("umbrella L0 preview missing unmanaged namespace %q:\n%s", want, cell)
-		}
-	}
-}
-
-// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the same cell at
-// lLevelUmbrella. renderSelectedCell's switch had no case for the level Task 5
-// introduced, so a drilled-in umbrella fell through to the L0 default and
-// rendered the same bogus "(unset)" chart the user was trying to drill past.
+// TestSelectedCellRendersUmbrellaSubTableAfterDrillIn guards the umbrella
+// sub-table's render at lLevelUmbrella. It enters the level directly (not via
+// the ring, which no longer carries the umbrella row after Task 4) by
+// invoking enterUmbrella after populating b.unmanaged.
 func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	m.boards.drillIn()
+	m, _ := seedUmbrellaFixture(t)
+	// Populate b.unmanaged as the umbrella surface expects, then enter it
+	// directly (Task 5 will wire this via unmanaged mode; here we exercise
+	// the render path that survives).
+	reg := m.regFor("ATM")
+	un, _ := reg.Unmanaged(m.store, "ATM")
+	m.boards.unmanaged = un
+	m.boards.enterUmbrella()
 	if m.boards.level != lLevelUmbrella {
-		t.Fatalf("drillIn on umbrella: level = %d, want lLevelUmbrella", m.boards.level)
+		t.Fatalf("enterUmbrella: level = %d, want lLevelUmbrella", m.boards.level)
 	}
-	cell := m.boards.renderSelectedCell(60, 14, umb)
+	cell := m.boards.renderSelectedCell(60, 14, boardRow{Name: "unmanaged", FullName: "ATM:unmanaged", Expandable: true})
 	if strings.Contains(cell, "(unset)") {
 		t.Errorf("drilled-in umbrella must not render a namespace chart's (unset) bar:\n%s", cell)
 	}
@@ -312,31 +305,16 @@ func TestSelectedCellRendersUmbrellaSubTableAfterDrillIn(t *testing.T) {
 	}
 }
 
-// TestSelectedCellUmbrellaRenderDoesNotLeakDrillState guards that previewing
-// the umbrella at L0 restores level/ns/cursor and the cached umbrellaRows —
-// renderSelectedCell is a pure render and must not mutate drill state.
-func TestSelectedCellUmbrellaRenderDoesNotLeakDrillState(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	before := m.boards.umbrellaRows
-	_ = m.boards.renderSelectedCell(60, 14, umb)
-	if m.boards.level != lLevelTable {
-		t.Errorf("level leaked after L0 umbrella preview: got %d, want lLevelTable", m.boards.level)
-	}
-	if m.boards.ns != "" {
-		t.Errorf("ns leaked after L0 umbrella preview: %q", m.boards.ns)
-	}
-	if len(m.boards.umbrellaRows) != len(before) {
-		t.Errorf("umbrellaRows leaked after L0 umbrella preview: %d rows, want %d", len(m.boards.umbrellaRows), len(before))
-	}
-}
-
 // TestUmbrellaShiftUpDownMovesCursor guards Shift-↑/↓ inside the umbrella
 // sub-table. The key routes to chartCursorMove, which bailed on
 // `b.level != lLevelChart` — so the umbrella level, added later, silently
 // swallowed every Shift-↑/↓ and the cursor was stuck on the first namespace.
 func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
 	m, _ := seedUmbrellaFixture(t)
-	m.boards.drillIn()
+	reg := m.regFor("ATM")
+	un, _ := reg.Unmanaged(m.store, "ATM")
+	m.boards.unmanaged = un
+	m.boards.enterUmbrella()
 	if got := len(m.boards.umbrellaRows); got < 2 {
 		t.Fatalf("fixture needs >= 2 umbrella rows, got %d", got)
 	}
@@ -371,9 +349,12 @@ func TestUmbrellaShiftUpDownMovesCursor(t *testing.T) {
 // the column carried no information and made the umbrella look like a
 // different kind of surface than the boards beside it.
 func TestUmbrellaRendersAsChartNotOwnerTable(t *testing.T) {
-	m, umb := seedUmbrellaFixture(t)
-	m.boards.drillIn()
-	cell := m.boards.renderSelectedCell(80, 14, umb)
+	m, _ := seedUmbrellaFixture(t)
+	reg := m.regFor("ATM")
+	un, _ := reg.Unmanaged(m.store, "ATM")
+	m.boards.unmanaged = un
+	m.boards.enterUmbrella()
+	cell := m.boards.renderSelectedCell(80, 14, boardRow{Name: "unmanaged", FullName: "ATM:unmanaged", Expandable: true})
 	if strings.Contains(cell, "OWNER") {
 		t.Errorf("umbrella sub-table must not render an OWNER column:\n%s", cell)
 	}
