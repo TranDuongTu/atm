@@ -38,10 +38,12 @@ the TUI. The goal is a lazygit-commits-style feed of recent events in pane
 `renderList` (internal/tui/projects.go) stacks a third section:
 project list, **recent events**, project summary. `projectPaneSplitHeights`
 becomes a 3-way split: list 30%, events 35%, summary the remainder. If the
-events slot would get fewer than 4 rows (caption + 3 lines), it collapses to
-zero and the previous 30/70 behavior is restored. The feed is scoped to the
-selected project (`projectScope`), like the summary; with no selection it
-shows the summary's muted "select a project" treatment.
+events slot would get fewer than 4 rows — 2 content lines under 2 lines of
+frame (top/bottom border in the boxed form, a caption line plus a padding
+line in the compact form; see Revision 2's R2-8) — it collapses to zero and
+the previous 30/70 behavior is restored. The feed is scoped to the selected
+project (`projectScope`), like the summary; with no selection it shows the
+summary's muted "select a project" treatment.
 
 ## Data & read-model change
 
@@ -81,12 +83,20 @@ One event = one line, newest at top, width budget ≈ 38–46 inner columns:
 | message | rest | Digest wording per action (table below), truncated with `...` (the shared `truncateRunes` helper appends ASCII `...`, not `…`). |
 | age | 3–4, dim, right-aligned | `2m` / `3h` / `2d`. |
 
-Degradation on narrow panes: below 60 inner columns drop the id column
-(revised from the ~36 figure above at spec-writing time — review of the
-rendering task measured that at a 120-column terminal the Projects pane's
-inner width is only ~46 columns, where the 7-column id plus its separator
-consumed 8 columns and left roughly 16 for the digest message; the id now
-yields to the message below 60 columns), then below 30 drop the age.
+Degradation on narrow panes, three rungs, each yielding its columns to the
+message: below 60 inner columns drop the id column (revised from the ~36
+figure above at spec-writing time — review of the rendering task measured
+that at a 120-column terminal the Projects pane's inner width is only ~46
+columns, where the 7-column id plus its separator consumed 8 columns and
+left roughly 16 for the digest message; the id now yields to the message
+below 60 columns); below 30 drop the age; below 26 drop the actor
+(`feedActorMinWidth`, a later review fix, R2-9) — the id and the age had
+already gone by the 60-70-column terminal a box renders at (~19-22 inner
+columns there), and the message column was still empty or near-empty; the
+actor yields last, after the age, because at these widths it is the only
+column left besides the subject worth trading for message room, and the
+subject stays in every rung — it names WHAT changed, which the message
+wording alone cannot always recover.
 
 Implementation delta (Task 3): `eventGraphRows` draws fork/merge as
 parallel `│` lanes converging/branching at the `●` row, not the diagonal
@@ -191,7 +201,10 @@ mode could survive a resize that hid the box it belonged to.
 
 `renderEventsFeed` renders through the existing `renderChartBox`, with the
 title `Recent Events  [Shift-↑↓]` — the key hint appended to the title, the
-same shape as the persona chart's `activity by persona  [P]expand`.
+same shape as the persona chart's `activity by persona  [P]expand`. This
+holds only at pane heights where the summary charts also box; below that
+threshold the feed renders a compact form instead, matched to the summary
+section's own degradation — see R2-8, a later review fix.
 
 Alignment with the summary charts is automatic and needs no new code: every
 box computes its width as `chartBoxWidth(p.width)` (96% of pane width) and
@@ -275,7 +288,64 @@ feed is an ambient scanning surface, not a navigation surface.
 - `shift+←/→` page; offset clamps at both ends
 - the offset resets on project switch
 - no key that worked in the project list before is swallowed now
+- (R2-8, later review fix) at a pane height where the persona chart renders
+  unboxed, the events feed is also unboxed; at a height where the persona
+  chart boxes, the feed boxes too — asserted against both sections' actual
+  rendered output in the same render
+- (R2-9, later review fix) the actor column's degradation is pinned at
+  `feedActorMinWidth`'s exact boundary on both sides, and a 60-column
+  terminal's digest message is asserted non-empty
 
 ## R2-7. Non-goals unchanged
 
 Still no filtering, no search, no overlay, no `atm store log` changes.
+
+## R2-8. Framing follows the summary charts (final review fix, I1)
+
+R2-1 shipped the feed as always-boxed. That reintroduced the pane's original
+problem, inverted: below the height where the persona chart itself stops
+boxing (`renderPersonaActivityChart`'s own "4 lines and up" rule), the feed
+still boxed unconditionally, so the pane again read as sections in two
+visual languages — at the classic 80x24 terminal, among others.
+
+The feed does not decide its own frame. `renderList`
+(`internal/tui/projects.go`) computes `eventsH` and `summaryH` together
+already, so it also computes `summaryChartsBoxed(summaryH)` once there and
+hands the result to `renderEventsFeed` as a `boxed bool`.
+`summaryChartsBoxed` replays only the arithmetic `renderSummary` and
+`renderPersonaActivityChart` already use to pick their own frame — subtract
+the "Project Summary" header and `project: … tasks: …` line (2 lines), then
+apply `chartBoxHeights` and the same "boxed once the persona chart's own
+height is 4 or more" rule — without touching either function. The feed and
+the persona chart therefore always agree on which visual language the pane
+speaks, even though the activity-stripe chart directly below the persona
+chart can still box on its own at a smaller height than the persona chart
+does; that's a pre-existing wrinkle inside the summary section, unchanged by
+this fix and out of scope for it, since the feed is compared against the
+persona chart specifically.
+
+Below the threshold, `renderEventsFeed` renders a compact form instead of a
+box: a caption line (`Recent Events  [Shift-↑↓]`, the same title constant
+and key hint the box uses) followed by left-aligned rows sized to the pane
+width directly — the way the feed rendered before it was ever boxed.
+Content, ordering, column degradation, and the offset/scroll window are
+identical between the two forms — `eventsFeedBody` is the single content
+path both share, taking an inner width and a row count as parameters; only
+the frame differs. Both forms budget the same 2 lines of frame
+(`eventsFeedVisibleRows`, unchanged) even though the compact form's own
+caption is a single line, so the offset clamp `scrollEventsFeed` enforces
+never disagrees with what either form actually draws — a mismatch there
+would reintroduce the stranded-events bug R2-3's clamp exists to prevent.
+
+## R2-9. A third narrow-width rung: the actor column also yields (final review fix, I2)
+
+See the "Line format" section's degradation paragraph, updated in place: a
+third rung, `feedActorMinWidth` (26), drops the actor column below its own
+threshold — tighter than `feedAgeMinWidth` (30), so the actor is always the
+last column to yield, after the id and the age, and never ahead of them.
+Without it, a 60-70-column terminal's box inner width (~19-22 columns) left
+the message column empty or barely non-empty even after the id and age had
+already gone: a box of feed rows showing only a graph glyph and a truncated
+actor name, conveying nothing. The subject column never drops in any rung —
+it is the one piece of "what changed" the message wording cannot always
+recover on its own.
