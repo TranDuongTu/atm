@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"atm/internal/core"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func feedEntry(action string, payload string) core.LogEntry {
@@ -267,11 +268,11 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 		Subject: core.Subject{Kind: "task", ID: "ATM-90171b"},
 	}
 	lanes := []rune{'●'}
-	p.width = 46 // full budget: id and age both present
+	p.width = 60 // full budget: id and age both present
 	line := p.eventFeedLine(e, lanes, 1, now, true)
 	mustContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
-	p.width = 34 // below 36: id column drops, age stays
+	p.width = 46 // below 60: id column drops, age stays
 	line = p.eventFeedLine(e, lanes, 1, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
@@ -279,6 +280,32 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	line = p.eventFeedLine(e, lanes, 1, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustNotContain(t, line, "1h")
+}
+
+// TestRecentEventsFeedAt120Columns pins the feed's behavior at the terminal
+// width users see most often: 120 columns, where the projects pane's inner
+// width is 46 (see the width comment on TestRecentEventsFeedRendersDigestLines).
+// At 46 the id column (drops below 60) is gone, so its budget goes to the
+// message instead; this asserts that trade actually lands — the short id is
+// absent, a short task title's digest message survives whole, and no
+// rendered feed line overruns the pane.
+func TestRecentEventsFeedAt120Columns(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache", "ATM:status:open")
+	body := m.projects.View()
+	mustContain(t, body, "Recent Events")
+	mustContain(t, body, `created "Fix cache"`)
+	if regexp.MustCompile(`\bsha256:|[0-9a-f]{7}\b`).MatchString(body) {
+		t.Fatalf("feed shows a short event id at 120 columns (want it dropped)\n--- body ---\n%s", body)
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if w := lipgloss.Width(line); w > m.projects.width {
+			t.Fatalf("rendered line exceeds pane inner width %d (got %d): %q", m.projects.width, w, line)
+		}
+	}
 }
 
 // TestEventFeedCapsAtMaxFeedEvents pins the amendment to Task 4: the feed
@@ -304,5 +331,18 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 	}
 	if feed[len(feed)-1].ID != entries[total-maxFeedEvents].ID {
 		t.Fatalf("feed tail = %q, want %q", feed[len(feed)-1].ID, entries[total-maxFeedEvents].ID)
+	}
+	// Under-cap: shorter than maxFeedEvents, every entry survives, still
+	// newest-first.
+	short := []core.LogEntry{{ID: "sha256:aa"}, {ID: "sha256:bb"}, {ID: "sha256:cc"}}
+	got := newestFeedEntries(short)
+	if len(got) != len(short) {
+		t.Fatalf("under-cap len(feed) = %d, want %d (no entries dropped)", len(got), len(short))
+	}
+	want := []string{"sha256:cc", "sha256:bb", "sha256:aa"}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Fatalf("under-cap feed[%d].ID = %q, want %q (newest-first)", i, got[i].ID, id)
+		}
 	}
 }

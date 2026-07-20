@@ -31,7 +31,9 @@ type projectsModel struct {
 	showHistory bool
 
 	// Recent Events feed subfocus state (list view, ATM-793b19). logsCursor
-	// indexes the newest-first feed; it is clamped at render time.
+	// indexes the newest-first feed; render clamps it into a local copy
+	// only (View must stay pure), so out-of-range values persist harmlessly
+	// until the next key handler that moves the cursor.
 	logsFocus  bool
 	logsCursor int
 }

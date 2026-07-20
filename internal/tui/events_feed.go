@@ -305,12 +305,19 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	feed := newestFeedEntries(entries)
-	if p.logsCursor > len(feed)-1 {
-		p.logsCursor = len(feed) - 1
-	}
+	// Clamp into a LOCAL cursor only: View has a pointer receiver, and
+	// writing p.logsCursor here would leak render-time clamping (sized to
+	// whichever project is on screen) back into model state, silently
+	// collapsing a cursor position set on a larger project's feed.
 	cursor := 0
 	if p.logsFocus {
 		cursor = p.logsCursor
+		if cursor > len(feed)-1 {
+			cursor = len(feed) - 1
+		}
+		if cursor < 0 {
+			cursor = 0
+		}
 	}
 	rows := height - 1 // caption
 	start, end := windowLines(len(feed), cursor, rows)
@@ -323,7 +330,7 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 	}
 	now := core.Now()
 	for i := start; i < end; i++ {
-		onCursor := p.logsFocus && i == p.logsCursor
+		onCursor := p.logsFocus && i == cursor
 		line := p.eventFeedLine(feed[i], graph[i], laneW, now, onCursor)
 		if onCursor {
 			line = p.m.styles.RowCursor.Render(line)
@@ -335,8 +342,11 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 
 // eventFeedLine assembles one digest line. Column budget (spec): gutter,
 // id(7, dim), subject(7), actor(8), message(flex), age(right, dim). The id
-// column drops below 36 inner columns, then the age below 30. `plain`
-// suppresses the inner dim styles so a cursor row can be re-styled whole.
+// column drops below 60 inner columns, then the age below 30: the id is a
+// lookup key needed only when acting on a specific event, so it yields the
+// message column — the one carrying what the user is actually scanning —
+// first. `plain` suppresses the inner dim styles so a cursor row can be
+// re-styled whole.
 func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
@@ -354,7 +364,7 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 	b.WriteString(string(gutter))
 	b.WriteString(" ")
 	used := laneW + 1
-	if p.width >= 36 {
+	if p.width >= 60 {
 		b.WriteString(dim(fmt.Sprintf("%-7s", shortEventID(e.ID))))
 		b.WriteString(" ")
 		used += 8
