@@ -1534,6 +1534,21 @@ Expected: compile FAIL — `logsOffset` does not exist.
   - In `events_feed.go`, replace `handleLogsKey` with a scroll handler taking
     a direction and a magnitude (1 line, or a page), clamping `logsOffset` to
     `[0, max(0, feedLen()-1)]`. Keep `feedLen()` as-is.
+
+> **Correction (post-launch review):** the clamp range above is now
+> known-stale and would mislead a reader implementing from this plan
+> directly. `[0, max(0, feedLen()-1)]` ignores the visible row count: with a
+> short feed in a tall box, one shift+down would push the newest event off
+> the top and render nothing but blank rows below it, and at maximum scroll
+> on any overflowing feed it strands one event above a column of blanks. The
+> design spec (R2-3) is authoritative and requires clamping against the feed
+> length *and* the visible row count. The shipped code clamps to
+> `[0, max(0, feedLen()-rows)]`, where `rows` is the same visible-row count
+> `renderEventsFeed` windows by (`eventsFeedVisibleRows`, in
+> `internal/tui/events_feed.go`) — the box height minus its two border rows,
+> floored at 1, the same arithmetic `eventsPageSize` already applied to its
+> page magnitude — so the render window, the page magnitude, and the scroll
+> clamp all fold through one function and cannot drift apart.
   - In `handleListKey` (`projects.go`), delete the `logsFocus` early-return
     and the `L` case; add `case "shift+up"`, `case "shift+down"`,
     `case "shift+left"`, `case "shift+right"` calling the scroll handler.

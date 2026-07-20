@@ -585,6 +585,177 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 	}
 }
 
+// feedBodyLines extracts the events box's rows visible rows from a rendered
+// pane view (ANSI-stripped, trimmed), locating the box by its title row the
+// same way TestEventsFeedBoxBodyIsLeftAndTopAligned and
+// TestRecentEventsFeedScrollRevealsNewContent do.
+func feedBodyLines(t *testing.T, view string, eventsH int) []string {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	top := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Recent Events") {
+			top = i
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatal("no events box")
+	}
+	rows := eventsFeedVisibleRows(eventsH)
+	body := make([]string, 0, rows)
+	for i := top + 1; i < top+1+rows && i < len(lines); i++ {
+		body = append(body, strings.TrimSpace(stripANSI(lines[i])))
+	}
+	return body
+}
+
+// TestScrollEventsFeedClampsToVisibleWindow pins the Important-1 review fix:
+// scrollEventsFeed's upper clamp is feedLen() minus the visible row count
+// (R2-3), not feedLen()-1. The stale clamp let a feed that didn't overflow
+// its window scroll anyway (pushing the newest event off the top and
+// rendering blank rows), and left one event stranded above a column of
+// blanks at maximum scroll on any overflowing feed. This exercises all three
+// regimes named in the review: under, exactly-one-over, and well-over the
+// window.
+func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+
+	// Fix the events box to a known, generous height so the visible row
+	// count (`rows`) is stable and comfortably larger than the feed
+	// selecting a project produces on its own (EnsureVocabulary seeds a
+	// handful of label events).
+	m.projects.contentHeight = 63
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	rows := eventsFeedVisibleRows(eventsH)
+
+	// (a) feed shorter than the window: shift+down is a no-op, offset stays 0.
+	n0 := m.projects.feedLen()
+	if n0 >= rows {
+		t.Fatalf("setup: feedLen %d not shorter than window %d — adjust contentHeight", n0, rows)
+	}
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("(a) feed shorter than window: shift+down should be a no-op, offset = %d", m.projects.logsOffset)
+	}
+	t.Logf("(a) feedLen=%d rows=%d offset after shift+down=%d (want 0)", n0, rows, m.projects.logsOffset)
+
+	// (b) feed with exactly one row of overflow: offset reaches exactly 1
+	// and no further.
+	for m.projects.feedLen() < rows+1 {
+		if err := m.store.SetProjectName("ATM", fmt.Sprintf("Acme %d", m.projects.feedLen()), m.actor); err != nil {
+			t.Fatalf("SetProjectName: %v", err)
+		}
+	}
+	if got := m.projects.feedLen(); got != rows+1 {
+		t.Fatalf("setup: feedLen = %d, want exactly %d (rows+1)", got, rows+1)
+	}
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 1 {
+		t.Fatalf("(b) one row overflow: offset after shift+down = %d, want 1", m.projects.logsOffset)
+	}
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 1 {
+		t.Fatalf("(b) one row overflow: offset must not exceed 1, got %d", m.projects.logsOffset)
+	}
+	t.Logf("(b) feedLen=%d rows=%d max offset=%d (want 1)", m.projects.feedLen(), rows, m.projects.logsOffset)
+
+	// (c) feed much longer than the window: max offset leaves the box
+	// completely full of events, no blank rows below.
+	for i := 0; i < 40; i++ {
+		if err := m.store.SetProjectName("ATM", fmt.Sprintf("Acme long %d", i), m.actor); err != nil {
+			t.Fatalf("SetProjectName: %v", err)
+		}
+	}
+	for i := 0; i < 200; i++ {
+		update(t, m, "shift+down")
+	}
+	feedLen := m.projects.feedLen()
+	wantMax := feedLen - rows
+	if m.projects.logsOffset != wantMax {
+		t.Fatalf("(c) max offset = %d, want %d (feedLen %d - rows %d)", m.projects.logsOffset, wantMax, feedLen, rows)
+	}
+	body := feedBodyLines(t, m.projects.View(), eventsH)
+	if len(body) != rows {
+		t.Fatalf("(c) expected %d visible rows, got %d", rows, len(body))
+	}
+	for i, line := range body {
+		if line == "" {
+			t.Fatalf("(c) blank row at max scroll, row %d of %d: body = %q", i, len(body), body)
+		}
+	}
+	t.Logf("(c) feedLen=%d rows=%d max offset=%d, all %d rows filled", feedLen, rows, m.projects.logsOffset, len(body))
+}
+
+// TestShiftRightPageOverlapsByOneLine pins the Important-2 review fix: the
+// page-scroll magnitude (eventsPageSize) is rows-1, not rows or rows+1. The
+// only prior coverage asserted that a previously-hidden line became visible,
+// which any of those three magnitudes would satisfy. This pins the overlap
+// precisely — the LAST visible event line before a shift+right page is the
+// FIRST visible event line after it — so a regression to the stale
+// `eventsH - 1` magnitude (or an off-by-one the other way) fails the test.
+func TestShiftRightPageOverlapsByOneLine(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+
+	before := feedBodyLines(t, m.projects.View(), eventsH)
+	update(t, m, "shift+right")
+	after := feedBodyLines(t, m.projects.View(), eventsH)
+
+	lastBefore := before[len(before)-1]
+	firstAfter := after[0]
+	if lastBefore == "" || firstAfter == "" {
+		t.Fatalf("expected non-blank overlap lines, got before-last %q / after-first %q", lastBefore, firstAfter)
+	}
+	if lastBefore != firstAfter {
+		t.Fatalf("page overlap broken: last visible line before shift+right = %q, first visible line after = %q", lastBefore, firstAfter)
+	}
+}
+
+// TestFeedOffsetResetsOnConfirmYesProjectRemoval covers the second
+// logsOffset reset site (confirmYes, projects.go), the one
+// TestFeedOffsetResetsOnProjectSwitch above does not exercise. Uses
+// SetProjectName rather than seeded tasks to build up feed length, since
+// requestRemoveProject refuses to open the confirm prompt while the project
+// still has tasks.
+func TestFeedOffsetResetsOnConfirmYesProjectRemoval(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 20; i++ {
+		if err := m.store.SetProjectName("ATM", fmt.Sprintf("Acme %d", i), m.actor); err != nil {
+			t.Fatalf("SetProjectName: %v", err)
+		}
+	}
+	update(t, m, "shift+down")
+	update(t, m, "shift+down")
+	if m.projects.logsOffset == 0 {
+		t.Fatal("setup: offset should be non-zero before removal")
+	}
+
+	update(t, m, "x") // requestRemoveProject: no tasks, so this opens the confirm prompt
+	if m.confirm != confirmRemoveProject {
+		t.Fatalf("expected confirmRemoveProject prompt, got confirm=%v", m.confirm)
+	}
+	update(t, m, "y") // confirmYes
+	if m.projectScope != "" {
+		t.Fatalf("setup: expected projectScope cleared after removal, got %q", m.projectScope)
+	}
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("confirmYes should reset logsOffset, got %d", m.projects.logsOffset)
+	}
+}
+
 func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 40)

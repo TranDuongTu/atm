@@ -355,10 +355,7 @@ func padFeedLine(s string, innerW int) string {
 // cursor row and no highlight (R2-3).
 func (p *projectsModel) renderEventsFeed(height int) string {
 	innerW := chartBoxInnerWidth(p.width)
-	rows := height - 2 // box top and bottom border
-	if rows < 1 {
-		rows = 1
-	}
+	rows := eventsFeedVisibleRows(height)
 	muted := func(s string) string {
 		return padFeedLine(p.m.styles.Muted.Render(s), innerW)
 	}
@@ -449,18 +446,32 @@ func (p *projectsModel) feedLen() int {
 	return boundedFeedLen(len(entries))
 }
 
+// eventsFeedVisibleRows converts an events box height into the number of
+// event lines visible inside it — height minus its two border rows, floored
+// at 1. This is the exact arithmetic renderEventsFeed applies to the height
+// it's handed; eventsPageSize's page magnitude and scrollEventsFeed's offset
+// clamp both fold through this same function (fed the same eventsH from
+// projectPaneSplitHeights) rather than recomputing the "-2" independently,
+// so the three cannot drift apart.
+func eventsFeedVisibleRows(height int) int {
+	rows := height - 2
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
 // eventsPageSize returns the events feed's page-scroll magnitude for
-// shift+left/right: the actual visible row count — the events box's height
-// minus its two border rows, i.e. what renderEventsFeed windows by — minus
-// one more, so a page jump leaves one row of context from the previous page
-// (the same overlap convention listPageSize uses for the project list).
-// This replaces handleLogsKey's stale `eventsH - 1`, which assumed a
-// one-row caption rather than the two-row box border the feed actually
-// renders inside; that mismatch made every page jump skip a row instead of
-// overlapping one.
+// shift+left/right: the actual visible row count (eventsFeedVisibleRows)
+// minus one more, so a page jump leaves one row of context from the
+// previous page (the same overlap convention listPageSize uses for the
+// project list). This replaces handleLogsKey's stale `eventsH - 1`, which
+// assumed a one-row caption rather than the two-row box border the feed
+// actually renders inside; that mismatch made every page jump skip a row
+// instead of overlapping one.
 func (p *projectsModel) eventsPageSize() int {
 	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
-	page := eventsH - 2 - 1
+	page := eventsFeedVisibleRows(eventsH) - 1
 	if page < 1 {
 		page = 1
 	}
@@ -472,13 +483,27 @@ func (p *projectsModel) eventsPageSize() int {
 // eventsPageSize() for a shift+left/right page). Modeless (R2-2): called
 // straight out of handleListKey's switch, the same way tasksModel.chartCursorMove
 // drives the board thumbnail — there is no subfocus to route through first.
-// The clamp to feedLen's last row is the only bound on logsOffset — nothing
-// else clamps this field; renderEventsFeed clamps only a local copy for
-// display, never writing back, to keep the render path pure — so an
-// unbounded delta must not be able to walk it past the feed's last row.
+//
+// The upper clamp is against feedLen() minus the visible row count (R2-3),
+// not feedLen() alone: a feed that does not overflow its window must not
+// scroll at all, and at maximum scroll the window must be entirely full of
+// events rather than parking one event above a column of blanks. The
+// visible row count comes from eventsFeedVisibleRows fed the same eventsH
+// eventsPageSize and renderEventsFeed use, so this bound cannot drift from
+// what is actually rendered. This clamp is the only bound on logsOffset —
+// nothing else clamps this field; renderEventsFeed clamps only a local copy
+// for display, never writing back, to keep the render path pure — so an
+// unbounded delta must not be able to walk it past the feed's last window.
 func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
+	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
+	if eventsH == 0 {
+		// The events slot is collapsed (too short to render at all, or
+		// folded away for an empty scope) — an explicit no-op rather than
+		// moving an offset for a box nothing draws.
+		return
+	}
 	p.logsOffset += dir * magnitude
-	last := p.feedLen() - 1
+	last := p.feedLen() - eventsFeedVisibleRows(eventsH)
 	if last < 0 {
 		last = 0
 	}
@@ -496,8 +521,9 @@ func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
 // drops below feedIDMinWidth of width, then the age below feedAgeMinWidth:
 // the id is a lookup key needed only when acting on a specific event, so it
 // yields the message column — the one carrying what the user is actually
-// scanning — first. `plain` suppresses the inner dim styles so a cursor row
-// can be re-styled whole.
+// scanning — first. `plain` suppresses the inner dim styles; the production
+// call site always passes false, and only tests pass true, to assert on
+// unstyled output without fighting ANSI codes.
 func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, width int, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
