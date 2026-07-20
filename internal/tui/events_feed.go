@@ -184,10 +184,10 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	return e.Action
 }
 
-// feedIDMinWidth and feedAgeMinWidth are the pane-width thresholds below
-// which eventFeedLine drops the id column, then the age column, to give the
-// space to the message column. See eventFeedLine's doc comment for why the
-// id yields first.
+// feedIDMinWidth and feedAgeMinWidth are the events-box inner-width
+// thresholds below which eventFeedLine drops the id column, then the age
+// column, to give the space to the message column. See eventFeedLine's doc
+// comment for why the id yields first.
 const (
 	feedIDMinWidth  = 60
 	feedAgeMinWidth = 30
@@ -321,29 +321,53 @@ func (p *projectsModel) readEventLog() (entries []core.LogEntry, ok bool) {
 	return entries, true
 }
 
-// renderEventsFeed renders the Recent Events section: caption, then a
-// windowed, newest-first page of digest lines for the selected project.
-// Unfocused it is a tail pinned to the newest event; subfocused (L) the
-// cursor row is highlighted and windowLines follows it.
+// eventsFeedTitle is the box title: the key hint appended the same shape as
+// the persona chart's "activity by persona  [P]expand". The L key still
+// works until a follow-up task replaces it with modeless Shift-arrow
+// navigation (ATM-793b19 revision 2, R2-2); the hint is updated ahead of
+// that to describe the target interaction.
+const eventsFeedTitle = "Recent Events  [Shift-↑↓]"
+
+// padFeedLine pads a rendered (possibly ANSI-styled) single line out to
+// exactly innerW display columns, fitting it first if it overruns. Used for
+// the feed's placeholder states, which renderChartBox otherwise would
+// center — see renderEventsFeed's boxed-body doc comment.
+func padFeedLine(s string, innerW int) string {
+	s = fitLine(s, innerW)
+	if pad := innerW - lipgloss.Width(s); pad > 0 {
+		s += spaces(pad)
+	}
+	return s
+}
+
+// renderEventsFeed renders the Recent Events section as a bordered box
+// (ATM-793b19 revision 2, R2-1), matching the summary charts below it.
+// renderChartBox does the drawing; it center-pads each body line and
+// top-pads a short body to float it to the vertical middle, both written
+// for charts. The feed wants left-and-top alignment instead, achieved
+// without touching renderChartBox by handing it a body for which both
+// behaviors are arithmetic no-ops: every line is exactly
+// chartBoxInnerWidth(p.width) wide (leftPad = (innerW-innerW)/2 = 0), and
+// the windowed-events case emits exactly height-2 lines, blank-padded at
+// the bottom (topPad = (innerH-innerH)/2 = 0). Unfocused it is a tail
+// pinned to the newest event; subfocused (L) the cursor row is highlighted
+// and windowLines follows it.
 func (p *projectsModel) renderEventsFeed(height int) string {
-	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Recent Events  [L]ogs"))}
+	innerW := chartBoxInnerWidth(p.width)
 	muted := func(s string) string {
-		return dashboardLine(p.width, p.m.styles.Muted.Render(s))
+		return padFeedLine(p.m.styles.Muted.Render(s), innerW)
 	}
 	if p.m.projectScope == "" {
 		// Unreachable via renderList today: it folds the events section away
 		// entirely when scope is empty. Kept as defensive cover for a future caller.
-		lines = append(lines, muted("select a project to see events"))
-		return padToHeight(strings.Join(lines, "\n"), height)
+		return p.renderChartBox(eventsFeedTitle, muted("select a project to see events"), height)
 	}
 	entries, ok := p.readEventLog()
 	if !ok {
-		lines = append(lines, muted("events could not be loaded"))
-		return padToHeight(strings.Join(lines, "\n"), height)
+		return p.renderChartBox(eventsFeedTitle, muted("events could not be loaded"), height)
 	}
 	if len(entries) == 0 {
-		lines = append(lines, muted("no events yet"))
-		return padToHeight(strings.Join(lines, "\n"), height)
+		return p.renderChartBox(eventsFeedTitle, muted("no events yet"), height)
 	}
 	feed := newestFeedEntries(entries)
 	// Clamp into a LOCAL cursor only: View has a pointer receiver, and
@@ -360,7 +384,7 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 			cursor = 0
 		}
 	}
-	rows := height - 1 // caption
+	rows := height - 2 // box top and bottom border
 	start, end := windowLines(len(feed), cursor, rows)
 	// eventGraphRows(feed[:end]) rather than eventGraphRows(feed): row i's
 	// lane state depends only on entries[0..i] (the loop walks forward,
@@ -376,15 +400,20 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 		}
 	}
 	now := core.Now()
+	body := make([]string, 0, rows)
 	for i := start; i < end; i++ {
 		onCursor := p.logsFocus && i == cursor
-		line := p.eventFeedLine(feed[i], graph[i], laneW, now, onCursor)
+		line := p.eventFeedLine(feed[i], graph[i], laneW, innerW, now, onCursor)
 		if onCursor {
 			line = p.m.styles.RowCursor.Render(line)
 		}
-		lines = append(lines, dashboardLine(p.width, line))
+		body = append(body, line)
 	}
-	return padToHeight(strings.Join(lines, "\n"), height)
+	blank := spaces(innerW)
+	for len(body) < rows {
+		body = append(body, blank)
+	}
+	return p.renderChartBox(eventsFeedTitle, strings.Join(body, "\n"), height)
 }
 
 // feedLen returns the current bounded Recent Events feed length for the
@@ -450,14 +479,15 @@ func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// eventFeedLine assembles one digest line. Column budget (spec): gutter,
-// id(7, dim), subject(7), actor(8), message(flex), age(right, dim). The id
-// column drops below feedIDMinWidth inner columns, then the age below
-// feedAgeMinWidth: the id is a lookup key needed only when acting on a
-// specific event, so it yields the message column — the one carrying what
-// the user is actually scanning — first. `plain` suppresses the inner dim
-// styles so a cursor row can be re-styled whole.
-func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, now time.Time, plain bool) string {
+// eventFeedLine assembles one digest line, sized to width (the events box's
+// inner width — see renderEventsFeed). Column budget (spec): gutter, id(7,
+// dim), subject(7), actor(8), message(flex), age(right, dim). The id column
+// drops below feedIDMinWidth of width, then the age below feedAgeMinWidth:
+// the id is a lookup key needed only when acting on a specific event, so it
+// yields the message column — the one carrying what the user is actually
+// scanning — first. `plain` suppresses the inner dim styles so a cursor row
+// can be re-styled whole.
+func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, width int, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
 			return s
@@ -474,7 +504,7 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 	b.WriteString(string(gutter))
 	b.WriteString(" ")
 	used := laneW + 1
-	if p.width >= feedIDMinWidth {
+	if width >= feedIDMinWidth {
 		b.WriteString(dim(fmt.Sprintf("%-7s", shortEventID(e.ID))))
 		b.WriteString(" ")
 		used += 8
@@ -483,10 +513,10 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 	b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
 	used += 17
 	age := ""
-	if p.width >= feedAgeMinWidth {
+	if width >= feedAgeMinWidth {
 		age = compactAge(e.At, now)
 	}
-	msgW := p.width - used - lipgloss.Width(age)
+	msgW := width - used - lipgloss.Width(age)
 	if age != "" {
 		msgW-- // the space before the age
 	}

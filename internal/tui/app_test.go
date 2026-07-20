@@ -137,6 +137,15 @@ func mustContain(t *testing.T, view, sub string) {
 	}
 }
 
+// ansiRe matches the SGR escape sequences lipgloss emits; stripANSI strips
+// them so assertions can match against plain rendered text regardless of
+// color profile.
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
 // mustNotContain fails the test if sub is in view.
 func mustNotContain(t *testing.T, view, sub string) {
 	t.Helper()
@@ -1141,10 +1150,9 @@ func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
 
 	lines := p.renderPersonaActivityChart(entries, 6)
 
-	ansiRe := regexp.MustCompile("\x1b\\[[0-9;]*m")
 	var barCols []int
 	for _, line := range lines {
-		s := ansiRe.ReplaceAllString(line, "")
+		s := stripANSI(line)
 		// Body rows are bounded by box borders '│'. Skip border/title/blank rows.
 		if !strings.HasPrefix(s, "  │") {
 			continue

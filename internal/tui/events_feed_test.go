@@ -280,20 +280,23 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 		Subject: core.Subject{Kind: "task", ID: "ATM-90171b"},
 	}
 	lanes := []rune{'●'}
-	p.width = 60 // full budget: id and age both present
-	line := p.eventFeedLine(e, lanes, 1, now, true)
+	// eventFeedLine sizes to the width passed in directly (the events box's
+	// inner width, computed by the caller) rather than p.width, so these
+	// cases exercise that parameter, not the model field.
+	width := 60 // full budget: id and age both present
+	line := p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
-	p.width = 46 // below 60: id column drops, age stays
-	line = p.eventFeedLine(e, lanes, 1, now, true)
+	width = 46 // below 60: id column drops, age stays
+	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
-	p.width = feedAgeMinWidth // exactly at the age threshold: age still renders
-	line = p.eventFeedLine(e, lanes, 1, now, true)
+	width = feedAgeMinWidth // exactly at the age threshold: age still renders
+	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
-	p.width = 28 // below 30: age drops too
-	line = p.eventFeedLine(e, lanes, 1, now, true)
+	width = 28 // below 30: age drops too
+	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustNotContain(t, line, "1h")
 }
@@ -560,5 +563,97 @@ func TestRecentEventsCursorClampsToFeedLength(t *testing.T) {
 	update(t, m, "k")
 	if got := m.projects.logsCursor; got != last-1 {
 		t.Fatalf("logsCursor after one k = %d, want %d", got, last-1)
+	}
+}
+
+func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	body := m.projects.View()
+	mustContain(t, body, "Recent Events  [Shift-↑↓]")
+	// The events box and the persona chart box must share left and right edges.
+	lines := strings.Split(body, "\n")
+	edgesOf := func(marker string) (int, int) {
+		t.Helper()
+		for i, line := range lines {
+			if strings.Contains(line, marker) {
+				plain := stripANSI(line)
+				// Rune (display-column) index, not byte index: "╭"/"╮" and
+				// the title's "↑"/"↓" are 3-byte UTF-8 runes, and the two
+				// titles being compared here differ in length, so a
+				// byte-offset comparison would fail even when the boxes are
+				// genuinely column-aligned.
+				runes := []rune(plain)
+				left, right := -1, -1
+				for j, r := range runes {
+					switch r {
+					case '╭':
+						if left == -1 {
+							left = j
+						}
+					case '╮':
+						right = j
+					}
+				}
+				return left, right
+			}
+			_ = i
+		}
+		t.Fatalf("no box top border containing %q\n--- body ---\n%s", marker, body)
+		return -1, -1
+	}
+	el, er := edgesOf("Recent Events")
+	pl, pr := edgesOf("activity by persona")
+	if el != pl || er != pr {
+		t.Fatalf("events box edges (%d,%d) != persona box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
+	}
+}
+
+func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	lines := strings.Split(m.projects.View(), "\n")
+	top := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Recent Events") {
+			top = i
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatal("no events box")
+	}
+	// Top-aligned: the row directly under the top border carries an event.
+	first := stripANSI(lines[top+1])
+	if !strings.Contains(first, "●") {
+		t.Fatalf("first body row has no event glyph (not top-aligned): %q", first)
+	}
+	// Left-aligned: the graph glyph sits immediately after the left border,
+	// not pushed rightward by centering. Rune (display-column) index, not
+	// byte index: "│" alone is 3 UTF-8 bytes, so a byte-offset diff between
+	// adjacent "│●" would always read as 3 and could never satisfy a small
+	// column-distance threshold even when genuinely adjacent.
+	runes := []rune(first)
+	bar, dot := -1, -1
+	for i, r := range runes {
+		switch r {
+		case '│':
+			if bar == -1 {
+				bar = i
+			}
+		case '●':
+			if dot == -1 {
+				dot = i
+			}
+		}
+	}
+	if dot-bar > 2 {
+		t.Fatalf("event glyph is %d cols from the left border (centered, not left-aligned): %q", dot-bar, first)
 	}
 }
