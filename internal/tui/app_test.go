@@ -380,14 +380,55 @@ func TestNextThemeNameWraps(t *testing.T) {
 	}
 }
 
-func TestThemeCycleKeyUpdatesThemeAndStatus(t *testing.T) {
+// The status bar no longer names the active theme (the [T]heme key hint
+// replaced that segment), so this pins the cycle on the model state alone.
+func TestThemeCycleKeyUpdatesTheme(t *testing.T) {
 	m := newTestModel(t)
-	mustContain(t, m.renderStatusLine(), "theme: graphite")
+	if m.themeName != themeGraphite {
+		t.Fatalf("initial themeName = %q want %q", m.themeName, themeGraphite)
+	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("after T: themeName = %q want %q", m.themeName, themeLight)
 	}
-	mustContain(t, m.renderStatusLine(), "theme: light")
+}
+
+func TestFormatSize(t *testing.T) {
+	cases := []struct {
+		b    int64
+		want string
+	}{
+		{0, "0 KB"},
+		{512, "0 KB"},
+		{1024, "1 KB"},
+		{862208, "842 KB"},
+		{1 << 20, "1.0 MB"},
+		{1258291, "1.2 MB"},
+	}
+	for _, c := range cases {
+		if got := formatSize(c.b); got != c.want {
+			t.Errorf("formatSize(%d) = %q, want %q", c.b, got, c.want)
+		}
+	}
+}
+
+func TestStatusLineShowsStoreStatsNotPathSelectionOrTheme(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedTask(t, m, "ATM", "one", "ATM:status:open")
+	m.refreshAll()
+	if m.storeStats.EventCount == 0 {
+		t.Fatal("refreshAll should populate storeStats from the seeded events")
+	}
+	line := m.renderStatusLine()
+	mustContain(t, line, "⛃ v2")
+	mustContain(t, line, "events")
+	mustContain(t, line, "KB")
+	for _, gone := range []string{"STORE:", "SELECTED:", "theme:"} {
+		if strings.Contains(line, gone) {
+			t.Errorf("status line still contains %q:\n%s", gone, line)
+		}
+	}
 }
 
 func TestThemeCyclePreservesNavigationState(t *testing.T) {
@@ -1212,8 +1253,9 @@ func TestProjectsListCursorVsSelectionIndependent(t *testing.T) {
 	if m.projectScope != "ATM" {
 		t.Errorf("cursor moved but projectScope changed to %q; should stay ATM", m.projectScope)
 	}
-	// Status line should still report SELECTED: ATM.
-	mustContain(t, m.View(), "SELECTED: ATM")
+	// The status line used to echo "SELECTED: ATM"; that segment was
+	// replaced by the store-stats cluster, and projectScope above is the
+	// direct assertion of the same fact.
 }
 
 // TestProjectDetailNoLabelsSection verifies the project detail no longer

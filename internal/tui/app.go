@@ -66,8 +66,11 @@ const (
 type Model struct {
 	store    core.Service
 	storeSet bool
-	actor    string
-	km       keymap
+	// storeStats is the status bar's store summary, refreshed by refreshAll
+	// so View never touches the filesystem.
+	storeStats core.StoreStats
+	actor      string
+	km         keymap
 	// reg is the capability registry the composition root injected; nil-safe.
 	reg *capability.Registry
 
@@ -331,6 +334,11 @@ func (m *Model) refreshAll() {
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
+	// A stats read failure is never worth blanking the status bar: keep the
+	// previous value and let the next refresh correct it.
+	if st, err := m.store.StoreStats(); err == nil {
+		m.storeStats = st
+	}
 	m.lastRefreshAt = core.Now()
 }
 
@@ -846,11 +854,8 @@ func (m *Model) renderHelpOverlay() string {
 
 func (m *Model) renderStatusLine() string {
 	var parts []string
-	parts = append(parts, m.styles.StatusLabel.Render("STORE: ")+m.styles.Status.Render(shortenPath(m.store.StorePath(), 40)))
-	if m.projectScope != "" {
-		parts = append(parts, m.styles.StatusLabel.Render("SELECTED: ")+m.styles.Status.Render(m.projectScope))
-	}
-	parts = append(parts, m.styles.StatusLabel.Render("theme: ")+m.styles.Status.Render(string(m.themeName)))
+	parts = append(parts, m.styles.StatusLabel.Render("⛃ "+m.storeStats.Version)+
+		m.styles.Status.Render(fmt.Sprintf(" · %d events · %s", m.storeStats.EventCount, formatSize(m.storeStats.SizeBytes))))
 	hint := m.statusHint()
 	parts = append(parts, m.styles.KeyMenu.Render(hint))
 	if m.toastMsg != "" {
@@ -919,15 +924,14 @@ func refreshAgeLabel(last, now time.Time) string {
 	}
 }
 
-// shortenPath trims a long path to fit maxW columns, keeping the tail.
-func shortenPath(p string, maxW int) string {
-	if len(p) <= maxW {
-		return p
+// formatSize renders a byte count for the status bar: whole KB under 1 MiB
+// (a flat "0.0 MB" for small stores reads as broken), one-decimal MB above.
+func formatSize(b int64) string {
+	const mb = 1 << 20
+	if b < mb {
+		return fmt.Sprintf("%d KB", b/1024)
 	}
-	if maxW <= 3 {
-		return "..." + p[len(p)-(maxW-3):]
-	}
-	return "..." + p[len(p)-(maxW-3):]
+	return fmt.Sprintf("%.1f MB", float64(b)/float64(mb))
 }
 
 // placeOverlay centers `overlay` over `base` (top-half vertical, centered
