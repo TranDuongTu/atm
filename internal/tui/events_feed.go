@@ -147,8 +147,8 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	case "comment.removed":
 		return "comment removed"
 	case "label.upserted":
-		if p.Name != "" {
-			return "label " + strings.TrimPrefix(p.Name, projectCode+":")
+		if e.Subject.Name != "" {
+			return "label " + strings.TrimPrefix(e.Subject.Name, projectCode+":")
 		}
 		return "label upserted"
 	case "label.removed":

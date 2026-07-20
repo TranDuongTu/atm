@@ -99,7 +99,6 @@ func TestEventDigestMessage(t *testing.T) {
 		{"comment.body-changed", "", "comment edited"},
 		{"comment.label-added", `{"label":"ATM:comment:decision"}`, "comment +comment:decision"},
 		{"comment.removed", "", "comment removed"},
-		{"label.upserted", `{"name":"ATM:status:open"}`, "label status:open"},
 		{"project.created", "", "project created"},
 		{"project.name-changed", `{"name":"Acme"}`, `renamed "Acme"`},
 		{"project.capability-enabled", `{"capability":"contextmap"}`, "+contextmap"},
@@ -115,5 +114,10 @@ func TestEventDigestMessage(t *testing.T) {
 	e := core.LogEntry{Action: "label.removed", Subject: core.Subject{Kind: "label", Name: "ATM:status:open"}}
 	if got := eventDigestMessage(e, "ATM"); got != "−label status:open" {
 		t.Errorf("label.removed digest = %q, want −label status:open", got)
+	}
+	// label.upserted also names its subject, not a payload field.
+	e = core.LogEntry{Action: "label.upserted", Subject: core.Subject{Kind: "label", Name: "ATM:status:open"}}
+	if got := eventDigestMessage(e, "ATM"); got != "label status:open" {
+		t.Errorf("label.upserted digest = %q, want label status:open", got)
 	}
 }
