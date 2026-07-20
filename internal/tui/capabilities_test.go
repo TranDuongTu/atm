@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"atm/internal/capability"
 	"atm/internal/capability/contextmap"
@@ -136,5 +139,112 @@ func TestCapabilityTaskCountOwnershipBased(t *testing.T) {
 	}
 	if got := m.capabilityTaskCount("contextmap"); got != 0 {
 		t.Errorf("contextmap count = %d, want 0", got)
+	}
+}
+
+func TestCKeyOpensSwitcherOnlyInTasksPane(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	m.focused = paneProjects
+	m.handleKey(keyMsg("C"))
+	if m.capability.open {
+		t.Fatalf("switcher opened from Projects pane; C must keep conventions there")
+	}
+	if m.helpOverlay != helpConventions {
+		t.Fatalf("helpOverlay = %v, want conventions", m.helpOverlay)
+	}
+	m.closeHelp()
+	m.focused = paneTasks
+	m.handleKey(keyMsg("C"))
+	if !m.capability.open {
+		t.Fatalf("switcher did not open from Tasks pane")
+	}
+	if m.helpOverlay != helpNone {
+		t.Fatalf("conventions overlay opened alongside the switcher")
+	}
+}
+
+func TestOverlayCursorOpensOnCurrent(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	m.capability.switchTo("contextmap")
+	m.capability.openOverlay()
+	e := m.capability.entries[m.capability.cursor]
+	if e.name != "contextmap" {
+		t.Fatalf("cursor on %q, want contextmap (the current)", e.name)
+	}
+}
+
+func TestOverlayEnterSwitches(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	m.capability.openOverlay()
+	// Move to the unmanaged entry (always last) and select it.
+	m.capability.cursor = len(m.capability.entries) - 1
+	m.capability.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.capability.open {
+		t.Fatalf("overlay still open after Enter")
+	}
+	if !m.capability.unmanagedCurrent() {
+		t.Fatalf("current = %q, want unmanaged", m.capability.current)
+	}
+}
+
+func TestOverlayEnterOnDisabledEnablesAndSwitches(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	if err := m.store.DisableProjectCapability("ATM", "contextmap", m.actor); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	m.refreshAll()
+	m.capability.openOverlay()
+	for i, e := range m.capability.entries {
+		if e.name == "contextmap" {
+			m.capability.cursor = i
+		}
+	}
+	m.capability.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.capability.current != "contextmap" {
+		t.Fatalf("current = %q, want contextmap", m.capability.current)
+	}
+	p, err := m.store.GetProject("ATM")
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	enabled := false
+	for _, n := range p.Capabilities {
+		if n == "contextmap" {
+			enabled = true
+		}
+	}
+	if !enabled {
+		t.Fatalf("contextmap not enabled after Enter; capabilities = %v", p.Capabilities)
+	}
+}
+
+func TestOverlaySpaceDisablesCurrentAndFallsBack(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	m.capability.openOverlay()
+	for i, e := range m.capability.entries {
+		if e.name == "workflow" {
+			m.capability.cursor = i
+		}
+	}
+	m.capability.handleKey(keyMsg(" "))
+	if !m.capability.open {
+		t.Fatalf("space must not close the overlay")
+	}
+	if m.capability.current == "workflow" {
+		t.Fatalf("current still workflow after disabling it; want fallback")
+	}
+}
+
+func TestStatusHintLeadsWithCapabilities(t *testing.T) {
+	m := newCapTestModel(t)
+	setupCapProject(t, m)
+	hint := m.tasks.statusHint()
+	if !strings.HasPrefix(hint, "[C]apabilities") {
+		t.Fatalf("hint = %q, want [C]apabilities first", hint)
 	}
 }

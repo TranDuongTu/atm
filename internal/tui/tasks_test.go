@@ -383,7 +383,7 @@ func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	want := "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
+	want := "[C]apabilities  [↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
 	if got := m.tasks.statusHint(); got != want {
 		t.Errorf("statusHint() = %q, want %q", got, want)
 	}

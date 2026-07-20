@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"atm/internal/capability"
 	"atm/internal/core"
@@ -151,4 +154,134 @@ func (c *capabilityModel) switchTo(name string) {
 	c.m.boards.refresh()
 	c.m.boards.selectDefault()
 	c.m.boards.loadPins()
+}
+
+// openOverlay opens the [C] switcher with the cursor on the current
+// capability's row (the last one the user selected), not the top.
+func (c *capabilityModel) openOverlay() {
+	c.refresh()
+	c.open = true
+	c.cursor = 0
+	for i, e := range c.entries {
+		if e.name == c.current {
+			c.cursor = i
+			break
+		}
+	}
+}
+
+// handleKey consumes every key while the overlay is open. Enter switches
+// (enabling first when the row is disabled — one-stroke happy path); space
+// toggles enable/disable without switching; Esc/C closes.
+func (c *capabilityModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "esc", "C":
+		c.open = false
+	case "j", "down":
+		if c.cursor < len(c.entries)-1 {
+			c.cursor++
+		}
+	case "k", "up":
+		if c.cursor > 0 {
+			c.cursor--
+		}
+	case "T":
+		c.m.cycleTheme()
+	case "enter":
+		if c.cursor < 0 || c.cursor >= len(c.entries) {
+			return nil
+		}
+		e := c.entries[c.cursor]
+		if !e.enabled && !e.unmanaged {
+			if err := c.m.store.EnableProjectCapability(c.m.projectScope, e.name, c.m.actor); err != nil {
+				c.m.showToast("enable " + e.name + ": " + err.Error())
+				return nil
+			}
+			c.m.refreshAll()
+		}
+		c.switchTo(e.name)
+	case " ":
+		if c.cursor < 0 || c.cursor >= len(c.entries) {
+			return nil
+		}
+		e := c.entries[c.cursor]
+		if e.unmanaged {
+			return nil
+		}
+		if e.enabled {
+			if err := c.m.store.DisableProjectCapability(c.m.projectScope, e.name, c.m.actor); err != nil {
+				c.m.showToast("disable " + e.name + ": " + err.Error())
+				return nil
+			}
+			if c.current == e.name {
+				c.current = ""
+			}
+		} else {
+			if err := c.m.store.EnableProjectCapability(c.m.projectScope, e.name, c.m.actor); err != nil {
+				c.m.showToast("enable " + e.name + ": " + err.Error())
+				return nil
+			}
+		}
+		cursor := c.cursor
+		c.m.refreshAll()
+		c.cursor = cursor
+		if c.cursor >= len(c.entries) {
+			c.cursor = len(c.entries) - 1
+		}
+	}
+	return nil
+}
+
+// renderOverlay draws the centered switcher modal. Row shape:
+//
+//	▶ ● workflow     status verbs and boards · 6 boards
+func (c *capabilityModel) renderOverlay() string {
+	styles := c.m.styles
+	nameW := 12
+	for _, e := range c.entries {
+		if len(e.name) > nameW {
+			nameW = len(e.name)
+		}
+	}
+	var body strings.Builder
+	for i, e := range c.entries {
+		marker := "  "
+		if e.name == c.current {
+			marker = "▶ "
+		}
+		state := "● "
+		st := styles.Body
+		switch {
+		case e.unmanaged:
+			state = "— "
+		case !e.enabled:
+			state = "○ "
+			st = styles.Muted
+		}
+		name := fmt.Sprintf("%-*s", nameW, e.name)
+		detail := e.summary
+		if e.count != "" {
+			detail += "  ·  " + e.count
+		}
+		line := marker + state + name + "  " + detail
+		if i == c.cursor {
+			line = styles.RowCursor.Render(line)
+		} else {
+			line = st.Render(line)
+		}
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
+	body.WriteString("\n")
+	body.WriteString(styles.KeyMenuDim.Render("[↑/↓]move  [Enter]switch  [space]enable/disable  [Esc]close"))
+
+	bw := c.m.width * 60 / 100
+	if bw < 64 {
+		bw = 64
+	}
+	if bw > c.m.width-4 {
+		bw = c.m.width - 4
+	}
+	bh := len(c.entries) + 5
+	return titledBoxHeight(styles.DialogBody, bw, "Capabilities", body.String(), bh)
 }

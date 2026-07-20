@@ -550,6 +550,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
 	}
 
+	// Capabilities switcher consumes keys until closed (Esc/C). T still
+	// cycles the theme, mirroring the other overlays.
+	if m.capability.open {
+		return m.capability.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -596,6 +602,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpKeys)
 		return nil
 	case "C":
+		if m.focused == paneTasks && m.projectScope != "" {
+			m.capability.openOverlay()
+			return nil
+		}
 		m.openHelp(helpConventions)
 		return nil
 	case "T":
@@ -801,6 +811,9 @@ func (m *Model) View() string {
 	}
 	if m.pluginOverlay != -1 {
 		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))
+	}
+	if m.capability.open {
+		out = m.placeOverlay(out, m.capability.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

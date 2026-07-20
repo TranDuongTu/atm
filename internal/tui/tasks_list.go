@@ -543,5 +543,8 @@ func (t *tasksModel) statusHint() string {
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
+	if t.m.capability.unmanagedCurrent() {
+		return "[C]apabilities  [↑/↓]tasks  [Shift-↑/↓]labels  [Shift-→]drill  [s]ort  [Enter]detail  [?]keys"
+	}
+	return "[C]apabilities  [↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
 }
