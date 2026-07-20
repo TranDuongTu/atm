@@ -346,3 +346,110 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestRecentEventsSubfocusScrolls(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	// A second, alphabetically-later project so the list has more than one
+	// row: the post-esc "j" assertion below needs list-cursor movement to
+	// be observable, and the store pre-sorts by code-asc, so ATM (cursor 0)
+	// stays selected by "s" regardless.
+	seedProject(t, m, "ZZZ", "Zeta Project")
+	update(t, m, "s")
+	for i := 0; i < 12; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	update(t, m, "L")
+	if !m.projects.logsFocus {
+		t.Fatal("L should focus the events feed")
+	}
+	update(t, m, "j")
+	update(t, m, "j")
+	if m.projects.logsCursor != 2 {
+		t.Fatalf("cursor = %d, want 2", m.projects.logsCursor)
+	}
+	update(t, m, "]")
+	if m.projects.logsCursor <= 2 {
+		t.Fatalf("] should page the feed cursor, got %d", m.projects.logsCursor)
+	}
+	listCursor := m.projects.cursor
+	update(t, m, "esc")
+	if m.projects.logsFocus {
+		t.Fatal("esc should leave the events feed")
+	}
+	update(t, m, "j")
+	if m.projects.cursor != listCursor+1 {
+		t.Fatal("after esc, j should drive the project list again")
+	}
+	update(t, m, "L")
+	if !m.projects.logsFocus || m.projects.logsCursor != 0 {
+		t.Fatal("re-entering the feed should reset the cursor to newest")
+	}
+	update(t, m, "L")
+	if m.projects.logsFocus {
+		t.Fatal("L should also toggle the feed subfocus off")
+	}
+}
+
+func TestRecentEventsFocusRequiresSelection(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "L")
+	if m.projects.logsFocus {
+		t.Fatal("L without a selected project must not focus the feed")
+	}
+}
+
+func TestRecentEventsStatusHintFollowsSubfocus(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	if !strings.Contains(m.projects.statusHint(), "[L]ogs") {
+		t.Fatalf("list hint should advertise [L]ogs: %q", m.projects.statusHint())
+	}
+	update(t, m, "L")
+	hint := m.projects.statusHint()
+	if !strings.Contains(hint, "[j/k]") || !strings.Contains(hint, "[L/Esc]back") {
+		t.Fatalf("feed hint = %q", hint)
+	}
+}
+
+// TestRecentEventsCursorClampsToFeedLength proves the amendment to Task 5:
+// handleLogsKey must not let logsCursor run past the feed's last row. The
+// brief's original comment claimed render-time clamping (in
+// renderEventsFeed) bounded the field, but that clamp was removed in Task 4
+// as a Bubble Tea purity fix — it now clamps only a local copy for display.
+// Left unbounded, holding j would grow logsCursor without limit, and the
+// user would need that many k presses to claw back to a visibly moving
+// cursor. The feed's row count isn't just the seeded tasks — selecting a
+// project (s) also emits vocabulary/capability events — so the bound is
+// read from feedLen() itself rather than a hand-counted magic number;
+// pressing j far more times than that must still stop at the last row, and
+// a single k must then move back up by exactly one.
+func TestRecentEventsCursorClampsToFeedLength(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 3; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	update(t, m, "L")
+	last := m.projects.feedLen() - 1
+	if last < 1 {
+		t.Fatalf("feedLen() = %d, want a feed with at least 2 rows for this test to be meaningful", last+1)
+	}
+	for i := 0; i < last+20; i++ {
+		update(t, m, "j")
+	}
+	if got := m.projects.logsCursor; got != last {
+		t.Fatalf("logsCursor after %d j presses = %d, want %d (last row)", last+20, got, last)
+	}
+	update(t, m, "k")
+	if got := m.projects.logsCursor; got != last-1 {
+		t.Fatalf("logsCursor after one k = %d, want %d", got, last-1)
+	}
+}

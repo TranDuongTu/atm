@@ -639,6 +639,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// the pane's overlay Esc handler so Esc returns to the detail rather
 	// than leaping out to the list and leaving the overlay state stale.
 	if k.String() == "esc" {
+		if m.focused == paneProjects && m.projects.view == pViewList && m.projects.logsFocus {
+			m.projects.logsFocus = false
+			return nil
+		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
 			m.projects.backToList()
 			return nil

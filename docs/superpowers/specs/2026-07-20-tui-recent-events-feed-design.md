@@ -75,8 +75,17 @@ One event = one line, newest at top, width budget ≈ 38–46 inner columns:
 | message | rest | Digest wording per action (table below), truncated with `…`. |
 | age | 3–4, dim, right-aligned | `2m` / `3h` / `2d`. |
 
-Degradation on narrow panes: below ~36 inner columns drop the id column,
-then the age.
+Degradation on narrow panes: below 60 inner columns drop the id column
+(revised from the ~36 figure above at spec-writing time — the id column
+turned out to cost more relative to the message column than estimated, so
+it now yields sooner), then below 30 drop the age.
+
+Implementation delta (Task 5): `eventGraphRows` draws fork/merge as
+parallel `│` lanes converging/branching at the `●` row, not the diagonal
+`├─╮` junction glyphs sketched above — ATM's history is overwhelmingly
+linear, and the diagonal glyphs were dropped as unnecessary polish for an
+event shape (>1 lane) that only appears after a sync merges concurrent
+replicas.
 
 ### Digest vocabulary (closed action set, internal/store/log.go)
 
@@ -101,11 +110,27 @@ then the age.
 - `L` (free in the list view) toggles subfocus to the events section; the
   caption carries a `[L]ogs` hint mirroring the persona chart's `[P]expand`.
 - Subfocused: `j/k` move a highlighted cursor line (windowed via
-  `windowLines`), `g` jumps to newest, `esc`/`L` return focus to the project
-  list.
+  `windowLines`), `[`/`]` page by (visible rows − 1), `esc`/`L` return focus
+  to the project list.
 - Unfocused: passive tail pinned to newest; project selection changes refresh
   the feed.
 - `enter`: reserved for jump-to-task; no-op in this iteration.
+
+Implementation deltas (Task 5):
+- `g` jumps to newest in the sketch above, but `g` is globally reserved as
+  the plugin-command prefix (`app.go`), so the feed pages with `[`/`]`
+  instead — matching the project list's own paging keys — rather than
+  jumping with `g`.
+- `esc` never reaches `projectsModel.handleLogsKey`: it's intercepted by the
+  app-level esc branch in `app.go` (the same branch that returns from
+  project detail to the list), so feed-exit-on-esc is wired there, ahead of
+  the detail-view check. `L` still toggles the feed off from within the
+  pane handler as a second path to the same effect.
+- `handleLogsKey` clamps `logsCursor` to the feed's last row itself (via a
+  `feedLen` helper next to the feed code in `events_feed.go`, reusing
+  `newestFeedEntries`'s `maxFeedEvents` cap) rather than relying on
+  render-time clamping — `renderEventsFeed` clamps only a local copy for
+  display, by design, to keep the render path pure of model writes.
 
 ## Error handling
 

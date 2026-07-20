@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"atm/internal/core"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -338,6 +339,64 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 		lines = append(lines, dashboardLine(p.width, line))
 	}
 	return padToHeight(strings.Join(lines, "\n"), height)
+}
+
+// feedLen returns the current bounded Recent Events feed length for the
+// selected project: the same maxFeedEvents-capped count renderEventsFeed
+// computes (via newestFeedEntries), reused here so handleLogsKey can clamp
+// logsCursor against the real feed instead of duplicating the cap
+// arithmetic. Returns 0 when no project is selected. A v2 integrity failure
+// still hands back the recoverable prefix alongside the error (see
+// ReadLogCached), so it is tolerated the same way renderEventsFeed tolerates
+// it; any other read error yields 0.
+func (p *projectsModel) feedLen() int {
+	if p.m.projectScope == "" {
+		return 0
+	}
+	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
+	if err != nil && !core.IsIntegrity(err) {
+		return 0
+	}
+	return len(newestFeedEntries(entries))
+}
+
+// handleLogsKey drives the Recent Events feed while it holds the pane's
+// subfocus. j/down and ] clamp logsCursor at feedLen's last row so holding j
+// cannot grow the cursor without bound (it used to: nothing else clamps
+// this field — renderEventsFeed clamps only a local copy for display, never
+// writing back to keep the render path pure). Note: esc is ALSO handled at
+// the app level (handleKey's esc branch) because it never reaches pane
+// handlers; the case here documents the intended pair.
+func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
+	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
+	page := eventsH - 1
+	if page < 1 {
+		page = 1
+	}
+	last := p.feedLen() - 1
+	switch k.String() {
+	case "j", "down":
+		if p.logsCursor < last {
+			p.logsCursor++
+		}
+	case "k", "up":
+		if p.logsCursor > 0 {
+			p.logsCursor--
+		}
+	case "]":
+		p.logsCursor += page
+		if p.logsCursor > last {
+			p.logsCursor = last
+		}
+	case "[":
+		p.logsCursor -= page
+	case "L", "esc":
+		p.logsFocus = false
+	}
+	if p.logsCursor < 0 {
+		p.logsCursor = 0
+	}
+	return nil
 }
 
 // eventFeedLine assembles one digest line. Column budget (spec): gutter,

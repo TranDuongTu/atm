@@ -214,6 +214,9 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
+	if p.logsFocus {
+		return p.handleLogsKey(k)
+	}
 	switch k.String() {
 	case "j", "down":
 		if p.cursor < len(p.list)-1 {
@@ -225,6 +228,13 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		p.cursor = 0
+	case "L":
+		if p.m.projectScope == "" {
+			p.m.showToast("select a project first")
+			return nil
+		}
+		p.logsFocus = true
+		p.logsCursor = 0
 	case "]":
 		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor += p.listPageSize(listH)
@@ -259,6 +269,8 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			p.m.capability.current = "" // re-resolve for the new project
+			p.logsFocus = false
+			p.logsCursor = 0
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
@@ -1011,10 +1023,13 @@ func (p *projectsModel) renderDetailView() string {
 func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
+		if p.logsFocus {
+			return "[j/k]scroll [[/]]page [L/Esc]back"
+		}
 		if len(p.list) == 0 {
 			return "[a]add [p]ersona"
 		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new"
+		return "[a]dd [s]elect [Enter]detail [L]ogs [x]remove [P]ersona [p]new"
 	case pViewDetail:
 		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
 	}
