@@ -388,10 +388,15 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 	// Clamp into a LOCAL offset only: View has a pointer receiver, and
 	// writing p.logsOffset here would leak render-time clamping (sized to
 	// whichever project is on screen) back into model state, silently
-	// resetting a viewport position set on a larger project's feed.
+	// resetting a viewport position set on a larger project's feed. The
+	// bound mirrors scrollEventsFeed's window-aware clamp exactly — against
+	// len(feed)-rows, not len(feed)-1 — so a terminal resize that grows
+	// `rows` beyond the old maximum's remaining events cannot leave the box
+	// showing fewer events than it has room for, with blank rows below,
+	// until the next shift+arrow keypress recomputes the real clamp.
 	offset := p.logsOffset
-	if offset > len(feed)-1 {
-		offset = len(feed) - 1
+	if offset > len(feed)-rows {
+		offset = len(feed) - rows
 	}
 	if offset < 0 {
 		offset = 0

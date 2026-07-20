@@ -490,8 +490,19 @@ func TestShiftLeftRightPageFeedAndOffsetClamps(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		update(t, m, "shift+right")
 	}
-	if m.projects.logsOffset >= m.projects.feedLen() {
-		t.Fatalf("offset %d ran past the feed length %d", m.projects.logsOffset, m.projects.feedLen())
+	// Window-aware upper bound (R2-3): feedLen()-rows, floored at 0 — not
+	// feedLen()-1, which the old buggy clamp also satisfied. See
+	// TestScrollEventsFeedClampsToVisibleWindow for the dedicated,
+	// multi-regime pin of this bound; this assertion keeps this test's own
+	// heavy shift+right hammering (a different call path/contentHeight than
+	// that test's fixed setup) from silently regressing to the stale bound.
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	wantMax := m.projects.feedLen() - eventsFeedVisibleRows(eventsH)
+	if wantMax < 0 {
+		wantMax = 0
+	}
+	if m.projects.logsOffset != wantMax {
+		t.Fatalf("offset %d at max scroll, want %d (feedLen %d - visible rows)", m.projects.logsOffset, wantMax, m.projects.feedLen())
 	}
 	for i := 0; i < 300; i++ {
 		update(t, m, "shift+left")
@@ -586,9 +597,14 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 }
 
 // feedBodyLines extracts the events box's rows visible rows from a rendered
-// pane view (ANSI-stripped, trimmed), locating the box by its title row the
-// same way TestEventsFeedBoxBodyIsLeftAndTopAligned and
-// TestRecentEventsFeedScrollRevealsNewContent do.
+// pane view (ANSI-stripped, trimmed, and stripped of the box's own left/right
+// "│" border — renderChartBox wraps every body row, blank or not, in exactly
+// one border rune each side, so a caller checking a row for blankness would
+// otherwise always see a non-empty "│ … │" string), locating the box by its
+// title row the same way TestEventsFeedBoxBodyIsLeftAndTopAligned and
+// TestRecentEventsFeedScrollRevealsNewContent do. Slices off exactly one rune
+// per side rather than strings.Trim, which would also eat a leading "│" that
+// is a genuine graph-gutter lane glyph, not border.
 func feedBodyLines(t *testing.T, view string, eventsH int) []string {
 	t.Helper()
 	lines := strings.Split(view, "\n")
@@ -605,7 +621,11 @@ func feedBodyLines(t *testing.T, view string, eventsH int) []string {
 	rows := eventsFeedVisibleRows(eventsH)
 	body := make([]string, 0, rows)
 	for i := top + 1; i < top+1+rows && i < len(lines); i++ {
-		body = append(body, strings.TrimSpace(stripANSI(lines[i])))
+		trimmed := []rune(strings.TrimSpace(stripANSI(lines[i])))
+		if len(trimmed) >= 2 {
+			trimmed = trimmed[1 : len(trimmed)-1]
+		}
+		body = append(body, strings.TrimSpace(string(trimmed)))
 	}
 	return body
 }
@@ -799,5 +819,67 @@ func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
 	}
 	if dot-bar > 2 {
 		t.Fatalf("event glyph is %d cols from the left border (centered, not left-aligned): %q", dot-bar, first)
+	}
+}
+
+// TestRenderEventsFeedClampFollowsWindowGrowth pins the Task 9 review fix
+// (A1): renderEventsFeed's render-time local clamp bounds the offset against
+// len(feed)-rows (the same window-aware rule scrollEventsFeed enforces on
+// p.logsOffset), not len(feed)-1. Before the fix, growing the terminal
+// (which grows `rows` without moving logsOffset — nothing but a shift+arrow
+// keypress ever touches that field) could leave a stale, too-high offset
+// under the old len(feed)-1 bound: the window would then read past the end
+// of the feed and blank-pad the shortfall, even though enough older events
+// exist to fill the taller box. This drives the resize purely through
+// contentHeight/View() — no key press — so any regression back to the
+// len(feed)-1 local clamp shows up as blank rows here.
+func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	// Plenty of events: comfortably more than either window below needs to
+	// fill completely.
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+
+	// Small window: scroll all the way to its own max offset.
+	m.projects.contentHeight = 30
+	_, smallEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	smallRows := eventsFeedVisibleRows(smallEventsH)
+	for i := 0; i < 200; i++ {
+		update(t, m, "shift+down")
+	}
+	feedLen := m.projects.feedLen()
+	wantSmallMax := feedLen - smallRows
+	if m.projects.logsOffset != wantSmallMax {
+		t.Fatalf("setup: offset at small-window max = %d, want %d", m.projects.logsOffset, wantSmallMax)
+	}
+
+	// Grow the terminal (no key press): a bigger window means more visible
+	// rows, but logsOffset does not move on its own.
+	m.projects.contentHeight = 63
+	_, bigEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	bigRows := eventsFeedVisibleRows(bigEventsH)
+	if bigRows <= smallRows {
+		t.Fatalf("setup: grown window (%d rows) is not bigger than the original (%d rows)", bigRows, smallRows)
+	}
+	if feedLen < bigRows {
+		t.Fatalf("setup: feedLen %d shorter than the grown window %d — box would legitimately show blanks", feedLen, bigRows)
+	}
+
+	preRenderOffset := m.projects.logsOffset
+	body := feedBodyLines(t, m.projects.View(), bigEventsH)
+	if m.projects.logsOffset != preRenderOffset {
+		t.Fatalf("render path wrote p.logsOffset: was %d, now %d (render must stay pure)", preRenderOffset, m.projects.logsOffset)
+	}
+	if len(body) != bigRows {
+		t.Fatalf("expected %d visible rows in the grown box, got %d", bigRows, len(body))
+	}
+	for i, line := range body {
+		if line == "" {
+			t.Fatalf("blank row %d of %d after growing the window with no key press: body = %q", i, len(body), body)
+		}
 	}
 }
