@@ -2,6 +2,9 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,5 +197,112 @@ func TestEventGraphRowsV1EntriesSingleLane(t *testing.T) {
 		if string(r) != "●" {
 			t.Fatalf("v1 row %d = %q, want ●", i, string(r))
 		}
+	}
+}
+
+func TestProjectPaneSplitHeightsThreeWay(t *testing.T) {
+	cases := []struct {
+		total, list, events, summary int
+	}{
+		{27, 8, 9, 10},
+		{10, 3, 0, 7}, // events slot would be 3 (<4): collapses to old 30/70
+		{2, 1, 0, 1},
+		{1, 1, 0, 0},
+		{0, 0, 0, 0},
+	}
+	for _, c := range cases {
+		l, e, s := projectPaneSplitHeights(c.total)
+		if l != c.list || e != c.events || s != c.summary {
+			t.Errorf("split(%d) = (%d,%d,%d), want (%d,%d,%d)", c.total, l, e, s, c.list, c.events, c.summary)
+		}
+	}
+}
+
+func TestRecentEventsFeedRendersDigestLines(t *testing.T) {
+	m := newTestModel(t)
+	// 200-wide (an existing convention for tests that need to see full
+	// rendered content, e.g. TestProjectDetailDashboardSections): at 120 the
+	// projects pane's inner width is 46, and the fixed column budget (gutter
+	// + id 7 + subject 7 + actor 8 + separators + age 3 = 31 columns) leaves
+	// only 15 columns for the message — too narrow to fit the full digest
+	// text this test asserts on without truncation.
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix the cache", "ATM:status:open")
+	body := m.projects.View()
+	mustContain(t, body, "Recent Events")
+	mustContain(t, body, `created "Fix the cache"`)
+	mustContain(t, body, "dev@clau") // testActor developer@claude:test
+	mustContain(t, body, "●")
+	if !regexp.MustCompile(`[0-9a-f]{7}`).MatchString(body) {
+		t.Fatalf("feed shows no short event id\n--- body ---\n%s", body)
+	}
+	// Newest-first: the task creation renders above the project creation.
+	taskIdx := strings.Index(body, `created "Fix the cache"`)
+	projIdx := strings.Index(body, "project created")
+	if projIdx >= 0 && taskIdx > projIdx {
+		t.Fatalf("feed is not newest-first\n--- body ---\n%s", body)
+	}
+}
+
+func TestRecentEventsFeedPlaceholders(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	// No selection: muted placeholder, no digest lines.
+	mustContain(t, m.projects.View(), "select a project to see events")
+}
+
+func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
+	m := newTestModel(t)
+	m.projectScope = "ATM"
+	p := &m.projects
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	e := core.LogEntry{
+		ID:      "sha256:84fbf586004a",
+		Action:  "comment.created",
+		At:      now.Add(-time.Hour),
+		Actor:   "developer@claude:test",
+		Subject: core.Subject{Kind: "task", ID: "ATM-90171b"},
+	}
+	lanes := []rune{'●'}
+	p.width = 46 // full budget: id and age both present
+	line := p.eventFeedLine(e, lanes, 1, now, true)
+	mustContain(t, line, "84fbf58")
+	mustContain(t, line, "1h")
+	p.width = 34 // below 36: id column drops, age stays
+	line = p.eventFeedLine(e, lanes, 1, now, true)
+	mustNotContain(t, line, "84fbf58")
+	mustContain(t, line, "1h")
+	p.width = 28 // below 30: age drops too
+	line = p.eventFeedLine(e, lanes, 1, now, true)
+	mustNotContain(t, line, "84fbf58")
+	mustNotContain(t, line, "1h")
+}
+
+// TestEventFeedCapsAtMaxFeedEvents pins the amendment to Task 4: the feed
+// bounds itself to the newest maxFeedEvents entries rather than reversing
+// and graphing the project's entire history on every render frame (an
+// O(total events) allocation pass in the render loop). This tests the
+// bounding logic directly against a synthetic oldest-first slice — seeding
+// maxFeedEvents+ events through the full model is unnecessarily slow for a
+// unit-level guarantee about a pure helper.
+func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
+	total := maxFeedEvents + 50
+	entries := make([]core.LogEntry, total)
+	for i := range entries {
+		entries[i] = core.LogEntry{ID: fmt.Sprintf("sha256:%08x", i)}
+	}
+	feed := newestFeedEntries(entries)
+	if len(feed) != maxFeedEvents {
+		t.Fatalf("len(feed) = %d, want %d (cap)", len(feed), maxFeedEvents)
+	}
+	// Newest-first: feed[0] is the last entry seeded.
+	if feed[0].ID != entries[total-1].ID {
+		t.Fatalf("feed[0].ID = %q, want %q (newest)", feed[0].ID, entries[total-1].ID)
+	}
+	if feed[len(feed)-1].ID != entries[total-maxFeedEvents].ID {
+		t.Fatalf("feed tail = %q, want %q", feed[len(feed)-1].ID, entries[total-maxFeedEvents].ID)
 	}
 }

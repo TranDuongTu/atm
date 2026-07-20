@@ -29,6 +29,11 @@ type projectsModel struct {
 
 	// history toggle on project detail.
 	showHistory bool
+
+	// Recent Events feed subfocus state (list view, ATM-793b19). logsCursor
+	// indexes the newest-first feed; it is clamped at render time.
+	logsFocus  bool
+	logsCursor int
 }
 
 type pView int
@@ -64,27 +69,36 @@ func newProjectsModel(m *Model) projectsModel {
 	return projectsModel{m: m}
 }
 
-func projectPaneSplitHeights(total int) (int, int) {
+// projectPaneSplitHeights allocates the list view's vertical space three
+// ways: project list ~30%, recent-events feed ~35%, summary the rest. An
+// events slot under 4 rows (caption + 3 lines) is not worth rendering — it
+// collapses to 0 and the pre-feed 30/70 list/summary split is restored.
+func projectPaneSplitHeights(total int) (int, int, int) {
 	if total <= 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	if total == 1 {
-		return 1, 0
+		return 1, 0, 0
 	}
 	listH := total * 30 / 100
 	if listH < 1 {
 		listH = 1
 	}
-	summaryH := total - listH
+	eventsH := total * 35 / 100
+	if eventsH < 4 {
+		eventsH = 0
+	}
+	summaryH := total - listH - eventsH
 	if summaryH < 1 {
 		summaryH = 1
-		listH = total - summaryH
+		listH = total - summaryH - eventsH
 		if listH < 1 {
 			listH = 1
-			summaryH = 0
+			eventsH = 0
+			summaryH = total - listH
 		}
 	}
-	return listH, summaryH
+	return listH, eventsH, summaryH
 }
 
 func computeStripDays(width int) int {
@@ -210,7 +224,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		p.cursor = 0
 	case "]":
-		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor += p.listPageSize(listH)
 		if p.cursor > len(p.list)-1 {
 			p.cursor = len(p.list) - 1
@@ -219,7 +233,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.cursor = 0
 		}
 	case "[":
-		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor -= p.listPageSize(listH)
 		if p.cursor < 0 {
 			p.cursor = 0
@@ -492,10 +506,13 @@ func (p *projectsModel) renderList() string {
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
-	listH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	listH, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
 	var parts []string
 	if listH > 0 {
 		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
+	}
+	if eventsH > 0 {
+		parts = append(parts, padToHeight(p.renderEventsFeed(eventsH), eventsH))
 	}
 	if summaryH > 0 {
 		parts = append(parts, padToHeight(p.renderSummary(summaryH), summaryH))

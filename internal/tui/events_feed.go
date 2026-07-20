@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"atm/internal/core"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // The Recent Events feed (ATM-793b19) renders the selected project's event
@@ -253,4 +254,129 @@ func eventGraphRows(entries []core.LogEntry) [][]rune {
 		}
 	}
 	return rows
+}
+
+// maxFeedEvents bounds the Recent Events feed to the newest N entries.
+// ReadLogCached returns the project's ENTIRE history (this store already
+// holds ~1800 events on some projects), and renderEventsFeed runs on every
+// TUI render frame, including every keystroke. Reversing and graphing the
+// full history each frame is an O(total events) allocation pass in the hot
+// render loop; capping it makes every downstream step — cursor clamping,
+// windowLines, eventGraphRows — operate on a small, fixed-size slice
+// instead. An event whose parent falls outside the cap simply leaves a
+// lane awaiting an id that never arrives (the same rendering git uses for
+// an off-screen parent), which is harmless for ATM's linear history.
+const maxFeedEvents = 500
+
+// newestFeedEntries builds the bounded, newest-first feed from ReadLogCached's
+// oldest-first entries: the newest maxFeedEvents are its tail, so the cap is
+// a slice rather than a full reverse-then-truncate.
+func newestFeedEntries(entries []core.LogEntry) []core.LogEntry {
+	if len(entries) > maxFeedEvents {
+		entries = entries[len(entries)-maxFeedEvents:]
+	}
+	feed := make([]core.LogEntry, len(entries))
+	for i, e := range entries {
+		feed[len(entries)-1-i] = e
+	}
+	return feed
+}
+
+// renderEventsFeed renders the Recent Events section: caption, then a
+// windowed, newest-first page of digest lines for the selected project.
+// Unfocused it is a tail pinned to the newest event; subfocused (L) the
+// cursor row is highlighted and windowLines follows it.
+func (p *projectsModel) renderEventsFeed(height int) string {
+	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Recent Events  [L]ogs"))}
+	muted := func(s string) string {
+		return dashboardLine(p.width, p.m.styles.Muted.Render(s))
+	}
+	if p.m.projectScope == "" {
+		lines = append(lines, muted("select a project to see events"))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
+	if err != nil && !core.IsIntegrity(err) {
+		lines = append(lines, muted("events could not be loaded"))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	if len(entries) == 0 {
+		lines = append(lines, muted("no events yet"))
+		return padToHeight(strings.Join(lines, "\n"), height)
+	}
+	feed := newestFeedEntries(entries)
+	if p.logsCursor > len(feed)-1 {
+		p.logsCursor = len(feed) - 1
+	}
+	cursor := 0
+	if p.logsFocus {
+		cursor = p.logsCursor
+	}
+	rows := height - 1 // caption
+	start, end := windowLines(len(feed), cursor, rows)
+	graph := eventGraphRows(feed)
+	laneW := 1
+	for i := start; i < end; i++ {
+		if len(graph[i]) > laneW {
+			laneW = len(graph[i])
+		}
+	}
+	now := core.Now()
+	for i := start; i < end; i++ {
+		onCursor := p.logsFocus && i == p.logsCursor
+		line := p.eventFeedLine(feed[i], graph[i], laneW, now, onCursor)
+		if onCursor {
+			line = p.m.styles.RowCursor.Render(line)
+		}
+		lines = append(lines, dashboardLine(p.width, line))
+	}
+	return padToHeight(strings.Join(lines, "\n"), height)
+}
+
+// eventFeedLine assembles one digest line. Column budget (spec): gutter,
+// id(7, dim), subject(7), actor(8), message(flex), age(right, dim). The id
+// column drops below 36 inner columns, then the age below 30. `plain`
+// suppresses the inner dim styles so a cursor row can be re-styled whole.
+func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, now time.Time, plain bool) string {
+	dim := func(s string) string {
+		if plain {
+			return s
+		}
+		return p.m.styles.Muted.Render(s)
+	}
+	gutter := make([]rune, laneW)
+	for i := range gutter {
+		gutter[i] = ' '
+	}
+	copy(gutter, lanes)
+	code := p.m.projectScope
+	var b strings.Builder
+	b.WriteString(string(gutter))
+	b.WriteString(" ")
+	used := laneW + 1
+	if p.width >= 36 {
+		b.WriteString(dim(fmt.Sprintf("%-7s", shortEventID(e.ID))))
+		b.WriteString(" ")
+		used += 8
+	}
+	b.WriteString(fmt.Sprintf("%-7s ", truncateRunes(eventFeedSubject(e, code), 7)))
+	b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
+	used += 17
+	age := ""
+	if p.width >= 30 {
+		age = compactAge(e.At, now)
+	}
+	msgW := p.width - used - lipgloss.Width(age)
+	if age != "" {
+		msgW-- // the space before the age
+	}
+	if msgW < 4 {
+		msgW = 4
+	}
+	b.WriteString(fmt.Sprintf("%-*s", msgW, truncateRunes(eventDigestMessage(e, code), msgW)))
+	if age != "" {
+		b.WriteString(" ")
+		b.WriteString(dim(age))
+	}
+	return b.String()
 }
