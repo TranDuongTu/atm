@@ -54,9 +54,28 @@ func splitStripWidths(paneW int) (prev, sel, next int) {
 // render (chart for a namespace board, detail for a leaf board) sized to its
 // width. stripH is the fixed row height.
 func (b *boardsModel) renderStrip(paneW, stripH int) string {
-	if b.m.projectScope == "" || len(b.rows) == 0 {
-		placeholder := titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards", "no project selected", stripH)
-		return placeholder
+	if b.m.projectScope == "" {
+		return titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards", "no project selected", stripH)
+	}
+	if b.inUnmanagedMode() {
+		title := fmt.Sprintf("unmanaged · %d %s", len(b.unmanaged), pluralLabels(len(b.unmanaged)))
+		savedW, savedH := b.width, b.contentHeight
+		b.SetSize(paneW-2, stripH-2)
+		var inner string
+		switch b.level {
+		case lLevelChart:
+			inner = b.renderChart()
+		case lLevelDetail:
+			inner = b.renderDetail()
+		default:
+			inner = b.renderUmbrella()
+		}
+		b.SetSize(savedW, savedH)
+		return titledBoxHeight(b.m.styles.PaneActive, paneW, title, inner, stripH)
+	}
+	if len(b.rows) == 0 {
+		return titledBoxHeight(b.m.styles.PaneInactive, paneW, "Boards",
+			fmt.Sprintf("%s exposes no boards", b.m.capability.current), stripH)
 	}
 	prevW, selW, nextW := splitStripWidths(paneW)
 	idx := b.ringIndex()

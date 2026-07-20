@@ -2050,3 +2050,66 @@ func TestRingHasNoUmbrellaRow(t *testing.T) {
 		}
 	}
 }
+
+// --- Task 5: unmanaged mode (full-width label drill-down, unset-cursor) ---
+
+// setupUnmanagedMode seeds a project whose ring is empty in unmanaged mode:
+// the only label-bearing tasks carry unmanaged labels (needs-triage, type:bug),
+// so the umbrella surface is the whole of pane [2]. switchTo(unmanagedCapability)
+// then drives enterUnmanagedBase via refresh()'s default branch.
+func setupUnmanagedMode(t *testing.T, m *Model) {
+	t.Helper()
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "stray one", "ATM:needs-triage")
+	seedTask(t, m, "ATM", "typed", "ATM:type:bug")
+	m.refreshAll()
+	m.capability.switchTo(unmanagedCapability)
+}
+
+func TestUnmanagedModeStartsIdleWithUnsetCursor(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("level = %v, want lLevelUmbrella", m.boards.level)
+	}
+	if m.boards.cursor != -1 {
+		t.Fatalf("cursor = %d, want -1 (unset)", m.boards.cursor)
+	}
+	if m.tasks.focus.mode != focusUmbrellaIdle {
+		t.Fatalf("focus = %v, want focusUmbrellaIdle", m.tasks.focus.mode)
+	}
+	if len(m.tasks.rows) != 0 {
+		t.Fatalf("tasks rows = %d, want 0 before any label selection", len(m.tasks.rows))
+	}
+	if len(m.boards.rows) != 0 {
+		t.Fatalf("ring rows = %d, want 0 in unmanaged mode", len(m.boards.rows))
+	}
+}
+
+func TestUnmanagedFirstCursorMoveSelectsAndFilters(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	m.boards.chartCursorMove(1) // first Shift-↓: -1 -> 0 and applies the filter
+	if m.boards.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", m.boards.cursor)
+	}
+	if m.tasks.focus.mode == focusUmbrellaIdle {
+		t.Fatalf("focus still idle after first cursor move")
+	}
+	if len(m.tasks.rows) == 0 && len(m.tasks.groups) == 0 {
+		t.Fatalf("no tasks listed after selecting the first unmanaged label")
+	}
+}
+
+func TestUnmanagedEscDoesNotClimbOut(t *testing.T) {
+	m := newTestModel(t)
+	setupUnmanagedMode(t, m)
+	m.boards.drillOut() // Shift-← / Esc at the base level: nowhere to go
+	if m.boards.level != lLevelUmbrella {
+		t.Fatalf("level = %v after drillOut, want lLevelUmbrella (no ring above)", m.boards.level)
+	}
+}

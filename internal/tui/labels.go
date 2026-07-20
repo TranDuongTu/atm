@@ -175,6 +175,13 @@ type boardsModel struct {
 	// from the umbrella sub-table, so Esc climbs chart/detail -> sub-table
 	// -> ring instead of chart/detail -> ring.
 	fromUmbrella bool
+
+	// umbrellaCursor preserves the umbrella row cursor across a drill-in /
+	// drill-out of one of its rows, so reenterUmbrella lands back on the
+	// row the user drilled from (rather than the top). Set in
+	// handleUmbrellaKey's "enter" case; restored (clamped) in
+	// reenterUmbrella. Only meaningful in unmanaged mode.
+	umbrellaCursor int
 }
 
 type lLevel int
@@ -265,6 +272,28 @@ func (b *boardsModel) refresh() {
 	}
 	b.unmanaged = nil
 	b.rows = b.buildBoardRows(ls)
+	if b.inUnmanagedMode() {
+		un, _ := b.m.regFor(scope).Unmanaged(b.m.store, scope)
+		b.unmanaged = un
+		b.rows = nil
+		b.selected = ""
+		switch b.level {
+		case lLevelUmbrella:
+			// Background tick while browsing: rebuild rows, keep the cursor
+			// meaningful (clamped; an unset cursor stays unset).
+			b.umbrellaRows = b.buildUmbrellaRows()
+			if b.cursor >= len(b.umbrellaRows) {
+				b.cursor = len(b.umbrellaRows) - 1
+			}
+		case lLevelChart, lLevelDetail:
+			// Drilled below the sub-table: leave the drill state alone.
+		default:
+			// Just switched in (resetDrill left us at lLevelTable).
+			b.enterUnmanagedBase()
+		}
+		b.loadPins()
+		return
+	}
 	if restoreChart && b.restoreChartCursor(selectedChart) {
 		return
 	}
@@ -287,6 +316,10 @@ func (b *boardsModel) refresh() {
 // always resets the drill state for the same leak-prevention invariant as
 // cycleBoard/jumpPin.
 func (b *boardsModel) selectDefault() {
+	if b.inUnmanagedMode() {
+		b.enterUnmanagedBase()
+		return
+	}
 	b.resetDrill()
 	b.pinFocus = -1 // the ring board becomes the active-filter highlight
 	// UI policy, not a capability concern: all-tasks if the ring has it
@@ -549,7 +582,7 @@ func (b *boardsModel) drillOut() {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return
 		}
 		b.level = lLevelTable
@@ -559,7 +592,7 @@ func (b *boardsModel) drillOut() {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return
 		}
 		b.level = lLevelTable
@@ -567,10 +600,8 @@ func (b *boardsModel) drillOut() {
 		b.cursor = 0
 		b.applyFocus()
 	case lLevelUmbrella:
-		// Esc from the sub-table climbs back to the ring.
-		b.level = lLevelTable
-		b.cursor = b.tableCursor
-		b.clampCursor()
+		// Unmanaged mode's base level: there is no ring above.
+		return
 	}
 }
 
@@ -579,24 +610,38 @@ func (b *boardsModel) drillOut() {
 // sub-table, whose rows are navigated by the same Shift-↑/↓ keys; no-op
 // elsewhere.
 func (b *boardsModel) chartCursorMove(dir int) {
-	var n int
 	switch b.level {
 	case lLevelChart:
-		n = len(b.chartRows())
+		n := len(b.chartRows())
+		if n == 0 {
+			return
+		}
+		b.cursor += dir
+		if b.cursor < 0 {
+			b.cursor = 0
+		}
+		if b.cursor >= n {
+			b.cursor = n - 1
+		}
 	case lLevelUmbrella:
-		n = len(b.umbrellaRows)
-	default:
-		return
-	}
-	if n == 0 {
-		return
-	}
-	b.cursor += dir
-	if b.cursor < 0 {
-		b.cursor = 0
-	}
-	if b.cursor >= n {
-		b.cursor = n - 1
+		n := len(b.umbrellaRows)
+		if n == 0 {
+			return
+		}
+		if b.cursor < 0 {
+			// First move from the unset cursor lands on the top row
+			// regardless of direction.
+			b.cursor = 0
+		} else {
+			b.cursor += dir
+			if b.cursor < 0 {
+				b.cursor = 0
+			}
+			if b.cursor >= n {
+				b.cursor = n - 1
+			}
+		}
+		b.applyUmbrellaSelection()
 	}
 }
 
@@ -869,11 +914,60 @@ func (b *boardsModel) enterUmbrella() {
 	b.offset = 0
 }
 
-// reenterUmbrella returns from a chart/detail entered via the umbrella.
+// inUnmanagedMode reports whether pane [2] is in the unmanaged capability
+// view: no ring, the label drill-down is the whole surface.
+func (b *boardsModel) inUnmanagedMode() bool {
+	return b.m.capability.unmanagedCurrent()
+}
+
+// enterUnmanagedBase (re)enters unmanaged mode's base level: the full-width
+// label drill-down with an UNSET cursor (-1) and the idle task focus. The
+// first Shift-↑/↓ sets the cursor and applies that label's filter — until
+// then no task query runs (the performance guarantee of the capability-view
+// spec).
+func (b *boardsModel) enterUnmanagedBase() {
+	b.level = lLevelUmbrella
+	b.umbrellaRows = b.buildUmbrellaRows()
+	b.cursor = -1
+	b.offset = 0
+	b.tableCursor = 0
+	b.fromUmbrella = false
+	b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
+}
+
+// applyUmbrellaSelection pushes the cursor row's label as the tasks filter:
+// namespace rows facet (focusPresent), leaf rows filter exactly. An unset or
+// out-of-range cursor restores the idle state.
+func (b *boardsModel) applyUmbrellaSelection() {
+	if b.cursor < 0 || b.cursor >= len(b.umbrellaRows) {
+		b.m.tasks.setFocus(taskFocus{mode: focusUmbrellaIdle}, "")
+		return
+	}
+	r := b.umbrellaRows[b.cursor]
+	if r.Expandable {
+		b.m.tasks.setFocus(taskFocus{mode: focusPresent, ns: r.Name}, core.FacetToken(b.m.projectScope, r.Name))
+	} else {
+		b.m.tasks.setFocus(taskFocus{mode: focusOff}, r.FullName)
+	}
+}
+
+// reenterUmbrella returns from a chart/detail entered via the umbrella. The
+// cursor is restored from umbrellaCursor (clamped) so the user lands back on
+// the row they drilled from; in unmanaged mode that row's filter is then
+// re-applied by applyUmbrellaSelection.
 func (b *boardsModel) reenterUmbrella() {
 	b.level = lLevelUmbrella
 	b.umbrellaRows = b.buildUmbrellaRows()
-	b.cursor = 0
+	b.cursor = b.umbrellaCursor
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(b.umbrellaRows) {
+		b.cursor = len(b.umbrellaRows) - 1
+	}
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
 	b.ns = ""
 	b.detail = labelDetailState{}
 }
@@ -910,6 +1004,7 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 		}
 		r := rows[b.cursor]
 		b.fromUmbrella = true
+		b.umbrellaCursor = b.cursor
 		if r.Expandable {
 			b.enterChart(r.Name)
 			return nil
@@ -922,9 +1017,8 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 			usage:       r.Count,
 		}}
 	case "esc":
-		b.level = lLevelTable
-		b.cursor = b.tableCursor
-		b.clampCursor()
+		// Unmanaged mode's base level: there is no ring above to climb to.
+		return nil
 	}
 	return nil
 }
@@ -937,7 +1031,7 @@ func (b *boardsModel) handleUmbrellaKey(k tea.KeyMsg) tea.Cmd {
 // surface than the boards beside it.
 func (b *boardsModel) renderUmbrella() string {
 	if len(b.umbrellaRows) == 0 {
-		return padToHeight("no unmanaged labels", b.contentHeight)
+		return padToHeight("nothing unmanaged — every label is capability-owned", b.contentHeight)
 	}
 	rows := make([]chartRow, 0, len(b.umbrellaRows))
 	for _, r := range b.umbrellaRows {
@@ -945,7 +1039,7 @@ func (b *boardsModel) renderUmbrella() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("unmanaged  ·  %d tasks", b.unmanagedTaskCount(b.unmanaged))))
+	sb.WriteString(dashboardLine(b.width, fmt.Sprintf("unmanaged  ·  %d %s", len(b.unmanaged), pluralLabels(len(b.unmanaged)))))
 	sb.WriteString("\n")
 	for _, line := range strings.Split(wordwrap.String(umbrellaCaption, b.width), "\n") {
 		sb.WriteString(dashboardLine(b.width, b.m.styles.Muted.Render(line)))
@@ -1281,7 +1375,7 @@ func (b *boardsModel) handleChartKey(k tea.KeyMsg) tea.Cmd {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return nil
 		}
 		b.enterTable()
@@ -1326,7 +1420,7 @@ func (b *boardsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		if b.fromUmbrella {
 			b.fromUmbrella = false
 			b.reenterUmbrella()
-			b.applyFocus()
+			b.applyUmbrellaSelection()
 			return nil
 		}
 		b.level = lLevelTable
@@ -1499,7 +1593,11 @@ func (b *boardsModel) renderMeterRows(rows []chartRow) string {
 		line := fmt.Sprintf(" %s %s %4d", name, meterBar(percent, meterW), r.count)
 		lines = append(lines, dashboardLine(b.width, line))
 	}
-	start, end := windowLines(len(lines), b.cursor, b.pageSize)
+	cur := b.cursor
+	if cur < 0 {
+		cur = 0
+	}
+	start, end := windowLines(len(lines), cur, b.pageSize)
 	for i := start; i < end; i++ {
 		sb.WriteString(lines[i])
 		sb.WriteString("\n")
@@ -1590,7 +1688,7 @@ func (b *boardsModel) statusHint() string {
 		}
 		return "[d]esc [l]remove [Esc]back"
 	case lLevelUmbrella:
-		return "[Enter]open [Esc]back"
+		return "[Shift-↑/↓]select label  [Shift-→]drill"
 	default:
 		return "[Enter]open [n]ew [e]dit [a]dd [S]eed [?]keys"
 	}

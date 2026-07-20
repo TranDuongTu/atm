@@ -341,7 +341,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("unmanaged labels"),
 			"",
-			t.m.styles.EmptyText.Render("press Enter to drill in and browse labels no capability owns"),
+			t.m.styles.EmptyText.Render("select a label below (Shift-↑/↓) to see its tasks"),
 		})
 		return
 	}
