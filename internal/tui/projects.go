@@ -261,9 +261,13 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			}
 			cmd := autoStartIndexer(p.m, r.code)
 			p.m.capability.refresh()
-			p.m.tasks.refresh()
 			p.m.boards.refresh()
 			p.m.boards.selectDefault()
+			// tasks.refresh runs AFTER boards.selectDefault so that, when the
+			// resolved capability is `unmanaged`, selectDefault has already
+			// established focusUmbrellaIdle via enterUnmanagedBase — preventing
+			// an unfiltered task sweep at idle (capability-view spec §4).
+			p.m.tasks.refresh()
 			p.m.boards.loadPins()
 			return cmd
 		}

@@ -248,3 +248,51 @@ func TestStatusHintLeadsWithCapabilities(t *testing.T) {
 		t.Fatalf("hint = %q, want [C]apabilities first", hint)
 	}
 }
+
+// TestProjectSelectWithPersistedUnmanagedEstablishesIdle verifies the
+// user-observable invariant after project-select into a project whose
+// persisted capability is `unmanaged`: the Tasks pane ends in
+// focusUmbrellaIdle with no rows listed (capability-view spec §4 — no
+// unfiltered list renders at idle). The accompanying reordering in
+// projects.go (boards.selectDefault before tasks.refresh) additionally
+// avoids a wasted intermediate ListTasks call before the idle focus is
+// set; this test guards the final-state guarantee that the reorder
+// preserves.
+func TestProjectSelectWithPersistedUnmanagedEstablishesIdle(t *testing.T) {
+	m := newCapTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	// Persist unmanaged as the project's capability. Disable all registered
+	// capabilities so resolution lands on unmanaged after project-select.
+	for _, name := range m.reg.Names() {
+		if err := m.store.DisableProjectCapability("ATM", name, m.actor); err != nil {
+			t.Fatalf("disable %s: %v", name, err)
+		}
+	}
+	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Capability: unmanagedCapability}, m.actor); err != nil {
+		t.Fatalf("SetProjectBoards: %v", err)
+	}
+	// Seed a stray task carrying only an unmanaged label; if an unfiltered
+	// sweep ran at project-select, this task would land in m.tasks.rows.
+	seedTask(t, m, "ATM", "stray", "ATM:needs-triage")
+	// Project-select handler requires a project to be selected in pane [1].
+	m.projects.refresh()
+	if len(m.projects.list) == 0 {
+		t.Fatalf("no projects in pane [1] list")
+	}
+	m.projects.cursor = 0
+	// Drive the "s" handler. boards.reset + setFocus(focusOff) precede the
+	// refresh sequence; the fix reorders boards.selectDefault before
+	// tasks.refresh so enterUnmanagedBase's setFocus(focusUmbrellaIdle)
+	// establishes the idle focus before tasks.refresh can sweep.
+	m.projects.handleListKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if m.capability.current != unmanagedCapability {
+		t.Fatalf("current = %q, want unmanaged after project-select", m.capability.current)
+	}
+	if m.tasks.focus.mode != focusUmbrellaIdle {
+		t.Fatalf("focus.mode = %v, want focusUmbrellaIdle (no unfiltered sweep may run at idle)", m.tasks.focus.mode)
+	}
+	if len(m.tasks.rows) != 0 {
+		t.Fatalf("tasks rows = %d, want 0 (unmanaged idle must not list tasks): %v",
+			len(m.tasks.rows), m.tasks.rows)
+	}
+}

@@ -205,13 +205,11 @@ type labelDetailState struct {
 	leaf string // "" for a real label; "unset" for the synthetic leaf
 }
 
-// umbrellaDescription is the sentinel row's blurb in the L0 ring's DESCRIPTION
-// cell. umbrellaCaption is the sub-table's header caption: the same sentence
-// minus the "drill in" hint, which is spent once the user is already inside —
-// and short enough to hold one line at the strip's usual width.
+// umbrellaCaption is the unmanaged-mode sub-table's header caption: the
+// sentence describing the unmanaged label set, short enough to hold one
+// line at the strip's usual width.
 const (
-	umbrellaDescription = "labels no capability owns; drill in to browse, triage via atm capability unmanaged"
-	umbrellaCaption     = "labels no capability owns; triage via atm capability unmanaged"
+	umbrellaCaption = "labels no capability owns; triage via atm capability unmanaged"
 )
 
 type chartRow struct {

@@ -153,7 +153,8 @@ func (c *capabilityModel) switchTo(name string) {
 	c.m.boards.selected = ""
 	c.m.boards.refresh()
 	c.m.boards.selectDefault()
-	c.m.boards.loadPins()
+	// loadPins already runs at the end of boards.refresh (both managed and
+	// unmanaged branches), so an explicit call here is redundant.
 }
 
 // openOverlay opens the [C] switcher with the cursor on the current
