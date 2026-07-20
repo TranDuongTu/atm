@@ -72,15 +72,17 @@ One event = one line, newest at top, width budget ≈ 38–46 inner columns:
 | id | 7, dim | Short event hash (first 7 hex chars). Blank for v1 entries. |
 | subject | 7 | Task alias with the project-code prefix stripped (`90171b`). Comment events show their parent task's alias. Project-subject events show `–`. |
 | actor | 8 | `persona@agent`, each part truncated to fit (`dev@olm`, `adm@tui`). Model suffix dropped. |
-| message | rest | Digest wording per action (table below), truncated with `…`. |
+| message | rest | Digest wording per action (table below), truncated with `...` (the shared `truncateRunes` helper appends ASCII `...`, not `…`). |
 | age | 3–4, dim, right-aligned | `2m` / `3h` / `2d`. |
 
 Degradation on narrow panes: below 60 inner columns drop the id column
-(revised from the ~36 figure above at spec-writing time — the id column
-turned out to cost more relative to the message column than estimated, so
-it now yields sooner), then below 30 drop the age.
+(revised from the ~36 figure above at spec-writing time — review of the
+rendering task measured that at a 120-column terminal the Projects pane's
+inner width is only ~46 columns, where the 7-column id plus its separator
+consumed 8 columns and left roughly 16 for the digest message; the id now
+yields to the message below 60 columns), then below 30 drop the age.
 
-Implementation delta (Task 5): `eventGraphRows` draws fork/merge as
+Implementation delta (Task 3): `eventGraphRows` draws fork/merge as
 parallel `│` lanes converging/branching at the `●` row, not the diagonal
 `├─╮` junction glyphs sketched above — ATM's history is overwhelmingly
 linear, and the diagonal glyphs were dropped as unnecessary polish for an

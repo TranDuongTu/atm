@@ -466,6 +466,25 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 }
 ```
 
+> **Correction (post-launch review):** the two code samples above are now
+> known-stale and would mislead a reader implementing from this plan
+> directly:
+> - The `TestEventDigestMessage` sample's `label.upserted` case reads the
+>   label name from the event payload (`{"name":"ATM:status:open"}`).
+>   Production `label.upserted` emitters only ever put the name on
+>   `Subject.Name`, never in the payload, so the shipped code reads
+>   `e.Subject.Name` (see `internal/tui/events_feed.go`), matching how
+>   `label.removed` was already handled in this same sample.
+> - The sample's `label.upserted`/`label.removed` cases route the name
+>   through `feedLabel`, which strips the `status:` facet to its bare value
+>   (`feedLabel("ATM:status:open", "ATM")` → `"open"`). That contradicts the
+>   sample's own test expectation of `"label status:open"`. The shipped code
+>   does not call `feedLabel` for these two label-registry actions — it
+>   strips only the project prefix (`strings.TrimPrefix(e.Subject.Name,
+>   projectCode+":")`) and preserves the full facet, since for a label
+>   *management* event (as opposed to a label being applied to a task) the
+>   facet is the information being reported on, not noise to fold away.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/tui -run 'TestShortEventID|TestCompactAge|TestEventFeedActor|TestEventFeedSubject|TestFeedLabel|TestEventDigestMessage' -v`
