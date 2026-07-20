@@ -390,10 +390,11 @@ func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
 }
 
 // TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
-// top-to-bottom the pane stacks task list -> tabbed pinned box -> board strip,
-// so the strip is the LAST stripHeight lines and the fixed pinned box
-// (pinnedBoxHeight lines) sits directly above it. The pinned all-tasks board
-// surfaces as the Shift-1 tab, with its name in the box body.
+// top-to-bottom the pane stacks task list -> board strip -> tabbed pinned box,
+// so the pinned box is the LAST pinnedBoxHeight lines (pinned at the very
+// bottom of the pane) and the fixed board strip (stripHeight lines) sits
+// directly above it. The pinned all-tasks board surfaces as the Shift-1 tab,
+// with its name in the box body.
 func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -412,16 +413,16 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 	if !strings.Contains(lines[0], "PROJECT:") {
 		t.Fatalf("first line = %q, want the task list header first", lines[0])
 	}
-	stripBlock := strings.Join(lines[len(lines)-stripHeight:], "\n")
-	if !strings.Contains(stripBlock, "all-tasks") {
-		t.Errorf("last %d lines missing the board strip:\n%s", stripHeight, stripBlock)
-	}
-	pinBlock := strings.Join(lines[len(lines)-stripHeight-pinnedBoxHeight:len(lines)-stripHeight], "\n")
+	pinBlock := strings.Join(lines[len(lines)-pinnedBoxHeight:], "\n")
 	if !strings.Contains(pinBlock, "all-tasks") {
-		t.Errorf("fixed pinned box (%d lines above the strip) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
+		t.Errorf("pinned box (last %d lines) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
 	}
 	if !strings.Contains(pinBlock, "Shift-1") {
 		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)
+	}
+	stripBlock := strings.Join(lines[len(lines)-pinnedBoxHeight-stripHeight:len(lines)-pinnedBoxHeight], "\n")
+	if !strings.Contains(stripBlock, "all-tasks") {
+		t.Errorf("board strip (%d lines above the pinned box) missing the board:\n%s", stripHeight, stripBlock)
 	}
 }
 

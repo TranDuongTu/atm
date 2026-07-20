@@ -12,19 +12,43 @@ import (
 )
 
 func TestSplitStripWidths(t *testing.T) {
-	prev, sel, next := splitStripWidths(80)
+	prev, sel, next := splitStripWidths(80, 3)
 	if prev != 20 || sel != 40 || next != 20 {
-		t.Errorf("splitStripWidths(80) = %d/%d/%d, want 20/40/20", prev, sel, next)
+		t.Errorf("splitStripWidths(80, 3) = %d/%d/%d, want 20/40/20", prev, sel, next)
 	}
 }
 
 func TestSplitStripWidthsClampsSmall(t *testing.T) {
-	prev, sel, next := splitStripWidths(20)
+	prev, sel, next := splitStripWidths(20, 3)
 	if prev < 6 || sel < 8 || next < 6 {
-		t.Errorf("splitStripWidths(20) = %d/%d/%d, each must be >= minimum", prev, sel, next)
+		t.Errorf("splitStripWidths(20, 3) = %d/%d/%d, each must be >= minimum", prev, sel, next)
 	}
 	if prev+sel+next > 20 {
 		t.Errorf("sum %d exceeds pane width 20", prev+sel+next)
+	}
+}
+
+func TestSplitStripWidthsOneBoardFullWidth(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 1)
+	if prev != 0 || next != 0 || sel != 100 {
+		t.Fatalf("got %d/%d/%d, want 0/100/0", prev, sel, next)
+	}
+}
+
+func TestSplitStripWidthsTwoBoards70_30(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 2)
+	if prev != 0 {
+		t.Fatalf("prev = %d, want 0 (no prev cell with 2 boards)", prev)
+	}
+	if sel != 70 || next != 30 {
+		t.Fatalf("sel/next = %d/%d, want 70/30", sel, next)
+	}
+}
+
+func TestSplitStripWidthsThreePlusKeeps25_50_25(t *testing.T) {
+	prev, sel, next := splitStripWidths(100, 3)
+	if prev != 25 || sel != 50 || next != 25 {
+		t.Fatalf("got %d/%d/%d, want 25/50/25", prev, sel, next)
 	}
 }
 

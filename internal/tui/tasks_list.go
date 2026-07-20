@@ -212,14 +212,14 @@ func (t *tasksModel) toggleGroupAtCursor() tea.Cmd {
 }
 
 // renderListWithStrip renders the list view top to bottom: the task list
-// (fills), then the single tabbed pinned box, then the board thumbnail strip at
-// the bottom (the detail view keeps the full pane since the strip is
-// contextual to browsing). It reuses the existing renderList() by temporarily
-// shrinking t.contentHeight/t.pageSize to the list's sub-height (from
-// listContentHeight()) rather than refactoring renderList itself —
-// renderList already ends with padToHeight(..., t.contentHeight), so the
-// shrink makes it pad to the sub-height, and the outer padToHeight below
-// clamps any rounding.
+// (fills), then the board thumbnail strip, then the single tabbed pinned box
+// pinned at the very bottom of the pane (the detail view keeps the full pane
+// since the strip is contextual to browsing). It reuses the existing
+// renderList() by temporarily shrinking t.contentHeight/t.pageSize to the
+// list's sub-height (from listContentHeight()) rather than refactoring
+// renderList itself — renderList already ends with padToHeight(...,
+// t.contentHeight), so the shrink makes it pad to the sub-height, and the
+// outer padToHeight below clamps any rounding.
 func (t *tasksModel) renderListWithStrip() string {
 	listH := t.listContentHeight()
 	savedH, savedPageSize := t.contentHeight, t.pageSize
@@ -236,12 +236,12 @@ func (t *tasksModel) renderListWithStrip() string {
 
 	var b strings.Builder
 	b.WriteString(listOut)
+	b.WriteString("\n")
+	b.WriteString(strip)
 	if pinned != "" {
 		b.WriteString("\n")
 		b.WriteString(pinned)
 	}
-	b.WriteString("\n")
-	b.WriteString(strip)
 	return padToHeight(b.String(), t.contentHeight)
 }
 
