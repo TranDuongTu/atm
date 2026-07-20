@@ -860,6 +860,12 @@ func TestProjectsViewUsesThreeWaySplit(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 30)
 	seedProject(t, m, "ATM", "Acme Task Manager")
+	// A project must be selected: with no selection the events section is
+	// folded away (its rows given back to the summary) rather than showing
+	// a placeholder that doubles the summary's own "select a project"
+	// message, so the three-way split this test pins only appears once a
+	// project is selected.
+	update(t, m, "s")
 	body := m.projects.View()
 	lines := strings.Split(body, "\n")
 	find := func(sub string) int {

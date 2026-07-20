@@ -10,6 +10,7 @@ import (
 
 	"atm/internal/core"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func feedEntry(action string, payload string) core.LogEntry {
@@ -251,8 +252,19 @@ func TestRecentEventsFeedPlaceholders(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	// No selection: muted placeholder, no digest lines.
-	mustContain(t, m.projects.View(), "select a project to see events")
+	// No selection: the feed section is folded away entirely (its rows
+	// given back to the summary) rather than showing its own "select a
+	// project" placeholder, which would double the summary's identical
+	// message directly below it on the fresh-launch screen.
+	body := m.projects.View()
+	mustNotContain(t, body, "select a project to see events")
+	mustContain(t, body, "select a project to see summaries")
+
+	// Once a project is selected, the events section renders normally.
+	update(t, m, "s")
+	body = m.projects.View()
+	mustContain(t, body, "Recent Events")
+	mustNotContain(t, body, "select a project to see events") // has events (project.created etc.)
 }
 
 func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
@@ -273,6 +285,10 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	mustContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
 	p.width = 46 // below 60: id column drops, age stays
+	line = p.eventFeedLine(e, lanes, 1, now, true)
+	mustNotContain(t, line, "84fbf58")
+	mustContain(t, line, "1h")
+	p.width = feedAgeMinWidth // exactly at the age threshold: age still renders
 	line = p.eventFeedLine(e, lanes, 1, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
@@ -347,6 +363,48 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 	}
 }
 
+// TestRecentEventsFeedScrollRendersNewContent proves the amendment to I3:
+// TestRecentEventsSubfocusScrolls and TestRecentEventsCursorClampsToFeedLength
+// assert logsCursor only, never calling View() after paging — so deleting
+// the cursor argument to windowLines, or dropping the cursor-row highlight,
+// would leave the whole suite green. This seeds enough events to span more
+// than one feed page, renders unfocused (pinned to the newest page), pages
+// with L then ], and asserts the second render surfaces a digest line the
+// first render did not — a property of specific seeded titles, not exact
+// line positions.
+func TestRecentEventsFeedScrollRendersNewContent(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	// 25 tasks, seeded oldest (Task 00) to newest (Task 24): comfortably
+	// more than one feed page (page = eventsH-1 = 11 rows at this size), so
+	// paging once brings entries that were off the unfocused window into
+	// view.
+	for i := 0; i < 25; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+
+	unfocused := m.projects.View()
+	mustContain(t, unfocused, `created "Task 24"`)    // newest task: unfocused tail is pinned here
+	mustNotContain(t, unfocused, `created "Task 13"`) // one page down: not yet visible
+
+	update(t, m, "L")
+	update(t, m, "]")
+	focused := m.projects.View()
+	mustContain(t, focused, `created "Task 13"`) // paging surfaced it
+
+	// The cursor row is visibly highlighted when focused: RowCursor applies
+	// a Reverse SGR attribute, invisible at the default (ascii) test color
+	// profile, so force ANSI256 for this assertion only.
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+	highlighted := m.projects.View()
+	if !strings.Contains(highlighted, "\x1b[7m") {
+		t.Fatalf("focused feed has no reverse-video cursor row\n--- body ---\n%s", highlighted)
+	}
+}
+
 func TestRecentEventsSubfocusScrolls(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -399,6 +457,43 @@ func TestRecentEventsFocusRequiresSelection(t *testing.T) {
 	update(t, m, "L")
 	if m.projects.logsFocus {
 		t.Fatal("L without a selected project must not focus the feed")
+	}
+}
+
+// TestSetSizeReleasesLogsFocusWhenFeedCollapses proves I2: shrinking the
+// terminal below the events slot's collapse threshold (projectPaneSplitHeights
+// returns eventsH == 0 once p.contentHeight <= 11) makes renderList skip the
+// feed section entirely, but handleListKey still routes every key into
+// handleLogsKey while logsFocus stays set — stranding the user in an
+// invisible subfocus where list keys like j/s/enter are silently swallowed.
+// SetSize must release focus (and reset the cursor) when a resize collapses
+// the feed.
+func TestSetSizeReleasesLogsFocusWhenFeedCollapses(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "ZZZ", "Zeta Project") // a second row so list-cursor movement is observable
+	update(t, m, "s")
+	update(t, m, "L")
+	if !m.projects.logsFocus {
+		t.Fatal("L should focus the events feed")
+	}
+
+	m.SetSize(120, 14)
+	if _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight); eventsH != 0 {
+		t.Fatalf("test setup: eventsH = %d, want 0 (collapsed) at this size", eventsH)
+	}
+	if m.projects.logsFocus {
+		t.Fatal("SetSize should release logsFocus when the events slot collapses to 0")
+	}
+	if m.projects.logsCursor != 0 {
+		t.Fatalf("logsCursor = %d, want reset to 0", m.projects.logsCursor)
+	}
+
+	listCursor := m.projects.cursor
+	update(t, m, "j")
+	if m.projects.cursor != listCursor+1 {
+		t.Fatal("after the collapse, j should drive the project list again, not be swallowed by handleLogsKey")
 	}
 }
 
