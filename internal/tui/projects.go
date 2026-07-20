@@ -1157,6 +1157,12 @@ func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
 		return nil
 	}
 	m.projectScope = code
+	// R2-3: logsOffset resets on every scope write, matching the other two
+	// production scope-write sites (handleListKey's "s" and confirmYes's
+	// project removal). A brand-new project has no prior viewport position
+	// to strand, so this isn't user-visible today, but the invariant applies
+	// uniformly regardless.
+	m.projects.logsOffset = 0
 	m.refreshAll()
 	return nil
 }

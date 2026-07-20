@@ -324,6 +324,39 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustNotContain(t, line, "1h")
+	width = feedActorMinWidth // exactly at the actor threshold: actor still renders
+	line = p.eventFeedLine(e, lanes, 1, width, now, true)
+	mustContain(t, line, "dev@clau")
+	width = feedActorMinWidth - 1 // below: actor drops too, message gets its columns
+	line = p.eventFeedLine(e, lanes, 1, width, now, true)
+	mustNotContain(t, line, "dev@clau")
+}
+
+// TestRecentEventsFeedDigestNonEmptyAt60Columns pins the I2 review fix: below
+// feedActorMinWidth the actor column drops so the message column is never
+// squeezed to nothing. Renders through the full app at a 60-column terminal
+// — the width the review measured as producing a box of rows with no digest
+// text at all — and a tall enough terminal to keep the events section boxed
+// (see summaryChartsBoxed), the narrowest regime the id/age/actor ladder
+// exists to protect. The task's own creation event is the newest row, so its
+// digest ("created ...") surviving (even truncated) is direct evidence the
+// message column got real width, not zero.
+func TestRecentEventsFeedDigestNonEmptyAt60Columns(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(60, 40)
+	_, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
+	if !summaryChartsBoxed(summaryH) {
+		t.Fatal("setup: expected the events section boxed at 60x40 — adjust the fixture height")
+	}
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	body := m.projects.View()
+	mustContain(t, body, "Recent Events")
+	mustContain(t, body, "create") // digest survives, even truncated ("create...")
+	if regexp.MustCompile(`\bdev@`).MatchString(body) {
+		t.Fatalf("actor column should have dropped at 60 columns, freeing room for the message\n--- body ---\n%s", body)
+	}
 }
 
 // TestRecentEventsFeedAt120Columns pins the feed's behavior at the terminal
@@ -352,7 +385,7 @@ func TestRecentEventsFeedAt120Columns(t *testing.T) {
 	}
 }
 
-// TestEventFeedCapsAtMaxFeedEvents pins the amendment to Task 4: the feed
+// TestEventFeedCapsAtMaxFeedEvents pins the rule: the feed
 // bounds itself to the newest maxFeedEvents entries rather than reversing
 // and graphing the project's entire history on every render frame (an
 // O(total events) allocation pass in the render loop). This tests the
@@ -391,15 +424,13 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 	}
 }
 
-// TestRecentEventsFeedScrollRevealsNewContent is the modeless rewrite of the
-// old TestRecentEventsFeedScrollRendersNewContent (ATM-793b19 Task 8): the
-// underlying property survives — scrolling the feed surfaces a digest line
-// that was off the initial tail window — but the mechanism is now
-// shift+right (a page) rather than L then ], and there is no cursor row to
-// highlight (R2-3: logsOffset is a pure viewport offset). Also asserts the
-// negative: no reverse-video escape appears anywhere inside the events box,
-// scoped to the box's own rows so the project list's own RowCursor-styled
-// selection higher up in the same pane can't produce a false pass.
+// TestRecentEventsFeedScrollRevealsNewContent asserts the core scrolling
+// property: paging the feed (shift+right) surfaces a digest line that was
+// off the initial tail window, with no cursor row to highlight (R2-3:
+// logsOffset is a pure viewport offset). Also asserts the negative: no
+// reverse-video escape appears anywhere inside the events box, scoped to the
+// box's own rows so the project list's own RowCursor-styled selection higher
+// up in the same pane can't produce a false pass.
 func TestRecentEventsFeedScrollRevealsNewContent(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -492,11 +523,11 @@ func TestShiftLeftRightPageFeedAndOffsetClamps(t *testing.T) {
 		update(t, m, "shift+right")
 	}
 	// Window-aware upper bound (R2-3): feedLen()-rows, floored at 0 — not
-	// feedLen()-1, which the old buggy clamp also satisfied. See
-	// TestScrollEventsFeedClampsToVisibleWindow for the dedicated,
-	// multi-regime pin of this bound; this assertion keeps this test's own
-	// heavy shift+right hammering (a different call path/contentHeight than
-	// that test's fixed setup) from silently regressing to the stale bound.
+	// feedLen()-1. See TestScrollEventsFeedClampsToVisibleWindow for the
+	// dedicated, multi-regime pin of this bound; this assertion keeps this
+	// test's own heavy shift+right hammering (a different call
+	// path/contentHeight than that test's fixed setup) from silently
+	// regressing to the wrong bound.
 	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	wantMax := m.projects.feedLen() - eventsFeedVisibleRows(eventsH)
 	if wantMax < 0 {
@@ -685,14 +716,32 @@ func feedBodyLines(t *testing.T, view string, eventsH int) []string {
 	return body
 }
 
-// TestScrollEventsFeedClampsToVisibleWindow pins the Important-1 review fix:
-// scrollEventsFeed's upper clamp is feedLen() minus the visible row count
-// (R2-3), not feedLen()-1. The stale clamp let a feed that didn't overflow
-// its window scroll anyway (pushing the newest event off the top and
-// rendering blank rows), and left one event stranded above a column of
-// blanks at maximum scroll on any overflowing feed. This exercises all three
-// regimes named in the review: under, exactly-one-over, and well-over the
-// window.
+// TestScrollEventsFeedNoopWhenSlotCollapsed covers scrollEventsFeed's
+// eventsH == 0 early return: when the events slot is too short to render at
+// all (projectPaneSplitHeights collapses it to 0), shift+down must not move
+// logsOffset — there is no window for an offset to be relative to.
+func TestScrollEventsFeedNoopWhenSlotCollapsed(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	m.projects.contentHeight = 3
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	if eventsH != 0 {
+		t.Fatalf("setup: expected the events slot collapsed to 0 at contentHeight 3, got %d", eventsH)
+	}
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("scrollEventsFeed should no-op with the events slot collapsed, got logsOffset=%d", m.projects.logsOffset)
+	}
+}
+
+// TestScrollEventsFeedClampsToVisibleWindow pins the rule: scrollEventsFeed's
+// upper clamp is feedLen() minus the visible row count (R2-3), not
+// feedLen()-1 — a feed that does not overflow its window must not scroll at
+// all, and at maximum scroll no event may be stranded above a column of
+// blanks. This exercises all three regimes: under, exactly-one-over, and
+// well-over the window.
 func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 40)
@@ -765,13 +814,12 @@ func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 	t.Logf("(c) feedLen=%d rows=%d max offset=%d, all %d rows filled", feedLen, rows, m.projects.logsOffset, len(body))
 }
 
-// TestShiftRightPageOverlapsByOneLine pins the Important-2 review fix: the
-// page-scroll magnitude (eventsPageSize) is rows-1, not rows or rows+1. The
-// only prior coverage asserted that a previously-hidden line became visible,
-// which any of those three magnitudes would satisfy. This pins the overlap
-// precisely — the LAST visible event line before a shift+right page is the
-// FIRST visible event line after it — so a regression to the stale
-// `eventsH - 1` magnitude (or an off-by-one the other way) fails the test.
+// TestShiftRightPageOverlapsByOneLine pins the rule: the page-scroll
+// magnitude (eventsPageSize) is rows-1, not rows or rows+1. Asserting only
+// that a previously-hidden line became visible would pass for any of those
+// three magnitudes, so this pins the overlap precisely — the LAST visible
+// event line before a shift+right page is the FIRST visible event line
+// after it — catching an off-by-one in either direction.
 func TestShiftRightPageOverlapsByOneLine(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 40)
@@ -877,17 +925,16 @@ func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
 	}
 }
 
-// TestRenderEventsFeedClampFollowsWindowGrowth pins the Task 9 review fix
-// (A1): renderEventsFeed's render-time local clamp bounds the offset against
-// len(feed)-rows (the same window-aware rule scrollEventsFeed enforces on
-// p.logsOffset), not len(feed)-1. Before the fix, growing the terminal
-// (which grows `rows` without moving logsOffset — nothing but a shift+arrow
-// keypress ever touches that field) could leave a stale, too-high offset
-// under the old len(feed)-1 bound: the window would then read past the end
-// of the feed and blank-pad the shortfall, even though enough older events
-// exist to fill the taller box. This drives the resize purely through
-// contentHeight/View() — no key press — so any regression back to the
-// len(feed)-1 local clamp shows up as blank rows here.
+// TestRenderEventsFeedClampFollowsWindowGrowth pins the rule: the render
+// path's local offset clamp (eventsFeedBody) bounds against len(feed)-rows —
+// the same window-aware rule scrollEventsFeed enforces on p.logsOffset — not
+// len(feed)-1. Growing the terminal grows `rows` without moving logsOffset
+// (nothing but a shift+arrow keypress ever touches that field); a stale,
+// too-high offset under a len(feed)-1 bound would read the window past the
+// end of the feed and blank-pad the shortfall, even though enough older
+// events exist to fill the taller box. This drives the resize purely through
+// contentHeight/View() — no key press — so a regression to the wrong local
+// clamp shows up as blank rows here.
 func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 40)

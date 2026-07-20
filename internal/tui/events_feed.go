@@ -188,13 +188,31 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	return e.Action
 }
 
-// feedIDMinWidth and feedAgeMinWidth are the events-box inner-width
-// thresholds below which eventFeedLine drops the id column, then the age
-// column, to give the space to the message column. See eventFeedLine's doc
-// comment for why the id yields first.
+// feedIDMinWidth, feedAgeMinWidth, and feedActorMinWidth are the events
+// line's inner-width thresholds (the box's inner width when boxed, or the
+// pane width when compact) below which eventFeedLine drops the id column,
+// then the age column, then the actor column, in that order, giving the
+// freed space to the message column each time. See eventFeedLine's doc
+// comment for why they yield in this order.
+//
+// feedActorMinWidth = 26: dropping the actor (8 cols + 1 separator = 9)
+// below this width is what keeps the message column non-empty on a
+// 60-70-column terminal. At that terminal size the events box's inner width
+// is ~19-22 columns (60-col terminal: pane width 22, box inner width 19;
+// 70-col: pane width 26, box inner width 22 — see chartBoxInnerWidth). With
+// the actor column still in the budget, the fixed cost before the message is
+// laneW+1(gutter) + 7+1(subject) + 8+1(actor) = 19 (laneW=1, id and age
+// already dropped below their own thresholds at this width), leaving 0-3
+// columns for the message — the I2 review's "twelve rows... conveying
+// nothing." Dropping the actor cuts that fixed cost to 10, leaving 9-12
+// columns instead. 26 sits below feedAgeMinWidth (so the actor is always the
+// last column standing before the message, never dropped ahead of the age)
+// and keeps the actor for an 80-column terminal (box inner width 26, message
+// width 7 with the actor still in), which the review did not flag as broken.
 const (
-	feedIDMinWidth  = 60
-	feedAgeMinWidth = 30
+	feedIDMinWidth    = 60
+	feedAgeMinWidth   = 30
+	feedActorMinWidth = 26
 )
 
 // maxGraphLanes caps the commit-graph gutter width. Local histories are
@@ -516,10 +534,9 @@ func eventsFeedVisibleRows(height int) int {
 // shift+left/right: the actual visible row count (eventsFeedVisibleRows)
 // minus one more, so a page jump leaves one row of context from the
 // previous page (the same overlap convention listPageSize uses for the
-// project list). This replaces handleLogsKey's stale `eventsH - 1`, which
-// assumed a one-row caption rather than the two-row box border the feed
-// actually renders inside; that mismatch made every page jump skip a row
-// instead of overlapping one.
+// project list). The magnitude must come from the same visible-row count the
+// renderer windows by — never a value computed independently — or a page
+// jump can skip or duplicate rows relative to what's actually on screen.
 func (p *projectsModel) eventsPageSize() int {
 	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
 	page := eventsFeedVisibleRows(eventsH) - 1
@@ -566,15 +583,22 @@ func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
 	}
 }
 
-// eventFeedLine assembles one digest line, sized to width (the events box's
-// inner width — see renderEventsFeed). Column budget (spec): gutter, id(7,
-// dim), subject(7), actor(8), message(flex), age(right, dim). The id column
-// drops below feedIDMinWidth of width, then the age below feedAgeMinWidth:
-// the id is a lookup key needed only when acting on a specific event, so it
-// yields the message column — the one carrying what the user is actually
-// scanning — first. `plain` suppresses the inner dim styles; the production
-// call site always passes false, and only tests pass true, to assert on
-// unstyled output without fighting ANSI codes.
+// eventFeedLine assembles one digest line, sized to width (the events
+// section's inner width — the box's inner width when boxed, or the pane
+// width when compact; see renderEventsFeed). Column budget (spec): gutter,
+// id(7, dim), subject(7), actor(8), message(flex), age(right, dim). Three
+// columns yield to the message column, in order, as width shrinks: the id
+// drops below feedIDMinWidth, then the age below feedAgeMinWidth, then the
+// actor below feedActorMinWidth. The id yields first because it is a lookup
+// key needed only when acting on a specific event; the age yields second
+// because it is the least load-bearing of what remains; the actor yields
+// last, and only just before the message would otherwise be squeezed to
+// nothing, because WHO changed something is still worth a scan even once the
+// subject and the message are the only columns guaranteed to survive. The
+// subject column never drops: it names WHAT changed, which the message's own
+// wording cannot always recover on its own. `plain` suppresses the inner dim
+// styles; the production call site always passes false, and only tests pass
+// true, to assert on unstyled output without fighting ANSI codes.
 func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, width int, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
@@ -598,8 +622,11 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, widt
 		used += 8
 	}
 	b.WriteString(fmt.Sprintf("%-7s ", truncateRunes(eventFeedSubject(e, code), 7)))
-	b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
-	used += 17
+	used += 8
+	if width >= feedActorMinWidth {
+		b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
+		used += 9
+	}
 	age := ""
 	if width >= feedAgeMinWidth {
 		age = compactAge(e.At, now)
@@ -608,6 +635,12 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, widt
 	if age != "" {
 		msgW-- // the space before the age
 	}
+	// The one width this floor of 4 can violate: at very narrow widths (id,
+	// actor, and age all already dropped) it can push the line wider than
+	// `width`. Harmless — fitLine truncates it back down wherever the line is
+	// placed, leftPad stays 0 (the box never needs to center a line this
+	// long), and no ANSI code straddles the truncation point since id and age
+	// (the only dim-styled fields) are both absent on this path.
 	if msgW < 4 {
 		msgW = 4
 	}
