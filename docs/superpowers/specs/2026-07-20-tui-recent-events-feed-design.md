@@ -2,6 +2,12 @@
 
 Ledger: ATM-793b19 (Events view). Decisions taken with the user on 2026-07-20.
 
+> **Revision 2 (2026-07-20), after the first implementation shipped.** The
+> feed is now a bordered box aligned with the summary chart boxes, and the
+> `L` subfocus mode is replaced by modeless `Shift`+arrow navigation. See
+> **Revision 2 — boxed feed and modeless navigation** at the end of this
+> document, which supersedes the Interaction section and decisions 1 and 4.
+
 ## Problem
 
 The Projects pane summarizes activity only in aggregate (persona meters, a
@@ -162,3 +168,114 @@ green).
 - No event filtering or search.
 - No full-screen events overlay.
 - No changes to `atm store log` output.
+
+---
+
+# Revision 2 — boxed feed and modeless navigation
+
+Decisions taken with the user on 2026-07-20, after the first implementation
+shipped. **This section supersedes the Interaction section above, and
+decisions 1 and 4.** Everything else — the line format, digest vocabulary,
+read-model change, graph rendering, error handling — is unchanged.
+
+## Why
+
+Two problems with the shipped version. The feed rendered as a bare caption
+plus rows while the two summary charts below it are bordered boxes, so the
+pane read as three sections in two visual languages. And `L` subfocus was
+modal: while it was on, `handleListKey` short-circuited every key into the
+feed handler, so `a`, `s`, `enter` and `x` were silently swallowed, and the
+mode could survive a resize that hid the box it belonged to.
+
+## R2-1. The feed is a bordered box
+
+`renderEventsFeed` renders through the existing `renderChartBox`, with the
+title `Recent Events  [Shift-↑↓]` — the key hint appended to the title, the
+same shape as the persona chart's `activity by persona  [P]expand`.
+
+Alignment with the summary charts is automatic and needs no new code: every
+box computes its width as `chartBoxWidth(p.width)` (96% of pane width) and
+is centered with `prefix := spaces((p.width - boxW) / 2)`. Identical pane
+width in, identical edges out.
+
+Two adjustments are required because `renderChartBox` was written for
+charts, and both are satisfied by the body the feed hands it rather than by
+changing the box helper — so the existing charts cannot regress:
+
+- The box **center-pads each body line** (`leftPad = (innerW - width) / 2`).
+  Feed lines must be left-aligned, so the body emits lines already exactly
+  `chartBoxInnerWidth(p.width)` wide; the centering arithmetic then yields
+  zero and is a no-op.
+- The box **top-pads a short body**, floating content to the vertical
+  middle. The body emits exactly `maxLines - 2` lines, blank-filled at the
+  bottom, so `topPad` is zero and the feed sits at the top.
+
+Feed lines are therefore sized to the box's inner width, not the pane
+width. The 60/30 degradation thresholds now measure that inner width
+(~42 columns at a 120-column terminal, versus ~46 before).
+
+The events slot still collapses below 4 rows, and still renders nothing when
+no project is selected.
+
+## R2-2. Navigation is modeless
+
+There is no focus state. The `Shift` modifier is the only discriminator for
+which widget the arrows drive — the same pattern the Tasks pane already uses
+for board thumbnails (`tasks_list.go`: plain `j/k` move the task list while
+`shift+up/down` move the thumbnail's chart cursor, in one switch, with no
+mode flag).
+
+| Key | Drives |
+|---|---|
+| `shift+↑` / `shift+↓` | events box, one line |
+| `shift+←` / `shift+→` | events box, one page (visible rows − 1) |
+| `j` `k` `↑` `↓` `g` `[` `]` `a` `s` `enter` `e` `x` | project list, unchanged |
+
+`shift+←`/`shift+→` are free in the Projects pane; only the Tasks pane binds
+them (thumbnail drill in/out).
+
+## R2-3. Pure scroll, no cursor
+
+`logsCursor` (a cursor index with a highlighted row) becomes `logsOffset` (a
+viewport offset). No row is highlighted: a persistent highlight in a box
+that never holds focus reads as noise, and the feed is a scanning surface.
+
+`logsOffset` is clamped in the key handler against the feed length and the
+visible row count — never in render, which stays pure of model writes. It
+resets to 0 on project switch and when the project scope is cleared.
+
+## R2-4. Deletions
+
+The modal machinery goes away entirely: `logsFocus`, the `L` binding,
+`handleLogsKey`'s early-return that stole every key, the app-level `esc`
+branch for feed exit, the `SetSize` guard that released focus when the box
+collapsed, the `confirmYes` defensive reset, and the `[L]ogs` status hint.
+
+The stranding hazard those last two guarded against stops being expressible:
+with no mode, there is nothing to be stranded in.
+
+Keymap: drop the `L` row; fill the Projects column on the existing
+`Shift+Up/Down` and `Shift+Right/Left` rows, which read `-` there today.
+
+## R2-5. Consequence for jump-to-task
+
+The original decision 1 reserved `enter` for a future jump-to-the-selected-
+event. With no cursor there is no selected event, so that path is closed.
+If jump-to-task is built later it needs a different entry point — a
+full-screen events overlay is the natural one. Accepted deliberately: the
+feed is an ambient scanning surface, not a navigation surface.
+
+## R2-6. Testing
+
+- box body is left-aligned and top-aligned (assert against a rendered line,
+  not the helper's internals)
+- events box edges align with the summary chart boxes at several widths
+- `shift+↑/↓` scroll the feed while plain `j/k` still move the project list,
+  in the same test
+- `shift+←/→` page; offset clamps at both ends
+- the offset resets on project switch
+- no key that worked in the project list before is swallowed now
+
+## R2-7. Non-goals unchanged
+
+Still no filtering, no search, no overlay, no `atm store log` changes.
