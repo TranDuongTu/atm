@@ -15,11 +15,13 @@ import (
 // gutter derived from the v2 parents DAG. This file holds the formatting
 // helpers over core.LogEntry (digest wording, graph lanes, column layout)
 // alongside the pane's own render and key-handling methods (renderEventsFeed,
-// feedLen, scrollEventsFeed, eventFeedLine); projects.go owns the surrounding
-// pane split. Navigation is modeless (revision 2, R2-2): the Shift modifier
-// alone decides whether arrows drive the feed or the project list, mirroring
-// tasksModel's board-thumbnail pattern in tasks_list.go — there is no
-// subfocus to route through.
+// eventsFeedBody, feedLen, scrollEventsFeed, eventFeedLine); projects.go owns
+// the surrounding pane split, including the boxed-vs-compact decision
+// (summaryChartsBoxed) that renderEventsFeed renders under. Navigation is
+// modeless (revision 2, R2-2): the Shift modifier alone decides whether
+// arrows drive the feed or the project list, mirroring tasksModel's
+// board-thumbnail pattern in tasks_list.go — there is no subfocus to route
+// through.
 
 // shortEventID renders the 7-char short form of a "sha256:…" event id; a v1
 // entry (no id) renders empty and the column shows blank.
@@ -341,59 +343,55 @@ func padFeedLine(s string, innerW int) string {
 	return s
 }
 
-// renderEventsFeed renders the Recent Events section as a bordered box
-// (ATM-793b19 revision 2, R2-1), matching the summary charts below it.
-// renderChartBox does the drawing; it center-pads each body line and
-// top-pads a short body to float it to the vertical middle, both written
-// for charts. The feed wants left-and-top alignment instead, achieved
-// without touching renderChartBox by handing it a body for which both
-// behaviors are arithmetic no-ops: every line — placeholder or populated —
-// is exactly chartBoxInnerWidth(p.width) wide (leftPad = (innerW-innerW)/2 =
-// 0) and the body always emits exactly height-2 lines, blank-padded at the
-// bottom (topPad = (innerH-innerH)/2 = 0). The feed is a pure viewport: it
-// windows from p.logsOffset (moved only by scrollEventsFeed), with no
-// cursor row and no highlight (R2-3).
-func (p *projectsModel) renderEventsFeed(height int) string {
-	innerW := chartBoxInnerWidth(p.width)
-	rows := eventsFeedVisibleRows(height)
+// eventsFeedBody builds the Recent Events feed's line content — a muted
+// placeholder state, or the windowed, newest-first slice of digest lines —
+// sized to innerW and windowed to exactly rows lines, blank-padded at the
+// bottom when the feed itself is shorter. Shared by the boxed and compact
+// render forms (ATM-793b19 revision-2 review, I1) so the content, ordering,
+// column degradation, and offset/scroll behavior are identical in both —
+// only the frame differs.
+//
+// Pure with respect to model state: the offset is clamped into a LOCAL copy
+// only. View has a pointer receiver, and writing p.logsOffset here would
+// leak render-time clamping (sized to whichever project and frame are on
+// screen) back into model state, silently resetting a viewport position set
+// on a larger project's feed.
+func (p *projectsModel) eventsFeedBody(innerW, rows int) []string {
 	muted := func(s string) string {
 		return padFeedLine(p.m.styles.Muted.Render(s), innerW)
 	}
 	blank := spaces(innerW)
-	// placeholder blank-fills a single-line message out to height-2 lines,
-	// same as the populated body below it, so renderChartBox's top-pad is a
-	// no-op in every state — a short body would otherwise float to the
-	// vertical middle while the populated feed stays top-aligned.
-	placeholder := func(msg string) string {
+	// placeholder blank-fills a single-line message out to `rows` lines, same
+	// as the populated body below it, so the boxed form's top-pad is a no-op
+	// in every state — a short body would otherwise float to the vertical
+	// middle while the populated feed stays top-aligned (irrelevant to the
+	// compact form, which never pads internally).
+	placeholder := func(msg string) []string {
 		body := make([]string, 1, rows)
 		body[0] = muted(msg)
 		for len(body) < rows {
 			body = append(body, blank)
 		}
-		return strings.Join(body, "\n")
+		return body
 	}
 	if p.m.projectScope == "" {
 		// Unreachable via renderList today: it folds the events section away
 		// entirely when scope is empty. Kept as defensive cover for a future caller.
-		return p.renderChartBox(eventsFeedTitle, placeholder("select a project to see events"), height)
+		return placeholder("select a project to see events")
 	}
 	entries, ok := p.readEventLog()
 	if !ok {
-		return p.renderChartBox(eventsFeedTitle, placeholder("events could not be loaded"), height)
+		return placeholder("events could not be loaded")
 	}
 	if len(entries) == 0 {
-		return p.renderChartBox(eventsFeedTitle, placeholder("no events yet"), height)
+		return placeholder("no events yet")
 	}
 	feed := newestFeedEntries(entries)
-	// Clamp into a LOCAL offset only: View has a pointer receiver, and
-	// writing p.logsOffset here would leak render-time clamping (sized to
-	// whichever project is on screen) back into model state, silently
-	// resetting a viewport position set on a larger project's feed. The
-	// bound mirrors scrollEventsFeed's window-aware clamp exactly — against
-	// len(feed)-rows, not len(feed)-1 — so a terminal resize that grows
-	// `rows` beyond the old maximum's remaining events cannot leave the box
-	// showing fewer events than it has room for, with blank rows below,
-	// until the next shift+arrow keypress recomputes the real clamp.
+	// The bound mirrors scrollEventsFeed's window-aware clamp exactly —
+	// against len(feed)-rows, not len(feed)-1 — so a terminal resize that
+	// grows `rows` beyond the old maximum's remaining events cannot leave the
+	// display showing fewer events than it has room for, with blank rows
+	// below, until the next shift+arrow keypress recomputes the real clamp.
 	offset := p.logsOffset
 	if offset > len(feed)-rows {
 		offset = len(feed) - rows
@@ -427,7 +425,51 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 	for len(body) < rows {
 		body = append(body, blank)
 	}
-	return p.renderChartBox(eventsFeedTitle, strings.Join(body, "\n"), height)
+	return body
+}
+
+// renderEventsFeed renders the Recent Events section either as a bordered
+// box aligned with the summary charts, or as a compact caption-plus-rows
+// form matching the summary charts' own unboxed degradation (ATM-793b19
+// revision-2 review, I1). `boxed` is decided once by the caller — renderList,
+// from summaryChartsBoxed — rather than inferred here, so the feed and the
+// summary section always agree on which visual language the pane is
+// speaking; deciding it independently in each section is exactly how the
+// pane ended up rendering two visual languages at some heights.
+//
+// Both forms window from p.logsOffset (moved only by scrollEventsFeed), with
+// no cursor row and no highlight (R2-3); eventsFeedBody is the single content
+// path both share, so the windowing and column degradation cannot drift
+// apart between them — only the frame differs.
+func (p *projectsModel) renderEventsFeed(height int, boxed bool) string {
+	rows := eventsFeedVisibleRows(height)
+	if boxed {
+		// renderChartBox center-pads each body line and top-pads a short body
+		// to float it to the vertical middle, both written for charts. The
+		// feed wants left-and-top alignment instead, achieved without
+		// touching renderChartBox by handing it a body for which both
+		// behaviors are arithmetic no-ops: eventsFeedBody emits lines already
+		// exactly chartBoxInnerWidth(p.width) wide (leftPad =
+		// (innerW-innerW)/2 = 0) and exactly rows = height-2 lines,
+		// blank-padded at the bottom (topPad = (innerH-innerH)/2 = 0).
+		innerW := chartBoxInnerWidth(p.width)
+		body := p.eventsFeedBody(innerW, rows)
+		return p.renderChartBox(eventsFeedTitle, strings.Join(body, "\n"), height)
+	}
+	// Compact: a caption line carrying the title (and its key hint) plus
+	// left-aligned rows sized to the pane width directly — the way the feed
+	// rendered before it was ever boxed. rows still comes from
+	// eventsFeedVisibleRows, the same function the boxed form and
+	// scrollEventsFeed's offset clamp use, so this form never shows a
+	// different window than the one the offset was clamped against; the
+	// caller's padToHeight makes up the one line of difference between this
+	// form's 1-line caption and the boxed form's 2-line border.
+	lines := make([]string, 0, 1+rows)
+	lines = append(lines, dashboardLine(p.width, p.m.styles.HeaderLabel.Render(eventsFeedTitle)))
+	for _, line := range p.eventsFeedBody(p.width, rows) {
+		lines = append(lines, dashboardLine(p.width, line))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // feedLen returns the current bounded Recent Events feed length for the
@@ -451,13 +493,17 @@ func (p *projectsModel) feedLen() int {
 	return boundedFeedLen(len(entries))
 }
 
-// eventsFeedVisibleRows converts an events box height into the number of
-// event lines visible inside it — height minus its two border rows, floored
+// eventsFeedVisibleRows converts an events section height into the number of
+// event lines visible inside it — height minus two lines of frame, floored
 // at 1. This is the exact arithmetic renderEventsFeed applies to the height
-// it's handed; eventsPageSize's page magnitude and scrollEventsFeed's offset
-// clamp both fold through this same function (fed the same eventsH from
-// projectPaneSplitHeights) rather than recomputing the "-2" independently,
-// so the three cannot drift apart.
+// it's handed, in both the boxed and compact forms; eventsPageSize's page
+// magnitude and scrollEventsFeed's offset clamp both fold through this same
+// function (fed the same eventsH from projectPaneSplitHeights) rather than
+// recomputing the "-2" independently, so none of them can drift apart —
+// which is also why the compact form budgets the same two "frame" lines as
+// the boxed form even though its own caption is only one line: a different
+// row count between the two forms would desync the offset clamp from what a
+// given render actually draws.
 func eventsFeedVisibleRows(height int) int {
 	rows := height - 2
 	if rows < 1 {

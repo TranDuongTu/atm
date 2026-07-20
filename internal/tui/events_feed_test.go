@@ -267,18 +267,19 @@ func TestRecentEventsFeedPlaceholders(t *testing.T) {
 	mustNotContain(t, body, "select a project to see events") // has events (project.created etc.)
 }
 
-// TestEventsFeedPlaceholderRendersInsideBox proves the Task 7 review
-// fold-in: a placeholder body (no project selected here) still renders
-// inside the same bordered box the populated feed uses, and top-aligned
-// rather than vertically centered — placeholder bodies are now blank-filled
-// to height-2 lines so renderChartBox's top-pad is a no-op in every state,
-// the same way the populated feed already was. Calls renderEventsFeed
-// directly (bypassing renderList's empty-scope fold-away) since the
-// projectScope=="" branch is otherwise unreachable through View().
+// TestEventsFeedPlaceholderRendersInsideBox proves a placeholder body (no
+// project selected here) still renders inside the same bordered box the
+// populated feed uses, and top-aligned rather than vertically centered —
+// placeholder bodies are blank-filled to height-2 lines so renderChartBox's
+// top-pad is a no-op in every state, the same way the populated feed already
+// is. Calls renderEventsFeed directly (bypassing renderList's empty-scope
+// fold-away, and its boxed-vs-compact decision) since the projectScope==""
+// branch is otherwise unreachable through View(); boxed=true pins this test
+// to the box form specifically.
 func TestEventsFeedPlaceholderRendersInsideBox(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	body := m.projects.renderEventsFeed(10)
+	body := m.projects.renderEventsFeed(10, true)
 	lines := strings.Split(body, "\n")
 	if len(lines) == 0 || !strings.Contains(lines[0], "╭") {
 		t.Fatalf("placeholder render has no box top border\n--- body ---\n%s", body)
@@ -593,6 +594,60 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 	pl, pr := edgesOf("activity by persona")
 	if el != pl || er != pr {
 		t.Fatalf("events box edges (%d,%d) != persona box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
+	}
+}
+
+// TestEventsFeedFramingMatchesPersonaChart pins the I1 review fix: the feed
+// must not decide boxed-vs-compact independently of the summary section, or
+// the pane goes back to reading as sections in two visual languages — the
+// original motivation for boxing the feed at all, just inverted. At a small
+// pane height (the classic 80x24 terminal, where the persona chart's own
+// "4 lines and up" rule keeps it unboxed) the feed must be unboxed too; at a
+// large height (where the persona chart boxes) the feed must box too. Keyed
+// on both sections' actual rendered output in the same render so it cannot
+// pass if only one of them changes.
+func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
+	findLine := func(body, marker string) string {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, marker) {
+				return line
+			}
+		}
+		return ""
+	}
+	isBoxed := func(line string) bool {
+		return strings.Contains(line, "╭") || strings.Contains(line, "╮")
+	}
+	render := func(t *testing.T, w, h int) (feedLine, personaLine string) {
+		t.Helper()
+		m := newTestModel(t)
+		m.SetSize(w, h)
+		seedProject(t, m, "ATM", "Acme Task Manager")
+		update(t, m, "s")
+		seedTask(t, m, "ATM", "Fix cache")
+		body := m.projects.View()
+		feedLine = findLine(body, "Recent Events")
+		personaLine = findLine(body, "activity by persona")
+		if feedLine == "" || personaLine == "" {
+			t.Fatalf("missing a section at %dx%d\n--- body ---\n%s", w, h, body)
+		}
+		return feedLine, personaLine
+	}
+
+	smallFeed, smallPersona := render(t, 80, 24)
+	if isBoxed(smallPersona) {
+		t.Fatalf("setup: expected the persona chart unboxed at 80x24, got: %q", smallPersona)
+	}
+	if isBoxed(smallFeed) {
+		t.Fatalf("events feed is boxed while the persona chart is unboxed at 80x24 — two visual languages: %q vs %q", smallFeed, smallPersona)
+	}
+
+	largeFeed, largePersona := render(t, 120, 40)
+	if !isBoxed(largePersona) {
+		t.Fatalf("setup: expected the persona chart boxed at 120x40, got: %q", largePersona)
+	}
+	if !isBoxed(largeFeed) {
+		t.Fatalf("events feed is unboxed while the persona chart is boxed at 120x40 — two visual languages: %q vs %q", largeFeed, largePersona)
 	}
 }
 
