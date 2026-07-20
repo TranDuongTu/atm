@@ -263,6 +263,9 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.boards.refresh()
 			p.m.boards.selectDefault()
 			p.m.boards.loadPins()
+			// Status-bar counts are project-scoped, so they must follow the
+			// switch here — this handler never runs a full refreshAll.
+			p.m.refreshStoreStats()
 			return cmd
 		}
 	case "a":

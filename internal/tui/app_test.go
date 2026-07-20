@@ -413,6 +413,73 @@ func TestFormatSize(t *testing.T) {
 	}
 }
 
+// Selecting a project rescopes the status-bar counts to it — the select
+// handler runs no full refreshAll, so this pins that it refreshes the
+// stats itself instead of leaving the previous scope's numbers up.
+func TestStatusLineStatsFollowProjectSelection(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "AAA", "Alpha")
+	seedProject(t, m, "BBB", "Beta")
+	// Give AAA more events than BBB so the two scopes can't be confused.
+	for i := 0; i < 3; i++ {
+		seedTask(t, m, "AAA", fmt.Sprintf("a%d", i), "AAA:status:open")
+	}
+	seedTask(t, m, "BBB", "b0", "BBB:status:open")
+	m.refreshAll()
+
+	// Cursor starts on AAA (projects sort by code); select it.
+	update(t, m, "1")
+	update(t, m, "s")
+	if m.projectScope != "AAA" {
+		t.Fatalf("projectScope = %q, want AAA", m.projectScope)
+	}
+	aaaLive := m.storeStats.EventCount
+	mustContain(t, m.renderStatusLine(), "AAA")
+
+	// Move to BBB and select it.
+	update(t, m, "j")
+	update(t, m, "s")
+	if m.projectScope != "BBB" {
+		t.Fatalf("projectScope = %q, want BBB", m.projectScope)
+	}
+	bbbLive := m.storeStats.EventCount
+	mustContain(t, m.renderStatusLine(), "BBB")
+
+	if aaaLive <= bbbLive {
+		t.Errorf("AAA (%d events) should out-count BBB (%d)", aaaLive, bbbLive)
+	}
+
+	// Selecting a project seeds its workflow vocabulary, which itself
+	// appends events — so the store grows as this test navigates. Take the
+	// three totals now, after navigation has settled, or the arithmetic
+	// compares reads from different points in time.
+	snapshot := func(scope string) core.StoreStats {
+		t.Helper()
+		st, err := m.store.StoreStats(scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	all, aaa, bbb := snapshot(""), snapshot("AAA"), snapshot("BBB")
+	if aaa.EventCount+bbb.EventCount != all.EventCount {
+		t.Errorf("scoped counts %d+%d should sum to store-wide %d",
+			aaa.EventCount, bbb.EventCount, all.EventCount)
+	}
+	if aaa.EventCount >= all.EventCount {
+		t.Errorf("scoping to AAA (%d) should be narrower than store-wide (%d)",
+			aaa.EventCount, all.EventCount)
+	}
+	// The model's live value must match its scope's true total — a stale
+	// bar showing the previous project's numbers is exactly the bug here.
+	if bbbLive != bbb.EventCount {
+		t.Errorf("status bar shows %d events for BBB, store reports %d", bbbLive, bbb.EventCount)
+	}
+	if aaaLive != aaa.EventCount {
+		t.Errorf("status bar showed %d events for AAA, store reports %d", aaaLive, aaa.EventCount)
+	}
+}
+
 func TestStatusLineShowsKeyClusterAndAppVersion(t *testing.T) {
 	m := newTestModel(t)
 	line := m.renderStatusLine()

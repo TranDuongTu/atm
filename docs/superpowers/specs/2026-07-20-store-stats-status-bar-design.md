@@ -19,13 +19,14 @@ Replace the static text with a compact store-stats cluster and a fixed key
 cluster, plus the app version:
 
 ```
-⛃ v2 · 142 events · 1.2 MB  [a]dd [s]elect …  <toast>      ◆dock  [?]help [C]conv [T]theme  atm v1.2.11 ✓
+⛃ v2 · ATM 1811 events · 2.4 MB  [a]dd [s]elect …  <toast>  ◆dock  [?]help [C]conv [T]theme  atm v1.2.11 ✓
 └─ left: stats, pane hints, toast                           └─ right: docks · keys · version · refresh
 ```
 
 - `STORE:`, `SELECTED:`, and `theme:` segments are **removed**.
-- Left leads with store stats: format version, total event count, total
-  event-log size.
+- Left leads with the stats: format version, event count, and event-log
+  size for the selected project (store-wide totals when none is selected,
+  which also drops the code prefix).
 - Right gains a fixed `[?]help [C]conv [T]theme` key cluster and the app
   version (dim), before the refresh-recency glyph.
 - Per-pane hints stay, minus their now-redundant `[?]keys` /
@@ -39,7 +40,12 @@ bindings), plugin dock segments, the refresh-recency indicator, and the CLI
 
 1. **Layout**: stats left, keys + version right (option A). Store path is
    dropped entirely — discoverable via CLI/env, not worth 15–40 columns.
-2. **Stats are store-wide**, not per-selected-project.
+2. **Stats follow the selected project**, falling back to store-wide totals
+   when nothing is selected. (Revised during implementation: store-wide-only
+   numbers never move as you navigate, which reads as a frozen status bar.
+   The scoped counts are prefixed with the project code so they can't be
+   mistaken for store totals.) `Version` stays store-wide in every scope —
+   the storage format describes the store, not one project's slice.
 3. **Size units adapt**: `<n> KB` under 1 MB, `<n.1> MB` at or above (a flat
    "0.0 MB" for small stores reads as broken).
 4. **Store version** is the storage format: `v2` when every project (and the
@@ -56,15 +62,15 @@ The TUI consumes `core.Service` only, so stats cross the hexagonal seam as a
 plain value:
 
 ```go
-// core/types.go (or service.go)
+// core/service.go
 type StoreStats struct {
-    SizeBytes  int64  // sum of event-log file sizes across all projects
-    EventCount int    // total event lines across all projects' logs
-    Version    string // "v1", "v2", or "mixed"
+    SizeBytes  int64  // event-log file bytes in the requested scope
+    EventCount int    // event lines in the requested scope
+    Version    string // "v1", "v2", or "mixed" — always store-wide
 }
 
-// MaintenanceService gains:
-StoreStats() (StoreStats, error)
+// MaintenanceService gains — project "" means the whole store:
+StoreStats(project string) (StoreStats, error)
 ```
 
 `EventCount`/`SizeBytes` name what the numbers are without exposing file
@@ -73,12 +79,14 @@ store, unchanged.
 
 ### 2. Store implementation — `internal/store`
 
-`(*Store).StoreStats()` delegates to a new engine helper in
+`(*Store).StoreStats(project)` delegates to a new engine helper in
 `internal/store/eventlog`:
 
 - Enumerate `ProjectCodesOnDisk()`.
-- Per project, resolve the effective format via `ProjectFormat(code)`; pick
-  the matching log file (`events.v2.jsonl` for v2, `log.jsonl` for v1).
+- Per project, resolve the effective format via `ProjectFormat(code)`. Every
+  project contributes its format to the version set; only projects in scope
+  (all of them when `project` is `""`) contribute size and count. Pick the
+  matching log file (`events.v2.jsonl` for v2, `log.jsonl` for v1).
 - `os.Stat` for size; read the file and count `'\n'` bytes for the event
   count (each committed event/log entry is one newline-terminated line; an
   uncommitted partial tail therefore doesn't count). A missing file
@@ -94,8 +102,14 @@ stats upstream.
 
 ### 3. TUI — `internal/tui`
 
-- `Model` gains `storeStats core.StoreStats`; `refreshAll` populates it
-  (ignoring errors, keeping the previous value on failure).
+- `Model` gains `storeStats core.StoreStats`, populated by a
+  `refreshStoreStats()` helper (ignoring errors, keeping the previous value
+  on failure). `refreshAll` calls it, and so does the project-select handler
+  in `projects.go` — that handler deliberately runs no full `refreshAll`, so
+  without the direct call the bar would keep the previous project's numbers
+  until the next refresh tick.
+- When a project is selected its code prefixes the counts
+  (`⛃ v2 · ATM 1811 events · 2.4 MB`).
 - `renderStatusLine` left side becomes:
   `⛃ <version>` (StatusLabel style) + ` · <n> events · <size>` (Status
   style), then the pane hint, then the toast. The `STORE:`/`SELECTED:`/
@@ -119,8 +133,14 @@ value. A brand-new empty store renders `⛃ v2 · 0 events · 0 KB`.
 
 - **Store** (`internal/store`): v2 project with N events → exact
   `EventCount`, `SizeBytes` = file size, `Version` = "v2"; two projects with
-  differing formats → `"mixed"`; empty store → zeros + active format.
+  differing formats → `"mixed"`; empty store → zeros + active format;
+  scoped reads sum to the store-wide read and keep `Version` store-wide; an
+  unknown scope → zero counts with the version still resolved.
 - **TUI**: `formatSize` table test (0, <1 MB, ≥1 MB, rounding);
   status-line render test asserting the stats cluster, key cluster, and
   `atm v…` appear and `STORE:`/`SELECTED:`/`theme:` do not; pane-hint tests
-  updated for the removed fragments.
+  updated for the removed fragments; a project-switch test pinning that the
+  bar rescopes on select and matches each scope's true total. Note that
+  selecting a project seeds its workflow vocabulary, which appends events —
+  tests comparing scoped against store-wide totals must read both after
+  navigation settles, not across it.

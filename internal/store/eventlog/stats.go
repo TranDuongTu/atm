@@ -7,13 +7,16 @@ import (
 	"atm/internal/core"
 )
 
-// StoreStats sums event-log size and line count across every project on
-// disk and derives the store-wide format version. It is a read-only,
-// advisory display path: no locks are taken (a torn read is corrected on
-// the next refresh), and a missing log file contributes zero. Committed
-// events are newline-terminated lines, so counting '\n' bytes never counts
-// an uncommitted partial tail.
-func (e *Engine) StoreStats() (core.StoreStats, error) {
+// StoreStats sums event-log size and line count for one project, or for
+// every project on disk when project is "". Version is derived across ALL
+// projects either way: the storage format is a property of the store, not
+// of the slice being counted, so it stays put as the user switches scope.
+//
+// This is a read-only, advisory display path: no locks are taken (a torn
+// read is corrected on the next refresh), and a missing log file
+// contributes zero. Committed events are newline-terminated lines, so
+// counting '\n' bytes never counts an uncommitted partial tail.
+func (e *Engine) StoreStats(project string) (core.StoreStats, error) {
 	var st core.StoreStats
 	codes, err := e.ProjectCodesOnDisk()
 	if err != nil {
@@ -26,6 +29,9 @@ func (e *Engine) StoreStats() (core.StoreStats, error) {
 			return st, err
 		}
 		formats[f] = true
+		if project != "" && code != project {
+			continue
+		}
 		path := e.LogPath(code)
 		if f == StoreFormatV2 {
 			path = e.EventsV2Path(code)

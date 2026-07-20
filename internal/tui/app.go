@@ -335,12 +335,21 @@ func (m *Model) refreshAll() {
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
-	// A stats read failure is never worth blanking the status bar: keep the
-	// previous value and let the next refresh correct it.
-	if st, err := m.store.StoreStats(); err == nil {
+	m.refreshStoreStats()
+	m.lastRefreshAt = core.Now()
+}
+
+// refreshStoreStats reloads the status bar's event-log summary for the
+// current project scope (store-wide when nothing is selected). Selecting a
+// project must call this directly: that handler deliberately avoids a full
+// refreshAll, so without it the bar would keep the previous project's
+// numbers until the next refresh tick. A read failure is never worth
+// blanking the bar — keep the previous value and let the next refresh
+// correct it.
+func (m *Model) refreshStoreStats() {
+	if st, err := m.store.StoreStats(m.projectScope); err == nil {
 		m.storeStats = st
 	}
-	m.lastRefreshAt = core.Now()
 }
 
 // actorOr returns the actor string for the status line. The actor is always
@@ -855,8 +864,14 @@ func (m *Model) renderHelpOverlay() string {
 
 func (m *Model) renderStatusLine() string {
 	var parts []string
+	// The counts are scoped to the selected project; naming it keeps the
+	// numbers from reading as store-wide totals that mysteriously moved.
+	scope := ""
+	if m.projectScope != "" {
+		scope = m.projectScope + " "
+	}
 	parts = append(parts, m.styles.StatusLabel.Render("⛃ "+m.storeStats.Version)+
-		m.styles.Status.Render(fmt.Sprintf(" · %d events · %s", m.storeStats.EventCount, formatSize(m.storeStats.SizeBytes))))
+		m.styles.Status.Render(fmt.Sprintf(" · %s%d events · %s", scope, m.storeStats.EventCount, formatSize(m.storeStats.SizeBytes))))
 	// Panes with nothing pane-specific to say now return "" — the global
 	// key cluster on the right covers what their hint used to repeat.
 	if hint := m.statusHint(); hint != "" {
