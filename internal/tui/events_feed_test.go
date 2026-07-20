@@ -320,7 +320,7 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustContain(t, line, "1h")
-	width = 28 // below 30: age drops too
+	width = feedAgeMinWidth - 1 // below 30: age drops too (still above feedActorMinWidth)
 	line = p.eventFeedLine(e, lanes, 1, width, now, true)
 	mustNotContain(t, line, "84fbf58")
 	mustNotContain(t, line, "1h")
@@ -631,12 +631,23 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 // TestEventsFeedFramingMatchesPersonaChart pins the I1 review fix: the feed
 // must not decide boxed-vs-compact independently of the summary section, or
 // the pane goes back to reading as sections in two visual languages — the
-// original motivation for boxing the feed at all, just inverted. At a small
-// pane height (the classic 80x24 terminal, where the persona chart's own
-// "4 lines and up" rule keeps it unboxed) the feed must be unboxed too; at a
-// large height (where the persona chart boxes) the feed must box too. Keyed
-// on both sections' actual rendered output in the same render so it cannot
-// pass if only one of them changes.
+// original motivation for boxing the feed at all, just inverted.
+//
+// It sweeps every pane height from 8 through 60 at a fixed width of 80 —
+// generously spanning the boxed/unboxed threshold (measured at pane height
+// 28 for this fixture; projectPaneSplitHeights + summaryChartsBoxed decide
+// it, and either could move it) — rather than pinning two heights either
+// side of it, because a threshold move that lands between two pinned heights
+// would pass unnoticed. summaryChartsBoxed itself re-derives, rather than
+// reuses, renderSummary's and renderPersonaActivityChart's framing rules (see
+// the doc comment on summaryChartsBoxed), so nothing at compile time catches
+// those rules drifting out of sync with this one; only a render-level check
+// like this one does. At each height both sections' framing is read off the
+// SAME rendered body (one m.projects.View() call), so the assertion cannot
+// pass when only one section's framing actually changed. A height where the
+// events slot has collapsed entirely (too short to render at all — a
+// legitimate state, see projectPaneSplitHeights) is skipped rather than
+// failed, since there is no feed framing to compare.
 func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 	findLine := func(body, marker string) string {
 		for _, line := range strings.Split(body, "\n") {
@@ -649,36 +660,40 @@ func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 	isBoxed := func(line string) bool {
 		return strings.Contains(line, "╭") || strings.Contains(line, "╮")
 	}
-	render := func(t *testing.T, w, h int) (feedLine, personaLine string) {
-		t.Helper()
+
+	const width = 80
+	sawBoxed, sawUnboxed := false, false
+	for h := 8; h <= 60; h++ {
 		m := newTestModel(t)
-		m.SetSize(w, h)
+		m.SetSize(width, h)
 		seedProject(t, m, "ATM", "Acme Task Manager")
 		update(t, m, "s")
 		seedTask(t, m, "ATM", "Fix cache")
 		body := m.projects.View()
-		feedLine = findLine(body, "Recent Events")
-		personaLine = findLine(body, "activity by persona")
-		if feedLine == "" || personaLine == "" {
-			t.Fatalf("missing a section at %dx%d\n--- body ---\n%s", w, h, body)
+
+		feedLine := findLine(body, "Recent Events")
+		if feedLine == "" {
+			// Events slot collapsed at this height — nothing to compare.
+			continue
 		}
-		return feedLine, personaLine
-	}
+		personaLine := findLine(body, "activity by persona")
+		if personaLine == "" {
+			t.Fatalf("height %d: events feed rendered but persona chart section is missing\n--- body ---\n%s", h, body)
+		}
 
-	smallFeed, smallPersona := render(t, 80, 24)
-	if isBoxed(smallPersona) {
-		t.Fatalf("setup: expected the persona chart unboxed at 80x24, got: %q", smallPersona)
+		feedBoxed, personaBoxed := isBoxed(feedLine), isBoxed(personaLine)
+		if feedBoxed {
+			sawBoxed = true
+		} else {
+			sawUnboxed = true
+		}
+		if feedBoxed != personaBoxed {
+			t.Fatalf("height %d: framing mismatch — events feed boxed=%v (%q), persona chart boxed=%v (%q)",
+				h, feedBoxed, feedLine, personaBoxed, personaLine)
+		}
 	}
-	if isBoxed(smallFeed) {
-		t.Fatalf("events feed is boxed while the persona chart is unboxed at 80x24 — two visual languages: %q vs %q", smallFeed, smallPersona)
-	}
-
-	largeFeed, largePersona := render(t, 120, 40)
-	if !isBoxed(largePersona) {
-		t.Fatalf("setup: expected the persona chart boxed at 120x40, got: %q", largePersona)
-	}
-	if !isBoxed(largeFeed) {
-		t.Fatalf("events feed is unboxed while the persona chart is boxed at 120x40 — two visual languages: %q vs %q", largeFeed, largePersona)
+	if !sawBoxed || !sawUnboxed {
+		t.Fatalf("sweep (heights 8-60) never observed both framings (sawBoxed=%v, sawUnboxed=%v) — it no longer straddles the boxed/unboxed threshold; widen the range", sawBoxed, sawUnboxed)
 	}
 }
 

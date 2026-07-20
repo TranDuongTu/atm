@@ -195,7 +195,7 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 // freed space to the message column each time. See eventFeedLine's doc
 // comment for why they yield in this order.
 //
-// feedActorMinWidth = 26: dropping the actor (8 cols + 1 separator = 9)
+// feedActorMinWidth = 28: dropping the actor (8 cols + 1 separator = 9)
 // below this width is what keeps the message column non-empty on a
 // 60-70-column terminal. At that terminal size the events box's inner width
 // is ~19-22 columns (60-col terminal: pane width 22, box inner width 19;
@@ -205,14 +205,23 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 // already dropped below their own thresholds at this width), leaving 0-3
 // columns for the message — the I2 review's "twelve rows... conveying
 // nothing." Dropping the actor cuts that fixed cost to 10, leaving 9-12
-// columns instead. 26 sits below feedAgeMinWidth (so the actor is always the
-// last column standing before the message, never dropped ahead of the age)
-// and keeps the actor for an 80-column terminal (box inner width 26, message
-// width 7 with the actor still in), which the review did not flag as broken.
+// columns instead. 28 sits below feedAgeMinWidth (so the actor is always the
+// last column standing before the message, never dropped ahead of the age).
+//
+// 28 rather than 26: at 26 (an 80-column terminal's box inner width) the old
+// threshold kept the actor, and the fixed cost of 19 left only 26-19 = 7
+// message columns — narrower than the 9-12 columns the same rule protects at
+// 60-70 columns, and the narrowest point anywhere in the ladder, even though
+// the I2 review did not flag it as broken. Raising the threshold to 28 moves
+// the 80-column terminal onto the actor-dropped rung instead (26 < 28): fixed
+// cost drops to 10, so the message column there widens to 26-10 = 16. The
+// ladder's new narrowest point is the smallest width that still retains the
+// actor, i.e. 28 itself: fixed cost 19, leaving 28-19 = 9 columns — in the
+// same range as the 60-70-column floor rather than below it.
 const (
 	feedIDMinWidth    = 60
 	feedAgeMinWidth   = 30
-	feedActorMinWidth = 26
+	feedActorMinWidth = 28
 )
 
 // maxGraphLanes caps the commit-graph gutter width. Local histories are

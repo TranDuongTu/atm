@@ -89,14 +89,23 @@ figure above at spec-writing time — review of the rendering task measured
 that at a 120-column terminal the Projects pane's inner width is only ~46
 columns, where the 7-column id plus its separator consumed 8 columns and
 left roughly 16 for the digest message; the id now yields to the message
-below 60 columns); below 30 drop the age; below 26 drop the actor
-(`feedActorMinWidth`, a later review fix, R2-9) — the id and the age had
-already gone by the 60-70-column terminal a box renders at (~19-22 inner
-columns there), and the message column was still empty or near-empty; the
-actor yields last, after the age, because at these widths it is the only
-column left besides the subject worth trading for message room, and the
-subject stays in every rung — it names WHAT changed, which the message
-wording alone cannot always recover.
+below 60 columns); below 30 drop the age; below 28 drop the actor
+(`feedActorMinWidth`, a later review fix, R2-9, later widened from an initial
+26) — the id and the age had already gone by the 60-70-column terminal a box
+renders at (~19-22 inner columns there), and the message column was still
+empty or near-empty; the actor yields last, after the age, because at these
+widths it is the only column left besides the subject worth trading for
+message room, and the subject stays in every rung — it names WHAT changed,
+which the message wording alone cannot always recover. The threshold sits at
+28 rather than the original 26 because 26 is exactly an 80-column terminal's
+box inner width: at 26 the actor was still retained, and the fixed cost
+before the message (gutter + subject + actor = 19 columns) left only
+26 − 19 = 7 columns for the digest — narrower than the 9-12 columns the same
+rule protects at 60-70 columns, and the narrowest point anywhere in the
+ladder, even though nothing before this fix flagged it as broken. Raising
+the threshold to 28 moves the 80-column terminal onto the actor-dropped rung
+instead, where the fixed cost drops to 10 and the message column widens to
+26 − 10 = 16.
 
 Implementation delta (Task 3): `eventGraphRows` draws fork/merge as
 parallel `│` lanes converging/branching at the `●` row, not the diagonal
@@ -340,7 +349,8 @@ would reintroduce the stranded-events bug R2-3's clamp exists to prevent.
 ## R2-9. A third narrow-width rung: the actor column also yields (final review fix, I2)
 
 See the "Line format" section's degradation paragraph, updated in place: a
-third rung, `feedActorMinWidth` (26), drops the actor column below its own
+third rung, `feedActorMinWidth` (28, widened from an initial 26 — see that
+paragraph for the arithmetic), drops the actor column below its own
 threshold — tighter than `feedAgeMinWidth` (30), so the actor is always the
 last column to yield, after the id and the age, and never ahead of them.
 Without it, a 60-70-column terminal's box inner width (~19-22 columns) left
