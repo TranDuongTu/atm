@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### feat
+- ATM-793b19: Recent Events feed in the TUI Projects pane — a git-log-style digest of the selected project's event stream (commit-graph gutter, event ids when space permits, per-action wording), with `L` subfocus scrolling.
 - ATM-0083: agent as config, not flags. The host agent is now a stored default — choose it once with `atm agents select <name>` (`atm agents list` shows readiness; `atm agents args <name> -- <flags>` sets per-agent defaults), then launch with `atm dev --project <CODE>` and `atm manage --project <CODE> --<action>`. Override a single launch with `--agent <name>` or `ATM_AGENT`.
 - ATM-0115: boards (computed labels). A label may carry an expression over other labels; its membership is computed, not asserted. New `--expr` flag on `atm label add` and `atm task list` (`--label <CODE>:<board>` resolves a board's expression). Label-name grammar widened so `:*` namespace wildcards are legal labels; `atm label seed` back-fills namespace descriptors into existing projects.
 
