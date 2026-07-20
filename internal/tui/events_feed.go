@@ -56,23 +56,30 @@ func compactAge(t, now time.Time) string {
 	}
 }
 
-// eventFeedActor abbreviates the actor grammar persona@agent:model to a
-// ≤8-cell "per@agen": persona to 3 runes, agent to 4, model dropped.
-func eventFeedActor(actor string) string {
-	persona, rest, hasAgent := strings.Cut(actor, "@")
-	agent, _, _ := strings.Cut(rest, ":")
-	p := []rune(persona)
-	if len(p) > 3 {
-		p = p[:3]
+// eventFeedActor renders the actor column's text: the full persona@agent:model
+// identity, unabbreviated (ATM-793b19 revision 3, R3-1). Revision 2 squeezed it
+// into 8 cells as "per@agen", which collapsed developer@claude and
+// developer@codex onto the same string and dropped the model entirely, so the
+// column could not answer "which agent did this". The column is instead sized
+// to the widest actor in the feed (feedActorWidth) and truncated only when the
+// pane cannot afford that width. Kept as a function — rather than reading
+// e.Actor at the call site — so actor display stays decided in one place.
+func eventFeedActor(actor string) string { return actor }
+
+// feedActorWidth returns the display width of the widest actor across the
+// WHOLE bounded feed, which is what the actor column is sized to (R3-1).
+// Sizing to the widest actor in the VISIBLE window instead would make the
+// column — and the header above it — jitter as the user scrolls. The feed is
+// bounded to maxFeedEvents, so this is one pass over at most 500 short
+// strings, done once per render rather than once per line.
+func feedActorWidth(feed []core.LogEntry) int {
+	w := 0
+	for i := range feed {
+		if n := lipgloss.Width(eventFeedActor(feed[i].Actor)); n > w {
+			w = n
+		}
 	}
-	if !hasAgent || agent == "" {
-		return string(p)
-	}
-	a := []rune(agent)
-	if len(a) > 4 {
-		a = a[:4]
-	}
-	return string(p) + "@" + string(a)
+	return w
 }
 
 // eventFeedSubject renders the subject column: the TASK the event touched,
@@ -188,41 +195,165 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 	return e.Action
 }
 
-// feedIDMinWidth, feedAgeMinWidth, and feedActorMinWidth are the events
-// line's inner-width thresholds (the box's inner width when boxed, or the
-// pane width when compact) below which eventFeedLine drops the id column,
-// then the age column, then the actor column, in that order, giving the
-// freed space to the message column each time. See eventFeedLine's doc
-// comment for why they yield in this order.
+// The events line's column widths. The id and subject columns are fixed and
+// never drop (R3-3, priorities 1 and 2): the id is how a reader ties a feed
+// row to `atm store log`, and the subject names WHAT changed. feedAgeMinWidth
+// is the one surviving rung — below this inner width the age column, the
+// least load-bearing of what remains, drops entirely. The actor and message
+// columns share whatever is left, message-floor-first (see feedLayout).
 //
-// feedActorMinWidth = 28: dropping the actor (8 cols + 1 separator = 9)
-// below this width is what keeps the message column non-empty on a
-// 60-70-column terminal. At that terminal size the events box's inner width
-// is ~19-22 columns (60-col terminal: pane width 22, box inner width 19;
-// 70-col: pane width 26, box inner width 22 — see chartBoxInnerWidth). With
-// the actor column still in the budget, the fixed cost before the message is
-// laneW+1(gutter) + 7+1(subject) + 8+1(actor) = 19 (laneW=1, id and age
-// already dropped below their own thresholds at this width), leaving 0-3
-// columns for the message — the I2 review's "twelve rows... conveying
-// nothing." Dropping the actor cuts that fixed cost to 10, leaving 9-12
-// columns instead. 28 sits below feedAgeMinWidth (so the actor is always the
-// last column standing before the message, never dropped ahead of the age).
-//
-// 28 rather than 26: at 26 (an 80-column terminal's box inner width) the old
-// threshold kept the actor, and the fixed cost of 19 left only 26-19 = 7
-// message columns — narrower than the 9-12 columns the same rule protects at
-// 60-70 columns, and the narrowest point anywhere in the ladder, even though
-// the I2 review did not flag it as broken. Raising the threshold to 28 moves
-// the 80-column terminal onto the actor-dropped rung instead (26 < 28): fixed
-// cost drops to 10, so the message column there widens to 26-10 = 16. The
-// ladder's new narrowest point is the smallest width that still retains the
-// actor, i.e. 28 itself: fixed cost 19, leaving 28-19 = 9 columns — in the
-// same range as the 60-70-column floor rather than below it.
+// feedMessageMinWidth is the message column's floor, not a guarantee: the
+// message yields down to it before the actor gives up a single column, and
+// below it (feedLayout's avail/2 term) both columns shrink together rather
+// than one starving the other.
 const (
-	feedIDMinWidth    = 60
-	feedAgeMinWidth   = 30
-	feedActorMinWidth = 28
+	feedIDWidth         = 7
+	feedSubjectWidth    = 7
+	feedAgeWidth        = 3
+	feedAgeMinWidth     = 30
+	feedMessageMinWidth = 8
 )
+
+// feedColumns is one events-line width allocation: the single result that
+// BOTH the column header and every event line below it are laid out from
+// (R3-2), so the header cannot label a column the body did not render or sit
+// at a different offset than the values beneath it. Widths are cell budgets
+// including each column's own separator where noted on feedLayout.
+type feedColumns struct {
+	innerW int // the events section's inner width this was allocated for
+	laneW  int // commit-graph gutter
+	actorW int // actor text; 0 means the column is not rendered
+	msgW   int // message column INCLUDING its leading separator
+	ageW   int // age column including its leading separator; 0 means dropped
+}
+
+// feedLayout allocates the events line's flexible columns for an inner width
+// (the box's inner width when boxed, or the pane width when compact) given
+// the gutter width and actorFullWidth — the widest actor across the whole
+// bounded feed (feedActorWidth).
+//
+// The degradation order is the user's, most-protected first (R3-3): the id
+// never drops, the subject never drops, the age drops below feedAgeMinWidth,
+// the message truncates next down to feedMessageMinWidth, and the actor
+// truncates last. The avail/2 term is what stops either flexible column
+// reaching zero on a narrow pane: without it a message floor of 8 starves the
+// actor entirely at an 80-column terminal (inner width 26, avail 8).
+//
+// Every column's budget includes exactly one separator, so the allocated
+// widths sum to innerW exactly and no column has to be measured twice:
+// fixed carries the separators after the gutter, the id and the subject; the
+// message carries the one between it and the actor; the age carries the one
+// before it.
+func feedLayout(innerW, laneW, actorFullWidth int) feedColumns {
+	c := feedColumns{innerW: innerW, laneW: laneW}
+	fixed := laneW + 1 + feedIDWidth + 1 + feedSubjectWidth + 1
+	if innerW >= feedAgeMinWidth {
+		c.ageW = feedAgeWidth + 1
+	}
+	avail := innerW - fixed - c.ageW
+	if avail < 2 {
+		// Degenerate: there is not enough room for two columns at all, so
+		// there is nothing to trade off — hand what is left to the message.
+		if avail > 0 {
+			c.msgW = avail
+		}
+		return c
+	}
+	c.msgW = feedMessageMinWidth
+	if half := avail / 2; half < c.msgW {
+		c.msgW = half
+	}
+	c.actorW = avail - c.msgW
+	if actorFullWidth < c.actorW {
+		c.actorW = actorFullWidth
+	}
+	c.msgW = avail - c.actorW // surplus the actor does not need
+	return c
+}
+
+// ageCellWidth is the width the age text is right-aligned in. Normally
+// feedAgeWidth, but compactAge can return four cells ("11mo") for an event
+// most of a year old; that row borrows the extra column from its own message
+// rather than overrunning the line, which would push the box's right border
+// out by one on that row alone.
+func (c feedColumns) ageCellWidth(age string) int {
+	if w := lipgloss.Width(age); w > feedAgeWidth {
+		return w
+	}
+	return feedAgeWidth
+}
+
+// msgTextWidth is the message column's text width — its budget less its own
+// leading separator, less whatever an over-wide age borrowed (ageCellWidth).
+func (c feedColumns) msgTextWidth(age string) int {
+	w := c.msgW - 1
+	if c.ageW > 0 {
+		w -= c.ageCellWidth(age) - feedAgeWidth
+	}
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+// padCell pads an already-truncated (and possibly ANSI-styled) field out to w
+// display cells.
+func padCell(s string, w int) string {
+	if pad := w - lipgloss.Width(s); pad > 0 {
+		return s + spaces(pad)
+	}
+	return s
+}
+
+// row assembles one events line — the column header or an event — from this
+// allocation, given each field's already-truncated (and, for an event line,
+// already-styled) text. A column whose allocation is zero is skipped entirely,
+// which is what makes the header label exactly the columns the body renders.
+func (c feedColumns) row(gutter, id, subject, actor, msg, age string) string {
+	var b strings.Builder
+	b.WriteString(padCell(gutter, c.laneW))
+	b.WriteString(" ")
+	b.WriteString(padCell(id, feedIDWidth))
+	b.WriteString(" ")
+	b.WriteString(padCell(subject, feedSubjectWidth))
+	b.WriteString(" ")
+	if c.actorW > 0 {
+		b.WriteString(padCell(actor, c.actorW))
+	}
+	if c.msgW > 0 {
+		b.WriteString(" ")
+		b.WriteString(padCell(msg, c.msgTextWidth(age)))
+	}
+	if c.ageW > 0 {
+		b.WriteString(" ")
+		w := c.ageCellWidth(age)
+		b.WriteString(spaces(w-lipgloss.Width(age)) + age)
+	}
+	return b.String()
+}
+
+// feedHeaderRow renders the feed's column header (R3-2): one row naming the
+// columns this allocation actually renders, laid out by the same
+// feedColumns.row the event lines use so the two cannot drift apart. Returned
+// unstyled; the caller applies the muted style to the whole line.
+//
+// Labels are clipped with fitLine rather than truncateRunes: a label is a
+// known fixed word, so "ACTO" reads better than an ellipsis that would spend
+// three of a four-cell column saying nothing.
+func feedHeaderRow(c feedColumns) string {
+	age := ""
+	if c.ageW > 0 {
+		age = "AGE"
+	}
+	return c.row(
+		"",
+		fitLine("ID", feedIDWidth),
+		fitLine("TASK", feedSubjectWidth),
+		fitLine("ACTOR", c.actorW),
+		fitLine("MESSAGE", c.msgTextWidth(age)),
+		age,
+	)
+}
 
 // maxGraphLanes caps the commit-graph gutter width. Local histories are
 // linear (one lane); lanes >1 appear only after a sync merges concurrent
@@ -371,12 +502,17 @@ func padFeedLine(s string, innerW int) string {
 }
 
 // eventsFeedBody builds the Recent Events feed's line content — a muted
-// placeholder state, or the windowed, newest-first slice of digest lines —
-// sized to innerW and windowed to exactly rows lines, blank-padded at the
-// bottom when the feed itself is shorter. Shared by the boxed and compact
-// render forms (ATM-793b19 revision-2 review, I1) so the content, ordering,
-// column degradation, and offset/scroll behavior are identical in both —
-// only the frame differs.
+// placeholder state, or a column header over the windowed, newest-first slice
+// of digest lines — sized to innerW and returning exactly rows+1 lines,
+// blank-padded at the bottom when the feed itself is shorter. The +1 is the
+// header row (R3-2); `rows` is the EVENT row count, which is what
+// eventsFeedVisibleRows returns and what the scroll clamp and page magnitude
+// are expressed in. A placeholder state carries no header — there are no
+// columns to label — and blank-fills the same rows+1 lines instead.
+//
+// Shared by the boxed and compact render forms (ATM-793b19 revision-2 review,
+// I1) so the content, ordering, column degradation, and offset/scroll behavior
+// are identical in both — only the frame differs.
 //
 // Pure with respect to model state: the offset is clamped into a LOCAL copy
 // only. View has a pointer receiver, and writing p.logsOffset here would
@@ -394,9 +530,9 @@ func (p *projectsModel) eventsFeedBody(innerW, rows int) []string {
 	// middle while the populated feed stays top-aligned (irrelevant to the
 	// compact form, which never pads internally).
 	placeholder := func(msg string) []string {
-		body := make([]string, 1, rows)
+		body := make([]string, 1, rows+1)
 		body[0] = muted(msg)
-		for len(body) < rows {
+		for len(body) < rows+1 {
 			body = append(body, blank)
 		}
 		return body
@@ -444,12 +580,18 @@ func (p *projectsModel) eventsFeedBody(innerW, rows int) []string {
 			laneW = len(graph[i])
 		}
 	}
+	// One allocation per render, not per line: the actor column is sized to
+	// the widest actor in the WHOLE bounded feed (R3-1) so it cannot jitter as
+	// the window moves, and the header below is laid out from the very same
+	// feedColumns the event lines are.
+	cols := feedLayout(innerW, laneW, feedActorWidth(feed))
 	now := core.Now()
-	body := make([]string, 0, rows)
+	body := make([]string, 0, rows+1)
+	body = append(body, padFeedLine(p.m.styles.Muted.Render(feedHeaderRow(cols)), innerW))
 	for i := start; i < end; i++ {
-		body = append(body, p.eventFeedLine(feed[i], graph[i], laneW, innerW, now, false))
+		body = append(body, p.eventFeedLine(feed[i], graph[i], cols, now, false))
 	}
-	for len(body) < rows {
+	for len(body) < rows+1 {
 		body = append(body, blank)
 	}
 	return body
@@ -477,8 +619,9 @@ func (p *projectsModel) renderEventsFeed(height int, boxed bool) string {
 		// touching renderChartBox by handing it a body for which both
 		// behaviors are arithmetic no-ops: eventsFeedBody emits lines already
 		// exactly chartBoxInnerWidth(p.width) wide (leftPad =
-		// (innerW-innerW)/2 = 0) and exactly rows = height-2 lines,
-		// blank-padded at the bottom (topPad = (innerH-innerH)/2 = 0).
+		// (innerW-innerW)/2 = 0) and exactly rows+1 = height-2 lines — the
+		// column header plus the event rows — blank-padded at the bottom
+		// (topPad = (innerH-innerH)/2 = 0).
 		innerW := chartBoxInnerWidth(p.width)
 		body := p.eventsFeedBody(innerW, rows)
 		return p.renderChartBox(eventsFeedTitle, strings.Join(body, "\n"), height)
@@ -521,18 +664,20 @@ func (p *projectsModel) feedLen() int {
 }
 
 // eventsFeedVisibleRows converts an events section height into the number of
-// event lines visible inside it — height minus two lines of frame, floored
-// at 1. This is the exact arithmetic renderEventsFeed applies to the height
-// it's handed, in both the boxed and compact forms; eventsPageSize's page
-// magnitude and scrollEventsFeed's offset clamp both fold through this same
-// function (fed the same eventsH from projectPaneSplitHeights) rather than
-// recomputing the "-2" independently, so none of them can drift apart —
-// which is also why the compact form budgets the same two "frame" lines as
-// the boxed form even though its own caption is only one line: a different
-// row count between the two forms would desync the offset clamp from what a
-// given render actually draws.
+// EVENT lines visible inside it — height minus two lines of frame minus the
+// one column-header row (R3-2), floored at 1. This is the exact arithmetic
+// renderEventsFeed applies to the height it's handed, in both the boxed and
+// compact forms; eventsPageSize's page magnitude and scrollEventsFeed's offset
+// clamp both fold through this same function (fed the same eventsH from
+// projectPaneSplitHeights) rather than recomputing the "-3" independently, so
+// none of them can drift apart — which is also why the compact form budgets
+// the same two "frame" lines as the boxed form even though its own caption is
+// only one line: a different row count between the two forms would desync the
+// offset clamp from what a given render actually draws. Revision 2 shipped a
+// bug of exactly this shape when the framing changed the row overhead, and
+// revision 3's header changes it again — hence the single source.
 func eventsFeedVisibleRows(height int) int {
-	rows := height - 2
+	rows := height - 3
 	if rows < 1 {
 		rows = 1
 	}
@@ -592,71 +737,47 @@ func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
 	}
 }
 
-// eventFeedLine assembles one digest line, sized to width (the events
-// section's inner width — the box's inner width when boxed, or the pane
-// width when compact; see renderEventsFeed). Column budget (spec): gutter,
-// id(7, dim), subject(7), actor(8), message(flex), age(right, dim). Three
-// columns yield to the message column, in order, as width shrinks: the id
-// drops below feedIDMinWidth, then the age below feedAgeMinWidth, then the
-// actor below feedActorMinWidth. The id yields first because it is a lookup
-// key needed only when acting on a specific event; the age yields second
-// because it is the least load-bearing of what remains; the actor yields
-// last, and only just before the message would otherwise be squeezed to
-// nothing, because WHO changed something is still worth a scan even once the
-// subject and the message are the only columns guaranteed to survive. The
-// subject column never drops: it names WHAT changed, which the message's own
-// wording cannot always recover on its own. `plain` suppresses the inner dim
-// styles; the production call site always passes false, and only tests pass
-// true, to assert on unstyled output without fighting ANSI codes.
-func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW, width int, now time.Time, plain bool) string {
+// eventFeedLine assembles one digest line from a feedColumns allocation — the
+// same one feedHeaderRow lays the column header out from, so a value can never
+// render under the wrong label. Columns: gutter, id (dim), subject, actor,
+// message, age (right-aligned, dim); which of them render, and how wide, is
+// entirely feedLayout's decision.
+//
+// `plain` suppresses the inner dim styles; the production call site always
+// passes false, and only tests pass true, to assert on unstyled output without
+// fighting ANSI codes.
+//
+// The line is exactly cols.innerW wide by construction, and is padded rather
+// than fitted if a degenerate allocation left it short. It CAN overrun innerW
+// at inner widths below the fixed columns' own cost (~18 cells, i.e. terminals
+// narrower than ~70 columns), the accepted consequence of ranking the id above
+// the message (R3-4). Harmless: fitLine truncates it back down wherever the
+// line is placed, and the id is the only styled field before the truncation
+// point, so no ANSI code straddles it.
+func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, cols feedColumns, now time.Time, plain bool) string {
 	dim := func(s string) string {
 		if plain {
 			return s
 		}
 		return p.m.styles.Muted.Render(s)
 	}
-	gutter := make([]rune, laneW)
+	gutter := make([]rune, cols.laneW)
 	for i := range gutter {
 		gutter[i] = ' '
 	}
 	copy(gutter, lanes)
 	code := p.m.projectScope
-	var b strings.Builder
-	b.WriteString(string(gutter))
-	b.WriteString(" ")
-	used := laneW + 1
-	if width >= feedIDMinWidth {
-		b.WriteString(dim(fmt.Sprintf("%-7s", shortEventID(e.ID))))
-		b.WriteString(" ")
-		used += 8
-	}
-	b.WriteString(fmt.Sprintf("%-7s ", truncateRunes(eventFeedSubject(e, code), 7)))
-	used += 8
-	if width >= feedActorMinWidth {
-		b.WriteString(fmt.Sprintf("%-8s ", truncateRunes(eventFeedActor(e.Actor), 8)))
-		used += 9
-	}
 	age := ""
-	if width >= feedAgeMinWidth {
+	if cols.ageW > 0 {
 		age = compactAge(e.At, now)
 	}
-	msgW := width - used - lipgloss.Width(age)
-	if age != "" {
-		msgW-- // the space before the age
-	}
-	// The one width this floor of 4 can violate: at very narrow widths (id,
-	// actor, and age all already dropped) it can push the line wider than
-	// `width`. Harmless — fitLine truncates it back down wherever the line is
-	// placed, leftPad stays 0 (the box never needs to center a line this
-	// long), and no ANSI code straddles the truncation point since id and age
-	// (the only dim-styled fields) are both absent on this path.
-	if msgW < 4 {
-		msgW = 4
-	}
-	b.WriteString(fmt.Sprintf("%-*s", msgW, truncateRunes(eventDigestMessage(e, code), msgW)))
-	if age != "" {
-		b.WriteString(" ")
-		b.WriteString(dim(age))
-	}
-	return b.String()
+	line := cols.row(
+		string(gutter),
+		dim(shortEventID(e.ID)),
+		truncateRunes(eventFeedSubject(e, code), feedSubjectWidth),
+		truncateRunes(eventFeedActor(e.Actor), cols.actorW),
+		truncateRunes(eventDigestMessage(e, code), cols.msgTextWidth(age)),
+		dim(age),
+	)
+	return padCell(line, cols.innerW)
 }

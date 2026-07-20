@@ -49,16 +49,52 @@ func TestCompactAge(t *testing.T) {
 	}
 }
 
+// TestEventFeedActor pins R3-1: the actor column's text is the full
+// persona@agent:model identity. Revision 2 abbreviated it to 8 cells, which
+// rendered developer@claude and developer@codex identically ("dev@clau").
 func TestEventFeedActor(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"developer@claude:opus-4.8", "dev@clau"},
-		{"admin@tui:unset", "adm@tui"},
-		{"manager@ollama:unset", "man@olla"},
-		{"default", "def"}, // v1-era actor without @
+	for _, in := range []string{
+		"developer@claude:opus-4.8",
+		"developer@codex:unset",
+		"admin@tui:unset",
+		"default", // v1-era actor without @
+	} {
+		if got := eventFeedActor(in); got != in {
+			t.Errorf("eventFeedActor(%q) = %q, want it unabbreviated", in, got)
+		}
+	}
+}
+
+// TestFeedLayoutWidthTable pins the width allocation at the four inner widths
+// measured for the pane (chartBoxInnerWidth(innerPaneWidth(splitWorkspaceWidths(term)))):
+// terminal 80 -> 26, 120 -> 42, 160 -> 57, 200 -> 72, for the 22-cell actor
+// "developer@claude:unset". It is the table in R3-4 made executable: the
+// message reaches its floor before the actor gives up anything, and below the
+// floor both columns shrink together rather than one starving the other.
+func TestFeedLayoutWidthTable(t *testing.T) {
+	const actorFull = 22 // len("developer@claude:unset")
+	cases := []struct {
+		term, innerW, actorW, msgW int
+	}{
+		{80, 26, 4, 4},
+		{120, 42, 12, 8},
+		{160, 57, 22, 13},
+		{200, 72, 22, 28},
 	}
 	for _, c := range cases {
-		if got := eventFeedActor(c.in); got != c.want {
-			t.Errorf("eventFeedActor(%q) = %q, want %q", c.in, got, c.want)
+		left, _ := splitWorkspaceWidths(c.term)
+		if got := chartBoxInnerWidth(innerPaneWidth(left)); got != c.innerW {
+			t.Fatalf("terminal %d: events box inner width = %d, want %d", c.term, got, c.innerW)
+		}
+		cols := feedLayout(c.innerW, 1, actorFull)
+		if cols.actorW != c.actorW || cols.msgW != c.msgW {
+			t.Errorf("feedLayout(%d) = actorW %d, msgW %d; want %d, %d", c.innerW, cols.actorW, cols.msgW, c.actorW, c.msgW)
+		}
+		// The allocation accounts for every cell of the inner width: gutter,
+		// id and subject with their separators, then the flexible columns.
+		fixed := 1 + 1 + feedIDWidth + 1 + feedSubjectWidth + 1
+		if got := fixed + cols.actorW + cols.msgW + cols.ageW; got != c.innerW {
+			t.Errorf("feedLayout(%d) allocates %d cells, want %d", c.innerW, got, c.innerW)
 		}
 	}
 }
@@ -223,11 +259,10 @@ func TestProjectPaneSplitHeightsThreeWay(t *testing.T) {
 func TestRecentEventsFeedRendersDigestLines(t *testing.T) {
 	m := newTestModel(t)
 	// 200-wide (an existing convention for tests that need to see full
-	// rendered content, e.g. TestProjectDetailDashboardSections): at 120 the
-	// projects pane's inner width is 46, and the fixed column budget (gutter
-	// + id 7 + subject 7 + actor 8 + separators + age 3 = 31 columns) leaves
-	// only 15 columns for the message — too narrow to fit the full digest
-	// text this test asserts on without truncation.
+	// rendered content, e.g. TestProjectDetailDashboardSections): only there
+	// is the events box's inner width (72) enough for both a whole actor and
+	// an untruncated digest message. At 120 the inner width is 42 and the
+	// message sits at its floor of 8 (see TestFeedLayoutWidthTable).
 	m.SetSize(200, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
@@ -235,7 +270,7 @@ func TestRecentEventsFeedRendersDigestLines(t *testing.T) {
 	body := m.projects.View()
 	mustContain(t, body, "Recent Events")
 	mustContain(t, body, `created "Fix the cache"`)
-	mustContain(t, body, "dev@clau") // testActor developer@claude:test
+	mustContain(t, body, testActor) // full actor identity (R3-1)
 	mustContain(t, body, "●")
 	if !regexp.MustCompile(`[0-9a-f]{7}`).MatchString(body) {
 		t.Fatalf("feed shows no short event id\n--- body ---\n%s", body)
@@ -292,6 +327,12 @@ func TestEventsFeedPlaceholderRendersInsideBox(t *testing.T) {
 	}
 }
 
+// TestEventFeedLineDegradesOnNarrowPane covers the one surviving degradation
+// rung (R3-3): the age column — the least load-bearing of the fixed columns —
+// drops below feedAgeMinWidth, giving its cells to the actor and message. The
+// id and subject columns never drop, at any width (see
+// TestEventIDPresentAtAllWidths); the actor and message narrow rather than
+// vanish (see TestMessageTruncatesBeforeActor).
 func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	m := newTestModel(t)
 	m.projectScope = "ATM"
@@ -301,71 +342,27 @@ func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 		ID:      "sha256:84fbf586004a",
 		Action:  "comment.created",
 		At:      now.Add(-time.Hour),
-		Actor:   "developer@claude:test",
+		Actor:   testActor,
 		Subject: core.Subject{Kind: "task", ID: "ATM-90171b"},
 	}
 	lanes := []rune{'●'}
-	// eventFeedLine sizes to the width passed in directly (the events box's
-	// inner width, computed by the caller) rather than p.width, so these
-	// cases exercise that parameter, not the model field.
-	width := 60 // full budget: id and age both present
-	line := p.eventFeedLine(e, lanes, 1, width, now, true)
+	// eventFeedLine lays out from the feedColumns it is handed (allocated by
+	// the caller for the events box's inner width), so these cases exercise
+	// that allocation, not the model field.
+	line := p.eventFeedLine(e, lanes, feedLayout(feedAgeMinWidth, 1, len(testActor)), now, true)
 	mustContain(t, line, "84fbf58")
-	mustContain(t, line, "1h")
-	width = 46 // below 60: id column drops, age stays
-	line = p.eventFeedLine(e, lanes, 1, width, now, true)
-	mustNotContain(t, line, "84fbf58")
-	mustContain(t, line, "1h")
-	width = feedAgeMinWidth // exactly at the age threshold: age still renders
-	line = p.eventFeedLine(e, lanes, 1, width, now, true)
-	mustNotContain(t, line, "84fbf58")
-	mustContain(t, line, "1h")
-	width = feedAgeMinWidth - 1 // below 30: age drops too (still above feedActorMinWidth)
-	line = p.eventFeedLine(e, lanes, 1, width, now, true)
-	mustNotContain(t, line, "84fbf58")
+	mustContain(t, line, "1h") // exactly at the threshold: the age still renders
+	line = p.eventFeedLine(e, lanes, feedLayout(feedAgeMinWidth-1, 1, len(testActor)), now, true)
+	mustContain(t, line, "84fbf58") // the id never drops
 	mustNotContain(t, line, "1h")
-	width = feedActorMinWidth // exactly at the actor threshold: actor still renders
-	line = p.eventFeedLine(e, lanes, 1, width, now, true)
-	mustContain(t, line, "dev@clau")
-	width = feedActorMinWidth - 1 // below: actor drops too, message gets its columns
-	line = p.eventFeedLine(e, lanes, 1, width, now, true)
-	mustNotContain(t, line, "dev@clau")
-}
-
-// TestRecentEventsFeedDigestNonEmptyAt60Columns pins the I2 review fix: below
-// feedActorMinWidth the actor column drops so the message column is never
-// squeezed to nothing. Renders through the full app at a 60-column terminal
-// — the width the review measured as producing a box of rows with no digest
-// text at all — and a tall enough terminal to keep the events section boxed
-// (see summaryChartsBoxed), the narrowest regime the id/age/actor ladder
-// exists to protect. The task's own creation event is the newest row, so its
-// digest ("created ...") surviving (even truncated) is direct evidence the
-// message column got real width, not zero.
-func TestRecentEventsFeedDigestNonEmptyAt60Columns(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(60, 40)
-	_, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
-	if !summaryChartsBoxed(summaryH) {
-		t.Fatal("setup: expected the events section boxed at 60x40 — adjust the fixture height")
-	}
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "s")
-	seedTask(t, m, "ATM", "Fix cache")
-	body := m.projects.View()
-	mustContain(t, body, "Recent Events")
-	mustContain(t, body, "create") // digest survives, even truncated ("create...")
-	if regexp.MustCompile(`\bdev@`).MatchString(body) {
-		t.Fatalf("actor column should have dropped at 60 columns, freeing room for the message\n--- body ---\n%s", body)
-	}
 }
 
 // TestRecentEventsFeedAt120Columns pins the feed's behavior at the terminal
-// width users see most often: 120 columns, where the projects pane's inner
-// width is 46 (see the width comment on TestRecentEventsFeedRendersDigestLines).
-// At 46 the id column (drops below 60) is gone, so its budget goes to the
-// message instead; this asserts that trade actually lands — the short id is
-// absent, a short task title's digest message survives whole, and no
-// rendered feed line overruns the pane.
+// width users see most often: 120 columns, where the events box's inner width
+// is 42. That is the regime R3-4 records as the accepted cost of ranking the
+// id and the actor above the message: the id renders, the actor is truncated,
+// and the message sits at its floor. Also asserts no rendered feed line
+// overruns the pane.
 func TestRecentEventsFeedAt120Columns(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -374,9 +371,8 @@ func TestRecentEventsFeedAt120Columns(t *testing.T) {
 	seedTask(t, m, "ATM", "Fix cache", "ATM:status:open")
 	body := m.projects.View()
 	mustContain(t, body, "Recent Events")
-	mustContain(t, body, `created "Fix cache"`)
-	if regexp.MustCompile(`\bsha256:|[0-9a-f]{7}\b`).MatchString(body) {
-		t.Fatalf("feed shows a short event id at 120 columns (want it dropped)\n--- body ---\n%s", body)
+	if !regexp.MustCompile(`[0-9a-f]{7}`).MatchString(strings.Join(feedBoxRows(t, body), "\n")) {
+		t.Fatalf("feed shows no short event id at 120 columns (the id never drops)\n--- body ---\n%s", body)
 	}
 	for _, line := range strings.Split(body, "\n") {
 		if w := lipgloss.Width(line); w > m.projects.width {
@@ -433,7 +429,10 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 // up in the same pane can't produce a false pass.
 func TestRecentEventsFeedScrollRevealsNewContent(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(120, 40)
+	// 200-wide: at 120 the message column sits at its floor of 8 (R3-4), so
+	// every "created ..." digest renders as "crea..." and the two titles this
+	// test distinguishes between are no longer distinguishable on screen.
+	m.SetSize(200, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	// 25 tasks, seeded oldest (Task 00) to newest (Task 24): comfortably
@@ -697,36 +696,16 @@ func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 	}
 }
 
-// feedBodyLines extracts the events box's rows visible rows from a rendered
-// pane view (ANSI-stripped, trimmed, and stripped of the box's own left/right
-// "│" border — renderChartBox wraps every body row, blank or not, in exactly
-// one border rune each side, so a caller checking a row for blankness would
-// otherwise always see a non-empty "│ … │" string), locating the box by its
-// title row the same way TestEventsFeedBoxBodyIsLeftAndTopAligned and
-// TestRecentEventsFeedScrollRevealsNewContent do. Slices off exactly one rune
-// per side rather than strings.Trim, which would also eat a leading "│" that
-// is a genuine graph-gutter lane glyph, not border.
+// feedBodyLines extracts the events box's visible EVENT rows from a rendered
+// pane view — feedBoxRows without the column header row (revision 3, R3-2)
+// and with each row trimmed, so a caller can compare rows for equality or
+// check one for blankness.
 func feedBodyLines(t *testing.T, view string, eventsH int) []string {
 	t.Helper()
-	lines := strings.Split(view, "\n")
-	top := -1
-	for i, line := range lines {
-		if strings.Contains(line, "Recent Events") {
-			top = i
-			break
-		}
-	}
-	if top < 0 {
-		t.Fatal("no events box")
-	}
-	rows := eventsFeedVisibleRows(eventsH)
-	body := make([]string, 0, rows)
-	for i := top + 1; i < top+1+rows && i < len(lines); i++ {
-		trimmed := []rune(strings.TrimSpace(stripANSI(lines[i])))
-		if len(trimmed) >= 2 {
-			trimmed = trimmed[1 : len(trimmed)-1]
-		}
-		body = append(body, strings.TrimSpace(string(trimmed)))
+	rows := feedBoxRows(t, view)[1:] // [0] is the column header
+	body := make([]string, 0, eventsFeedVisibleRows(eventsH))
+	for i := 0; i < eventsFeedVisibleRows(eventsH) && i < len(rows); i++ {
+		body = append(body, strings.TrimSpace(rows[i]))
 	}
 	return body
 }
@@ -911,8 +890,13 @@ func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
 	if top < 0 {
 		t.Fatal("no events box")
 	}
-	// Top-aligned: the row directly under the top border carries an event.
-	first := stripANSI(lines[top+1])
+	// Top-aligned: the column header sits directly under the top border
+	// (R3-2), and the first event row directly under that — no blank rows
+	// floating the body toward the vertical middle.
+	if header := stripANSI(lines[top+1]); !strings.Contains(header, "ACTOR") {
+		t.Fatalf("row directly under the top border is not the column header: %q", header)
+	}
+	first := stripANSI(lines[top+2])
 	if !strings.Contains(first, "●") {
 		t.Fatalf("first body row has no event glyph (not top-aligned): %q", first)
 	}
@@ -997,6 +981,254 @@ func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
 	for i, line := range body {
 		if line == "" {
 			t.Fatalf("blank row %d of %d after growing the window with no key press: body = %q", i, len(body), body)
+		}
+	}
+}
+
+// feedBoxRows returns the events box's inner content rows from a rendered
+// pane view: everything between the box's top border (located by its title)
+// and its bottom border, ANSI-stripped, with the pane's own left indentation
+// and the box's two "│" border runes removed but NOTHING else trimmed — so a
+// caller can compare display-column offsets between the header row and the
+// event rows below it. Row 0 is the column header (revision 3, R3-2); rows
+// 1.. are the event lines. feedBodyLines is the trimmed, header-skipping view
+// of the same rows.
+func feedBoxRows(t *testing.T, view string) []string {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	top := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Recent Events") {
+			top = i
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatalf("no events box\n--- view ---\n%s", view)
+	}
+	var rows []string
+	for i := top + 1; i < len(lines); i++ {
+		r := []rune(stripANSI(lines[i]))
+		lo := 0
+		for lo < len(r) && r[lo] == ' ' {
+			lo++
+		}
+		hi := len(r)
+		for hi > lo && r[hi-1] == ' ' {
+			hi--
+		}
+		if hi-lo < 2 || r[lo] != '│' {
+			break // bottom border (╰…╯) or the end of the box
+		}
+		rows = append(rows, string(r[lo+1:hi-1]))
+	}
+	if len(rows) == 0 {
+		t.Fatalf("events box has no content rows\n--- view ---\n%s", view)
+	}
+	return rows
+}
+
+// runeIndex is strings.Index in DISPLAY columns rather than bytes: a feed row
+// opens with the 3-byte "●" gutter glyph and its subject column may hold the
+// 3-byte "–", so a byte offset would not line up with the header's own ASCII
+// labels even when the two columns are genuinely aligned.
+func runeIndex(s, sub string) int {
+	i := strings.Index(s, sub)
+	if i < 0 {
+		return -1
+	}
+	return len([]rune(s[:i]))
+}
+
+// boxedFeedView renders the pane at the given terminal size with one seeded
+// project and task, asserting the events section is boxed there (the feed's
+// column header and the box rows feedBoxRows reads both assume the boxed
+// framing).
+func boxedFeedView(t *testing.T, w, h int, title string) (*Model, string) {
+	t.Helper()
+	m := newTestModel(t)
+	m.SetSize(w, h)
+	_, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
+	if !summaryChartsBoxed(summaryH) {
+		t.Fatalf("setup: expected the events section boxed at %dx%d", w, h)
+	}
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", title)
+	return m, m.projects.View()
+}
+
+// TestEventFeedShowsFullActorIdentity pins R3-1: the actor column carries the
+// complete persona@agent:model string, not revision 2's 8-cell "dev@clau"
+// abbreviation, which collapsed developer@claude and developer@codex onto the
+// same text and hid the model entirely.
+func TestEventFeedShowsFullActorIdentity(t *testing.T) {
+	_, view := boxedFeedView(t, 200, 40, "Fix cache")
+	rows := feedBoxRows(t, view)
+	joined := strings.Join(rows, "\n")
+	mustContain(t, joined, testActor) // developer@claude:test, whole
+	if strings.Contains(joined, "dev@clau") {
+		t.Fatalf("actor is still abbreviated\n--- rows ---\n%s", joined)
+	}
+}
+
+// TestActorColumnWidthStableWhileScrolling pins R3-1's sizing rule: the actor
+// column is as wide as the widest actor across the WHOLE bounded feed, not
+// across the visible window, so neither the column nor the header shifts as
+// the user scrolls. The long actor here is seeded oldest, so it is off the
+// initial (newest-first) window and only enters it after paging — a
+// window-relative width would widen the column exactly then.
+func TestActorColumnWidthStableWhileScrolling(t *testing.T) {
+	const longActor = "developer@opencode:deepseek-v4-pro"
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTaskAsActor(t, m, "ATM", "Oldest task", longActor)
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+
+	before := feedBoxRows(t, m.projects.View())
+	if strings.Contains(strings.Join(before, "\n"), longActor) {
+		t.Fatal("setup: the long actor is already in the first window — seed more events")
+	}
+	actorCol := func(row string) int { return runeIndex(row, "developer@") }
+	wantCol := actorCol(before[1])
+	if wantCol < 0 {
+		t.Fatalf("no actor in the first event row: %q", before[1])
+	}
+
+	// Scroll until the long actor's own event enters the window rather than
+	// scrolling to the very bottom: the oldest events in the feed are the
+	// project's vocabulary seeding, which sits below it.
+	var after []string
+	for i := 0; i < 200 && after == nil; i++ {
+		update(t, m, "shift+down")
+		rows := feedBoxRows(t, m.projects.View())
+		if strings.Contains(strings.Join(rows, "\n"), longActor) {
+			after = rows
+		}
+	}
+	if after == nil {
+		t.Fatalf("scrolling never brought %q into the window", longActor)
+	}
+
+	if before[0] != after[0] {
+		t.Fatalf("header moved while scrolling:\nbefore %q\nafter  %q", before[0], after[0])
+	}
+	for _, rows := range [][]string{before, after} {
+		for i, row := range rows[1:] {
+			if got := actorCol(row); got != wantCol {
+				t.Fatalf("actor column starts at %d, want %d (row %d: %q)", got, wantCol, i, row)
+			}
+		}
+	}
+}
+
+// TestEventsFeedHeaderMatchesRenderedColumns pins R3-2: one muted header row
+// sits directly under the box's top border, labels are at the same display
+// columns as the values beneath them, and only the columns actually rendered
+// at the current width are labelled — at a terminal narrow enough to drop the
+// age column (feedAgeMinWidth) the header must not claim an AGE column.
+func TestEventsFeedHeaderMatchesRenderedColumns(t *testing.T) {
+	for _, tc := range []struct {
+		term    int
+		wantAge bool
+	}{
+		{200, true},
+		{160, true},
+		{120, true},
+		{80, false},
+	} {
+		_, view := boxedFeedView(t, tc.term, 40, "Fix cache")
+		rows := feedBoxRows(t, view)
+		header := rows[0]
+		if !strings.Contains(header, "ID") || !strings.Contains(header, "TASK") {
+			t.Fatalf("term %d: header does not label the id and task columns: %q", tc.term, header)
+		}
+		if got := strings.Contains(header, "AGE"); got != tc.wantAge {
+			t.Fatalf("term %d: header AGE label = %v, want %v: %q", tc.term, got, tc.wantAge, header)
+		}
+		// The labels sit at the same offsets as the values below them.
+		id := regexp.MustCompile(`[0-9a-f]{7}`).FindStringIndex(rows[1])
+		if id == nil {
+			t.Fatalf("term %d: no event id in the first event row: %q", tc.term, rows[1])
+		}
+		idCol := len([]rune(rows[1][:id[0]]))
+		if got := runeIndex(header, "ID"); got != idCol {
+			t.Fatalf("term %d: ID label at column %d, id value at column %d\nheader %q\nrow    %q", tc.term, got, idCol, header, rows[1])
+		}
+		if got, want := runeIndex(header, "TASK"), idCol+feedIDWidth+1; got != want {
+			t.Fatalf("term %d: TASK label at column %d, want %d\nheader %q", tc.term, got, want, header)
+		}
+	}
+}
+
+// TestHeaderRowAccountedInVisibleRows pins R3-2's hazard: the header costs one
+// content row, so eventsFeedVisibleRows — the single source of the visible row
+// count for the renderer, the scroll clamp and the page magnitude — must
+// exclude it. The box must therefore hold exactly one header row plus
+// eventsFeedVisibleRows event rows, and still be exactly eventsH lines tall.
+func TestHeaderRowAccountedInVisibleRows(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	rows := feedBoxRows(t, m.projects.View())
+	want := eventsFeedVisibleRows(eventsH) + 1
+	if len(rows) != want {
+		t.Fatalf("box holds %d content rows, want %d (1 header + %d event rows)", len(rows), want, eventsFeedVisibleRows(eventsH))
+	}
+	if strings.Contains(rows[0], "●") {
+		t.Fatalf("row directly under the top border is an event, not the header: %q", rows[0])
+	}
+	block := strings.Split(m.projects.renderEventsFeed(eventsH, true), "\n")
+	if len(block) != eventsH {
+		t.Fatalf("boxed feed is %d lines tall, want eventsH=%d", len(block), eventsH)
+	}
+}
+
+// TestMessageTruncatesBeforeActor pins R3-3's reordered degradation: the
+// message yields first, down to feedMessageMinWidth, and only then does the
+// actor start truncating. At 160 columns the actor is whole and the message
+// is already clipped; at 120 the message is at its floor and the actor has
+// begun to truncate.
+func TestMessageTruncatesBeforeActor(t *testing.T) {
+	_, wide := boxedFeedView(t, 160, 40, "Fix the flaky cache")
+	row := feedBoxRows(t, wide)[1]
+	if !strings.Contains(row, testActor) {
+		t.Fatalf("160 columns: actor should still be whole: %q", row)
+	}
+	if !strings.Contains(row, "...") {
+		t.Fatalf("160 columns: message should already be truncated: %q", row)
+	}
+
+	_, narrow := boxedFeedView(t, 120, 40, "Fix the flaky cache")
+	row = feedBoxRows(t, narrow)[1]
+	if strings.Contains(row, testActor) {
+		t.Fatalf("120 columns: actor should be truncated, not whole: %q", row)
+	}
+	if !strings.Contains(row, "developer...") {
+		t.Fatalf("120 columns: actor should truncate with an ellipsis: %q", row)
+	}
+}
+
+// TestEventIDPresentAtAllWidths pins R3-3's top priority: the hash id never
+// drops. Revision 1 yielded it below feedIDMinWidth (60); the user ranked it
+// above the message, so it must survive every width the pane renders at,
+// including the narrowest.
+func TestEventIDPresentAtAllWidths(t *testing.T) {
+	hex := regexp.MustCompile(`[0-9a-f]{7}`)
+	for _, term := range []int{80, 100, 120, 160, 200, 240} {
+		_, view := boxedFeedView(t, term, 40, "Fix cache")
+		rows := feedBoxRows(t, view)
+		if !hex.MatchString(rows[1]) {
+			t.Fatalf("term %d: no short event id in the first event row: %q", term, rows[1])
 		}
 	}
 }
