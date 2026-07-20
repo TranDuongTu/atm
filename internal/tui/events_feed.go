@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"atm/internal/core"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -16,8 +15,11 @@ import (
 // gutter derived from the v2 parents DAG. This file holds the formatting
 // helpers over core.LogEntry (digest wording, graph lanes, column layout)
 // alongside the pane's own render and key-handling methods (renderEventsFeed,
-// feedLen, handleLogsKey, eventFeedLine); projects.go owns the surrounding
-// pane split and focus wiring.
+// feedLen, scrollEventsFeed, eventFeedLine); projects.go owns the surrounding
+// pane split. Navigation is modeless (revision 2, R2-2): the Shift modifier
+// alone decides whether arrows drive the feed or the project list, mirroring
+// tasksModel's board-thumbnail pattern in tasks_list.go — there is no
+// subfocus to route through.
 
 // shortEventID renders the 7-char short form of a "sha256:…" event id; a v1
 // entry (no id) renders empty and the column shows blank.
@@ -322,10 +324,9 @@ func (p *projectsModel) readEventLog() (entries []core.LogEntry, ok bool) {
 }
 
 // eventsFeedTitle is the box title: the key hint appended the same shape as
-// the persona chart's "activity by persona  [P]expand". The L key still
-// works until a follow-up task replaces it with modeless Shift-arrow
-// navigation (ATM-793b19 revision 2, R2-2); the hint is updated ahead of
-// that to describe the target interaction.
+// the persona chart's "activity by persona  [P]expand". Shift-↑↓ scrolls the
+// feed one line; Shift-←→ (not shown in the title — the box is narrow) pages
+// it (ATM-793b19 revision 2, R2-2).
 const eventsFeedTitle = "Recent Events  [Shift-↑↓]"
 
 // padFeedLine pads a rendered (possibly ANSI-styled) single line out to
@@ -346,46 +347,63 @@ func padFeedLine(s string, innerW int) string {
 // top-pads a short body to float it to the vertical middle, both written
 // for charts. The feed wants left-and-top alignment instead, achieved
 // without touching renderChartBox by handing it a body for which both
-// behaviors are arithmetic no-ops: every line is exactly
-// chartBoxInnerWidth(p.width) wide (leftPad = (innerW-innerW)/2 = 0), and
-// the windowed-events case emits exactly height-2 lines, blank-padded at
-// the bottom (topPad = (innerH-innerH)/2 = 0). Unfocused it is a tail
-// pinned to the newest event; subfocused (L) the cursor row is highlighted
-// and windowLines follows it.
+// behaviors are arithmetic no-ops: every line — placeholder or populated —
+// is exactly chartBoxInnerWidth(p.width) wide (leftPad = (innerW-innerW)/2 =
+// 0) and the body always emits exactly height-2 lines, blank-padded at the
+// bottom (topPad = (innerH-innerH)/2 = 0). The feed is a pure viewport: it
+// windows from p.logsOffset (moved only by scrollEventsFeed), with no
+// cursor row and no highlight (R2-3).
 func (p *projectsModel) renderEventsFeed(height int) string {
 	innerW := chartBoxInnerWidth(p.width)
+	rows := height - 2 // box top and bottom border
+	if rows < 1 {
+		rows = 1
+	}
 	muted := func(s string) string {
 		return padFeedLine(p.m.styles.Muted.Render(s), innerW)
+	}
+	blank := spaces(innerW)
+	// placeholder blank-fills a single-line message out to height-2 lines,
+	// same as the populated body below it, so renderChartBox's top-pad is a
+	// no-op in every state — a short body would otherwise float to the
+	// vertical middle while the populated feed stays top-aligned.
+	placeholder := func(msg string) string {
+		body := make([]string, 1, rows)
+		body[0] = muted(msg)
+		for len(body) < rows {
+			body = append(body, blank)
+		}
+		return strings.Join(body, "\n")
 	}
 	if p.m.projectScope == "" {
 		// Unreachable via renderList today: it folds the events section away
 		// entirely when scope is empty. Kept as defensive cover for a future caller.
-		return p.renderChartBox(eventsFeedTitle, muted("select a project to see events"), height)
+		return p.renderChartBox(eventsFeedTitle, placeholder("select a project to see events"), height)
 	}
 	entries, ok := p.readEventLog()
 	if !ok {
-		return p.renderChartBox(eventsFeedTitle, muted("events could not be loaded"), height)
+		return p.renderChartBox(eventsFeedTitle, placeholder("events could not be loaded"), height)
 	}
 	if len(entries) == 0 {
-		return p.renderChartBox(eventsFeedTitle, muted("no events yet"), height)
+		return p.renderChartBox(eventsFeedTitle, placeholder("no events yet"), height)
 	}
 	feed := newestFeedEntries(entries)
-	// Clamp into a LOCAL cursor only: View has a pointer receiver, and
-	// writing p.logsCursor here would leak render-time clamping (sized to
+	// Clamp into a LOCAL offset only: View has a pointer receiver, and
+	// writing p.logsOffset here would leak render-time clamping (sized to
 	// whichever project is on screen) back into model state, silently
-	// collapsing a cursor position set on a larger project's feed.
-	cursor := 0
-	if p.logsFocus {
-		cursor = p.logsCursor
-		if cursor > len(feed)-1 {
-			cursor = len(feed) - 1
-		}
-		if cursor < 0 {
-			cursor = 0
-		}
+	// resetting a viewport position set on a larger project's feed.
+	offset := p.logsOffset
+	if offset > len(feed)-1 {
+		offset = len(feed) - 1
 	}
-	rows := height - 2 // box top and bottom border
-	start, end := windowLines(len(feed), cursor, rows)
+	if offset < 0 {
+		offset = 0
+	}
+	start := offset
+	end := start + rows
+	if end > len(feed) {
+		end = len(feed)
+	}
 	// eventGraphRows(feed[:end]) rather than eventGraphRows(feed): row i's
 	// lane state depends only on entries[0..i] (the loop walks forward,
 	// carrying `lanes` from earlier iterations), so truncating the input to
@@ -402,14 +420,8 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 	now := core.Now()
 	body := make([]string, 0, rows)
 	for i := start; i < end; i++ {
-		onCursor := p.logsFocus && i == cursor
-		line := p.eventFeedLine(feed[i], graph[i], laneW, innerW, now, onCursor)
-		if onCursor {
-			line = p.m.styles.RowCursor.Render(line)
-		}
-		body = append(body, line)
+		body = append(body, p.eventFeedLine(feed[i], graph[i], laneW, innerW, now, false))
 	}
-	blank := spaces(innerW)
 	for len(body) < rows {
 		body = append(body, blank)
 	}
@@ -418,14 +430,14 @@ func (p *projectsModel) renderEventsFeed(height int) string {
 
 // feedLen returns the current bounded Recent Events feed length for the
 // selected project: the same maxFeedEvents-capped count renderEventsFeed
-// computes, reused here so handleLogsKey can clamp logsCursor against the
+// computes, reused here so scrollEventsFeed can clamp logsOffset against the
 // real feed instead of duplicating the cap arithmetic. Returns 0 when no
 // project is selected, and 0 for a hard read error (readEventLog's !ok);
 // a v2 integrity failure is tolerated the same way renderEventsFeed
 // tolerates it. Deliberately goes through boundedFeedLen rather than
-// newestFeedEntries: this runs on every keypress while the feed is focused,
-// and only the count is needed, so there is no reason to allocate and
-// reverse a copy of up to 500 entries just to take its length.
+// newestFeedEntries: this runs on every shift+arrow keypress, and only the
+// count is needed, so there is no reason to allocate and reverse a copy of
+// up to 500 entries just to take its length.
 func (p *projectsModel) feedLen() int {
 	if p.m.projectScope == "" {
 		return 0
@@ -437,46 +449,45 @@ func (p *projectsModel) feedLen() int {
 	return boundedFeedLen(len(entries))
 }
 
-// handleLogsKey drives the Recent Events feed while it holds the pane's
-// subfocus. The upper clamp after the switch pins logsCursor to feedLen's
-// last row for every case that can grow it (j/down, ]) — and also for k/up,
-// which cannot grow it but could otherwise walk a cursor parked above the
-// last row (e.g. after the feed shrank) back down one press at a time — so
-// holding j cannot grow the cursor without bound (it used to: nothing else
-// clamps this field — renderEventsFeed clamps only a local copy for display,
-// never writing back to keep the render path pure). Note: esc is ALSO
-// handled at the app level (handleKey's esc branch) because it never reaches
-// pane handlers; the case here documents the intended pair.
-func (p *projectsModel) handleLogsKey(k tea.KeyMsg) tea.Cmd {
+// eventsPageSize returns the events feed's page-scroll magnitude for
+// shift+left/right: the actual visible row count — the events box's height
+// minus its two border rows, i.e. what renderEventsFeed windows by — minus
+// one more, so a page jump leaves one row of context from the previous page
+// (the same overlap convention listPageSize uses for the project list).
+// This replaces handleLogsKey's stale `eventsH - 1`, which assumed a
+// one-row caption rather than the two-row box border the feed actually
+// renders inside; that mismatch made every page jump skip a row instead of
+// overlapping one.
+func (p *projectsModel) eventsPageSize() int {
 	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
-	page := eventsH - 1
+	page := eventsH - 2 - 1
 	if page < 1 {
 		page = 1
 	}
+	return page
+}
+
+// scrollEventsFeed moves the Recent Events feed's viewport by dir*magnitude
+// lines (dir is -1 or 1; magnitude is 1 for a shift+up/down line-scroll or
+// eventsPageSize() for a shift+left/right page). Modeless (R2-2): called
+// straight out of handleListKey's switch, the same way tasksModel.chartCursorMove
+// drives the board thumbnail — there is no subfocus to route through first.
+// The clamp to feedLen's last row is the only bound on logsOffset — nothing
+// else clamps this field; renderEventsFeed clamps only a local copy for
+// display, never writing back, to keep the render path pure — so an
+// unbounded delta must not be able to walk it past the feed's last row.
+func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
+	p.logsOffset += dir * magnitude
 	last := p.feedLen() - 1
-	switch k.String() {
-	case "j", "down":
-		if p.logsCursor < last {
-			p.logsCursor++
-		}
-	case "k", "up":
-		if p.logsCursor > 0 {
-			p.logsCursor--
-		}
-	case "]":
-		p.logsCursor += page
-	case "[":
-		p.logsCursor -= page
-	case "L", "esc":
-		p.logsFocus = false
+	if last < 0 {
+		last = 0
 	}
-	if p.logsCursor > last {
-		p.logsCursor = last
+	if p.logsOffset > last {
+		p.logsOffset = last
 	}
-	if p.logsCursor < 0 {
-		p.logsCursor = 0
+	if p.logsOffset < 0 {
+		p.logsOffset = 0
 	}
-	return nil
 }
 
 // eventFeedLine assembles one digest line, sized to width (the events box's

@@ -267,6 +267,30 @@ func TestRecentEventsFeedPlaceholders(t *testing.T) {
 	mustNotContain(t, body, "select a project to see events") // has events (project.created etc.)
 }
 
+// TestEventsFeedPlaceholderRendersInsideBox proves the Task 7 review
+// fold-in: a placeholder body (no project selected here) still renders
+// inside the same bordered box the populated feed uses, and top-aligned
+// rather than vertically centered — placeholder bodies are now blank-filled
+// to height-2 lines so renderChartBox's top-pad is a no-op in every state,
+// the same way the populated feed already was. Calls renderEventsFeed
+// directly (bypassing renderList's empty-scope fold-away) since the
+// projectScope=="" branch is otherwise unreachable through View().
+func TestEventsFeedPlaceholderRendersInsideBox(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	body := m.projects.renderEventsFeed(10)
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], "╭") {
+		t.Fatalf("placeholder render has no box top border\n--- body ---\n%s", body)
+	}
+	if !strings.Contains(lines[len(lines)-1], "╰") {
+		t.Fatalf("placeholder render has no box bottom border\n--- body ---\n%s", body)
+	}
+	if !strings.Contains(lines[1], "select a project to see events") {
+		t.Fatalf("placeholder text is not top-aligned (row directly under the top border): %q", lines[1])
+	}
+}
+
 func TestEventFeedLineDegradesOnNarrowPane(t *testing.T) {
 	m := newTestModel(t)
 	m.projectScope = "ATM"
@@ -366,204 +390,153 @@ func TestEventFeedCapsAtMaxFeedEvents(t *testing.T) {
 	}
 }
 
-// TestRecentEventsFeedScrollRendersNewContent proves the amendment to I3:
-// TestRecentEventsSubfocusScrolls and TestRecentEventsCursorClampsToFeedLength
-// assert logsCursor only, never calling View() after paging — so deleting
-// the cursor argument to windowLines, or dropping the cursor-row highlight,
-// would leave the whole suite green. This seeds enough events to span more
-// than one feed page, renders unfocused (pinned to the newest page), pages
-// with L then ], and asserts the second render surfaces a digest line the
-// first render did not — a property of specific seeded titles, not exact
-// line positions.
-func TestRecentEventsFeedScrollRendersNewContent(t *testing.T) {
+// TestRecentEventsFeedScrollRevealsNewContent is the modeless rewrite of the
+// old TestRecentEventsFeedScrollRendersNewContent (ATM-793b19 Task 8): the
+// underlying property survives — scrolling the feed surfaces a digest line
+// that was off the initial tail window — but the mechanism is now
+// shift+right (a page) rather than L then ], and there is no cursor row to
+// highlight (R2-3: logsOffset is a pure viewport offset). Also asserts the
+// negative: no reverse-video escape appears anywhere inside the events box,
+// scoped to the box's own rows so the project list's own RowCursor-styled
+// selection higher up in the same pane can't produce a false pass.
+func TestRecentEventsFeedScrollRevealsNewContent(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	// 25 tasks, seeded oldest (Task 00) to newest (Task 24): comfortably
-	// more than one feed page (page = eventsH-1 = 11 rows at this size), so
-	// paging once brings entries that were off the unfocused window into
-	// view.
+	// more than one feed page, so paging once brings entries that were off
+	// the initial tail window into view.
 	for i := 0; i < 25; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
 	}
 
-	unfocused := m.projects.View()
-	mustContain(t, unfocused, `created "Task 24"`)    // newest task: unfocused tail is pinned here
-	mustNotContain(t, unfocused, `created "Task 13"`) // one page down: not yet visible
+	tail := m.projects.View()
+	mustContain(t, tail, `created "Task 24"`)    // newest task: unscrolled view is pinned here
+	mustNotContain(t, tail, `created "Task 13"`) // one page down: not yet visible
 
-	update(t, m, "L")
-	update(t, m, "]")
-	focused := m.projects.View()
-	mustContain(t, focused, `created "Task 13"`) // paging surfaced it
+	update(t, m, "shift+right")
+	scrolled := m.projects.View()
+	mustContain(t, scrolled, `created "Task 13"`) // paging surfaced it
 
-	// The cursor row is visibly highlighted when focused: RowCursor applies
-	// a Reverse SGR attribute, invisible at the default (ascii) test color
-	// profile, so force ANSI256 for this assertion only. Scope to the feed's
-	// cursor line (the one containing the cursor-positioned digest text) to
-	// prove the highlight comes from the feed, not from the project list's own
-	// cursor row higher up in the same pane.
+	// RowCursor applies a Reverse SGR attribute, invisible at the default
+	// (ascii) test color profile, so force ANSI256 for this assertion only.
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 	highlighted := m.projects.View()
 	lines := strings.Split(highlighted, "\n")
-	var cursorLine string
-	for _, line := range lines {
-		if strings.Contains(line, `created "Task 13"`) {
-			cursorLine = line
+	top := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Recent Events") {
+			top = i
 			break
 		}
 	}
-	if cursorLine == "" {
-		t.Fatalf("focused feed has no line with cursor position (Task 13 digest)\n--- body ---\n%s", highlighted)
+	if top < 0 {
+		t.Fatal("no events box")
 	}
-	if !strings.Contains(cursorLine, "\x1b[7m") {
-		t.Fatalf("feed cursor row has no reverse-video escape\n--- cursor line ---\n%s\n--- full body ---\n%s", cursorLine, highlighted)
+	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	for i := top; i < top+eventsH && i < len(lines); i++ {
+		if strings.Contains(lines[i], "\x1b[7m") {
+			t.Fatalf("events box row has a reverse-video escape; no row should be highlighted: %q", lines[i])
+		}
 	}
 }
 
-func TestRecentEventsSubfocusScrolls(t *testing.T) {
+func TestShiftArrowsScrollFeedWhilePlainKeysDriveList(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(120, 40)
+	m.SetSize(200, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	// A second, alphabetically-later project so the list has more than one
-	// row: the post-esc "j" assertion below needs list-cursor movement to
-	// be observable, and the store pre-sorts by code-asc, so ATM (cursor 0)
-	// stays selected by "s" regardless.
-	seedProject(t, m, "ZZZ", "Zeta Project")
+	seedProject(t, m, "ZZZ", "Second")
 	update(t, m, "s")
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 30; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
 	}
-	update(t, m, "L")
-	if !m.projects.logsFocus {
-		t.Fatal("L should focus the events feed")
+	listBefore := m.projects.cursor
+	update(t, m, "shift+down")
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 2 {
+		t.Fatalf("shift+down x2: logsOffset = %d, want 2", m.projects.logsOffset)
+	}
+	if m.projects.cursor != listBefore {
+		t.Fatalf("shift+down moved the project list cursor (%d -> %d)", listBefore, m.projects.cursor)
 	}
 	update(t, m, "j")
-	update(t, m, "j")
-	if m.projects.logsCursor != 2 {
-		t.Fatalf("cursor = %d, want 2", m.projects.logsCursor)
+	if m.projects.cursor != listBefore+1 {
+		t.Fatalf("plain j should move the list cursor, got %d", m.projects.cursor)
 	}
-	update(t, m, "]")
-	if m.projects.logsCursor <= 2 {
-		t.Fatalf("] should page the feed cursor, got %d", m.projects.logsCursor)
+	if m.projects.logsOffset != 2 {
+		t.Fatalf("plain j moved the feed offset to %d", m.projects.logsOffset)
 	}
-	listCursor := m.projects.cursor
-	update(t, m, "esc")
-	if m.projects.logsFocus {
-		t.Fatal("esc should leave the events feed")
-	}
-	update(t, m, "j")
-	if m.projects.cursor != listCursor+1 {
-		t.Fatal("after esc, j should drive the project list again")
-	}
-	update(t, m, "L")
-	if !m.projects.logsFocus || m.projects.logsCursor != 0 {
-		t.Fatal("re-entering the feed should reset the cursor to newest")
-	}
-	update(t, m, "L")
-	if m.projects.logsFocus {
-		t.Fatal("L should also toggle the feed subfocus off")
+	update(t, m, "shift+up")
+	if m.projects.logsOffset != 1 {
+		t.Fatalf("shift+up: logsOffset = %d, want 1", m.projects.logsOffset)
 	}
 }
 
-func TestRecentEventsFocusRequiresSelection(t *testing.T) {
+func TestShiftLeftRightPageFeedAndOffsetClamps(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "L")
-	if m.projects.logsFocus {
-		t.Fatal("L without a selected project must not focus the feed")
-	}
-}
-
-// TestSetSizeReleasesLogsFocusWhenFeedCollapses proves I2: shrinking the
-// terminal below the events slot's collapse threshold (projectPaneSplitHeights
-// returns eventsH == 0 once p.contentHeight <= 11) makes renderList skip the
-// feed section entirely, but handleListKey still routes every key into
-// handleLogsKey while logsFocus stays set — stranding the user in an
-// invisible subfocus where list keys like j/s/enter are silently swallowed.
-// SetSize must release focus (and reset the cursor) when a resize collapses
-// the feed.
-func TestSetSizeReleasesLogsFocusWhenFeedCollapses(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedProject(t, m, "ZZZ", "Zeta Project") // a second row so list-cursor movement is observable
-	update(t, m, "s")
-	update(t, m, "L")
-	if !m.projects.logsFocus {
-		t.Fatal("L should focus the events feed")
-	}
-
-	m.SetSize(120, 14)
-	if _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight); eventsH != 0 {
-		t.Fatalf("test setup: eventsH = %d, want 0 (collapsed) at this size", eventsH)
-	}
-	if m.projects.logsFocus {
-		t.Fatal("SetSize should release logsFocus when the events slot collapses to 0")
-	}
-	if m.projects.logsCursor != 0 {
-		t.Fatalf("logsCursor = %d, want reset to 0", m.projects.logsCursor)
-	}
-
-	listCursor := m.projects.cursor
-	update(t, m, "j")
-	if m.projects.cursor != listCursor+1 {
-		t.Fatal("after the collapse, j should drive the project list again, not be swallowed by handleLogsKey")
-	}
-}
-
-func TestRecentEventsStatusHintFollowsSubfocus(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
+	m.SetSize(200, 40)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
-	if !strings.Contains(m.projects.statusHint(), "[L]ogs") {
-		t.Fatalf("list hint should advertise [L]ogs: %q", m.projects.statusHint())
-	}
-	update(t, m, "L")
-	hint := m.projects.statusHint()
-	if !strings.Contains(hint, "[j/k]") || !strings.Contains(hint, "[L/Esc]back") {
-		t.Fatalf("feed hint = %q", hint)
-	}
-}
-
-// TestRecentEventsCursorClampsToFeedLength proves the amendment to Task 5:
-// handleLogsKey must not let logsCursor run past the feed's last row. The
-// brief's original comment claimed render-time clamping (in
-// renderEventsFeed) bounded the field, but that clamp was removed in Task 4
-// as a Bubble Tea purity fix — it now clamps only a local copy for display.
-// Left unbounded, holding j would grow logsCursor without limit, and the
-// user would need that many k presses to claw back to a visibly moving
-// cursor. The feed's row count isn't just the seeded tasks — selecting a
-// project (s) also emits vocabulary/capability events — so the bound is
-// read from feedLen() itself rather than a hand-counted magic number;
-// pressing j far more times than that must still stop at the last row, and
-// a single k must then move back up by exactly one.
-func TestRecentEventsCursorClampsToFeedLength(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "s")
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 30; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
 	}
+	update(t, m, "shift+right")
+	paged := m.projects.logsOffset
+	if paged <= 1 {
+		t.Fatalf("shift+right should page by more than one line, got %d", paged)
+	}
+	for i := 0; i < 200; i++ {
+		update(t, m, "shift+right")
+	}
+	if m.projects.logsOffset >= m.projects.feedLen() {
+		t.Fatalf("offset %d ran past the feed length %d", m.projects.logsOffset, m.projects.feedLen())
+	}
+	for i := 0; i < 300; i++ {
+		update(t, m, "shift+left")
+	}
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("shift+left to the top: logsOffset = %d, want 0", m.projects.logsOffset)
+	}
+}
+
+func TestFeedOffsetResetsOnProjectSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "ZZZ", "Second")
+	update(t, m, "s")
+	for i := 0; i < 20; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	update(t, m, "shift+down")
+	update(t, m, "shift+down")
+	if m.projects.logsOffset == 0 {
+		t.Fatal("setup: offset should be non-zero before the switch")
+	}
+	update(t, m, "j")
+	update(t, m, "s") // select ZZZ
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("project switch should reset logsOffset, got %d", m.projects.logsOffset)
+	}
+}
+
+func TestNoSubfocusModeRemains(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	// L is no longer a feed binding: it must not swallow subsequent list keys.
 	update(t, m, "L")
-	last := m.projects.feedLen() - 1
-	if last < 1 {
-		t.Fatalf("feedLen() = %d, want a feed with at least 2 rows for this test to be meaningful", last+1)
+	before := m.projects.cursor
+	seedProject(t, m, "ZZZ", "Second")
+	update(t, m, "j")
+	if m.projects.cursor != before+1 {
+		t.Fatalf("after L, plain j must still drive the project list (cursor %d -> %d)", before, m.projects.cursor)
 	}
-	for i := 0; i < last+20; i++ {
-		update(t, m, "j")
-	}
-	if got := m.projects.logsCursor; got != last {
-		t.Fatalf("logsCursor after %d j presses = %d, want %d (last row)", last+20, got, last)
-	}
-	update(t, m, "k")
-	if got := m.projects.logsCursor; got != last-1 {
-		t.Fatalf("logsCursor after one k = %d, want %d", got, last-1)
-	}
+	mustNotContain(t, m.projects.statusHint(), "[L]ogs")
 }
 
 func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {

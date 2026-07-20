@@ -30,12 +30,13 @@ type projectsModel struct {
 	// history toggle on project detail.
 	showHistory bool
 
-	// Recent Events feed subfocus state (list view, ATM-793b19). logsCursor
-	// indexes the newest-first feed; render clamps it into a local copy
-	// only (View must stay pure), so out-of-range values persist harmlessly
-	// until the next key handler that moves the cursor.
-	logsFocus  bool
-	logsCursor int
+	// logsOffset is the Recent Events feed's viewport offset (list view,
+	// ATM-793b19 revision 2): shift+arrows drive it directly, with no
+	// subfocus mode — see events_feed.go's scrollEventsFeed. It indexes the
+	// newest-first feed; render clamps it into a local copy only (View must
+	// stay pure), so out-of-range values persist harmlessly until the next
+	// key handler that moves it.
+	logsOffset int
 }
 
 type pView int
@@ -172,17 +173,6 @@ func (p *projectsModel) SetSize(w, h int) {
 	p.width = w
 	p.contentHeight = h
 	p.detail.offset = 0
-	// A resize that shrinks the events slot to 0 rows (below
-	// projectPaneSplitHeights' ~12-row collapse threshold) makes renderList
-	// skip the feed section entirely, but handleListKey would keep routing
-	// every key into handleLogsKey while logsFocus stayed set — stranding
-	// the user in an invisible subfocus where list keys are silently
-	// swallowed. Release focus (and reset the cursor, consistent with the
-	// other reset sites) so the list regains its keys.
-	if _, eventsH, _ := projectPaneSplitHeights(p.contentHeight); eventsH == 0 {
-		p.logsFocus = false
-		p.logsCursor = 0
-	}
 }
 
 func (p *projectsModel) refresh() {
@@ -225,9 +215,6 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
-	if p.logsFocus {
-		return p.handleLogsKey(k)
-	}
 	switch k.String() {
 	case "j", "down":
 		if p.cursor < len(p.list)-1 {
@@ -239,13 +226,21 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		p.cursor = 0
-	case "L":
-		if p.m.projectScope == "" {
-			p.m.showToast("select a project first")
-			return nil
+	case "shift+up", "shift+down":
+		// Move the events feed viewport by one line — same modeless pattern
+		// as the Tasks pane's thumbnail chart cursor (tasks_list.go).
+		dir := -1
+		if k.String() == "shift+down" {
+			dir = 1
 		}
-		p.logsFocus = true
-		p.logsCursor = 0
+		p.scrollEventsFeed(dir, 1)
+	case "shift+left", "shift+right":
+		// Page the events feed viewport.
+		dir := -1
+		if k.String() == "shift+right" {
+			dir = 1
+		}
+		p.scrollEventsFeed(dir, p.eventsPageSize())
 	case "]":
 		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor += p.listPageSize(listH)
@@ -280,8 +275,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			p.m.capability.current = "" // re-resolve for the new project
-			p.logsFocus = false
-			p.logsCursor = 0
+			p.logsOffset = 0            // fresh project: viewport back to the newest event
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
@@ -1043,13 +1037,10 @@ func (p *projectsModel) renderDetailView() string {
 func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
-		if p.logsFocus {
-			return "[j/k]scroll [[/]]page [L/Esc]back"
-		}
 		if len(p.list) == 0 {
 			return "[a]add [p]ersona"
 		}
-		return "[a]dd [s]elect [Enter]detail [L]ogs [x]remove [P]ersona [p]new"
+		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new"
 	case pViewDetail:
 		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
 	}
@@ -1168,11 +1159,9 @@ func (m *Model) confirmYes() tea.Cmd {
 		}
 		if m.projectScope == code {
 			m.projectScope = ""
-			// Defensive: subfocus routes all keys to handleLogsKey while
-			// logsFocus is set, so leaving it set here could strand the user
-			// in an invisible subfocus if refactored. Reset both fields.
-			m.projects.logsFocus = false
-			m.projects.logsCursor = 0
+			// The removed project's viewport position is meaningless for
+			// whatever gets selected next.
+			m.projects.logsOffset = 0
 			if m.indexer != nil {
 				resetIndexer(m)
 			}
