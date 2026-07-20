@@ -1685,10 +1685,10 @@ func TestDrillOutOfLeafBoardKeepsBoardFocus(t *testing.T) {
 		t.Fatalf("level = %v, want lLevelTable", m.boards.level)
 	}
 	// The task list must still be filtered by the SELECTED board (assert via
-	// the tasks pane's focus caption / filter — check the exact accessor in
-	// tasks.go; the invariant is: NOT the unfiltered focusOff+"" state).
-	if got := m.tasks.focusCaption(); !strings.Contains(got, "all-tasks") {
-		t.Errorf("focus caption = %q, want it to reference all-tasks after drillOut", got)
+	// the tasks pane's filter — focusCaption was removed in Task 7; the
+	// invariant is: NOT the unfiltered focusOff+"" state).
+	if got := m.tasks.filter; !strings.Contains(got, "all-tasks") {
+		t.Errorf("tasks.filter = %q, want it to reference all-tasks after drillOut", got)
 	}
 }
 

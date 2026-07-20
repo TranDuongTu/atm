@@ -246,35 +246,11 @@ func (t *tasksModel) renderListWithStrip() string {
 }
 
 func (t *tasksModel) headerLine() string {
-	proj := t.m.projectScope
-	if proj == "" {
-		proj = "(none)"
+	capName := t.m.capability.current
+	if capName == "" {
+		capName = "(none)"
 	}
-	return fmt.Sprintf("PROJECT: %s    FOCUS: %s    SORT: %s", proj, t.focusCaption(), t.sortMode)
-}
-
-// focusCaption is a read-only description of why the Tasks list is scoped,
-// derived from the focus set by the board strip. Empty focus reads "(all)".
-func (t *tasksModel) focusCaption() string {
-	switch t.focus.mode {
-	case focusPresent:
-		if t.focus.bareTags {
-			return "bare tags"
-		}
-		return t.focus.ns
-	case focusAbsent:
-		if t.focus.bareTags {
-			return "no bare tags"
-		}
-		return "no " + t.focus.ns
-	case focusUnlabeled:
-		return "unlabeled"
-	default: // focusOff
-		if f := strings.TrimSpace(t.filter); f != "" {
-			return f // exact-label token at L2
-		}
-		return "(all)"
-	}
+	return fmt.Sprintf("CAPABILITY: %s    TOTAL: %d/%d tasks    SORT: %s", capName, t.capCount, t.totalCount, t.sortMode)
 }
 
 func (t *tasksModel) renderList() string {
@@ -308,19 +284,13 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight-1))
 }
 
-// taskColumnWidths returns fixed widths for ID/LABELS/UPDATED and a flexible
-// TITLE width that absorbs the remaining pane width. The format string used
-// by both the header and data rows is " %-*s %-*s %-*s %*s" (leading space +
-// 3 inter-column spaces = 4 extra columns of padding).
-//
-// idW is sized to the widest ID actually present (clamped to [9, 14]): task
-// IDs are "<CODE>-<hash>" (e.g. DEMO-f7d632, 11 chars), and Go's %-9s does NOT
-// truncate a longer value — an under-sized idW would let every row overflow
-// its column and push the trailing UPDATED value off the pane, clipping it
-// (the "1d ago" -> "1d ag" bug). Sizing to the real IDs keeps the row within
-// the pane; renderFlatList still truncates defensively.
-func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
-	idW, labelsW, updatedW = 9, 18, 8
+// taskColumnWidths returns fixed widths for ID/UPDATED and a flexible TITLE
+// width that absorbs the remaining pane width. The format string used by both
+// the header and data rows is " %-*s %-*s %*s" (leading space + 2
+// inter-column spaces = 3 extra columns of padding). idW sizing note as
+// before (IDs are "<CODE>-<hash>").
+func (t *tasksModel) taskColumnWidths() (idW, updatedW, titleW int) {
+	idW, updatedW = 9, 8
 	for _, r := range t.rows {
 		if w := len(r.id); w > idW {
 			idW = w
@@ -329,7 +299,7 @@ func (t *tasksModel) taskColumnWidths() (idW, labelsW, updatedW, titleW int) {
 	if idW > 14 {
 		idW = 14
 	}
-	titleW = t.width - idW - labelsW - updatedW - 4
+	titleW = t.width - idW - updatedW - 3
 	if titleW < 16 {
 		titleW = 16
 	}
@@ -353,8 +323,8 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		})
 		return
 	}
-	idW, labelsW, updatedW, titleW := t.taskColumnWidths()
-	header := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, "ID", titleW, "TITLE", labelsW, "LABELS", updatedW, "UPDATED")
+	idW, updatedW, titleW := t.taskColumnWidths()
+	header := fmt.Sprintf(" %-*s %-*s %*s", idW, "ID", titleW, "TITLE", updatedW, "UPDATED")
 	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLabel.Render(header)))
 	b.WriteString("\n")
 	b.WriteString(dashboardLine(t.width, repeat("─", dashboardContentWidth(t.width))))
@@ -363,11 +333,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
-		labels := "-"
-		if len(r.labels) > 0 {
-			labels = strings.Join(r.labels, " ")
-		}
-		line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
+		line := fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
 		if i == t.cursor {
 			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 		}
@@ -417,10 +383,6 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		body.WriteString("\n")
 		idx++
 		for _, r := range t.others {
-			labels := "(no labels)"
-			if len(r.labels) > 0 {
-				labels = strings.Join(r.labels, " ")
-			}
 			titleW := t.width - 6
 			if titleW < 20 {
 				titleW = 20
@@ -428,7 +390,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 			if titleW > 32 {
 				titleW = 32
 			}
-			line := fmt.Sprintf("  %s   id %s   labels %s   updated %s", truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
+			line := fmt.Sprintf("  %s   id %s   updated %s", truncateRunes(r.title, titleW), r.id, r.updated)
 			if idx == t.cursor {
 				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
 			}
@@ -481,10 +443,6 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 	} else {
 		rowIndent := strings.Repeat("  ", depth+1)
 		for _, r := range g.rows {
-			labels := "(no labels)"
-			if len(r.labels) > 0 {
-				labels = strings.Join(r.labels, " ")
-			}
 			titleW := t.width - 6 - len(rowIndent)
 			if titleW < 20 {
 				titleW = 20
@@ -492,7 +450,7 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 			if titleW > 32 {
 				titleW = 32
 			}
-			line := fmt.Sprintf("%s%s   id %s   labels %s   updated %s", rowIndent, truncateRunes(r.title, titleW), r.id, truncateRunes(labels, 36), r.updated)
+			line := fmt.Sprintf("%s%s   id %s   updated %s", rowIndent, truncateRunes(r.title, titleW), r.id, r.updated)
 			if idx == t.cursor {
 				line = t.m.styles.RowCursor.Render(line)
 			}

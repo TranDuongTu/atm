@@ -410,7 +410,7 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 
 	view := m.tasks.View()
 	lines := strings.Split(view, "\n")
-	if !strings.Contains(lines[0], "PROJECT:") {
+	if !strings.Contains(lines[0], "CAPABILITY:") {
 		t.Fatalf("first line = %q, want the task list header first", lines[0])
 	}
 	pinBlock := strings.Join(lines[len(lines)-pinnedBoxHeight:], "\n")
@@ -447,5 +447,41 @@ func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
 	after := m.tasks.listPageSize()
 	if after != before {
 		t.Errorf("listPageSize after pinning 1 board = %d, want %d (fixed slot, unchanged)", after, before)
+	}
+}
+
+func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "stray", "ATM:needs-triage")
+	m.refreshAll()
+	got := m.tasks.headerLine()
+	want := "CAPABILITY: workflow    TOTAL: 1/2 tasks    SORT: updated-desc"
+	if got != want {
+		t.Fatalf("headerLine = %q, want %q", got, want)
+	}
+}
+
+func TestFlatListDropsLabelsColumn(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.refreshAll()
+	m.boards.selectDefault()
+	out := m.tasks.renderList()
+	if strings.Contains(out, "LABELS") {
+		t.Fatalf("flat list still shows LABELS column:\n%s", out)
+	}
+	if !strings.Contains(out, "TITLE") || !strings.Contains(out, "UPDATED") {
+		t.Fatalf("flat list lost TITLE/UPDATED columns:\n%s", out)
 	}
 }

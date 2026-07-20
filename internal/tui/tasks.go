@@ -24,6 +24,11 @@ type tasksModel struct {
 	sortMode sortMode
 	focus    taskFocus
 
+	// header counts, computed on refresh (never per frame): capCount is the
+	// current capability's owned-task total, totalCount the project total.
+	capCount   int
+	totalCount int
+
 	// detail
 	detail taskDetailState
 
@@ -123,10 +128,14 @@ func (t *tasksModel) refresh() {
 	t.groups = nil
 	t.others = nil
 	if t.m.projectScope == "" {
+		t.capCount = 0
+		t.totalCount = 0
 		t.clampCursor()
 		return
 	}
 	scope := t.m.projectScope
+	t.totalCount = len(t.m.store.ListTasks(core.QueryFilters{Project: scope}))
+	t.capCount = t.m.capabilityTaskCount(t.m.capability.current)
 	switch t.focus.mode {
 	case focusUmbrellaIdle:
 		// No rows: the umbrella is a browsing surface, not a filter. The

@@ -83,19 +83,18 @@ func TestTaskColumnWidthsSizesIdToLongestID(t *testing.T) {
 		{id: "DEMO-0001", title: "short", updated: "now"},
 	}
 
-	idW, labelsW, updatedW, titleW := m.tasks.taskColumnWidths()
+	idW, updatedW, titleW := m.tasks.taskColumnWidths()
 	if idW < len("DEMO-f7d632") {
 		t.Errorf("idW = %d, want >= %d (the longest id)", idW, len("DEMO-f7d632"))
 	}
-	if idW+labelsW+updatedW+titleW+4 != 100 {
-		t.Errorf("column widths %d+%d+%d+%d+4 = %d, want == pane width 100 (no overflow)", idW, labelsW, updatedW, titleW, idW+labelsW+updatedW+titleW+4)
+	if idW+updatedW+titleW+3 != 100 {
+		t.Errorf("column widths %d+%d+%d+3 = %d, want == pane width 100 (no overflow)", idW, updatedW, titleW, idW+updatedW+titleW+3)
 	}
 
 	// The widest row, formatted exactly as renderFlatList does, must fit the
 	// pane so the UPDATED value ("1d ago") is never clipped.
 	r := m.tasks.rows[0]
-	labels := strings.Join(r.labels, " ")
-	line := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), labelsW, truncateRunes(labels, labelsW), updatedW, r.updated)
+	line := fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
 	if w := lipgloss.Width(line); w > 100 {
 		t.Errorf("flat row width = %d, exceeds pane width 100 (UPDATED column would clip): %q", w, line)
 	}
@@ -111,7 +110,7 @@ func TestTaskColumnWidthsClampsIdWidth(t *testing.T) {
 	m := newTestModel(t)
 	m.tasks.width = 100
 	m.tasks.rows = []taskRow{{id: strings.Repeat("X", 40), title: "t", updated: "now"}}
-	idW, _, _, _ := m.tasks.taskColumnWidths()
+	idW, _, _ := m.tasks.taskColumnWidths()
 	if idW != 14 {
 		t.Errorf("idW for a 40-char id = %d, want 14 (clamp)", idW)
 	}
