@@ -1685,10 +1685,38 @@ visible and assert the actor column starts at the same display column.
   - Delete `feedIDMinWidth` and its rung — the id always renders.
   - Delete `feedActorMinWidth` and its rung — the actor narrows, never
     vanishes.
-  - Add `feedMessageMinWidth`; allocate width as: fixed columns first
-    (graph, id, subject, and age when above `feedAgeMinWidth`), then give
-    the message its floor, then give the actor up to its full width from
-    what remains, then return any surplus to the message.
+  - Add `feedMessageMinWidth` (use 8). Allocate width with EXACTLY this rule,
+    in one function whose result both the header and the body consume:
+
+    ```
+    fixed  = laneW + 1 + 7 + 1 + 7 + 1        // graph, id, subject, each +sep
+    showAge = innerW >= feedAgeMinWidth       // 30
+    ageW   = 0; if showAge { ageW = 3 + 1 }   // age + its separator
+    avail  = innerW - fixed - ageW            // shared by actor and message
+    if avail < 2 { actorW, msgW = 0, max(0, avail) }  // degenerate, just clamp
+    msgW   = min(feedMessageMinWidth, avail/2) // floor yields when cramped
+    actorW = min(actorFullWidth, avail - msgW) // actor takes what it can
+    msgW   = avail - actorW                    // surplus returns to message
+    ```
+
+    `actorFullWidth` is the widest actor across the whole bounded feed.
+    The `avail/2` term is what stops either column reaching zero on a narrow
+    pane; without it a message floor of 8 starves the actor entirely at an
+    80-column terminal.
+
+    Measured box inner widths (do not re-derive these; they are from
+    `chartBoxInnerWidth(innerPaneWidth(splitWorkspaceWidths(term)))`):
+    terminal 80 -> 26, 100 -> 34, 120 -> 42, 160 -> 57, 200 -> 72, 240 -> 88.
+
+    Expected results with a 22-column actor (`developer@claude:unset`):
+    | inner | avail | actorW | msgW |
+    |---|---|---|---|
+    | 26 (term 80)  |  8 |  4 (trunc) |  4 |
+    | 42 (term 120) | 20 | 12 (trunc) |  8 |
+    | 57 (term 160) | 35 | 22 (full)  | 13 |
+    | 72 (term 200) | 50 | 22 (full)  | 28 |
+
+    Assert this table directly in a test.
   - Truncate the actor with the same ellipsis convention the rest of the
     pane uses (`truncateRunes` appends ASCII `...`).
   - Build the header from the same column decisions the body uses, so the
