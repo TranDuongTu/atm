@@ -359,3 +359,97 @@ already gone: a box of feed rows showing only a graph glyph and a truncated
 actor name, conveying nothing. The subject column never drops in any rung —
 it is the one piece of "what changed" the message wording cannot always
 recover on its own.
+
+---
+
+# Revision 3 — full actor identity and a column header
+
+Decisions taken with the user on 2026-07-20, after revision 2 shipped.
+**This section supersedes the actor row of the Line-format table and the
+degradation paragraph.** Everything else — framing, modeless navigation,
+scroll model, digest vocabulary, graph rendering — is unchanged.
+
+## Why
+
+Two gaps in the shipped feed. The actor was abbreviated to 8 columns
+(`dev@clau`), which collapses `developer@claude` and `developer@codex` to
+the same string and hides the model entirely — so the column could not
+answer "which agent did this". And the columns were unlabelled, so a reader
+had to infer what each one was.
+
+## R3-1. The actor renders its full identity
+
+The actor column shows the complete `persona@agent:model` string, not the
+`persona@agent` abbreviation and not a truncation of it.
+
+Column width is the widest actor **across the whole bounded feed**, not
+across the visible window. Window-relative width would make the column —
+and therefore the header — jitter as the user scrolls. The feed is bounded
+to `maxFeedEvents`, so this is one pass over at most 500 short strings.
+
+Measured in the ATM store: the widest actor present is 34 columns
+(`developer@opencode:deepseek-v4-pro`); typical recent actors are 22
+(`developer@claude:unset`).
+
+## R3-2. A column header
+
+One header row directly under the box's top border (or under the caption in
+the compact framing), rendered in the muted style. No rule beneath it — the
+box border already separates it, and the events slot is only ~7 rows.
+
+The header lists **only the columns actually rendered at the current
+width**, so it never labels a column that is not there.
+
+The header costs one content row. `eventsFeedVisibleRows` must account for
+it so the scroll clamp and page magnitude stay correct — this is the same
+hazard revision 2 hit when the framing changed the row overhead, and it is
+the reason that helper is the single source for the visible row count.
+
+## R3-3. Degradation priority, restated
+
+The user's ordering, most-protected first:
+
+1. **The hash id never drops.** `feedIDMinWidth` is removed. This reverses
+   revision 1's decision to yield the id below 60 columns — the id is how a
+   reader ties a feed row to `atm store log`, and the user ranked it above
+   the message.
+2. **The subject never drops.** It names what changed.
+3. **The age drops** below `feedAgeMinWidth` (30), unchanged.
+4. **The message truncates first** when the line is short, down to
+   `feedMessageMinWidth`.
+5. **The actor truncates second**, with an ellipsis, only once the message
+   has reached its floor.
+
+`feedActorMinWidth` — revision 2's rung that dropped the actor entirely —
+is removed. The actor now narrows rather than vanishing, which is what
+"show me the full actor" implies when it cannot fully fit.
+
+## R3-4. Consequences, stated plainly
+
+The fixed columns now cost `graph + id(7) + subject(7) + age(3)` plus
+separators ≈ 22 columns before actor and message. A full 22-column actor
+therefore needs ~44 columns before the message gets anything.
+
+| Terminal | Box inner | Actor | Message |
+|---|---|---|---|
+| 200 | ~76 | full | comfortable |
+| 160 | ~60 | full | usable |
+| 120 | ~44 | truncated | at its floor |
+| 80 | ~26 | heavily truncated | at its floor |
+
+The feed is comfortable from roughly 160 columns up. This is the direct,
+accepted consequence of ranking the id and the actor above the message; it
+is recorded here so the trade is visible rather than rediscovered.
+
+## R3-5. Testing
+
+- the actor column shows a full `persona@agent:model` with nothing elided
+  when the width allows
+- the column width is stable while scrolling (does not change as different
+  actors enter the window)
+- the header labels exactly the columns rendered, at several widths
+- the header costs exactly one row, and the scroll clamp and page magnitude
+  still agree with the rendered row count in BOTH framings
+- the message truncates before the actor does; the actor truncates only
+  after the message reaches its floor
+- the id is present at every width, including the narrowest

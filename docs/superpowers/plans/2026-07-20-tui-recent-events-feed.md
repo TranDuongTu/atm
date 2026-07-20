@@ -1612,3 +1612,113 @@ git commit -m "docs(ATM-793b19): changelog reflects boxed feed and shift-arrow s
 ```bash
 atm task comment add --task ATM-793b19 --label ATM:comment:progress --body "Revision 2 shipped: events feed is a bordered box aligned with the summary chart boxes, and L subfocus is replaced by modeless Shift+arrow navigation (Shift+up/down scroll a line, Shift+left/right page). No focus mode, no cursor row - pure viewport offset. make verify green."
 ```
+
+---
+
+# Revision 3 — full actor identity and a column header
+
+> Tasks 1-9 are COMPLETE. Task 10 below implements Revision 3 of the design
+> spec (`docs/superpowers/specs/2026-07-20-tui-recent-events-feed-design.md`,
+> section "Revision 3 — full actor identity and a column header"), which
+> supersedes the actor row of the Line-format table and the degradation
+> paragraph. Read that section before starting.
+
+## Revision 3 Global Constraints
+
+All prior Global Constraints still bind. Additionally:
+
+- `renderChartBox`, `chartBoxWidth`, `chartBoxInnerWidth`, `renderSummary`,
+  `renderPersonaActivityChart` MUST NOT be modified.
+- `renderEventsFeed` and its helpers stay pure w.r.t. model state; all
+  clamping lives in the key handler.
+- Strict 1:1 in BOTH framings: one event renders as exactly one line.
+- The header is not an event and does not count as one.
+- `eventsFeedVisibleRows` remains the SINGLE source of the visible row count
+  for the renderer, the scroll clamp, and the page magnitude.
+
+---
+
+### Task 10: Full actor identity, column header, reordered degradation
+
+**Files:**
+- Modify: `internal/tui/events_feed.go`
+- Test: `internal/tui/events_feed_test.go`
+- Modify: `internal/tui/projects.go` only if the header forces a height-accounting change
+
+**Interfaces:**
+- Changed: `eventFeedActor` no longer abbreviates — it returns the full actor.
+- Removed: `feedIDMinWidth`, `feedActorMinWidth`.
+- Added: `feedMessageMinWidth`; a helper returning the widest actor width
+  across the bounded feed; a header-row builder.
+
+- [ ] **Step 1: Write the failing tests.**
+
+Cover, at minimum:
+
+```go
+// The actor is not abbreviated when there is room.
+func TestEventFeedShowsFullActorIdentity(t *testing.T)
+// widest-actor sizing is feed-wide, so the column does not jitter on scroll
+func TestActorColumnWidthStableWhileScrolling(t *testing.T)
+// header labels exactly the rendered columns, at several widths
+func TestEventsFeedHeaderMatchesRenderedColumns(t *testing.T)
+// the header costs exactly one row and the scroll arithmetic still agrees
+func TestHeaderRowAccountedInVisibleRows(t *testing.T)
+// message yields before the actor does
+func TestMessageTruncatesBeforeActor(t *testing.T)
+// the id survives at every width
+func TestEventIDPresentAtAllWidths(t *testing.T)
+```
+
+Write real assertions against rendered output, not against helper internals.
+For the stability test, scroll far enough that a different set of actors is
+visible and assert the actor column starts at the same display column.
+
+- [ ] **Step 2: Run them and confirm they fail** for the right reason (the
+      actor is abbreviated; there is no header). Record the output.
+
+- [ ] **Step 3: Implement.**
+  - `eventFeedActor` returns the actor unchanged (drop the 3+4 truncation).
+    Keep the function as the single place actor display is decided.
+  - Add a helper computing the widest actor width over the bounded feed;
+    call it once per render, not per line.
+  - Delete `feedIDMinWidth` and its rung — the id always renders.
+  - Delete `feedActorMinWidth` and its rung — the actor narrows, never
+    vanishes.
+  - Add `feedMessageMinWidth`; allocate width as: fixed columns first
+    (graph, id, subject, and age when above `feedAgeMinWidth`), then give
+    the message its floor, then give the actor up to its full width from
+    what remains, then return any surplus to the message.
+  - Truncate the actor with the same ellipsis convention the rest of the
+    pane uses (`truncateRunes` appends ASCII `...`).
+  - Build the header from the same column decisions the body uses, so the
+    two cannot disagree — derive both from one width-allocation result
+    rather than computing the layout twice.
+  - Account for the header row in `eventsFeedVisibleRows`.
+
+- [ ] **Step 4: Run the tests; confirm green.**
+
+- [ ] **Step 5: Run `go test ./internal/tui`.** Existing tests asserting the
+      abbreviated actor (`dev@clau`), the id-drop rung, or the actor-drop
+      rung are now asserting deleted behavior. Rewrite the ones whose subject
+      survives in new form; delete the ones whose subject is gone. List each
+      with its category in your report. The framing-agreement sweep and the
+      page-overlap test must both still pass — if either breaks, the header
+      row accounting is wrong.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/tui/events_feed.go internal/tui/events_feed_test.go internal/tui/projects.go
+git commit -m "feat(ATM-793b19): full actor identity and a column header in the events feed"
+```
+
+---
+
+### Task 11: Verify, changelog, ledger
+
+- [ ] **Step 1:** `make verify`. Do not patch tests to go green.
+- [ ] **Step 2:** Update the existing CHANGELOG entry to mention the column
+      header and the full actor identity. Keep it to ONE entry.
+- [ ] **Step 3:** Commit the changelog separately.
+- [ ] **Step 4:** Journal to the ATM ledger with `atm task comment add`.
