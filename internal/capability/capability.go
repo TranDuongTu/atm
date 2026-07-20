@@ -227,40 +227,75 @@ func (r *Registry) Exposed(code string) []ExposedLabel {
 // capability owns via Vocabulary. A label is owned when its FullName is in
 // the vocabulary union, or when it sits under an owned namespace descriptor
 // (<code>:<ns>:<value> with <code>:<ns>:* owned). Derived, not stored. The
-// TUI renders these under the synthetic umbrella row; `atm capability
+// TUI renders these in the unmanaged capability view; `atm capability
 // unmanaged` exposes the same set to the manager agent for triage. Callers
 // narrow to the enabled set first: reg.For(project).Unmanaged(...).
 func (r *Registry) Unmanaged(svc core.LabelService, code string) ([]core.Label, error) {
-	owned := map[string]bool{}
-	var ownedPrefixes []string
+	var vocab []core.Label
 	if r != nil {
 		for _, c := range r.caps {
-			for _, l := range c.Vocabulary(code) {
-				owned[l.Name] = true
-				if core.IsNamespaceName(l.Name) {
-					// "<code>:<ns>:*" -> member prefix "<code>:<ns>:"
-					ownedPrefixes = append(ownedPrefixes, strings.TrimSuffix(l.Name, "*"))
-				}
-			}
+			vocab = append(vocab, c.Vocabulary(code)...)
 		}
 	}
+	owned := NewLabelSet(vocab)
 	var out []core.Label
 	for _, l := range svc.LabelList(code, "") {
-		if owned[l.Name] {
-			continue
-		}
-		member := false
-		for _, p := range ownedPrefixes {
-			if strings.HasPrefix(l.Name, p) {
-				member = true
-				break
-			}
-		}
-		if !member {
+		if !owned.Contains(l.Name) {
 			out = append(out, l)
 		}
 	}
 	return out, nil
+}
+
+// LabelSet is an ownership matcher over a label list: exact FullNames plus
+// member prefixes derived from namespace descriptors (<code>:<ns>:* owns
+// every <code>:<ns>:<value>). Registry.Unmanaged and the TUI's capability
+// task counts share it, so the ownership rule stays single-sourced.
+type LabelSet struct {
+	exact    map[string]bool
+	prefixes []string
+}
+
+// NewLabelSet indexes labels for Contains lookups.
+func NewLabelSet(labels []core.Label) LabelSet {
+	s := LabelSet{exact: make(map[string]bool, len(labels))}
+	for _, l := range labels {
+		s.exact[l.Name] = true
+		if core.IsNamespaceName(l.Name) {
+			// "<code>:<ns>:*" -> member prefix "<code>:<ns>:"
+			s.prefixes = append(s.prefixes, strings.TrimSuffix(l.Name, "*"))
+		}
+	}
+	return s
+}
+
+// Contains reports whether fullName is owned by the set: an exact member, or
+// a member of an owned namespace descriptor.
+func (s LabelSet) Contains(fullName string) bool {
+	if s.exact[fullName] {
+		return true
+	}
+	for _, p := range s.prefixes {
+		if strings.HasPrefix(fullName, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// OwnedLabels returns the named registered capability's vocabulary for code,
+// or nil when the name is not registered. Pure read, no store side effect.
+// The TUI's capability-view header counts tasks against NewLabelSet of this.
+func (r *Registry) OwnedLabels(code, capName string) []core.Label {
+	if r == nil {
+		return nil
+	}
+	for _, c := range r.caps {
+		if c.Name() == capName {
+			return c.Vocabulary(code)
+		}
+	}
+	return nil
 }
 
 // OrderFullNames applies a partial order override to an effective ring order:
