@@ -197,7 +197,7 @@ func TestPinsPersistToBoardsConfig(t *testing.T) {
 	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Hidden: []string{"ATM:backlog"}}, m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:all-tasks"
 	m.boards.togglePin()
 	b, err := m.store.GetBoardsConfig("ATM")
@@ -210,7 +210,7 @@ func TestPinsPersistToBoardsConfig(t *testing.T) {
 	if len(b.Hidden) != 1 || b.Hidden[0] != "ATM:backlog" {
 		t.Fatalf("hidden clobbered by pin write: %+v", b)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	if len(m.boards.pins) != 1 || m.boards.pins[0] != "ATM:all-tasks" {
 		t.Fatalf("pins after refresh = %v", m.boards.pins)
 	}
@@ -442,13 +442,13 @@ func TestLoadPinsClampsToMaxPins(t *testing.T) {
 		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks",
 		"ATM:backlog", "ATM:status:*", "ATM:priority:*",
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	pinsPath := filepath.Join(m.store.StorePath(), "projects", "ATM", "pins.json")
 	pinsJSON := `{"boards":["` + strings.Join(boards, `","`) + `"]}`
 	if err := os.WriteFile(pinsPath, []byte(pinsJSON), 0o644); err != nil {
 		t.Fatalf("write pins.json: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	if len(m.boards.pins) != maxPins {
 		t.Fatalf("pins after loading %d stored = %d, want %d (clamped)", len(boards), len(m.boards.pins), maxPins)
 	}
@@ -512,7 +512,7 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks"}
-	m.boards.refresh()
+	m.refreshAll()
 	for _, full := range pinned {
 		m.boards.selected = full
 		m.boards.togglePin()
@@ -535,7 +535,7 @@ func TestUnpinLowerIndexPinKeepsFocusOnSameBoard(t *testing.T) {
 	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Pins: []string{"ATM:open-tasks", "ATM:in-progress-tasks"}}, m.actor); err != nil {
 		t.Fatalf("set project boards: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 
 	if len(m.boards.pins) != 2 {
 		t.Fatalf("pins after external unpin = %v, want 2", m.boards.pins)
@@ -565,7 +565,7 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 	// capability-authored ring cannot be pruned by removing a label (Exposed
 	// is pure and survives label deletion), so hiding is the prune path.
 	pinned := []string{"ATM:all-tasks", "ATM:open-tasks", "ATM:priority:*"}
-	m.boards.refresh()
+	m.refreshAll()
 	for _, full := range pinned {
 		m.boards.selected = full
 		m.boards.togglePin()
@@ -589,7 +589,7 @@ func TestLoadPinsPruneKeepsFocusOnSameBoard(t *testing.T) {
 	}, m.actor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 
 	if len(m.boards.pins) != 2 {
 		t.Fatalf("pins after prune = %v, want 2", m.boards.pins)
@@ -1865,7 +1865,7 @@ func TestBuildBoardRowsIsCapabilityAuthored(t *testing.T) {
 	if err := m.store.LabelAdd("ATM:type:bug", "", "", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	wantRing := []string{
 		"ATM:all-tasks", "ATM:open-tasks", "ATM:in-progress-tasks", "ATM:backlog",
 		"ATM:status:*", "ATM:priority:*",
@@ -1901,7 +1901,7 @@ func TestHiddenAndOrderApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	want := []string{
 		"ATM:status:*", "ATM:open-tasks", // ordered prefix
 		"ATM:all-tasks", "ATM:in-progress-tasks", "ATM:priority:*", // rest, registration order
@@ -1939,14 +1939,6 @@ func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	}
 }
 
-// TestUmbrellaChartHidesUnsetRow guards that the (unset) synthetic row — which
-// measures "tasks in the project lacking this namespace" — is suppressed when
-// the chart was entered from the umbrella sub-table. The (unset) row is a
-// backlog-triage affordance for owned namespaces (where "tasks with no
-// status" is meaningful). Inside the umbrella the user is browsing unmanaged
-// labels, not triaging "tasks missing this namespace"; the project-wide
-// "others" count is nonsensical there (it includes tasks that have nothing to
-// do with unmanaged labels at all). fromUmbrella gates it off.
 // TestRingChartStillShowsUnsetRow guards the existing behavior: a chart
 // entered from the L0 ring (status:*) keeps the (unset) row. Only the
 // umbrella-entered path suppresses it.
@@ -1988,7 +1980,7 @@ func TestChartEscOutsideUmbrellaStillReturnsToTable(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:status:*"
 	m.boards.drillIn()
 	if m.boards.level != lLevelChart {

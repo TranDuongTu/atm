@@ -33,7 +33,7 @@ func TestListContentHeightConstantAcrossPins(t *testing.T) {
 	if len(boards) > maxPins {
 		t.Fatalf("fixture pins %d exceeds maxPins %d", len(boards), maxPins)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.SetSize(100, 40)
 
 	// Sanity: each fixture board is a real ring member so togglePin will

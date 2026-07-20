@@ -57,7 +57,7 @@ func TestRenderPinnedTabsShowsTabsAndActiveDescription(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	// Pin two workflow-exposed boards: open-tasks and in-progress-tasks.
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.selected = "ATM:in-progress-tasks"
@@ -107,7 +107,7 @@ func TestPinnedTabsHighlightsCenterTabWhenPinFocusIsStrip(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.pinFocus = -1 // center board is the active filter
@@ -178,7 +178,7 @@ func TestPinnedTabsMovesHighlightToPinTabOnJump(t *testing.T) {
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatal(err)
 	}
-	m.boards.refresh()
+	m.refreshAll()
 	m.boards.selected = "ATM:open-tasks"
 	m.boards.togglePin()
 	m.boards.selected = "ATM:in-progress-tasks"

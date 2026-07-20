@@ -247,14 +247,6 @@ func (b *boardsModel) refresh() {
 	if b.m.projectScope == "" {
 		return
 	}
-	// If capability state hasn't been initialized yet (e.g. a test calls
-	// b.refresh() directly after setting projectScope), resolve it now so
-	// the ring is scoped to a real capability. refreshAll normally does
-	// this before boards.refresh; this is a defensive self-sufficiency
-	// measure, not a substitute for the normal ordering.
-	if b.m.capability.current == "" {
-		b.m.capability.refresh()
-	}
 	scope := b.m.projectScope
 	cfg, err := b.m.store.GetBoardsConfig(scope)
 	if err != nil || cfg == nil {
