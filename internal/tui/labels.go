@@ -341,20 +341,25 @@ func (b *boardsModel) selectDefault() {
 	b.applyFocus()
 }
 
-// loadPins reads the project's pins from the boards config (legacy pins.json
-// folds in via GetBoardsConfig until first write) and prunes any whose board
-// is not in the ring. Clamped to maxPins.
+// loadPins reads the project's pins from the boards config and prunes any
+// whose board no enabled capability exposes (or that is hidden). Pins are
+// GLOBAL across capabilities: a pin may name a board outside the current
+// ring — jumpPin switches capability to follow it. Clamped to maxPins.
 func (b *boardsModel) loadPins() {
 	b.pins = nil
 	if b.m.projectScope == "" || b.boardsCfg == nil {
 		return
 	}
 	live := map[string]bool{}
-	for _, r := range b.rows {
-		live[r.FullName] = true
+	for _, e := range b.m.regFor(b.m.projectScope).Exposed(b.m.projectScope) {
+		live[e.Label.Name] = true
+	}
+	hidden := map[string]bool{}
+	for _, n := range b.boardsCfg.Hidden {
+		hidden[n] = true
 	}
 	for _, full := range b.boardsCfg.Pins {
-		if live[full] {
+		if live[full] && !hidden[full] {
 			b.pins = append(b.pins, full)
 		}
 		if len(b.pins) >= maxPins {
@@ -422,13 +427,18 @@ func (b *boardsModel) syncPinFocus() {
 	}
 }
 
-// jumpPin moves the ring selection to the nth pinned board (1-based). Returns
+// jumpPin moves the selection to the nth pinned board (1-based), switching
+// the current capability first when the pin belongs to another one. Returns
 // false if n is out of range.
 func (b *boardsModel) jumpPin(n int) bool {
 	if n < 1 || n > len(b.pins) {
 		return false
 	}
-	b.selected = b.pins[n-1]
+	full := b.pins[n-1]
+	if owner := b.ownerOf(full); owner != "" && owner != b.m.capability.current {
+		b.m.capability.switchTo(owner)
+	}
+	b.selected = full
 	// A jump must not leak a stale chart/detail/cursor from whatever board was
 	// previously drilled into (see cycleBoard's resetDrill call for the same
 	// invariant).
@@ -436,6 +446,16 @@ func (b *boardsModel) jumpPin(n int) bool {
 	b.pinFocus = n - 1 // the jumped-to pin becomes the active-filter highlight
 	b.applyFocus()
 	return true
+}
+
+// ownerOf returns the enabled capability exposing full, or "".
+func (b *boardsModel) ownerOf(full string) string {
+	for _, e := range b.m.regFor(b.m.projectScope).Exposed(b.m.projectScope) {
+		if e.Label.Name == full {
+			return e.Owner
+		}
+	}
+	return ""
 }
 
 // focusCenter is the inverse of jumpPin: it moves the strong current-filter

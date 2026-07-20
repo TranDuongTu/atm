@@ -2113,3 +2113,36 @@ func TestUnmanagedEscDoesNotClimbOut(t *testing.T) {
 		t.Fatalf("level = %v after drillOut, want lLevelUmbrella (no ring above)", m.boards.level)
 	}
 }
+
+// TestPinJumpSwitchesCapability: pins are GLOBAL across capabilities — a pin
+// survives a capability switch (loadPins prunes against ALL enabled exposed,
+// not the current ring), and jumpPin switches capability first when the pin's
+// owner differs from current, then selects the board.
+func TestPinJumpSwitchesCapability(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	m.refreshAll()
+	m.boards.selectDefault()
+	// Pin workflow's all-tasks, then switch to contextmap.
+	m.boards.togglePin()
+	if len(m.boards.pins) != 1 {
+		t.Fatalf("pins = %v, want the selected board pinned", m.boards.pins)
+	}
+	m.capability.switchTo("contextmap")
+	if len(m.boards.pins) != 1 {
+		t.Fatalf("pin vanished after capability switch: %v (loadPins must prune against ALL enabled exposed, not the current ring)", m.boards.pins)
+	}
+	if !m.boards.jumpPin(1) {
+		t.Fatalf("jumpPin(1) returned false")
+	}
+	if m.capability.current != "workflow" {
+		t.Fatalf("current = %q after pin jump, want workflow", m.capability.current)
+	}
+	if m.boards.selected != "ATM:all-tasks" {
+		t.Fatalf("selected = %q, want ATM:all-tasks", m.boards.selected)
+	}
+}
