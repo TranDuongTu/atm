@@ -22,6 +22,10 @@ type BoardsConfig struct {
 	Order  []string `json:"order,omitempty"`  // ring order override (partial, FullName list)
 	Hidden []string `json:"hidden,omitempty"` // hidden FullNames
 	Pins   []string `json:"pins,omitempty"`   // pin-slot FullNames (max MaxBoardPins)
+	// Capability is the current capability-view selection ("workflow",
+	// "unmanaged", ...). Written only on an explicit switch in the TUI;
+	// readers fall back silently when it names nothing enabled.
+	Capability string `json:"capability,omitempty"`
 }
 
 type ProjectConfig struct {
