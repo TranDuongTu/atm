@@ -11,6 +11,7 @@ import (
 	"atm/internal/capability/workflow"
 	"atm/internal/core"
 	"atm/internal/store"
+	"atm/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -408,6 +409,25 @@ func TestFormatSize(t *testing.T) {
 	for _, c := range cases {
 		if got := formatSize(c.b); got != c.want {
 			t.Errorf("formatSize(%d) = %q, want %q", c.b, got, c.want)
+		}
+	}
+}
+
+func TestStatusLineShowsKeyClusterAndAppVersion(t *testing.T) {
+	m := newTestModel(t)
+	line := m.renderStatusLine()
+	mustContain(t, line, "[?]help [C]conv [T]theme")
+	mustContain(t, line, "atm "+version.Version)
+}
+
+func TestPaneHintsNoLongerAdvertiseHelpKeys(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	for _, pane := range []string{"1", "2"} {
+		update(t, m, pane)
+		line := m.renderStatusLine()
+		if strings.Contains(line, "[?]keys") || strings.Contains(line, "[C]conventions") {
+			t.Errorf("pane %s hint still advertises help keys:\n%s", pane, line)
 		}
 	}
 }

@@ -1633,7 +1633,7 @@ func (b *boardsModel) syntheticLeafTaskCount() int {
 
 func (b *boardsModel) statusHint() string {
 	if b.m.projectScope == "" {
-		return "[?]keys"
+		return ""
 	}
 	switch b.level {
 	case lLevelChart:
@@ -1646,7 +1646,7 @@ func (b *boardsModel) statusHint() string {
 	case lLevelUmbrella:
 		return "[Enter]open [Esc]back"
 	default:
-		return "[Enter]open [n]ew [e]dit [a]dd [S]eed [?]keys"
+		return "[Enter]open [n]ew [e]dit [a]dd [S]eed"
 	}
 }
 

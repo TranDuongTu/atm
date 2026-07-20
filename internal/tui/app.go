@@ -8,6 +8,7 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/version"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -835,7 +836,7 @@ func (m *Model) statusHint() string {
 	case paneTasks:
 		return m.tasks.statusHint()
 	}
-	return "[?]keys [C]conventions"
+	return ""
 }
 
 // renderHelpOverlay renders the active reference overlay as a centered,
@@ -856,14 +857,20 @@ func (m *Model) renderStatusLine() string {
 	var parts []string
 	parts = append(parts, m.styles.StatusLabel.Render("⛃ "+m.storeStats.Version)+
 		m.styles.Status.Render(fmt.Sprintf(" · %d events · %s", m.storeStats.EventCount, formatSize(m.storeStats.SizeBytes))))
-	hint := m.statusHint()
-	parts = append(parts, m.styles.KeyMenu.Render(hint))
+	// Panes with nothing pane-specific to say now return "" — the global
+	// key cluster on the right covers what their hint used to repeat.
+	if hint := m.statusHint(); hint != "" {
+		parts = append(parts, m.styles.KeyMenu.Render(hint))
+	}
 	if m.toastMsg != "" {
 		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
 	}
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
-	rightSegments = append(rightSegments, m.refreshRecencySegment())
+	rightSegments = append(rightSegments,
+		m.styles.KeyMenu.Render("[?]help [C]conv [T]theme"),
+		m.styles.KeyMenuDim.Render("atm "+version.Version),
+		m.refreshRecencySegment())
 	right := strings.Join(rightSegments, "  ")
 	used := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)

@@ -984,13 +984,13 @@ func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
 		if len(p.list) == 0 {
-			return "[a]add [p]ersona [?]keys"
+			return "[a]add [p]ersona"
 		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new [?]keys"
+		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new"
 	case pViewDetail:
 		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
 	}
-	return "[?]keys"
+	return ""
 }
 
 // --- form openers ---

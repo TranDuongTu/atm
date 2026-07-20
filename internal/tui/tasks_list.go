@@ -580,10 +580,10 @@ func (t *tasksModel) statusHint() string {
 		return "[Esc]back"
 	}
 	if t.m.projectScope == "" {
-		return "[?]keys"
+		return ""
 	}
 	if t.view == tViewDetail {
 		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
 	}
-	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail  [?]keys"
+	return "[↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail"
 }
