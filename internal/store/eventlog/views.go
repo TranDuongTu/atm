@@ -180,7 +180,7 @@ func (e *Engine) v2LogEntriesFrom(evs []*eventsource.Event) ([]core.LogEntry, er
 			}
 			subj.ID = alias(id)
 		}
-		out = append(out, core.LogEntry{Seq: i + 1, At: ev.At, Actor: ev.Actor, Action: ev.Action, Subject: subj, Payload: ev.Payload})
+		out = append(out, core.LogEntry{Seq: i + 1, At: ev.At, Actor: ev.Actor, Action: ev.Action, Subject: subj, Payload: ev.Payload, ID: ev.ID, Parents: ev.Parents})
 	}
 	return out, nil
 }

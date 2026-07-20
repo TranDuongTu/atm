@@ -4,6 +4,7 @@ import (
 	"atm/internal/core"
 	"atm/internal/store/eventlog"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -290,5 +291,39 @@ func TestV2AliasesRoundTripThroughCommentsAndHistory(t *testing.T) {
 	}
 	if hv := s.History("ATM", Subject{Kind: "comment", ID: c.ID}); len(hv) == 0 {
 		t.Fatal("History must match a v2 hash comment alias")
+	}
+}
+
+// TestLogEntriesCarryEventIDAndParents pins the read-model contract the TUI
+// events feed draws its commit-graph from: every v2 entry carries its
+// content-addressed id, and each entry's parents reference earlier ids.
+func TestLogEntriesCarryEventIDAndParents(t *testing.T) {
+	s := testStore(t)
+	_, _ = s.CreateProject("ATM", "x", "admin@cli:unset")
+	if _, err := s.CreateTask("ATM", "t", "", nil, "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := s.ReadLogCached("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("want >=2 entries, got %d", len(entries))
+	}
+	ids := map[string]bool{}
+	for i, e := range entries {
+		if !strings.HasPrefix(e.ID, "sha256:") {
+			t.Fatalf("entry %d ID = %q, want sha256: prefix", i, e.ID)
+		}
+		ids[e.ID] = true
+	}
+	last := entries[len(entries)-1]
+	if len(last.Parents) == 0 {
+		t.Fatal("last entry has no parents")
+	}
+	for _, p := range last.Parents {
+		if !ids[p] {
+			t.Fatalf("parent %q not among earlier event ids", p)
+		}
 	}
 }
