@@ -39,11 +39,24 @@ A task is sized to one plan a framework like superpowers can execute in a single
 
 ## Brief
 
+Interview the human about their framework and conventions: which framework (superpowers, speckit, grillme, or none), where plans live, how brainstorming happens, sizing expectations, and any customizations. Record the answers in the `wfai:framework` label description:
+  `atm label add <CODE>:wfai:framework --description "<notes>"`
+A future agent reads `atm label show <CODE>:wfai:framework` at session start to understand how to bend. workflow_ai supports existing processes, it does not lock them in. By default: one task, one plan; follow-ups and related tasks tracked through links.
+
+Learn by example: pick a specific task from `new-tasks` or `brainstormed-tasks`, ask the human how to handle its stage or what a reference means, and record the answer as a task comment. If the answer reveals a convention (not a one-off), propose updating `<CODE>:wfai:framework` with it — the decider confirms before the label is rewritten. Specifics stay as comments; conventions live in `wfai:framework`.
+
 Walk the human through the ladder and confirm the project will use it as-is: the five stages, absence-as-new, the five boards, the plan-locator kinds, and the two link types (`revision_of`, `relates_to`). The vocabulary is fixed; extra stages are not part of the paved road. Confirm where plans normally live (committed plan docs vs ephemeral sessions) and record that preference in the `stage:planned` label description.
 
 ## Autopilot
 
+You hold the high bar: keep the backlog honest, enforce the ladder, and bend toward the project's framework conventions without lowering the standard. Exercise good judgement autonomously — decide what you can, escalate only what genuinely needs a human. When a decision is ambiguous and a human is reachable, surface it; when a human is not reachable, decide, record the reasoning as a task comment, and flag it for the next decider review. Never let ambiguity stall the loop silently.
+
 The mechanical loop, run at session start:
+0. `atm label show <CODE>:wfai:framework` — read the project's framework conventions and bend accordingly.
 1. `report --project <CODE>`; for each unlocatable or unrecoverable plan, ask the decider (or decide, if you are the decider) and `demote --reason` — replanning is cheaper than implementing against a ghost.
-2. Advance tasks whose next rung's evidence exists: brainstormed notes → `brainstorm`; settled scope → `clarify`; a written plan → `plan`; reviewed and sized → `ready`.
-3. Never skip rungs; never implement below `stage:implementable`; split oversized planned tasks into `--revision-of` follow-ups.
+2. Triage `new-tasks`: for each task worth pursuing, `brainstorm`; leave the rest. When evidence is thin or the stage is ambiguous, ask the decider (or decide and record the reasoning as a comment, flagging it for the next decider review), record the answer as a task comment, and if it generalizes, propose a `<CODE>:wfai:framework` update for the decider to confirm.
+3. Spot-check `brainstormed-tasks` and `planned-tasks`: does each task's evidence match its stage (notes for brainstormed, settled scope for clarified, a locatable plan for planned)? Demote tasks whose evidence has decayed.
+4. For tasks with links, run `links --task X` and confirm the parent/related tasks still exist and the relationship still holds. Stale links get unlinked.
+5. Verify `wfai:framework` itself still holds: re-read it, confirm the conventions match current practice, and propose an update to the decider if practice has drifted.
+6. Advance tasks whose next rung's evidence exists: brainstormed notes → `brainstorm`; settled scope → `clarify`; a written plan → `plan`; reviewed and sized → `ready`.
+7. Never skip rungs; never implement below `stage:implementable`; split oversized planned tasks into `--revision-of` follow-ups.
