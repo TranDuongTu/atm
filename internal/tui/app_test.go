@@ -137,6 +137,15 @@ func mustContain(t *testing.T, view, sub string) {
 	}
 }
 
+// ansiRe matches the SGR escape sequences lipgloss emits; stripANSI strips
+// them so assertions can match against plain rendered text regardless of
+// color profile.
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
 // mustNotContain fails the test if sub is in view.
 func mustNotContain(t *testing.T, view, sub string) {
 	t.Helper()
@@ -856,21 +865,32 @@ func TestProjectsBracketKeysPageThroughList(t *testing.T) {
 	}
 }
 
-func TestProjectsViewUsesThirtySeventySplit(t *testing.T) {
+func TestProjectsViewUsesThreeWaySplit(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 30)
 	seedProject(t, m, "ATM", "Acme Task Manager")
+	// A project must be selected: with no selection the events section is
+	// folded away (its rows given back to the summary) rather than showing
+	// a placeholder that doubles the summary's own "select a project"
+	// message, so the three-way split this test pins only appears once a
+	// project is selected.
+	update(t, m, "s")
 	body := m.projects.View()
 	lines := strings.Split(body, "\n")
-	summaryLine := -1
-	for i, line := range lines {
-		if strings.Contains(line, "Project Summary") {
-			summaryLine = i
-			break
+	find := func(sub string) int {
+		for i, line := range lines {
+			if strings.Contains(line, sub) {
+				return i
+			}
 		}
+		return -1
 	}
-	if summaryLine != 8 {
-		t.Fatalf("summary divider is on line %d, want 8\n--- body ---\n%s", summaryLine, body)
+	// contentHeight 27: list 8 (30%), events 9 (35%), summary 10 (rest).
+	if got := find("Recent Events"); got != 8 {
+		t.Fatalf("events caption on line %d, want 8\n--- body ---\n%s", got, body)
+	}
+	if got := find("Project Summary"); got != 17 {
+		t.Fatalf("summary caption on line %d, want 17\n--- body ---\n%s", got, body)
 	}
 }
 
@@ -904,17 +924,17 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 }
 
 func TestProjectPaneSplitHeights(t *testing.T) {
-	listH, summaryH := projectPaneSplitHeights(30)
-	if listH != 9 || summaryH != 21 {
-		t.Fatalf("projectPaneSplitHeights(30) = (%d,%d), want (9,21)", listH, summaryH)
+	listH, eventsH, summaryH := projectPaneSplitHeights(30)
+	if listH != 9 || eventsH != 10 || summaryH != 11 {
+		t.Fatalf("projectPaneSplitHeights(30) = (%d,%d,%d), want (9,10,11)", listH, eventsH, summaryH)
 	}
-	listH, summaryH = projectPaneSplitHeights(3)
-	if listH < 1 || summaryH < 1 || listH+summaryH != 3 {
-		t.Fatalf("projectPaneSplitHeights(3) = (%d,%d), want positive heights summing to 3", listH, summaryH)
+	listH, eventsH, summaryH = projectPaneSplitHeights(3)
+	if listH < 1 || summaryH < 1 || listH+eventsH+summaryH != 3 {
+		t.Fatalf("projectPaneSplitHeights(3) = (%d,%d,%d), want positive list/summary heights summing to 3", listH, eventsH, summaryH)
 	}
-	listH, summaryH = projectPaneSplitHeights(1)
-	if listH != 1 || summaryH != 0 {
-		t.Fatalf("projectPaneSplitHeights(1) = (%d,%d), want (1,0)", listH, summaryH)
+	listH, eventsH, summaryH = projectPaneSplitHeights(1)
+	if listH != 1 || eventsH != 0 || summaryH != 0 {
+		t.Fatalf("projectPaneSplitHeights(1) = (%d,%d,%d), want (1,0,0)", listH, eventsH, summaryH)
 	}
 }
 
@@ -1130,10 +1150,9 @@ func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
 
 	lines := p.renderPersonaActivityChart(entries, 6)
 
-	ansiRe := regexp.MustCompile("\x1b\\[[0-9;]*m")
 	var barCols []int
 	for _, line := range lines {
-		s := ansiRe.ReplaceAllString(line, "")
+		s := stripANSI(line)
 		// Body rows are bounded by box borders '│'. Skip border/title/blank rows.
 		if !strings.HasPrefix(s, "  │") {
 			continue

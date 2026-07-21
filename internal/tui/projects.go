@@ -29,6 +29,14 @@ type projectsModel struct {
 
 	// history toggle on project detail.
 	showHistory bool
+
+	// logsOffset is the Recent Events feed's viewport offset (list view,
+	// ATM-793b19 revision 2): shift+arrows drive it directly, with no
+	// subfocus mode — see events_feed.go's scrollEventsFeed. It indexes the
+	// newest-first feed; render clamps it into a local copy only (View must
+	// stay pure), so out-of-range values persist harmlessly until the next
+	// key handler that moves it.
+	logsOffset int
 }
 
 type pView int
@@ -64,27 +72,39 @@ func newProjectsModel(m *Model) projectsModel {
 	return projectsModel{m: m}
 }
 
-func projectPaneSplitHeights(total int) (int, int) {
+// projectPaneSplitHeights allocates the list view's vertical space three
+// ways: project list ~30%, recent-events feed ~35%, summary the rest. An
+// events slot under 4 rows is not worth rendering: 4 is the minimum that
+// still leaves 2 content lines under 2 lines of frame — top/bottom border in
+// the boxed form, the caption line plus a padding line in the compact form
+// (see summaryChartsBoxed and renderEventsFeed) — below that it collapses to
+// 0 and the pre-feed 30/70 list/summary split is restored.
+func projectPaneSplitHeights(total int) (int, int, int) {
 	if total <= 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	if total == 1 {
-		return 1, 0
+		return 1, 0, 0
 	}
 	listH := total * 30 / 100
 	if listH < 1 {
 		listH = 1
 	}
-	summaryH := total - listH
+	eventsH := total * 35 / 100
+	if eventsH < 4 {
+		eventsH = 0
+	}
+	summaryH := total - listH - eventsH
 	if summaryH < 1 {
 		summaryH = 1
-		listH = total - summaryH
+		listH = total - summaryH - eventsH
 		if listH < 1 {
 			listH = 1
-			summaryH = 0
+			eventsH = 0
+			summaryH = total - listH
 		}
 	}
-	return listH, summaryH
+	return listH, eventsH, summaryH
 }
 
 func computeStripDays(width int) int {
@@ -209,8 +229,23 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		p.cursor = 0
+	case "shift+up", "shift+down":
+		// Move the events feed viewport by one line — same modeless pattern
+		// as the Tasks pane's thumbnail chart cursor (tasks_list.go).
+		dir := -1
+		if k.String() == "shift+down" {
+			dir = 1
+		}
+		p.scrollEventsFeed(dir, 1)
+	case "shift+left", "shift+right":
+		// Page the events feed viewport.
+		dir := -1
+		if k.String() == "shift+right" {
+			dir = 1
+		}
+		p.scrollEventsFeed(dir, p.eventsPageSize())
 	case "]":
-		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor += p.listPageSize(listH)
 		if p.cursor > len(p.list)-1 {
 			p.cursor = len(p.list) - 1
@@ -219,7 +254,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.cursor = 0
 		}
 	case "[":
-		listH, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor -= p.listPageSize(listH)
 		if p.cursor < 0 {
 			p.cursor = 0
@@ -243,6 +278,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			p.m.capability.current = "" // re-resolve for the new project
+			p.logsOffset = 0            // fresh project: viewport back to the newest event
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
@@ -492,10 +528,28 @@ func (p *projectsModel) renderList() string {
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
-	listH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	listH, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	if p.m.projectScope == "" {
+		// With no project selected, the feed would render nothing but the
+		// same "select a project" placeholder the summary section already
+		// shows right below it — a doubled message on the fresh-launch
+		// screen. Fold the events rows back into the summary, the same way
+		// projectPaneSplitHeights already collapses eventsH to 0 (and grows
+		// summaryH to match) when the slot is too small to render at all.
+		eventsH, summaryH = 0, summaryH+eventsH
+	}
+	// Decided once, here, and handed to renderEventsFeed rather than let it
+	// infer its own frame: renderList already computes both eventsH and
+	// summaryH, so it is the one place that can make the feed and the
+	// summary charts agree on which visual language the pane speaks at this
+	// height (ATM-793b19 revision-2 review, I1).
+	boxed := summaryChartsBoxed(summaryH)
 	var parts []string
 	if listH > 0 {
 		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
+	}
+	if eventsH > 0 {
+		parts = append(parts, padToHeight(p.renderEventsFeed(eventsH, boxed), eventsH))
 	}
 	if summaryH > 0 {
 		parts = append(parts, padToHeight(p.renderSummary(summaryH), summaryH))
@@ -633,6 +687,29 @@ func chartBoxHeights(total int) (int, int) {
 		stripe = 3
 	}
 	return actor, stripe
+}
+
+// summaryChartsBoxed reports whether renderSummary will draw its persona
+// chart as a bordered box at the given summary-section height, without
+// duplicating renderSummary's own rendering: it repeats only the arithmetic
+// that decides the frame — the "Project Summary" header plus the "project:
+// … tasks: …" line (2 lines) subtracted from height, then
+// renderPersonaActivityChart's own boxed-from-4-lines-up rule applied to the
+// actor split chartBoxHeights returns. renderEventsFeed keys its own
+// compact-vs-boxed choice off this (ATM-793b19 revision-2 review, I1) so the
+// feed and the persona chart never disagree about which visual language the
+// pane is speaking, even though the activity stripe chart below it can still
+// box on its own at a smaller height than the persona chart does — that
+// pre-existing wrinkle inside the summary section is unchanged here; this
+// keys off the persona chart specifically because that is the section the
+// feed is being compared against.
+func summaryChartsBoxed(summaryH int) bool {
+	remaining := summaryH - 2
+	if remaining < 6 {
+		return false
+	}
+	actorH, _ := chartBoxHeights(remaining)
+	return actorH >= 4
 }
 
 func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxLines int) []string {
@@ -1080,6 +1157,12 @@ func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
 		return nil
 	}
 	m.projectScope = code
+	// R2-3: logsOffset resets on every scope write, matching the other two
+	// production scope-write sites (handleListKey's "s" and confirmYes's
+	// project removal). A brand-new project has no prior viewport position
+	// to strand, so this isn't user-visible today, but the invariant applies
+	// uniformly regardless.
+	m.projects.logsOffset = 0
 	m.refreshAll()
 	return nil
 }
@@ -1114,6 +1197,9 @@ func (m *Model) confirmYes() tea.Cmd {
 		}
 		if m.projectScope == code {
 			m.projectScope = ""
+			// The removed project's viewport position is meaningless for
+			// whatever gets selected next.
+			m.projects.logsOffset = 0
 			if m.indexer != nil {
 				resetIndexer(m)
 			}

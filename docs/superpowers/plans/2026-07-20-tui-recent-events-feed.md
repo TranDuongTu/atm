@@ -466,6 +466,25 @@ func eventDigestMessage(e core.LogEntry, projectCode string) string {
 }
 ```
 
+> **Correction (post-launch review):** the two code samples above are now
+> known-stale and would mislead a reader implementing from this plan
+> directly:
+> - The `TestEventDigestMessage` sample's `label.upserted` case reads the
+>   label name from the event payload (`{"name":"ATM:status:open"}`).
+>   Production `label.upserted` emitters only ever put the name on
+>   `Subject.Name`, never in the payload, so the shipped code reads
+>   `e.Subject.Name` (see `internal/tui/events_feed.go`), matching how
+>   `label.removed` was already handled in this same sample.
+> - The sample's `label.upserted`/`label.removed` cases route the name
+>   through `feedLabel`, which strips the `status:` facet to its bare value
+>   (`feedLabel("ATM:status:open", "ATM")` → `"open"`). That contradicts the
+>   sample's own test expectation of `"label status:open"`. The shipped code
+>   does not call `feedLabel` for these two label-registry actions — it
+>   strips only the project prefix (`strings.TrimPrefix(e.Subject.Name,
+>   projectCode+":")`) and preserves the full facet, since for a label
+>   *management* event (as opposed to a label being applied to a task) the
+>   facet is the information being reported on, not noise to fold away.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/tui -run 'TestShortEventID|TestCompactAge|TestEventFeedActor|TestEventFeedSubject|TestFeedLabel|TestEventDigestMessage' -v`
@@ -964,6 +983,12 @@ func (p *projectsModel) eventFeedLine(e core.LogEntry, lanes []rune, laneW int, 
 }
 ```
 
+> **Correction (post-launch review):** the renderEventsFeed sample code above
+> contains a stale line: line 918 reads `graph := eventGraphRows(feed)` but the
+> shipped code is `eventGraphRows(feed[:end])`. The truncation to the rendered
+> window (by `end`) bounds row computation: row i's lane state depends only on
+> entries 0..i, so computing the whole feed every frame was unnecessary work.
+
 - [ ] **Step 6: Run the tests**
 
 Run: `go test ./internal/tui -run 'TestProjectPaneSplitHeightsThreeWay|TestRecentEventsFeed|TestProjectsViewUsesThreeWaySplit' -v`
@@ -1221,3 +1246,507 @@ git commit -m "docs(ATM-793b19): changelog for the Recent Events feed"
 ```bash
 atm task comment add --task ATM-793b19 --label ATM:comment:progress --body "Recent Events feed implemented per docs/superpowers/plans/2026-07-20-tui-recent-events-feed.md: LogEntry.ID/Parents read-model addition, events_feed.go digest+graph helpers, 3-way pane split, L subfocus. make verify green."
 ```
+
+---
+
+# Revision 2 — boxed feed and modeless navigation
+
+> Tasks 1-6 above are COMPLETE and merged into the branch. Tasks 7-8 below
+> implement Revision 2 of the design spec
+> (`docs/superpowers/specs/2026-07-20-tui-recent-events-feed-design.md`,
+> section "Revision 2 — boxed feed and modeless navigation"), which
+> supersedes the Interaction section and decisions 1 and 4 of that spec.
+>
+> Read the spec's Revision 2 section before starting either task.
+
+## Revision 2 Global Constraints
+
+Everything in the original Global Constraints still binds. Additionally:
+
+- `renderChartBox` in `internal/tui/projects.go` MUST NOT be modified. Both
+  alignment requirements are satisfied by the body the feed hands it. The
+  existing persona and stripe charts must render byte-identically.
+- `renderEventsFeed` MUST stay pure with respect to model state — no writes
+  to any model field from the render path. Clamping lives in the key handler.
+- Strict 1:1 still holds: one event renders as exactly one line.
+- The box title is exactly `Recent Events  [Shift-↑↓]` (two spaces before the
+  bracket, matching `activity by persona  [P]expand`).
+- `↑` is U+2191, `↓` is U+2193. `●` U+25CF, `│` U+2502, `−` U+2212, `–` U+2013.
+
+---
+
+### Task 7: Render the feed as an aligned bordered box
+
+**Files:**
+- Modify: `internal/tui/events_feed.go` (`renderEventsFeed`, `eventFeedLine` sizing)
+- Test: `internal/tui/events_feed_test.go`
+
+**Interfaces:**
+- Consumes: `renderChartBox(title, body string, maxLines int) string`,
+  `chartBoxInnerWidth(width int) int` — both existing in `internal/tui/projects.go`, unchanged.
+- Produces: `renderEventsFeed(height int) string` rendering a bordered box
+  whose edges align with the summary chart boxes.
+
+**Context the implementer needs:** `renderChartBox` center-pads every body
+line and top-pads a short body. The feed needs left-and-top alignment. Both
+become no-ops if the body is exactly `chartBoxInnerWidth(p.width)` wide and
+exactly `maxLines - 2` lines tall. Do not change `renderChartBox` to
+achieve this.
+
+- [ ] **Step 1: Write the failing tests.** Add to `internal/tui/events_feed_test.go`:
+
+```go
+func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	body := m.projects.View()
+	mustContain(t, body, "Recent Events  [Shift-↑↓]")
+	// The events box and the persona chart box must share left and right edges.
+	lines := strings.Split(body, "\n")
+	edgesOf := func(marker string) (int, int) {
+		t.Helper()
+		for i, line := range lines {
+			if strings.Contains(line, marker) {
+				plain := stripANSI(line)
+				return strings.Index(plain, "╭"), strings.LastIndex(plain, "╮")
+			}
+			_ = i
+		}
+		t.Fatalf("no box top border containing %q\n--- body ---\n%s", marker, body)
+		return -1, -1
+	}
+	el, er := edgesOf("Recent Events")
+	pl, pr := edgesOf("activity by persona")
+	if el != pl || er != pr {
+		t.Fatalf("events box edges (%d,%d) != persona box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
+	}
+}
+
+func TestEventsFeedBoxBodyIsLeftAndTopAligned(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	lines := strings.Split(m.projects.View(), "\n")
+	top := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Recent Events") {
+			top = i
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatal("no events box")
+	}
+	// Top-aligned: the row directly under the top border carries an event.
+	first := stripANSI(lines[top+1])
+	if !strings.Contains(first, "●") {
+		t.Fatalf("first body row has no event glyph (not top-aligned): %q", first)
+	}
+	// Left-aligned: the graph glyph sits immediately after the left border,
+	// not pushed rightward by centering.
+	bar := strings.Index(first, "│")
+	dot := strings.Index(first, "●")
+	if dot-bar > 2 {
+		t.Fatalf("event glyph is %d cols from the left border (centered, not left-aligned): %q", dot-bar, first)
+	}
+}
+```
+
+There is no shared `stripANSI` helper yet, but the regex already exists
+inline at `internal/tui/app_test.go:1144`
+(`regexp.MustCompile("\x1b\\[[0-9;]*m")`). Extract it into a package-level
+`stripANSI(s string) string` helper next to `mustContain` in
+`app_test.go`, and have that existing caller use it too — do not add a
+second copy. (Note `internal/tui/actors_test.go:107` uses a narrower
+`strings.NewReplacer` for two specific codes; leave it alone.)
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/tui -run 'TestEventsFeedRendersAsBox|TestEventsFeedBoxBody' -v`
+Expected: FAIL — the feed renders a bare caption, so no `╭` top border containing "Recent Events" exists.
+
+- [ ] **Step 3: Implement.** In `renderEventsFeed`:
+  - Compute `innerW := chartBoxInnerWidth(p.width)` and size every feed line
+    to `innerW` (pass it down to `eventFeedLine` instead of `p.width`).
+  - Build exactly `height - 2` body lines: the windowed event lines, then
+    blank lines padded to `innerW` to fill the remainder.
+  - Return `p.renderChartBox("Recent Events  [Shift-↑↓]", strings.Join(body, "\n"), height)`.
+  - The placeholder states ("could not be loaded", "no events yet") render as
+    a single body line inside the box, padded to `innerW`, not as bare lines.
+  - Keep the render path free of model-state writes.
+
+  Note `eventFeedLine`'s degradation thresholds (`feedIDMinWidth`,
+  `feedAgeMinWidth`) now compare against the box inner width. Do not change
+  their values.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `go test ./internal/tui -run 'TestEventsFeedRendersAsBox|TestEventsFeedBoxBody' -v`
+Expected: PASS
+
+- [ ] **Step 5: Run the package and fix geometry fallout**
+
+Run: `go test ./internal/tui`
+Expected: PASS. Existing feed tests assert against pane-width lines and a
+`Recent Events  [L]ogs` caption; update ONLY assertions encoding the old
+unboxed geometry or the old caption text. Do not weaken a non-geometry
+assertion — if one fails, the change is wrong, not the test.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/tui/events_feed.go internal/tui/events_feed_test.go internal/tui/app_test.go
+git commit -m "feat(ATM-793b19): render the events feed as an aligned bordered box"
+```
+
+---
+
+### Task 8: Modeless Shift+arrow navigation, delete the subfocus mode
+
+**Files:**
+- Modify: `internal/tui/events_feed.go` (`handleLogsKey` → scroll handler, `logsCursor` → `logsOffset`)
+- Modify: `internal/tui/projects.go` (state field, routing, `L` entry, status hint, `SetSize` guard, `confirmYes` reset)
+- Modify: `internal/tui/app.go` (remove the feed's esc branch)
+- Modify: `internal/tui/keymap.go` (drop the `L` row, fill the Projects column on two Shift rows)
+- Test: `internal/tui/events_feed_test.go`
+
+**Interfaces:**
+- Produces: `projectsModel.logsOffset int` replacing `logsCursor`; no `logsFocus`.
+- Removed: `logsFocus`, `handleLogsKey`'s modal early-return, the app-level feed esc branch.
+
+**Context:** the Tasks pane already does exactly this pattern — see
+`internal/tui/tasks_list.go`, where `case "j", "down"` moves the task list
+and `case "shift+up", "shift+down"` moves the board thumbnail's chart
+cursor, in one switch with no mode flag. Mirror it.
+
+- [ ] **Step 1: Write the failing tests.** Add to `internal/tui/events_feed_test.go`:
+
+```go
+func TestShiftArrowsScrollFeedWhilePlainKeysDriveList(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "ZZZ", "Second")
+	update(t, m, "s")
+	for i := 0; i < 30; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	listBefore := m.projects.cursor
+	update(t, m, "shift+down")
+	update(t, m, "shift+down")
+	if m.projects.logsOffset != 2 {
+		t.Fatalf("shift+down x2: logsOffset = %d, want 2", m.projects.logsOffset)
+	}
+	if m.projects.cursor != listBefore {
+		t.Fatalf("shift+down moved the project list cursor (%d -> %d)", listBefore, m.projects.cursor)
+	}
+	update(t, m, "j")
+	if m.projects.cursor != listBefore+1 {
+		t.Fatalf("plain j should move the list cursor, got %d", m.projects.cursor)
+	}
+	if m.projects.logsOffset != 2 {
+		t.Fatalf("plain j moved the feed offset to %d", m.projects.logsOffset)
+	}
+	update(t, m, "shift+up")
+	if m.projects.logsOffset != 1 {
+		t.Fatalf("shift+up: logsOffset = %d, want 1", m.projects.logsOffset)
+	}
+}
+
+func TestShiftLeftRightPageFeedAndOffsetClamps(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 30; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	update(t, m, "shift+right")
+	paged := m.projects.logsOffset
+	if paged <= 1 {
+		t.Fatalf("shift+right should page by more than one line, got %d", paged)
+	}
+	for i := 0; i < 200; i++ {
+		update(t, m, "shift+right")
+	}
+	if m.projects.logsOffset >= m.projects.feedLen() {
+		t.Fatalf("offset %d ran past the feed length %d", m.projects.logsOffset, m.projects.feedLen())
+	}
+	for i := 0; i < 300; i++ {
+		update(t, m, "shift+left")
+	}
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("shift+left to the top: logsOffset = %d, want 0", m.projects.logsOffset)
+	}
+}
+
+func TestFeedOffsetResetsOnProjectSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	seedProject(t, m, "ZZZ", "Second")
+	update(t, m, "s")
+	for i := 0; i < 20; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+	update(t, m, "shift+down")
+	update(t, m, "shift+down")
+	if m.projects.logsOffset == 0 {
+		t.Fatal("setup: offset should be non-zero before the switch")
+	}
+	update(t, m, "j")
+	update(t, m, "s") // select ZZZ
+	if m.projects.logsOffset != 0 {
+		t.Fatalf("project switch should reset logsOffset, got %d", m.projects.logsOffset)
+	}
+}
+
+func TestNoSubfocusModeRemains(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	seedTask(t, m, "ATM", "Fix cache")
+	// L is no longer a feed binding: it must not swallow subsequent list keys.
+	update(t, m, "L")
+	before := m.projects.cursor
+	seedProject(t, m, "ZZZ", "Second")
+	update(t, m, "j")
+	if m.projects.cursor != before+1 {
+		t.Fatalf("after L, plain j must still drive the project list (cursor %d -> %d)", before, m.projects.cursor)
+	}
+	mustNotContain(t, m.projects.statusHint(), "[L]ogs")
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/tui -run 'TestShiftArrows|TestShiftLeftRight|TestFeedOffsetResets|TestNoSubfocusMode' -v`
+Expected: compile FAIL — `logsOffset` does not exist.
+
+- [ ] **Step 3: Implement.**
+  - Rename the field `logsCursor` → `logsOffset` in `projects.go`; delete `logsFocus`.
+  - In `events_feed.go`, replace `handleLogsKey` with a scroll handler taking
+    a direction and a magnitude (1 line, or a page), clamping `logsOffset` to
+    `[0, max(0, feedLen()-1)]`. Keep `feedLen()` as-is.
+
+> **Correction (post-launch review):** the clamp range above is now
+> known-stale and would mislead a reader implementing from this plan
+> directly. `[0, max(0, feedLen()-1)]` ignores the visible row count: with a
+> short feed in a tall box, one shift+down would push the newest event off
+> the top and render nothing but blank rows below it, and at maximum scroll
+> on any overflowing feed it strands one event above a column of blanks. The
+> design spec (R2-3) is authoritative and requires clamping against the feed
+> length *and* the visible row count. The shipped code clamps to
+> `[0, max(0, feedLen()-rows)]`, where `rows` is the same visible-row count
+> `renderEventsFeed` windows by (`eventsFeedVisibleRows`, in
+> `internal/tui/events_feed.go`) — the box height minus its two border rows,
+> floored at 1, the same arithmetic `eventsPageSize` already applied to its
+> page magnitude — so the render window, the page magnitude, and the scroll
+> clamp all fold through one function and cannot drift apart.
+  - In `handleListKey` (`projects.go`), delete the `logsFocus` early-return
+    and the `L` case; add `case "shift+up"`, `case "shift+down"`,
+    `case "shift+left"`, `case "shift+right"` calling the scroll handler.
+    Page magnitude is visible rows − 1, derived from
+    `projectPaneSplitHeights(p.contentHeight)`'s events height minus the two
+    border rows.
+  - `renderEventsFeed` windows from `logsOffset` with no cursor row and no
+    `RowCursor` highlight.
+  - Reset `logsOffset` to 0 on project switch (the `s` handler) and where
+    `confirmYes` clears `m.projectScope`; drop the `logsFocus` resets there
+    and in `SetSize`.
+  - Remove the feed's esc branch from `app.go`.
+  - Status hint: drop `[L]ogs`.
+  - `keymap.go`: delete the `L` row; set the Projects column to
+    `scroll events feed` on the `Shift+Up/Down` row and `page events feed` on
+    the `Shift+Right/Left` row.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `go test ./internal/tui -run 'TestShiftArrows|TestShiftLeftRight|TestFeedOffsetResets|TestNoSubfocusMode' -v`
+Expected: PASS
+
+- [ ] **Step 5: Run the package**
+
+Run: `go test ./internal/tui`
+Expected: PASS. The Task 5 subfocus tests (`TestRecentEventsSubfocusScrolls`,
+`TestRecentEventsFocusRequiresSelection`, `TestRecentEventsStatusHintFollowsSubfocus`,
+`TestRecentEventsCursorClampsToFeedLength`, the resize-collapse test, and the
+scroll-render test) assert a mode that no longer exists. DELETE the ones whose
+subject is gone; REWRITE the ones whose subject survives in new form (feed
+scrolling still exists; it is now driven by shift+arrows and an offset). Do
+not leave a test asserting the old mode.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/tui/events_feed.go internal/tui/projects.go internal/tui/app.go internal/tui/keymap.go internal/tui/events_feed_test.go
+git commit -m "feat(ATM-793b19): modeless shift+arrow feed navigation, drop L subfocus"
+```
+
+---
+
+### Task 9: Verify, changelog, ledger
+
+- [ ] **Step 1:** Run `make verify`. Expected PASS. Do not patch tests to go green; report a real failure instead.
+
+- [ ] **Step 2:** Update the CHANGELOG entry added in Task 6 — it currently
+      says the feed has "`L` subfocus scrolling", which is no longer true.
+      Reword to describe the boxed feed and `Shift`+arrow scrolling. Keep it
+      one entry; do not add a second.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add CHANGELOG.md
+git commit -m "docs(ATM-793b19): changelog reflects boxed feed and shift-arrow scrolling"
+```
+
+- [ ] **Step 4: Ledger**
+
+```bash
+atm task comment add --task ATM-793b19 --label ATM:comment:progress --body "Revision 2 shipped: events feed is a bordered box aligned with the summary chart boxes, and L subfocus is replaced by modeless Shift+arrow navigation (Shift+up/down scroll a line, Shift+left/right page). No focus mode, no cursor row - pure viewport offset. make verify green."
+```
+
+---
+
+# Revision 3 — full actor identity and a column header
+
+> Tasks 1-9 are COMPLETE. Task 10 below implements Revision 3 of the design
+> spec (`docs/superpowers/specs/2026-07-20-tui-recent-events-feed-design.md`,
+> section "Revision 3 — full actor identity and a column header"), which
+> supersedes the actor row of the Line-format table and the degradation
+> paragraph. Read that section before starting.
+
+## Revision 3 Global Constraints
+
+All prior Global Constraints still bind. Additionally:
+
+- `renderChartBox`, `chartBoxWidth`, `chartBoxInnerWidth`, `renderSummary`,
+  `renderPersonaActivityChart` MUST NOT be modified.
+- `renderEventsFeed` and its helpers stay pure w.r.t. model state; all
+  clamping lives in the key handler.
+- Strict 1:1 in BOTH framings: one event renders as exactly one line.
+- The header is not an event and does not count as one.
+- `eventsFeedVisibleRows` remains the SINGLE source of the visible row count
+  for the renderer, the scroll clamp, and the page magnitude.
+
+---
+
+### Task 10: Full actor identity, column header, reordered degradation
+
+**Files:**
+- Modify: `internal/tui/events_feed.go`
+- Test: `internal/tui/events_feed_test.go`
+- Modify: `internal/tui/projects.go` only if the header forces a height-accounting change
+
+**Interfaces:**
+- Changed: `eventFeedActor` no longer abbreviates — it returns the full actor.
+- Removed: `feedIDMinWidth`, `feedActorMinWidth`.
+- Added: `feedMessageMinWidth`; a helper returning the widest actor width
+  across the bounded feed; a header-row builder.
+
+- [ ] **Step 1: Write the failing tests.**
+
+Cover, at minimum:
+
+```go
+// The actor is not abbreviated when there is room.
+func TestEventFeedShowsFullActorIdentity(t *testing.T)
+// widest-actor sizing is feed-wide, so the column does not jitter on scroll
+func TestActorColumnWidthStableWhileScrolling(t *testing.T)
+// header labels exactly the rendered columns, at several widths
+func TestEventsFeedHeaderMatchesRenderedColumns(t *testing.T)
+// the header costs exactly one row and the scroll arithmetic still agrees
+func TestHeaderRowAccountedInVisibleRows(t *testing.T)
+// message yields before the actor does
+func TestMessageTruncatesBeforeActor(t *testing.T)
+// the id survives at every width
+func TestEventIDPresentAtAllWidths(t *testing.T)
+```
+
+Write real assertions against rendered output, not against helper internals.
+For the stability test, scroll far enough that a different set of actors is
+visible and assert the actor column starts at the same display column.
+
+- [ ] **Step 2: Run them and confirm they fail** for the right reason (the
+      actor is abbreviated; there is no header). Record the output.
+
+- [ ] **Step 3: Implement.**
+  - `eventFeedActor` returns the actor unchanged (drop the 3+4 truncation).
+    Keep the function as the single place actor display is decided.
+  - Add a helper computing the widest actor width over the bounded feed;
+    call it once per render, not per line.
+  - Delete `feedIDMinWidth` and its rung — the id always renders.
+  - Delete `feedActorMinWidth` and its rung — the actor narrows, never
+    vanishes.
+  - Add `feedMessageMinWidth` (use 8). Allocate width with EXACTLY this rule,
+    in one function whose result both the header and the body consume:
+
+    ```
+    fixed  = laneW + 1 + 7 + 1 + 7 + 1        // graph, id, subject, each +sep
+    showAge = innerW >= feedAgeMinWidth       // 30
+    ageW   = 0; if showAge { ageW = 3 + 1 }   // age + its separator
+    avail  = innerW - fixed - ageW            // shared by actor and message
+    if avail < 2 { actorW, msgW = 0, max(0, avail) }  // degenerate, just clamp
+    msgW   = min(feedMessageMinWidth, avail/2) // floor yields when cramped
+    actorW = min(actorFullWidth, avail - msgW) // actor takes what it can
+    msgW   = avail - actorW                    // surplus returns to message
+    ```
+
+    `actorFullWidth` is the widest actor across the whole bounded feed.
+    The `avail/2` term is what stops either column reaching zero on a narrow
+    pane; without it a message floor of 8 starves the actor entirely at an
+    80-column terminal.
+
+    Measured box inner widths (do not re-derive these; they are from
+    `chartBoxInnerWidth(innerPaneWidth(splitWorkspaceWidths(term)))`):
+    terminal 80 -> 26, 100 -> 34, 120 -> 42, 160 -> 57, 200 -> 72, 240 -> 88.
+
+    Expected results with a 22-column actor (`developer@claude:unset`):
+    | inner | avail | actorW | msgW |
+    |---|---|---|---|
+    | 26 (term 80)  |  8 |  4 (trunc) |  4 |
+    | 42 (term 120) | 20 | 12 (trunc) |  8 |
+    | 57 (term 160) | 35 | 22 (full)  | 13 |
+    | 72 (term 200) | 50 | 22 (full)  | 28 |
+
+    Assert this table directly in a test.
+  - Truncate the actor with the same ellipsis convention the rest of the
+    pane uses (`truncateRunes` appends ASCII `...`).
+  - Build the header from the same column decisions the body uses, so the
+    two cannot disagree — derive both from one width-allocation result
+    rather than computing the layout twice.
+  - Account for the header row in `eventsFeedVisibleRows`.
+
+- [ ] **Step 4: Run the tests; confirm green.**
+
+- [ ] **Step 5: Run `go test ./internal/tui`.** Existing tests asserting the
+      abbreviated actor (`dev@clau`), the id-drop rung, or the actor-drop
+      rung are now asserting deleted behavior. Rewrite the ones whose subject
+      survives in new form; delete the ones whose subject is gone. List each
+      with its category in your report. The framing-agreement sweep and the
+      page-overlap test must both still pass — if either breaks, the header
+      row accounting is wrong.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/tui/events_feed.go internal/tui/events_feed_test.go internal/tui/projects.go
+git commit -m "feat(ATM-793b19): full actor identity and a column header in the events feed"
+```
+
+---
+
+### Task 11: Verify, changelog, ledger
+
+- [ ] **Step 1:** `make verify`. Do not patch tests to go green.
+- [ ] **Step 2:** Update the existing CHANGELOG entry to mention the column
+      header and the full actor identity. Keep it to ONE entry.
+- [ ] **Step 3:** Commit the changelog separately.
+- [ ] **Step 4:** Journal to the ATM ledger with `atm task comment add`.
