@@ -15,7 +15,7 @@ func TestAnnotateFromContextLabels(t *testing.T) {
 	}{
 		{"non-context task", []string{"PX:status:open"}, nil},
 		{"current pointer", []string{"PX:context:agent"}, &capability.Cell{Text: "agent", Tone: capability.ToneOK}},
-		{"superseded pointer", []string{"PX:context:documentation", "PX:knowledge:superseded"}, &capability.Cell{Text: "superseded", Tone: capability.ToneNeutral}},
+		{"superseded pointer", []string{"PX:context:documentation", "PX:knowledge:superseded"}, &capability.Cell{Text: "superseded", Tone: capability.ToneStale}},
 	}
 	for _, tc := range cases {
 		got := New().Annotate(core.Task{ID: "PX-1", ProjectCode: "PX", Labels: tc.labels})

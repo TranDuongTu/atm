@@ -303,7 +303,7 @@ func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	if idW > 14 {
 		idW = 14
 	}
-	if t.metaColumnName() != "" {
+	if t.metaColumnName() != "" && t.width >= metaColumnMinPaneWidth {
 		metaW = metaColumnWidth
 	}
 	pad := 3
@@ -328,6 +328,13 @@ func (t *tasksModel) metaColumnName() string {
 }
 
 const metaColumnWidth = 18
+
+// metaColumnMinPaneWidth is the minimum pane width that can fit all four
+// columns (idW + metaW + updatedW + pad + titleW). Below this, the contextual
+// column is hidden (metaW = 0) so narrow panes fall back to the three-column
+// layout instead of overflowing: idW=9, metaW=18, updatedW=8, pad=4, titleW=16
+// → minimum 55.
+const metaColumnMinPaneWidth = 55
 
 // toneStyle maps a Cell's semantic tone to a theme color. The capability
 // says what a value means; this is the single place meaning becomes pixels.

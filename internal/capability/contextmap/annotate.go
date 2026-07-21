@@ -24,7 +24,7 @@ func (c Cap) Annotate(t core.Task) *capability.Cell {
 		return nil
 	}
 	if slices.Contains(t.Labels, LabelSuperseded(t.ProjectCode)) {
-		return &capability.Cell{Text: "superseded", Tone: capability.ToneNeutral}
+		return &capability.Cell{Text: "superseded", Tone: capability.ToneStale}
 	}
 	return &capability.Cell{Text: kind, Tone: capability.ToneOK}
 }
