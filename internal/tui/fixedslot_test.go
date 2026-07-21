@@ -83,7 +83,7 @@ func TestTaskColumnWidthsSizesIdToLongestID(t *testing.T) {
 		{id: "DEMO-0001", title: "short", updated: "now"},
 	}
 
-	idW, updatedW, titleW := m.tasks.taskColumnWidths()
+	idW, _, updatedW, titleW := m.tasks.taskColumnWidths()
 	if idW < len("DEMO-f7d632") {
 		t.Errorf("idW = %d, want >= %d (the longest id)", idW, len("DEMO-f7d632"))
 	}
@@ -110,7 +110,7 @@ func TestTaskColumnWidthsClampsIdWidth(t *testing.T) {
 	m := newTestModel(t)
 	m.tasks.width = 100
 	m.tasks.rows = []taskRow{{id: strings.Repeat("X", 40), title: "t", updated: "now"}}
-	idW, _, _ := m.tasks.taskColumnWidths()
+	idW, _, _, _ := m.tasks.taskColumnWidths()
 	if idW != 14 {
 		t.Errorf("idW for a 40-char id = %d, want 14 (clamp)", idW)
 	}

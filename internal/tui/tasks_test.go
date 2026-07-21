@@ -485,3 +485,36 @@ func TestFlatListDropsLabelsColumn(t *testing.T) {
 		t.Fatalf("flat list lost TITLE/UPDATED columns:\n%s", out)
 	}
 }
+
+// TestTasksListContextualColumn verifies the flat list shows the current
+// capability's annotation column: WORKFLOW header + the workflow cell text
+// ("in-progress") when workflow is current, and hides the column entirely
+// when the unmanaged pseudo-capability becomes current.
+func TestTasksListContextualColumn(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "PXA", "Acme")
+	m.projectScope = "PXA"
+	if _, err := m.regFor("PXA").EnsureVocabulary(m.store, "PXA", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if _, err := m.store.CreateTask("PXA", "annotated task", "", []string{"PXA:status:in-progress"}, m.actor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.boards.selectDefault()
+
+	view := m.tasks.View()
+	if !strings.Contains(view, "WORKFLOW") {
+		t.Errorf("column header missing current capability name:\n%s", view)
+	}
+	if !strings.Contains(view, "in-progress") {
+		t.Errorf("column missing workflow cell:\n%s", view)
+	}
+
+	// unmanaged hides the column.
+	m.capability.switchTo("unmanaged")
+	view = m.tasks.View()
+	if strings.Contains(view, "WORKFLOW") {
+		t.Errorf("unmanaged still shows capability column:\n%s", view)
+	}
+}

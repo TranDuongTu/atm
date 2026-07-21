@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type taskRow struct {
@@ -13,6 +15,7 @@ type taskRow struct {
 	title   string
 	labels  []string
 	updated string
+	cell    *capability.Cell // current capability's annotation, computed at refresh time
 	task    *core.Task
 }
 
@@ -288,8 +291,9 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 // width that absorbs the remaining pane width. The format string used by both
 // the header and data rows is " %-*s %-*s %*s" (leading space + 2
 // inter-column spaces = 3 extra columns of padding). idW sizing note as
-// before (IDs are "<CODE>-<hash>").
-func (t *tasksModel) taskColumnWidths() (idW, updatedW, titleW int) {
+// before (IDs are "<CODE>-<hash>"). When the contextual column is present,
+// metaW = metaColumnWidth and the padding grows by one (four columns).
+func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	idW, updatedW = 9, 8
 	for _, r := range t.rows {
 		if w := len(r.id); w > idW {
@@ -299,11 +303,44 @@ func (t *tasksModel) taskColumnWidths() (idW, updatedW, titleW int) {
 	if idW > 14 {
 		idW = 14
 	}
-	titleW = t.width - idW - updatedW - 3
+	if t.metaColumnName() != "" {
+		metaW = metaColumnWidth
+	}
+	pad := 3
+	if metaW > 0 {
+		pad = 4
+	}
+	titleW = t.width - idW - metaW - updatedW - pad
 	if titleW < 16 {
 		titleW = 16
 	}
 	return
+}
+
+// metaColumnName returns the contextual column's header (the current
+// capability's name, upper-cased), or "" when the column is absent: no scoped
+// project, or the unmanaged pseudo-capability (which annotates nothing).
+func (t *tasksModel) metaColumnName() string {
+	if t.m.projectScope == "" || t.m.capability.unmanagedCurrent() || t.m.capability.current == "" {
+		return ""
+	}
+	return strings.ToUpper(t.m.capability.current)
+}
+
+const metaColumnWidth = 18
+
+// toneStyle maps a Cell's semantic tone to a theme color. The capability
+// says what a value means; this is the single place meaning becomes pixels.
+func toneStyle(tone capability.Tone) lipgloss.Style {
+	switch tone {
+	case capability.ToneOK:
+		return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "42"})
+	case capability.ToneAttention:
+		return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
+	case capability.ToneStale:
+		return lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "245", Dark: "246"})
+	}
+	return lipgloss.NewStyle()
 }
 
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
@@ -323,8 +360,13 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		})
 		return
 	}
-	idW, updatedW, titleW := t.taskColumnWidths()
-	header := fmt.Sprintf(" %-*s %-*s %*s", idW, "ID", titleW, "TITLE", updatedW, "UPDATED")
+	idW, metaW, updatedW, titleW := t.taskColumnWidths()
+	var header string
+	if metaW > 0 {
+		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, "ID", titleW, "TITLE", metaW, t.metaColumnName(), updatedW, "UPDATED")
+	} else {
+		header = fmt.Sprintf(" %-*s %-*s %*s", idW, "ID", titleW, "TITLE", updatedW, "UPDATED")
+	}
 	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLabel.Render(header)))
 	b.WriteString("\n")
 	b.WriteString(dashboardLine(t.width, repeat("─", dashboardContentWidth(t.width))))
@@ -333,9 +375,26 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
-		line := fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
-		if i == t.cursor {
-			line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+		cellTxt := ""
+		cellTone := capability.ToneNeutral
+		if r.cell != nil {
+			cellTxt, cellTone = r.cell.Text, r.cell.Tone
+		}
+		var line string
+		if metaW > 0 {
+			plain := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), metaW, truncateRunes(cellTxt, metaW), updatedW, r.updated)
+			if i == t.cursor {
+				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(plain, " "))
+			} else {
+				line = fmt.Sprintf(" %-*s %-*s ", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW)) +
+					toneStyle(cellTone).Render(fmt.Sprintf("%-*s", metaW, truncateRunes(cellTxt, metaW))) +
+					fmt.Sprintf(" %*s", updatedW, r.updated)
+			}
+		} else {
+			line = fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
+			if i == t.cursor {
+				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			}
 		}
 		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
@@ -452,7 +511,14 @@ func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int
 			}
 			line := fmt.Sprintf("%s%s   id %s   updated %s", rowIndent, truncateRunes(r.title, titleW), r.id, r.updated)
 			if idx == t.cursor {
+				if r.cell != nil {
+					line += "   " + truncateRunes(r.cell.Text, metaColumnWidth)
+				}
 				line = t.m.styles.RowCursor.Render(line)
+			} else {
+				if r.cell != nil {
+					line += "   " + toneStyle(r.cell.Tone).Render(truncateRunes(r.cell.Text, metaColumnWidth))
+				}
 			}
 			b.WriteString(dashboardLine(t.width, line))
 			b.WriteString("\n")
