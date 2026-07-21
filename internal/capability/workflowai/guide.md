@@ -19,6 +19,7 @@ Stages (exactly one per task; absence = new):
 
 Marker:
 - `wfai:revision` — this task is a revision follow-up of a bigger planned task; the link itself (`revision_of`) lives in the metadata payload, the marker only makes it board-visible.
+- `wfai:framework` — a stored label (not stamped on tasks) carrying the project's framework conventions in its description; written during Brief, read at Autopilot step 0. See Brief below.
 
 Boards (seeded by `atm capability workflow_ai seed` / project create):
 - `<CODE>:new-tasks` (`NOT stage:*`) — the intake queue, not yet brainstormed.
