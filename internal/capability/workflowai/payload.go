@@ -21,7 +21,7 @@ type Demotion struct {
 	At, By, Reason string
 }
 
-// Payload wraps the capability's JSON object under Meta["workflow_ai"].
+// Payload wraps the capability's JSON object under Meta[CapabilityName].
 // The source of truth is a generic map so UNKNOWN FIELDS SURVIVE every
 // read-modify-write: an older binary must never destroy a newer binary's
 // state (degrade-never-reject applied to ourselves). Typed accessors read
@@ -39,7 +39,7 @@ func DecodePayload(s string) (*Payload, error) {
 	}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil, fmt.Errorf("workflow_ai payload is not a JSON object (hand-repair needed): %w", err)
+		return nil, fmt.Errorf("%s payload is not a JSON object (hand-repair needed): %w", CapabilityName, err)
 	}
 	return &Payload{raw: m}, nil
 }
