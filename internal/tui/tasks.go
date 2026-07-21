@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"atm/internal/capability"
 	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
 )
@@ -208,8 +209,20 @@ func (t *tasksModel) toRow(tk *core.Task) taskRow {
 		title:   tk.Title,
 		labels:  tk.Labels,
 		updated: relTime(tk.UpdatedAt, core.Now()),
+		cell:    t.annotate(tk),
 		task:    tk,
 	}
+}
+
+// annotate renders the current capability's cell at refresh time so the
+// per-frame render path stays pure formatting. Nil (no cell, no column) when
+// no project is scoped or the unmanaged pseudo-capability is current.
+func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
+	scope := t.m.projectScope
+	if scope == "" || t.m.capability.unmanagedCurrent() {
+		return nil
+	}
+	return t.m.regFor(scope).Annotate(t.m.capability.current, *tk)
 }
 
 func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {

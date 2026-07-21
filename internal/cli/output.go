@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"atm/internal/core"
@@ -23,11 +24,12 @@ type jsonHistory struct {
 }
 
 type jsonTask struct {
-	ID          string   `json:"id"`
-	ProjectCode string   `json:"project_code"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Labels      []string `json:"labels"`
+	ID          string             `json:"id"`
+	ProjectCode string             `json:"project_code"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Labels      []string           `json:"labels"`
+	Meta        []jsonMetaPresence `json:"meta,omitempty"`
 	// Ordinal is the entity's v2 creation ordinal from the projector fold.
 	Ordinal   int           `json:"ordinal"`
 	History   []jsonHistory `json:"history"`
@@ -100,7 +102,32 @@ func taskToJSON(t *core.Task, history []core.HistoryView) jsonTask {
 		CreatedBy:   t.CreatedBy,
 		UpdatedAt:   core.RFC3339UTC(t.UpdatedAt),
 		UpdatedBy:   t.UpdatedBy,
+		Meta:        metaPresence(t),
 	}
+}
+
+// jsonMetaPresence reports THAT a capability holds metadata on a task and how
+// big the payload is — never the content. Opaque is not invisible (degrade,
+// never interpret): a disabled or unknown capability's key still lists here.
+type jsonMetaPresence struct {
+	Capability string `json:"capability"`
+	Bytes      int    `json:"bytes"`
+}
+
+func metaPresence(t *core.Task) []jsonMetaPresence {
+	if len(t.Meta) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(t.Meta))
+	for k := range t.Meta {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := make([]jsonMetaPresence, 0, len(names))
+	for _, k := range names {
+		out = append(out, jsonMetaPresence{Capability: k, Bytes: len(t.Meta[k])})
+	}
+	return out
 }
 
 func tasksToJSON(ts []*core.Task) []jsonTask {

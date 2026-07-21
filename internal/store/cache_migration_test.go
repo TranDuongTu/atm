@@ -149,8 +149,8 @@ func TestCacheMigratesLegacySchema(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil {
 		t.Fatal(err)
 	}
-	if uv != 3 {
-		t.Fatalf("user_version = %d after migration, want 3", uv)
+	if uv != 4 {
+		t.Fatalf("user_version = %d after migration, want 4", uv)
 	}
 	var stale int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM meta WHERE key LIKE 'last_log_seq:%'`).Scan(&stale); err != nil {

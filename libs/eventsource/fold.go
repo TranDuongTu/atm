@@ -22,6 +22,15 @@ const capabilityFieldPrefix = "capability!"
 func capabilityField(name string) string  { return capabilityFieldPrefix + name }
 func isCapabilityField(field string) bool { return strings.HasPrefix(field, capabilityFieldPrefix) }
 
+// metaFieldPrefix namespaces per-capability metadata scalar slots on the task
+// entity away from title/description. Same collision argument as
+// capabilityFieldPrefix: '!' cannot occur in the fields it must stay disjoint
+// from.
+const metaFieldPrefix = "meta!"
+
+func metaField(capability string) string { return metaFieldPrefix + capability }
+func isMetaField(field string) bool      { return strings.HasPrefix(field, metaFieldPrefix) }
+
 // slotKey names one mutable piece of state.
 type slotKey struct {
 	entity string // entity identity; label name for label entities
@@ -88,6 +97,10 @@ func writesOf(e *Event) []slotWrite {
 		out = append(out, w(e.Subject.ID, SlotScalar, "title", str("title")))
 	case ActionTaskDescChanged:
 		out = append(out, w(e.Subject.ID, SlotScalar, "description", str("description")))
+	case ActionTaskCapabilityMetaSet:
+		if c := str("capability"); c != "" {
+			out = append(out, w(e.Subject.ID, SlotScalar, metaField(c), str("payload")))
+		}
 	case ActionCommentCreated:
 		out = append(out, w(e.ID, SlotScalar, "body", str("body")))
 		for _, l := range e.PayloadStringOrList("labels") {
@@ -218,6 +231,9 @@ type TaskState struct {
 	Title       string
 	Description string
 	Labels      []string
+	// Meta maps capability name → opaque payload. A key whose maximal write
+	// is the empty string is absent, not empty — clearing is writing "".
+	Meta map[string]string
 }
 
 type CommentState struct {
@@ -368,6 +384,15 @@ func Fold(d *DAG) *State {
 					st.Tasks[k.entity].Labels = append(st.Tasks[k.entity].Labels, k.field)
 				case st.Comments[k.entity] != nil:
 					st.Comments[k.entity].Labels = append(st.Comments[k.entity].Labels, k.field)
+				}
+			}
+		} else if k.kind == SlotScalar && isMetaField(k.field) {
+			if tk := st.Tasks[k.entity]; tk != nil {
+				if v := scalarValue(ws); v != "" {
+					if tk.Meta == nil {
+						tk.Meta = map[string]string{}
+					}
+					tk.Meta[strings.TrimPrefix(k.field, metaFieldPrefix)] = v
 				}
 			}
 		}

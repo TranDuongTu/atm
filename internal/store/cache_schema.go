@@ -33,7 +33,11 @@ CREATE TABLE IF NOT EXISTS tasks (
 	updated_at TEXT NOT NULL,
 	updated_by TEXT NOT NULL,
 	identity TEXT NOT NULL DEFAULT '',
-	alias TEXT NOT NULL DEFAULT ''
+	alias TEXT NOT NULL DEFAULT '',
+	-- meta is NULL when no capability holds state on the task, else a JSON
+	-- object {capability: payload}. Opaque to every reader; mirrors
+	-- core.Task.Meta. Never queried — boards select over labels only.
+	meta TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project_code ON tasks(project_code);
 CREATE INDEX IF NOT EXISTS idx_tasks_identity ON tasks(identity);

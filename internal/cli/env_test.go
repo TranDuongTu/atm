@@ -79,3 +79,5 @@ func (f *fakeMountCap) Exposed(code string) []core.Label { return nil }
 func (f *fakeMountCap) Command(env capability.Env) *cobra.Command {
 	return &cobra.Command{Use: f.name}
 }
+
+func (f *fakeMountCap) Annotate(core.Task) *capability.Cell { return nil }

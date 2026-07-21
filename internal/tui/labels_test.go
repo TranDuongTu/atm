@@ -690,6 +690,8 @@ func (u *undescribedCap) Command(_ capability.Env) *cobra.Command {
 	return &cobra.Command{Use: u.Name()}
 }
 
+func (u *undescribedCap) Annotate(core.Task) *capability.Cell { return nil }
+
 func (u *undescribedCap) Vocabulary(code string) []core.Label {
 	if code != u.code {
 		return nil

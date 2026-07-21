@@ -279,3 +279,16 @@ func (s *Store) mutateTask(id, actor string, do func(cs core.ChangeSet) error) e
 		return s.reprojectTxn(code, cs)
 	})
 }
+
+// SetTaskCapabilityMeta writes one capability's opaque payload slot on a
+// task; empty payload clears the key. The store validates nothing about the
+// payload (advisory, always) — but an empty capability name is a caller bug,
+// not a record.
+func (s *Store) SetTaskCapabilityMeta(id, capability, payload, actor string) error {
+	if capability == "" {
+		return fmt.Errorf("%w: capability is required", core.ErrUsage)
+	}
+	return s.mutateTask(id, actor, func(cs core.ChangeSet) error {
+		return cs.SetTaskCapabilityMeta(id, capability, payload, actor)
+	})
+}

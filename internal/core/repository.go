@@ -70,6 +70,9 @@ type TaskWriter interface {
 	AddTaskLabel(id, label, actor string) error
 	RemoveTaskLabel(id, label, actor string) error
 	RemoveTask(id, actor string) error
+	// SetTaskCapabilityMeta writes one capability's opaque payload slot on a
+	// task; empty payload clears the key.
+	SetTaskCapabilityMeta(id, capability, payload, actor string) error
 }
 
 type CommentWriter interface {

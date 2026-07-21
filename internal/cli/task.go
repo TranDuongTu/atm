@@ -164,6 +164,9 @@ func newTaskShowCmd(st *cliState) *cobra.Command {
 			return st.emit(st.stdout(), map[string]any{"task": taskToJSON(t, hv)}, func() {
 				jt := taskToJSON(t, hv)
 				fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", jt.ID, jt.Title, formatLabels(jt.Labels))
+				for _, p := range metaPresence(t) {
+					fmt.Fprintf(os.Stdout, "meta\t%s\t%d bytes\n", p.Capability, p.Bytes)
+				}
 			})
 		},
 	}

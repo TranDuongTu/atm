@@ -33,16 +33,21 @@ type Project struct {
 }
 
 type Task struct {
-	ID          string    `json:"id"`
-	ProjectCode string    `json:"project_code"`
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	Labels      []string  `json:"labels"`
-	Ordinal     int       `json:"ordinal,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	UpdatedBy   string    `json:"updated_by"`
+	ID          string   `json:"id"`
+	ProjectCode string   `json:"project_code"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Labels      []string `json:"labels"`
+	// Meta maps capability name → opaque payload. The store never interprets
+	// a payload; only the owning capability's verbs read or write its own key
+	// (docs/architecture/label-substrate-and-capabilities.md, "The metadata
+	// column"). Absent key = no state; clearing is writing the empty string.
+	Meta      map[string]string `json:"meta,omitempty"`
+	Ordinal   int               `json:"ordinal,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	CreatedBy string            `json:"created_by"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	UpdatedBy string            `json:"updated_by"`
 }
 
 type Comment struct {
