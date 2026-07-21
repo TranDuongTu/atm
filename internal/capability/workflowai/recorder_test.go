@@ -186,13 +186,12 @@ func TestReadyRequiresPlanRecord(t *testing.T) {
 func TestDemoteClearsStageAndPlanKeepsLinks(t *testing.T) {
 	s := newTestStore(t)
 	r := newRecorder(s)
-	// Task 4: re-enable revision_of + marker assertions once LinkRevisionOf lands.
-	// parent, _ := s.CreateTask("ATM", "parent", "", []string{"ATM:stage:planned"}, testActor)
+	parent, _ := s.CreateTask("ATM", "parent", "", []string{"ATM:stage:planned"}, testActor)
 	tk, _ := s.CreateTask("ATM", "t", "", []string{"ATM:stage:clarified"}, testActor)
 	_, _ = r.Plan(tk.ID, PlanKindEphemeral, "session x")
-	// if err := r.LinkRevisionOf(tk.ID, parent.ID); err != nil {
-	// 	t.Fatalf("link: %v", err)
-	// }
+	if err := r.LinkRevisionOf(tk.ID, parent.ID); err != nil {
+		t.Fatalf("link: %v", err)
+	}
 	prior, err := r.Demote(tk.ID, "plan lost in session cleanup")
 	if err != nil {
 		t.Fatalf("Demote: %v", err)
@@ -208,12 +207,12 @@ func TestDemoteClearsStageAndPlanKeepsLinks(t *testing.T) {
 	if pl.Plan() != nil {
 		t.Error("plan record survived demote")
 	}
-	// if pl.RevisionOf() != parent.ID {
-	// 	t.Error("revision_of link did not survive demote")
-	// }
-	// if !containsString(got.Labels, "ATM:wfai:revision") {
-	// 	t.Error("revision marker did not survive demote")
-	// }
+	if pl.RevisionOf() != parent.ID {
+		t.Error("revision_of link did not survive demote")
+	}
+	if !containsString(got.Labels, "ATM:wfai:revision") {
+		t.Error("revision marker did not survive demote")
+	}
 	comments, err := s.ListComments(tk.ID)
 	if err != nil || len(comments) == 0 || !strings.Contains(comments[len(comments)-1].Body, "plan lost in session cleanup") {
 		t.Errorf("demote reason comment missing: %v, %v", comments, err)
