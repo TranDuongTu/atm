@@ -1193,6 +1193,79 @@ func TestHeaderRowAccountedInVisibleRows(t *testing.T) {
 	}
 }
 
+// TestCompactFeedHeaderAndRowAccounting pins the SAME hazard as
+// TestHeaderRowAccountedInVisibleRows, but for the compact (unboxed) framing —
+// the clause R3-5 states as "in BOTH framings" precisely because revision 2
+// shipped a stranded-events bug of the framing-mismatch shape, and revision
+// 3's header row is a fresh chance to reintroduce it. The compact form must
+// also carry exactly one column header plus eventsFeedVisibleRows event rows,
+// with no stranded blank when the feed overflows its window.
+func TestCompactFeedHeaderAndRowAccounting(t *testing.T) {
+	const width = 80
+	// Find a height where the events section renders compact (unboxed) and its
+	// slot is tall enough to render at all — the same boxed/unboxed threshold
+	// TestEventsFeedFramingMatchesPersonaChart sweeps, read here off
+	// projectPaneSplitHeights + summaryChartsBoxed rather than the rendered body.
+	var m *Model
+	var eventsH int
+	for h := 8; h <= 60; h++ {
+		mm := newTestModel(t)
+		mm.SetSize(width, h)
+		_, eh, summaryH := projectPaneSplitHeights(mm.projects.contentHeight)
+		if eh >= 4 && !summaryChartsBoxed(summaryH) {
+			m, eventsH = mm, eh
+			break
+		}
+	}
+	if m == nil {
+		t.Fatal("no compact height with a rendered events slot in heights 8..60 at width 80")
+	}
+	seedProject(t, m, "ATM", "Acme Task Manager")
+	update(t, m, "s")
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
+	}
+
+	rows := eventsFeedVisibleRows(eventsH)
+	if got := m.projects.feedLen(); got <= rows {
+		t.Fatalf("feed (%d events) does not overflow the %d-row window; the no-stranded-blank check needs an overflowing feed", got, rows)
+	}
+
+	// The compact form must not be boxed at this height — otherwise the setup
+	// picked the wrong framing and the rest of the assertion is meaningless.
+	view := m.projects.View()
+	lines := strings.Split(view, "\n")
+	capIdx := -1
+	for i, line := range lines {
+		if strings.Contains(stripANSI(line), "Recent Events") {
+			capIdx = i
+			break
+		}
+	}
+	if capIdx < 0 {
+		t.Fatalf("no Recent Events caption in the compact view\n--- view ---\n%s", view)
+	}
+	if strings.ContainsAny(stripANSI(lines[capIdx]), "╭╮") {
+		t.Fatalf("setup picked a boxed height, not compact: %q", stripANSI(lines[capIdx]))
+	}
+
+	// One header row directly under the caption, then exactly `rows` event rows,
+	// all populated — no blank line the overflowing feed had room to fill.
+	header := stripANSI(lines[capIdx+1])
+	if !strings.Contains(header, "ID") || !strings.Contains(header, "TASK") {
+		t.Fatalf("row under the caption is not the column header: %q", header)
+	}
+	if strings.Contains(header, "●") {
+		t.Fatalf("row under the caption is an event, not the header: %q", header)
+	}
+	for i := 0; i < rows; i++ {
+		row := stripANSI(lines[capIdx+2+i])
+		if !strings.Contains(row, "●") {
+			t.Fatalf("compact event row %d is blank while the feed overflows (stranded window): %q", i, row)
+		}
+	}
+}
+
 // TestMessageTruncatesBeforeActor pins R3-3's reordered degradation: the
 // message yields first, down to feedMessageMinWidth, and only then does the
 // actor start truncating. At 160 columns the actor is whole and the message
