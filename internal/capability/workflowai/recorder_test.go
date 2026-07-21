@@ -248,6 +248,50 @@ func TestDemoteOfNewTaskIsNoOp(t *testing.T) {
 	}
 }
 
+func TestDemoteOfNewTaskWithLeftoverPlanSelfHeals(t *testing.T) {
+	s := newTestStore(t)
+	r := newRecorder(s)
+	// A task with no stage label but a payload carrying a leftover plan
+	// record (e.g. someone cleared the labels but left the metadata). The
+	// pure no-op path is skipped; demote self-heals: clears the plan,
+	// writes the breadcrumb+comment.
+	tk, _ := s.CreateTask("ATM", "t", "", nil, testActor)
+	pl, err := DecodePayload("")
+	if err != nil {
+		t.Fatalf("DecodePayload: %v", err)
+	}
+	pl.SetPlan(PlanRecord{Kind: PlanKindFile, Ref: "docs/p.md", RecordedAt: "2026-07-21T12:00:00Z", Actor: testActor})
+	enc, err := pl.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if err := s.SetTaskCapabilityMeta(tk.ID, CapabilityName, enc, testActor); err != nil {
+		t.Fatalf("seed leftover plan: %v", err)
+	}
+	prior, err := r.Demote(tk.ID, "leftover cleanup")
+	if err != nil {
+		t.Fatalf("Demote: %v", err)
+	}
+	if prior != StageNew {
+		t.Errorf("prior = %q, want StageNew", prior)
+	}
+	got, _ := s.GetTask(tk.ID)
+	pl2, _ := DecodePayload(got.Meta[CapabilityName])
+	if pl2.Plan() != nil {
+		t.Errorf("plan record survived self-heal: %+v", pl2.Plan())
+	}
+	if d := pl2.raw["demoted"]; d == nil {
+		t.Errorf("demoted breadcrumb missing from payload")
+	}
+	comments, err := s.ListComments(tk.ID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(comments) == 0 || !strings.Contains(comments[len(comments)-1].Body, "leftover cleanup") {
+		t.Errorf("demote reason comment missing: %v", comments)
+	}
+}
+
 func TestVerbFailsOnMalformedPayload(t *testing.T) {
 	s := newTestStore(t)
 	r := newRecorder(s)

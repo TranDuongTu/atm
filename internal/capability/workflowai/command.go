@@ -216,7 +216,7 @@ func newLinkCmd(env capability.Env, link bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return env.Emit(map[string]any{"task": taskID, verb: desc}, func() {
+			return env.Emit(map[string]any{"task": taskID, "link": desc, "verb": verb}, func() {
 				fmt.Fprintf(env.Stdout(), "%s: %s %s\n", taskID, verb, desc)
 			})
 		},
@@ -236,6 +236,9 @@ func newStageReportCmd(env capability.Env) *cobra.Command {
 			svc, err := env.OpenService()
 			if err != nil {
 				return err
+			}
+			if _, err := svc.GetProject(project); err != nil {
+				return fmt.Errorf("project %q: %w", project, err)
 			}
 			dir, err := os.Getwd()
 			if err != nil {
@@ -312,6 +315,9 @@ func newSeedCmd(env capability.Env) *cobra.Command {
 			svc, err := env.OpenService()
 			if err != nil {
 				return err
+			}
+			if _, err := svc.GetProject(project); err != nil {
+				return fmt.Errorf("project %q: %w", project, err)
 			}
 			boards, err := EnsureVocabulary(svc, project, actor)
 			if err != nil {
