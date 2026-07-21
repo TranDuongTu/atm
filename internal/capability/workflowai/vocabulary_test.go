@@ -39,7 +39,7 @@ func TestEnsureVocabularySeedsStageAndMarkerLabels(t *testing.T) {
 	for _, want := range []string{
 		"ATM:stage:*", "ATM:stage:brainstormed", "ATM:stage:clarified",
 		"ATM:stage:planned", "ATM:stage:implementable", "ATM:stage:done",
-		"ATM:wfai:*", "ATM:wfai:revision",
+		"ATM:wfai:*", "ATM:wfai:revision", "ATM:wfai:framework",
 		"ATM:new-tasks", "ATM:brainstormed-tasks", "ATM:planned-tasks",
 		"ATM:revisions", "ATM:done-tasks",
 	} {
