@@ -1,6 +1,6 @@
 # Task metadata column + capability view hook — Design Spec
 
-**Status:** Draft 2026-07-21.
+**Status:** Draft 2026-07-21. Revision 2 (2026-07-21, post-sync): rebased onto the Capability View work (ATM-90171b) and the events feed (ATM-793b19). The TUI now has a capability-first tasks pane — `capabilityModel` owns a per-project *current* capability with a `[C]` switcher and `BoardsConfig.Capability` persistence — so this spec's column follows that existing selection instead of inventing its own; the `Capability` interface has grown `Vocabulary`/`Exposed`, which `Annotate` joins as a third pure-read method; contextmap's day-one annotation is label-only (its stamps still live in comments, and `Annotate` is deliberately pure over the task).
 **Date:** 2026-07-21
 **Task:** ATM-2e64a5 — *Task metadata column + capability view hook*
 **Initiative:** ATM-4dd440 — capability extension points. Doctrine in `docs/architecture/label-substrate-and-capabilities.md` (§"The metadata column", §"Capability independence", §"Views live with the owner").
@@ -20,8 +20,8 @@ Nothing in-tree writes metadata when this task ships; the column is proven by th
 - One new event action: `task.capability-meta-set` `{task, capability, payload}`, empty payload = clear.
 - Changeset writer + store mutator (actor-required), fold projection to a `meta!<capability>` scalar slot, cache `meta` column + schema version bump, canon/golden extension.
 - `atm task show` presence display: capability name + payload size per key, content never interpreted.
-- One new `Capability` interface method: `Annotate(task core.Task) *Cell`, `Cell{Text, Tone}`; implementations for workflow (from status/priority labels) and contextmap (from existing provenance stamps).
-- One new TUI tasks-list column rendering the selected capability's cells; selected-capability state cycled by a keybinding, persisted per project.
+- One new `Capability` interface method: `Annotate(task core.Task) *Cell`, `Cell{Text, Tone}`; implementations for workflow (from status/priority labels) and contextmap (from context/lifecycle labels).
+- One new TUI tasks-list column rendering the current capability's cells, following the existing `capabilityModel.current` selection (`[C]` switcher, `BoardsConfig.Capability` persistence — no new UI state, no new keybinding).
 
 ## Non-Goals
 
@@ -91,7 +91,7 @@ type Capability interface {
 }
 ```
 
-`Annotate` goes on the interface itself, not a side-interface: with two in-tree implementers the migration is trivial, and the packaging design (ATM-e39512) wants a complete interface to freeze. The contract is plain data — no ANSI, no styles — so it survives serialization across a future process boundary unchanged.
+`Annotate` goes on the interface itself, not a side-interface: it joins `Vocabulary` and `Exposed` (added by the Capability View work) as the interface's third pure-read declaration, with two in-tree implementers the migration is trivial, and the packaging design (ATM-e39512) wants a complete interface to freeze. A `Registry.Annotate(capName string, t core.Task) *Cell` helper resolves the named capability and delegates (nil for unknown names and for the `unmanaged` pseudo-capability), mirroring `Registry.OwnedLabels`. The contract is plain data — no ANSI, no styles — so it survives serialization across a future process boundary unchanged.
 
 `Annotate` is read-only by construction: it receives a value and returns data. No reporter writes metadata; the reporter-purity invariant is untouched.
 
@@ -102,34 +102,34 @@ A capability whose own payload is unreadable handles it itself: return an Attent
 Both existing capabilities implement `Annotate` from data they already have — no metadata required, which gives the column real content immediately and proves the hook end-to-end before any payload exists:
 
 - **workflow**: from its own labels — `in-progress` (ToneOK), `blocked` (ToneAttention), `done` (ToneNeutral), `open` (ToneNeutral); a priority marker appended when a `priority:*` label is present (e.g. `open · high`). Nil for tasks with no status label.
-- **contextmap**: for `context:*` tasks, from its existing stamps (`LatestStamp`): `no stamp` (ToneAttention), fresh (ToneOK, e.g. `fresh 2d`), old (ToneStale, e.g. `stale? 40d`) using its existing age heuristics; superseded pointers `superseded` (ToneNeutral). Nil for non-context tasks.
+- **contextmap**: for `context:*` tasks, from labels only: `superseded` (ToneNeutral) when `knowledge:superseded` is present, else the pointer kind as current (ToneOK, e.g. `agent`). Nil for non-context tasks. Stamp-based staleness is deliberately deferred: stamps live in comments today, and `Annotate` is pure over the task — no store access, no per-row comment reads at refresh time. When ATM-a2e902 migrates stamps into contextmap's metadata key, staleness annotation arrives for free from `t.Meta` — itself a proof of why capability state belongs on the task.
 
 workflow_ai (ATM-efebc0) later becomes the first implementer that reads `t.Meta[Name()]` — the full pipeline.
 
 ### TUI column
 
-The tasks list gains one contextual column between TITLE and LABELS; the header is the selected capability's `Name()`. Selection model:
+The tasks pane is already capability-first (ATM-90171b): `capabilityModel` owns the per-project *current* capability, switched via the `[C]` overlay and persisted in `BoardsConfig.Capability`, and the board ring is scoped to it. The contextual column simply follows that existing selection — no new UI state, no new keybinding, no new persistence:
 
-- The TUI holds a **selected capability** per project. Default: the first enabled capability in registry order.
-- A keybinding cycles the selection through enabled capabilities plus **off** (exact key chosen at implementation after checking `keymap.go` for a free one; candidate `[m]`). Off removes the column and returns its width to TITLE.
-- The selection persists per project in the same side-file family as pins, surviving restarts.
+- The tasks list gains one contextual column between TITLE and UPDATED (the LABELS column no longer exists); the header is `capabilityModel.current`'s name upper-cased.
+- Switching capability via `[C]` re-renders the column with the new capability's cells, because switching already resets the board focus and refreshes the pane.
+- When `current` is the `unmanaged` pseudo-capability (or no project is scoped), there is no annotating capability and the column is absent, its width returned to TITLE.
 
-Rendering: the TUI calls the selected capability's `Annotate` per visible row on the already-loaded `core.Task` (Meta arrives from the cache; no extra store reads), maps `Tone` to theme colors, truncates to the column width. Nil renders an empty cell. Both the flat list (`renderFlatList`) and the grouped view (`renderGroup`) carry the column; `taskColumnWidths` gains the column's width when a capability is selected.
+Rendering: annotation is computed at refresh time in `toRow` — `Registry.Annotate(current, task)` on the already-loaded `core.Task` (Meta arrives from the cache; no store reads per row) — and stored on `taskRow`, so the per-frame render path stays pure formatting. The TUI maps `Tone` to theme colors, truncates to the column width; nil renders an empty cell. Both the flat list (`renderFlatList`) and the grouped view (`renderGroup`) carry the cell; `taskColumnWidths` gains the column's width when a column is present.
 
 ## Testing
 
 All development and tests run against a store copy — the schema bump forces a wholesale cache rebuild on first open.
 
-1. **eventsource**: fold round-trip for `task.capability-meta-set` — set, overwrite, clear-via-empty, two capabilities on one task independent; canon equivalence and golden log extended; upgrade regression proving retired v1 `task.meta-changed` events still write no slots.
+1. **eventsource**: fold round-trip for `task.capability-meta-set` — set, overwrite, clear-via-empty, two capabilities on one task independent, LWW on concurrent writes to one key. No canon or golden change: canon is action-agnostic JCS, and the golden file pins v1→v2 upgrade output, which a v2-only action never enters; the existing upgrade test already pins the retired `task.meta-changed` writing no slots.
 2. **store**: mutator requires an actor and unknown task fails cleanly; cache round-trip rebuilds `Meta` byte-identically; `atm task show` presence lines including a key whose capability is not registered.
-3. **capability**: `Annotate` unit tests — workflow label combinations (each status, with/without priority, no status → nil); contextmap stamp presence/age/superseded cases and non-context → nil.
-4. **TUI**: column renders the selected capability's cells; cycle key walks enabled capabilities + off; selection persists across reopen; header follows selection; width math with the column on and off.
+3. **capability**: `Annotate` unit tests — workflow label combinations (each status, with/without priority, no status → nil); contextmap kind/superseded cases and non-context → nil; `Registry.Annotate` unknown-name and `unmanaged` → nil.
+4. **TUI**: column renders the current capability's cells; `[C]` switch re-renders the column; `unmanaged` hides it; header follows the current capability; width math with the column on and off.
 
 ## Sequencing sketch
 
 1. Event + changeset + mutator + fold + canon/golden (eventsource and store layers, tests first).
 2. Cache column + schema bump + `atm task show` presence.
 3. `Cell`/`Tone` + `Annotate` on the interface + workflow and contextmap implementations.
-4. TUI column, selection state, keybinding, persistence.
+4. TUI column following the existing `capabilityModel.current` selection.
 
 Each step lands green before the next; the implementation plan (writing-plans) will refine this into commit-sized steps.
