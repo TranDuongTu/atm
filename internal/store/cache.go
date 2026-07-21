@@ -144,7 +144,7 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 		// was run. A fresh DB reports user_version 0, so it takes the same
 		// path and lands at the current version. Bump cacheSchemaVersion
 		// whenever cacheSchema changes shape.
-		const cacheSchemaVersion = 3
+		const cacheSchemaVersion = 4
 		var uv int
 		if err := db.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil {
 			s.cacheErr = err
@@ -209,6 +209,27 @@ func capabilitiesFromCache(v sql.NullString) []string {
 	return out
 }
 
+// taskMetaToCache and taskMetaFromCache round-trip core.Task.Meta through the
+// cache's nullable TEXT column: NULL for an empty/absent map, else a JSON
+// object {capability: payload}. Same robustness argument as
+// capabilitiesToCache: JSON, never ad-hoc joining.
+func taskMetaToCache(meta map[string]string) any {
+	if len(meta) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(meta)
+	return string(b)
+}
+
+func taskMetaFromCache(v sql.NullString) map[string]string {
+	if !v.Valid {
+		return nil
+	}
+	var out map[string]string
+	_ = json.Unmarshal([]byte(v.String), &out)
+	return out
+}
+
 func cacheUpsertProject(x sqlExecer, p *Project) error {
 	_, err := x.Exec(`INSERT INTO projects (code, name, ordinal, created_at, created_by, updated_at, updated_by, capabilities)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -264,12 +285,12 @@ func cacheListProjectCodes(db *sql.DB) ([]string, error) {
 // ---- task cache ----
 
 func cacheUpsertTask(x sqlExecer, t *Task) error {
-	_, err := x.Exec(`INSERT INTO tasks (id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := x.Exec(`INSERT INTO tasks (id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by, meta)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			title=excluded.title, description=excluded.description, ordinal=excluded.ordinal,
-			updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, core.RFC3339UTC(t.CreatedAt), t.CreatedBy, core.RFC3339UTC(t.UpdatedAt), t.UpdatedBy)
+			updated_at=excluded.updated_at, updated_by=excluded.updated_by, meta=excluded.meta`,
+		t.ID, t.ProjectCode, t.Title, t.Description, t.Ordinal, core.RFC3339UTC(t.CreatedAt), t.CreatedBy, core.RFC3339UTC(t.UpdatedAt), t.UpdatedBy, taskMetaToCache(t.Meta))
 	if err != nil {
 		return err
 	}
@@ -304,9 +325,10 @@ func cacheTaskLabels(db *sql.DB, taskID string) ([]string, error) {
 func cacheGetTask(db *sql.DB, id string) (*Task, bool, error) {
 	var t Task
 	var createdAt, updatedAt string
-	err := db.QueryRow(`SELECT id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by
+	var meta sql.NullString
+	err := db.QueryRow(`SELECT id, project_code, title, description, ordinal, created_at, created_by, updated_at, updated_by, meta
 		FROM tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.ProjectCode, &t.Title, &t.Description, &t.Ordinal, &createdAt, &t.CreatedBy, &updatedAt, &t.UpdatedBy)
+		Scan(&t.ID, &t.ProjectCode, &t.Title, &t.Description, &t.Ordinal, &createdAt, &t.CreatedBy, &updatedAt, &t.UpdatedBy, &meta)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -315,6 +337,7 @@ func cacheGetTask(db *sql.DB, id string) (*Task, bool, error) {
 	}
 	t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	t.Meta = taskMetaFromCache(meta)
 	labels, err := cacheTaskLabels(db, id)
 	if err != nil {
 		return nil, false, err
@@ -366,7 +389,7 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 	// with zero labels as a single NULL-label row (LEFT JOIN).
 	rows, err := db.Query(`SELECT t.id, t.project_code, t.title, t.description, t.ordinal,
 		t.created_at, t.created_by, t.updated_at, t.updated_by,
-		tl.label
+		t.meta, tl.label
 		FROM tasks t
 		LEFT JOIN task_labels tl ON tl.task_id = t.id
 		WHERE t.project_code = ?
@@ -381,10 +404,11 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 		var (
 			id, projectCode, title, description, createdAt, createdBy, updatedAt, updatedBy string
 			ordinal                                                                         int
+			meta                                                                            sql.NullString
 			label                                                                           sql.NullString
 		)
 		if err := rows.Scan(&id, &projectCode, &title, &description, &ordinal,
-			&createdAt, &createdBy, &updatedAt, &updatedBy, &label); err != nil {
+			&createdAt, &createdBy, &updatedAt, &updatedBy, &meta, &label); err != nil {
 			return nil, err
 		}
 		tk, ok := byID[id]
@@ -397,6 +421,7 @@ func cacheListTasksForProject(db *sql.DB, projectCode string) ([]*Task, error) {
 				Ordinal:     ordinal,
 				CreatedBy:   createdBy,
 				UpdatedBy:   updatedBy,
+				Meta:        taskMetaFromCache(meta),
 			}
 			tk.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 			tk.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)

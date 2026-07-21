@@ -24,6 +24,7 @@ type TaskService interface {
 	TaskLabelAdd(id, label, actor string) error
 	TaskLabelRemove(id, label, actor string) error
 	RemoveTask(id, actor string) error
+	SetTaskCapabilityMeta(id, capability, payload, actor string) error
 }
 
 type ProjectService interface {

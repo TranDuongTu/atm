@@ -26,6 +26,7 @@ const (
 	actionTaskLabelAdded            = "task.label-added"
 	actionTaskLabelRemoved          = "task.label-removed"
 	actionTaskRemoved               = "task.removed"
+	actionTaskCapabilityMetaSet     = "task.capability-meta-set"
 	actionLabelUpserted             = "label.upserted"
 	actionLabelRemoved              = "label.removed"
 	actionCommentCreated            = "comment.created"

@@ -191,6 +191,16 @@ func (cs *changeSet) RemoveTask(id, actor string) error {
 	return cs.mutateTask(id, actionTaskRemoved, actor, nil)
 }
 
+// SetTaskCapabilityMeta writes one capability's opaque payload slot on the
+// task. The engine enforces nothing about the capability name or the payload
+// bytes — which capabilities exist is the composition root's knowledge; the
+// log just records the write (empty payload = clear, the fold's absent-key
+// rule).
+func (cs *changeSet) SetTaskCapabilityMeta(id, capability, payload, actor string) error {
+	return cs.mutateTask(id, actionTaskCapabilityMetaSet, actor,
+		map[string]any{"capability": capability, "payload": payload})
+}
+
 // mutateTask appends one v2 task event against the task's IDENTITY (the fold
 // keys every slot write off subject.id, never the alias). It begins its own
 // authorCtx to resolve the alias, then appendLocked begins another — exactly

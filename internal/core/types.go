@@ -38,6 +38,11 @@ type Task struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
 	Labels      []string  `json:"labels"`
+	// Meta maps capability name → opaque payload. The store never interprets
+	// a payload; only the owning capability's verbs read or write its own key
+	// (docs/architecture/label-substrate-and-capabilities.md, "The metadata
+	// column"). Absent key = no state; clearing is writing the empty string.
+	Meta        map[string]string `json:"meta,omitempty"`
 	Ordinal     int       `json:"ordinal,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	CreatedBy   string    `json:"created_by"`

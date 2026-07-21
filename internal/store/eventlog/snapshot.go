@@ -88,12 +88,20 @@ func projectFromV2(p *eventsource.ProjectState) *core.Project {
 func taskFromV2(code string, t *eventsource.TaskState, ordinal int) *core.Task {
 	labels := append([]string(nil), t.Labels...)
 	sort.Strings(labels)
+	var meta map[string]string
+	if len(t.Meta) > 0 {
+		meta = make(map[string]string, len(t.Meta))
+		for k, v := range t.Meta {
+			meta[k] = v
+		}
+	}
 	return &core.Task{
 		ID:          t.Alias,
 		ProjectCode: code,
 		Title:       t.Title,
 		Description: t.Description,
 		Labels:      labels,
+		Meta:        meta,
 		Ordinal:     ordinal,
 		CreatedAt:   t.CreatedAt,
 		CreatedBy:   t.CreatedBy,
