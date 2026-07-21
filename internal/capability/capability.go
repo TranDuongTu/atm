@@ -43,6 +43,26 @@ type Env interface {
 	TaskJSON(t *core.Task) any
 }
 
+// Tone is a Cell's semantic emphasis. Capabilities say what a value MEANS;
+// the TUI maps tones to theme colors. The contract is plain data — no ANSI,
+// no styles — so it survives a future process boundary (third-party
+// capability packaging, ATM-e39512).
+type Tone int
+
+const (
+	ToneNeutral Tone = iota
+	ToneOK
+	ToneAttention
+	ToneStale
+)
+
+// Cell is one interpreted annotation for the TUI's contextual column: short
+// text plus emphasis, never raw payload bytes.
+type Cell struct {
+	Text string
+	Tone Tone
+}
+
 // Capability is one registered capability command: it owns its label slice,
 // seeds its own vocabulary, and mounts its cobra verb tree.
 type Capability interface {
@@ -66,6 +86,12 @@ type Capability interface {
 	// preferred ring order; the registry preserves registration order across
 	// capabilities. Invariant: Exposed ⊆ Vocabulary.
 	Exposed(code string) []core.Label
+	// Annotate renders this capability's interpreted cell for a task — its
+	// reading of the task's labels and of its own Meta key. Pure read over
+	// the task value: no store access, nil when the capability has nothing
+	// to say. A capability whose own payload is unreadable reports that as a
+	// cell (degrade, never panic, never leak raw bytes).
+	Annotate(task core.Task) *Cell
 	// EnsureVocabulary seeds ALL the capability's labels (stored, namespace,
 	// boards) for a project, idempotently, and returns the BOARD labels
 	// (Expr != "") the capability owns. One call leaves the project fully
@@ -293,6 +319,21 @@ func (r *Registry) OwnedLabels(code, capName string) []core.Label {
 	for _, c := range r.caps {
 		if c.Name() == capName {
 			return c.Vocabulary(code)
+		}
+	}
+	return nil
+}
+
+// Annotate resolves the named capability and renders its cell for the task.
+// Nil for unknown names — including the TUI's "unmanaged" pseudo-capability,
+// which is never registered — and when the capability has nothing to say.
+func (r *Registry) Annotate(capName string, t core.Task) *Cell {
+	if r == nil {
+		return nil
+	}
+	for _, c := range r.caps {
+		if c.Name() == capName {
+			return c.Annotate(t)
 		}
 	}
 	return nil

@@ -46,6 +46,8 @@ func (f *fakeCap) Command(env Env) *cobra.Command {
 	return &cobra.Command{Use: use}
 }
 
+func (f *fakeCap) Annotate(core.Task) *Cell { return nil }
+
 func TestCommandsPreserveRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(
@@ -251,6 +253,21 @@ func TestOrderFullNames(t *testing.T) {
 func TestUmbrellaFullName(t *testing.T) {
 	if UmbrellaFullName("ATM") != "ATM:unmanaged" {
 		t.Fatalf("UmbrellaFullName = %q", UmbrellaFullName("ATM"))
+	}
+}
+
+func TestRegistryAnnotateResolvesByName(t *testing.T) {
+	var calls []string
+	reg := NewRegistry(&fakeCap{name: "workflow", calls: &calls})
+	if got := reg.Annotate("nope", core.Task{}); got != nil {
+		t.Errorf("unknown name = %+v, want nil", got)
+	}
+	if got := reg.Annotate("unmanaged", core.Task{}); got != nil {
+		t.Errorf("unmanaged pseudo-capability = %+v, want nil", got)
+	}
+	var nilReg *Registry
+	if got := nilReg.Annotate("workflow", core.Task{}); got != nil {
+		t.Errorf("nil registry = %+v, want nil", got)
 	}
 }
 
