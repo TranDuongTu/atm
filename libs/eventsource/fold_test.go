@@ -371,3 +371,68 @@ func TestFoldCommentActivityBumpsTaskUpdatedMetaTombstonedExcluded(t *testing.T)
 			task.UpdatedBy, created.Actor)
 	}
 }
+
+func TestFoldTaskCapabilityMeta(t *testing.T) {
+	c := testClock(1000)
+	created := testEvent(t, c, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-1", "title": "t"})
+	setWF := testEvent(t, c, replicaA, []string{created.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": `{"v":1}`})
+	setCM := testEvent(t, c, replicaA, []string{setWF.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "contextmap", "payload": "cm-state"})
+	st := fold(t, created, setWF, setCM)
+	tk := st.Tasks[created.ID]
+	if tk == nil {
+		t.Fatal("task missing")
+	}
+	if tk.Meta["workflow_ai"] != `{"v":1}` || tk.Meta["contextmap"] != "cm-state" {
+		t.Errorf("meta = %+v, want both capabilities' payloads independent", tk.Meta)
+	}
+
+	// Overwrite: a later write to the same key wins.
+	over := testEvent(t, c, replicaA, []string{setCM.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": `{"v":2}`})
+	st = fold(t, created, setWF, setCM, over)
+	if got := st.Tasks[created.ID].Meta["workflow_ai"]; got != `{"v":2}` {
+		t.Errorf("overwrite = %q, want v2 payload", got)
+	}
+	if got := st.Tasks[created.ID].Meta["contextmap"]; got != "cm-state" {
+		t.Errorf("sibling key disturbed by overwrite: %q", got)
+	}
+
+	// Clear via empty payload: the key is absent, not empty.
+	clr := testEvent(t, c, replicaA, []string{over.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": ""})
+	st = fold(t, created, setWF, setCM, over, clr)
+	if _, ok := st.Tasks[created.ID].Meta["workflow_ai"]; ok {
+		t.Errorf("cleared key still present: %+v", st.Tasks[created.ID].Meta)
+	}
+
+	// A meta-set with no capability field writes no slot (malformed, inert).
+	bad := testEvent(t, c, replicaA, []string{clr.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"payload": "orphan"})
+	if ws := writesOf(bad); len(ws) != 0 {
+		t.Errorf("capability-less meta-set wrote slots: %+v", ws)
+	}
+}
+
+func TestFoldTaskCapabilityMetaLWWAndContested(t *testing.T) {
+	ca, cb := testClock(1000), testClock(2000) // B's stamps are later → B wins LWW
+	created := testEvent(t, ca, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
+		map[string]any{"alias": "T-1", "title": "t"})
+	a := testEvent(t, ca, replicaA, []string{created.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": "from A"})
+	b := testEvent(t, cb, replicaB, []string{created.ID}, ActionTaskCapabilityMetaSet,
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": "from B"})
+	st := fold(t, created, a, b)
+	if got := st.Tasks[created.ID].Meta["workflow_ai"]; got != "from B" {
+		t.Errorf("LWW winner = %q, want the higher HLC", got)
+	}
+	if len(st.Contested) != 1 {
+		t.Fatalf("contested = %+v, want exactly the meta slot", st.Contested)
+	}
+	cs := st.Contested[0]
+	if cs.Entity != created.ID || cs.Kind != SlotScalar || cs.Field != "meta!workflow_ai" {
+		t.Errorf("contested slot = %+v", cs)
+	}
+}

@@ -27,4 +27,10 @@ const (
 
 	ActionProjectCapabilityEnabled  = "project.capability-enabled"
 	ActionProjectCapabilityDisabled = "project.capability-disabled"
+
+	// ActionTaskCapabilityMetaSet writes one capability's opaque payload slot
+	// on a task ({capability, payload}); empty payload clears the key. This is
+	// deliberately NOT the retired v1 "task.meta-changed" string, which rides
+	// through upgraded logs as an unknown action and must stay inert forever.
+	ActionTaskCapabilityMetaSet = "task.capability-meta-set"
 )
