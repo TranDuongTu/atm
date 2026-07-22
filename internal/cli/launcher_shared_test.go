@@ -82,33 +82,41 @@ func TestAppendAgentArgs_DoesNotMutateBase(t *testing.T) {
 	}
 }
 
-func TestContextCachePathDev(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "dev", "developer", "", "")
-	want := "/STORE/projects/FOO/cache/dev-developer.md"
+func TestContextCachePathPersona(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "developer", "", "")
+	want := "/STORE/projects/FOO/cache/session-developer.md"
 	if got != want {
-		t.Fatalf("contextCachePath dev = %q, want %q", got, want)
+		t.Fatalf("contextCachePath developer = %q, want %q", got, want)
 	}
 }
 
-func TestContextCachePathManageAllCapabilities(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "manage", "manager", "autopilot", "")
-	want := "/STORE/projects/FOO/cache/manage-manager-autopilot-all.md"
+func TestContextCachePathManagerMode(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "manager", "autopilot", "")
+	want := "/STORE/projects/FOO/cache/session-manager-autopilot.md"
 	if got != want {
-		t.Fatalf("contextCachePath manage-all = %q, want %q", got, want)
+		t.Fatalf("contextCachePath manager-autopilot = %q, want %q", got, want)
 	}
 }
 
-func TestContextCachePathManageScopedCapability(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "manage", "manager", "brief", "boards")
-	want := "/STORE/projects/FOO/cache/manage-manager-brief-boards.md"
+func TestContextCachePathManagerScopedCapability(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "manager", "brief", "contextmap")
+	want := "/STORE/projects/FOO/cache/session-manager-brief-contextmap.md"
 	if got != want {
-		t.Fatalf("contextCachePath manage-scoped = %q, want %q", got, want)
+		t.Fatalf("contextCachePath manager-scoped = %q, want %q", got, want)
+	}
+}
+
+func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
+	got := contextCachePath("/STORE", "", "concierge", "", "")
+	want := "/STORE/cache/session-concierge.md"
+	if got != want {
+		t.Fatalf("contextCachePath no-project = %q, want %q", got, want)
 	}
 }
 
 func TestContextCachePathNormalizes(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "dev", "Dev-Staff", "", "")
-	want := "/STORE/projects/FOO/cache/dev-dev-staff.md"
+	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "")
+	want := "/STORE/projects/FOO/cache/session-dev-staff.md"
 	if got != want {
 		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
 	}

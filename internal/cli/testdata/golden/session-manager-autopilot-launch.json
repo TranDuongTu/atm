@@ -1,0 +1,30 @@
+{
+  "agent": "claude",
+  "argv": [
+    "claude",
+    "Read the session instructions in the file at /STORE/projects/ATM/cache/session-manager-autopilot.md and follow them exactly."
+  ],
+  "context_path": "/STORE/projects/ATM/cache/session-manager-autopilot.md",
+  "env": {
+    "ATM_ACTOR": "manager@claude:unset",
+    "ATM_AGENT": "claude",
+    "ATM_CONTEXT_FILE": "/STORE/projects/ATM/cache/session-manager-autopilot.md",
+    "ATM_MODE": "autopilot",
+    "ATM_PERSONA": "manager",
+    "ATM_PROJECT": "ATM",
+    "ATM_ROLE": "manager",
+    "ATM_RUN_ID": "FOO-RUNID",
+    "ATM_TIMESTAMP": "TIMESTAMP"
+  },
+  "project": "ATM",
+  "role": "manager",
+  "run_id": "FOO-RUNID"
+}
+{
+  "agent": "claude",
+  "agent_exit": 0,
+  "context_path": "/STORE/projects/ATM/cache/session-manager-autopilot.md",
+  "project": "ATM",
+  "role": "manager",
+  "run_id": "FOO-RUNID"
+}

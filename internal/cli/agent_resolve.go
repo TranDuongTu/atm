@@ -6,8 +6,6 @@ import (
 
 	"atm/internal/agent"
 	"atm/internal/core"
-	"atm/internal/developing"
-	"atm/internal/manager"
 )
 
 // resolveAgentName picks the agent entry name for a launch: an explicit
@@ -38,20 +36,4 @@ func resolveEntry(flagAgent string, cfg core.AgentsConfig) (agent.Entry, []strin
 		return agent.Entry{}, nil, fmt.Errorf("%w: unknown agent %q (see `atm agents list`)", ErrUsage, name)
 	}
 	return e, cfg.Args[name], nil
-}
-
-// devLauncherFor maps a catalog entry to the developing launcher.
-func devLauncherFor(e agent.Entry) (developing.Launcher, bool) {
-	if e.Launcher == "ollama" {
-		return developing.OllamaLauncher{Integration: e.Integration}, true
-	}
-	return developing.LauncherFor(e.Launcher)
-}
-
-// manageLauncherFor maps a catalog entry to the manager launcher.
-func manageLauncherFor(e agent.Entry) (manager.Launcher, bool) {
-	if e.Launcher == "ollama" {
-		return manager.OllamaLauncher{Integration: e.Integration}, true
-	}
-	return manager.LauncherFor(e.Launcher)
 }

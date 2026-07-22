@@ -1,8 +1,0 @@
-{
-  "agent": "codex",
-  "agent_exit": 0,
-  "context_path": "/STORE/developing/FOO-RUNID.md",
-  "project": "FOO",
-  "role": "developing",
-  "run_id": "FOO-RUNID"
-}

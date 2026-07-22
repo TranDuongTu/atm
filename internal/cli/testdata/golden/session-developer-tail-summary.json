@@ -1,0 +1,8 @@
+{
+  "agent": "codex",
+  "agent_exit": 0,
+  "context_path": "/STORE/projects/FOO/cache/session-developer.md",
+  "project": "FOO",
+  "role": "developer",
+  "run_id": "FOO-RUNID"
+}

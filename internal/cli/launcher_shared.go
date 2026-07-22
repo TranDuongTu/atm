@@ -85,7 +85,7 @@ func assembleEnv(extras map[string]string) []string {
 }
 
 // emitLaunchHeader writes the pre-launch summary in JSON or text form.
-// role is "developing" or "manager".
+// role is the persona name (developer, manager, ...).
 func emitLaunchHeader(st *cliState, role, project, runID, contextPath, agent string, argv []string, env map[string]string) error {
 	return st.emit(st.stdout(), map[string]any{
 		"role":         role,
@@ -143,29 +143,28 @@ func appendAgentArgs(base, envArgs, extraArgs []string) []string {
 	return out
 }
 
-// contextCachePath returns the stable on-disk path for a rendered context
-// prompt keyed on (project, role, persona, action, capability). Repeated
-// launches of the same tuple reuse the same file.
-//
-// role is "dev" or "manage". For "dev", action and capability are ignored.
-// For "manage", an empty capability becomes "all" in the filename.
-func contextCachePath(storePath, code, role, persona, action, capability string) string {
-	key := cacheKey(role, persona, action, capability)
+// contextCachePath returns the stable on-disk path for a rendered session
+// prompt keyed on (persona, mode, capability). Repeated launches of the same
+// tuple reuse the same file. With no project (project-optional personas), the
+// file lives in the store-level cache dir.
+func contextCachePath(storePath, code, persona, mode, capability string) string {
+	key := cacheKey(persona, mode, capability)
+	if code == "" {
+		return filepath.Join(storePath, "cache", key+".md")
+	}
 	return filepath.Join(storePath, "projects", code, "cache", key+".md")
 }
 
-// cacheKey builds the filename stem for a context cache file. Non-alphanumeric
-// characters collapse to a single "-"; the result is lowercased and trimmed
-// of leading/trailing "-".
-func cacheKey(role, persona, action, capability string) string {
-	parts := []string{role, persona}
-	if role == "manage" {
-		parts = append(parts, action)
-		if capability == "" {
-			parts = append(parts, "all")
-		} else {
-			parts = append(parts, capability)
-		}
+// cacheKey builds the filename stem: session-<persona>[-<mode>][-<capability>].
+// Non-alphanumeric characters collapse to a single "-"; the result is
+// lowercased and trimmed of leading/trailing "-".
+func cacheKey(persona, mode, capability string) string {
+	parts := []string{"session", persona}
+	if mode != "" {
+		parts = append(parts, mode)
+	}
+	if capability != "" {
+		parts = append(parts, capability)
 	}
 	for i, p := range parts {
 		parts[i] = sanitizeCacheSegment(p)
