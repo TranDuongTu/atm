@@ -129,7 +129,7 @@ func (s *Store) CreatePersona(name, prompt, description, actor string) (*core.Pe
 		if err := os.MkdirAll(s.personasDir(), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(s.personaMDPath(name), []byte(doc), 0o644); err != nil {
+		if err := WriteBytesAtomic(s.personaMDPath(name), []byte(doc)); err != nil {
 			return err
 		}
 		created = p
@@ -169,7 +169,7 @@ func (s *Store) GetPersona(name string) (*core.Persona, error) {
 		return nil, err
 	}
 	err := s.WithLock("personas", func() error {
-		if err := os.WriteFile(s.personaMDPath(name), []byte(composePersonaDoc(&legacy)), 0o644); err != nil {
+		if err := WriteBytesAtomic(s.personaMDPath(name), []byte(composePersonaDoc(&legacy))); err != nil {
 			return err
 		}
 		return os.Remove(s.personaJSONPath(name))
@@ -178,6 +178,21 @@ func (s *Store) GetPersona(name string) (*core.Persona, error) {
 		return nil, err
 	}
 	return &legacy, nil
+}
+
+// getPersonaMDNoLock reads a custom persona from its .md file only, with no
+// legacy-JSON migration and no lock acquisition. Callers must already hold
+// the "personas" lock (or have arranged migration via GetPersona beforehand)
+// so that the .md file exists. It does NOT touch the .json path.
+func (s *Store) getPersonaMDNoLock(name string) (*core.Persona, error) {
+	b, err := os.ReadFile(s.personaMDPath(name))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: persona %q", core.ErrNotFound, name)
+		}
+		return nil, err
+	}
+	return parsePersonaDoc(name, b)
 }
 
 func (s *Store) ListPersonas() []*core.Persona {
@@ -224,9 +239,16 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 	if err := s.validateActor(actor); err != nil {
 		return nil, err
 	}
+	// Trigger any legacy .json -> .md migration BEFORE acquiring the
+	// "personas" lock. GetPersona's migration path re-acquires the same
+	// lock name and fsio.WithLock is NOT reentrant, so calling it inside
+	// the locked region deadlocks when the persona exists only as a .json.
+	if _, err := s.GetPersona(name); err != nil {
+		return nil, err
+	}
 	var updated *core.Persona
 	err := s.WithLock("personas", func() error {
-		p, err := s.GetPersona(name)
+		p, err := s.getPersonaMDNoLock(name)
 		if err != nil {
 			return err
 		}
@@ -242,7 +264,7 @@ func (s *Store) EditPersona(name string, prompt, description *string, actor stri
 		if _, err := parsePersonaDoc(name, []byte(doc)); err != nil {
 			return err
 		}
-		if err := os.WriteFile(s.personaMDPath(name), []byte(doc), 0o644); err != nil {
+		if err := WriteBytesAtomic(s.personaMDPath(name), []byte(doc)); err != nil {
 			return err
 		}
 		updated = p
@@ -258,8 +280,13 @@ func (s *Store) RemovePersona(name string) error {
 	if _, ok := skills.Persona(name); ok {
 		return fmt.Errorf("%w: cannot remove built-in persona %q", core.ErrUsage, name)
 	}
+	// Trigger legacy .json -> .md migration before locking; see EditPersona
+	// for why GetPersona must not be called inside WithLock.
+	if _, err := s.GetPersona(name); err != nil {
+		return err
+	}
 	return s.WithLock("personas", func() error {
-		if _, err := s.GetPersona(name); err != nil {
+		if _, err := s.getPersonaMDNoLock(name); err != nil {
 			return err
 		}
 		_ = os.Remove(s.personaJSONPath(name))

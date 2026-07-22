@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPersonaCRUD(t *testing.T) {
@@ -181,5 +182,85 @@ func TestCreatePersonaRefusesBuiltinName(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreatePersona("manager", "p", "d", "admin@cli:unset"); err == nil {
 		t.Fatal("shadowing a built-in must fail")
+	}
+}
+
+// writeLegacyJSONPersona seeds a .json-only persona (no .md) so callers can
+// exercise the migration path under EditPersona/RemovePersona without a prior
+// GetPersona.
+func writeLegacyJSONPersona(t *testing.T, s *Store, name string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := core.Persona{Name: name, Prompt: "Old prompt.", Description: "Old desc.",
+		CreatedAt: core.Now(), UpdatedAt: core.Now(), CreatedBy: "a@b:c", UpdatedBy: "a@b:c"}
+	if err := WriteFileAtomic(filepath.Join(s.Root, "personas", name+".json"), &old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, "personas", name+".md")); err == nil {
+		t.Fatalf("precondition: %s.md must not exist", name)
+	}
+}
+
+// TestEditPersonaLegacyJSONNoDeadlock exercises the re-entrant WithLock bug:
+// a .json-only persona edited without a prior GetPersona used to deadlock
+// because GetPersona's migration path re-acquires the "personas" lock.
+func TestEditPersonaLegacyJSONNoDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	writeLegacyJSONPersona(t, s, "legacy-edit")
+
+	type result struct {
+		p   *core.Persona
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		newPrompt := "edited prompt"
+		p, err := s.EditPersona("legacy-edit", &newPrompt, nil, testActor)
+		done <- result{p, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("EditPersona on legacy json: %v", r.err)
+		}
+		if r.p.Prompt != "edited prompt" {
+			t.Fatalf("prompt not updated: %+v", r.p)
+		}
+		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-edit.md")); err != nil {
+			t.Fatalf("md not written by migration: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-edit.json")); !os.IsNotExist(err) {
+			t.Fatalf("json not cleaned: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("EditPersona on .json-only persona deadlocked (re-entrant WithLock)")
+	}
+}
+
+// TestRemovePersonaLegacyJSONNoDeadlock is the remove-path analogue of the
+// edit test above.
+func TestRemovePersonaLegacyJSONNoDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	writeLegacyJSONPersona(t, s, "legacy-rm")
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.RemovePersona("legacy-rm")
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RemovePersona on legacy json: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-rm.md")); !os.IsNotExist(err) {
+			t.Fatalf("md not removed: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-rm.json")); !os.IsNotExist(err) {
+			t.Fatalf("json not removed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RemovePersona on .json-only persona deadlocked (re-entrant WithLock)")
 	}
 }
