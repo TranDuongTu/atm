@@ -58,3 +58,18 @@ func TestPersonaUnknown(t *testing.T) {
 		t.Fatal("unknown persona must report !ok")
 	}
 }
+
+func TestBuiltinCapabilitiesLoad(t *testing.T) {
+	cs := Capabilities()
+	if len(cs) != 3 {
+		t.Fatalf("want 3 built-in capabilities, got %d", len(cs))
+	}
+	for _, c := range cs {
+		if strings.Contains(c.Body, "## Brief") || strings.Contains(c.Body, "## Autopilot") {
+			t.Errorf("%s: persona-specific Brief/Autopilot sections must not appear in capability files", c.Name)
+		}
+	}
+	if _, ok := Capability("workflow_ai"); !ok {
+		t.Fatal("workflow_ai missing")
+	}
+}

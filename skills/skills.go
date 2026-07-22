@@ -8,10 +8,7 @@ import (
 	"strings"
 )
 
-// Task 3 widens this to `persona/*.md capability/*.md` once capability files
-// exist (go:embed fails to compile against an empty glob).
-//
-//go:embed persona/*.md
+//go:embed persona/*.md capability/*.md
 var files embed.FS
 
 var (

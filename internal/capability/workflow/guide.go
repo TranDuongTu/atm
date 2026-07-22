@@ -1,19 +1,11 @@
 package workflow
 
-import (
-	_ "embed"
-)
+import "atm/skills"
 
-//go:embed guide.md
-var guideText string
+// Summary is the capability's one-line description for enumeration surfaces.
+// Single source: the skills file's frontmatter description.
+func (Cap) Summary() string { return skills.MustCapability("workflow").Description }
 
-// Summary is the capability's one-line description, used wherever
-// capabilities are enumerated (conventions, manager prompt).
-func (Cap) Summary() string {
-	return "Status-transition verbs and boards — the paved road for task status."
-}
-
-// Guide is the capability's full agent-facing semantics; `atm workflow guide`
-// prints it. The capability explains itself: this text is the single source,
-// composed surfaces (conventions, manager prompt) only point here.
-func (Cap) Guide() string { return guideText }
+// Guide is the capability's full agent-facing semantics; `atm capability
+// workflow guide` prints it verbatim from the skills file.
+func (Cap) Guide() string { return skills.MustCapability("workflow").Body }
