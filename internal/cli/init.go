@@ -98,7 +98,7 @@ func newInitCmd(st *cliState) *cobra.Command {
 				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", label, setup.SelectedAgent, strings.Join(setup.Args, " "))
 			}
 			if interactive {
-				fmt.Fprintln(st.stdout(), "Next: atm --persona manager --project <CODE> --mode brief")
+				fmt.Fprintln(st.stdout(), "Next: atm --persona manager --project <CODE>")
 			}
 			return nil
 		},

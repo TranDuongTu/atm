@@ -24,19 +24,11 @@ func TestManagerPersonaShape(t *testing.T) {
 	if !ok {
 		t.Fatal("manager not found")
 	}
-	if m.DefaultMode != "autopilot" {
-		t.Fatalf("default mode = %q", m.DefaultMode)
-	}
-	if got := strings.Join(m.ModeNames(), ","); got != "brief,autopilot,ask" {
-		t.Fatalf("modes = %s", got)
-	}
-	for _, banned := range []string{"\"Brief\" section", "\"Autopilot\" section"} {
-		if strings.Contains(m.Body, banned) {
-			t.Fatalf("manager prompt must not reference capability guide sections by the old names: %s", banned)
-		}
+	if len(m.Modes) != 0 {
+		t.Fatalf("manager declares no modes: %v", m.ModeNames())
 	}
 	if !strings.Contains(m.Body, "Converge") {
-		t.Fatal("manager modes should drive toward capability Converge sections")
+		t.Fatal("manager prompt should drive toward capability Converge sections")
 	}
 }
 

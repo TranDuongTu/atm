@@ -90,8 +90,8 @@ func TestPersonaShowPositional(t *testing.T) {
 	if !strings.Contains(out, "manager\t") {
 		t.Fatalf("show manager output missing name line: %s", out)
 	}
-	if !strings.Contains(out, "modes: brief, autopilot, ask (default autopilot)") {
-		t.Fatalf("show manager output missing modes line: %s", out)
+	if strings.Contains(out, "modes:") {
+		t.Fatalf("manager declares no modes; output must not contain a modes line: %s", out)
 	}
 }
 

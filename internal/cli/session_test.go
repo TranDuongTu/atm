@@ -134,9 +134,10 @@ func TestPersonaDeveloperLaunchesHookStyle(t *testing.T) {
 	}
 }
 
-// TestPersonaManagerDefaultsModeAutopilot verifies the manager persona defaults
-// to autopilot mode and renders a prompt message pointing at the context file.
-func TestPersonaManagerDefaultsModeAutopilot(t *testing.T) {
+// TestPersonaManagerLaunch verifies the manager persona launches with a
+// prompt message pointing at the context file and no mode block (manager
+// declares no modes).
+func TestPersonaManagerLaunch(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
 	c := captureChild(h)
@@ -160,82 +161,47 @@ func TestPersonaManagerDefaultsModeAutopilot(t *testing.T) {
 	for _, want := range []string{
 		"ATM_ROLE=manager",
 		"ATM_PERSONA=manager",
-		"ATM_MODE=autopilot",
 		"ATM_ACTOR=manager@claude:unset",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("manager env missing %q:\n%s", want, joined)
 		}
 	}
-	if !strings.Contains(joined, "session-manager-autopilot.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-manager-autopilot.md:\n%s", joined)
+	if strings.Contains(joined, "ATM_MODE=") {
+		t.Errorf("manager declares no modes; ATM_MODE must not be set:\n%s", joined)
+	}
+	if !strings.Contains(joined, "session-manager.md") {
+		t.Errorf("ATM_CONTEXT_FILE should end with session-manager.md:\n%s", joined)
 	}
 	got := normalizeSessionOutput(h.stdout.String(), h.store.StorePath())
-	if !strings.Contains(got, `"ATM_MODE": "autopilot"`) {
-		t.Fatalf("launch header env should record ATM_MODE=autopilot:\n%s", got)
-	}
-	// The rendered context file on disk carries the mode section.
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager-autopilot.md")
+	compareGolden(t, "session-manager-launch", got)
+
+	// The rendered context file on disk carries no mode section.
+	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md")
 	body, err := os.ReadFile(ctxPath)
 	if err != nil {
 		t.Fatalf("read context file %s: %v", ctxPath, err)
 	}
-	if !strings.Contains(string(body), "## Mode: autopilot") {
-		t.Fatalf("context file missing `## Mode: autopilot`:\n%s", body)
-	}
-	compareGolden(t, "session-manager-autopilot-launch", got)
-}
-
-// TestPersonaManagerModeBrief verifies --mode brief renders the brief mode block
-// and not the autopilot section.
-func TestPersonaManagerModeBrief(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-	c := captureChild(h)
-	stubLookPath(h)
-	h.reset()
-
-	_, _, code := h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--mode", "brief")
-	if code != ExitSuccess {
-		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
-	}
-	joined := strings.Join(c.env, "\n")
-	if !strings.Contains(joined, "ATM_MODE=brief") {
-		t.Errorf("env should set ATM_MODE=brief:\n%s", joined)
-	}
-	if !strings.Contains(joined, "session-manager-brief.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-manager-brief.md:\n%s", joined)
-	}
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager-brief.md")
-	body, err := os.ReadFile(ctxPath)
-	if err != nil {
-		t.Fatalf("read context file %s: %v", ctxPath, err)
-	}
-	if !strings.Contains(string(body), "## Mode: brief") {
-		t.Fatalf("context file missing `## Mode: brief`:\n%s", body)
-	}
-	if strings.Contains(string(body), "## Mode: autopilot") {
-		t.Fatalf("brief mode must not render the autopilot section:\n%s", body)
+	if strings.Contains(string(body), "## Mode:") {
+		t.Fatalf("manager context file must not contain a mode block:\n%s", body)
 	}
 }
 
-// TestModeValidation verifies mode validation against the persona's declared
-// modes and rejects --mode for personas that declare none.
+// TestModeValidation verifies mode validation: personas that declare no modes
+// (manager, developer) reject --mode.
 func TestModeValidation(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
 	stubLookPath(h)
 	h.reset()
 
-	// manager --mode nope → unknown mode listing error.
+	// manager --mode nope → manager declares no modes.
 	_, stderr, code := h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--mode", "nope")
 	if code == ExitSuccess {
-		t.Fatal("expected non-zero exit for unknown manager mode")
+		t.Fatal("expected non-zero exit for --mode on a no-modes persona")
 	}
-	for _, want := range []string{"unknown mode", "brief", "autopilot", "ask"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("unknown-mode error missing %q:\n%s", want, stderr)
-		}
+	if !strings.Contains(stderr, "declares no modes") {
+		t.Errorf("no-modes error missing 'declares no modes':\n%s", stderr)
 	}
 
 	// developer --mode brief → developer declares no modes.
@@ -368,7 +334,7 @@ func TestSessionContextRendersManager(t *testing.T) {
 		t.Fatalf("session-context exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
 	scOut := h.stdout.String()
-	for _, want := range []string{"## Persona: manager", "## Mode: autopilot"} {
+	for _, want := range []string{"## Persona: manager"} {
 		if !strings.Contains(scOut, want) {
 			t.Errorf("session-context output missing %q", want)
 		}
@@ -578,20 +544,23 @@ func TestSessionEnvIncludesATMValues(t *testing.T) {
 	}
 }
 
-// TestSessionManagerEnvSetsModeAndCapability verifies manager env carries
-// ATM_MODE and ATM_CAPABILITY (when set) and never the old manager names.
-func TestSessionManagerEnvSetsModeAndCapability(t *testing.T) {
-	got := sessionEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "opencode", "manager", "manager", "autopilot", "", "2026-07-19T00:00:00Z")
+// TestSessionManagerEnvSetsCapability verifies manager env carries
+// ATM_CAPABILITY (when set) and never the old manager names. Manager
+// declares no modes, so ATM_MODE is never set in a manager launch.
+func TestSessionManagerEnvSetsCapability(t *testing.T) {
+	got := sessionEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "opencode", "manager", "manager", "", "", "2026-07-19T00:00:00Z")
 	joined := strings.Join(gotToSlice(got), "\n")
 	for _, want := range []string{
 		"ATM_PERSONA=manager",
 		"ATM_ROLE=manager",
-		"ATM_MODE=autopilot",
 		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("manager env missing %q; got:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "ATM_MODE=") {
+		t.Errorf("manager declares no modes; ATM_MODE must not be set; got:\n%s", joined)
 	}
 	if strings.Contains(joined, "ATM_BIN=") || strings.Contains(joined, "ATM_MANAGER_ACTION=") || strings.Contains(joined, "ATM_MANAGER_CAPABILITY=") {
 		t.Errorf("manager env must not set ATM_BIN/ATM_MANAGER_ACTION/ATM_MANAGER_CAPABILITY; got:\n%s", joined)
