@@ -297,6 +297,32 @@ func TestProjectRequiredUnlessOptional(t *testing.T) {
 	if !strings.Contains(stderr, "--project is required") {
 		t.Errorf("error missing '--project is required':\n%s", stderr)
 	}
+
+	// Concierge is project_optional: a launch without --project succeeds, the
+	// child receives the prompt message, and the context file lands under the
+	// store-level cache dir.
+	h.reset()
+	c := captureChild(h)
+	if _, _, code := h.run("--persona", "concierge", "--agent", "claude"); code != ExitSuccess {
+		t.Fatalf("concierge launch exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if c.name != "claude" {
+		t.Fatalf("child name = %q, want claude", c.name)
+	}
+	if !strings.Contains(strings.Join(c.argv[1:], " "), "Read the session instructions") {
+		t.Fatalf("concierge argv should carry the prompt message; got %v", c.argv)
+	}
+	joined := strings.Join(c.env, "\n")
+	if !strings.Contains(joined, "ATM_PERSONA=concierge") {
+		t.Errorf("concierge env missing ATM_PERSONA=concierge:\n%s", joined)
+	}
+	if !strings.Contains(joined, "ATM_CONTEXT_FILE=") {
+		t.Errorf("concierge env missing ATM_CONTEXT_FILE:\n%s", joined)
+	}
+	ctxPath := filepath.Join(h.store.StorePath(), "cache", "session-concierge.md")
+	if _, err := os.Stat(ctxPath); err != nil {
+		t.Fatalf("concierge context file not created at %s: %v", ctxPath, err)
+	}
 }
 
 // TestUnknownPersonaFails verifies an unregistered persona name errors out.

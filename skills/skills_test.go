@@ -59,6 +59,27 @@ func TestPersonaUnknown(t *testing.T) {
 	}
 }
 
+func TestConciergePersonaShape(t *testing.T) {
+	c, ok := Persona("concierge")
+	if !ok {
+		t.Fatal("concierge not found")
+	}
+	if !c.ProjectOptional {
+		t.Fatal("concierge must be launchable without --project")
+	}
+	if c.Launch != "prompt" {
+		t.Fatalf("concierge launches prompt-style, got %q", c.Launch)
+	}
+	if c.Personality == "" {
+		t.Fatal("concierge ships a default personality (the customization showcase)")
+	}
+	for _, jargon := range []string{"label substrate"} {
+		if strings.Contains(c.Body, jargon) {
+			t.Fatalf("concierge speaks the user's language; found %q", jargon)
+		}
+	}
+}
+
 func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	cs := Capabilities()
 	if len(cs) != 3 {
