@@ -74,8 +74,11 @@ func TestManagerSubagentAssetResolvesRuntimeValuesFromEnv(t *testing.T) {
 		if strings.Contains(body, ".local/bin/atm") {
 			t.Errorf("%s subagent asset names a hardcoded binary path", host)
 		}
+		if !strings.Contains(body, "session-context --persona manager") {
+			t.Errorf("%s subagent asset does not dispatch via `atm session-context --persona manager`", host)
+		}
 		if !strings.Contains(body, "manage-context") {
-			t.Errorf("%s subagent asset does not defer to `atm manage-context`", host)
+			t.Errorf("%s subagent asset does not keep the `atm manage-context` fallback", host)
 		}
 	}
 }

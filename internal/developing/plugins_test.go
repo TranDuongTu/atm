@@ -21,12 +21,12 @@ func TestPluginAssetsExistForSupportedAgents(t *testing.T) {
 	}
 }
 
-func TestPluginAssetsStaySilentWithoutATMRole(t *testing.T) {
+func TestPluginAssetsStaySilentWithoutATMContextFile(t *testing.T) {
 	for _, agent := range []string{"opencode", "claude", "codex"} {
 		assets, _ := PluginAssets(agent)
 		joined := string(joinAssetContents(assets))
-		if !strings.Contains(joined, "ATM_ROLE") {
-			t.Errorf("%s assets do not check ATM_ROLE", agent)
+		if !strings.Contains(joined, "ATM_CONTEXT_FILE") {
+			t.Errorf("%s assets do not check ATM_CONTEXT_FILE", agent)
 		}
 		if !strings.Contains(joined, "ATM_PROJECT") {
 			t.Errorf("%s assets do not check ATM_PROJECT", agent)

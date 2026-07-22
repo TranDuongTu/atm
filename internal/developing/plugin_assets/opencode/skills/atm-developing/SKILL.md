@@ -1,6 +1,6 @@
 ---
 name: atm-developing
-description: Use EAGERLY at the start of and throughout any ATM development session (ATM_ROLE=developing) — before creative, design, implementation, or investigation work, and whenever you make progress. Loads the session's ATM ledger instructions so the work stays visible.
+description: Use EAGERLY at the start of and throughout any ATM development session (ATM_CONTEXT_FILE set) — before creative, design, implementation, or investigation work, and whenever you make progress. Loads the session's ATM ledger instructions so the work stays visible.
 ---
 
 # ATM Developing

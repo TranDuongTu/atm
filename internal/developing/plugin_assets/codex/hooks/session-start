@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "${ATM_ROLE:-}" != "developing" ] || [ -z "${ATM_PROJECT:-}" ]; then
+if [ -z "${ATM_CONTEXT_FILE:-}" ] || [ -z "${ATM_PROJECT:-}" ]; then
   printf '{}\n'
   exit 0
 fi

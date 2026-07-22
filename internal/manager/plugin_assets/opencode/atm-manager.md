@@ -7,7 +7,7 @@ permission:
   write: deny
 ---
 
-<!-- Thin, stable pointer. All manager logic lives in the atm binary and is printed by `atm manage-context`; this file only bootstraps and defers to it, so enhancing the manager never requires re-installing this plugin. -->
+<!-- Thin, stable pointer. All manager logic lives in the atm binary and is printed by `atm session-context --persona manager` (with `atm manage-context` as a fallback for older binaries); this file only bootstraps and defers to it, so enhancing the manager never requires re-installing this plugin. -->
 
 # ATM manager
 
@@ -17,7 +17,8 @@ Resolve your environment first — the only sources of truth are the env vars, n
 ATM="${ATM_BIN:-atm}"
 [ -n "$ATM_PROJECT" ] || { echo "atm-manager inactive"; exit 0; }   # not in an ATM session
 command -v "$ATM" >/dev/null 2>&1 || { echo "atm binary UNAVAILABLE: $ATM"; exit 0; }
-"$ATM" manage-context --project "$ATM_PROJECT" --actor "$ATM_ACTOR"
+"$ATM" session-context --persona manager --project "$ATM_PROJECT" --actor "$ATM_ACTOR" \
+  || "$ATM" manage-context --project "$ATM_PROJECT" --actor "$ATM_ACTOR"
 ```
 
 The `manage-context` output is your full, current instructions — read it and follow it for this session. Do not gate on `ATM_ROLE`; being loaded as the `atm-manager` agent is the role signal.

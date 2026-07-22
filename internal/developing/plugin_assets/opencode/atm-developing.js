@@ -4,9 +4,9 @@ import path from "path"
 const bootstrap = () => {
   const role = process.env.ATM_ROLE
   const project = process.env.ATM_PROJECT
-  if (role !== "developing" || !project) return null
-
   const contextFile = process.env.ATM_CONTEXT_FILE || ""
+  if (!contextFile || !project) return null
+
   return `<ATM_DEVELOPING_CONTEXT>
 This is an ATM developing session for project ${project}.
 ATM is the visible ledger for this work.
@@ -74,7 +74,7 @@ export const ATMDevelopingPlugin = async ({ client } = {}) => {
       })
     },
     "shell.env": async (_input, output) => {
-      if (process.env.ATM_ROLE !== "developing") return
+      if (!process.env.ATM_CONTEXT_FILE) return
       for (const key of ["ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_CONTEXT_FILE", "ATM_ACTOR", "ATM_RUN_ID"]) {
         if (process.env[key]) output.env[key] = process.env[key]
       }
