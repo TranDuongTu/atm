@@ -10,28 +10,29 @@ ATM is a fast, scalable, distributed task ledger — git-like in how it stores t
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
-**2. Initialize, then map your repos.** Run the guided setup once — it initializes the store, installs the agent plugins, and records your default agent and args. Then create a project and let the manager map each working repo into it:
+**2. Initialize** the store, install the agent plugins, and record your default agent and args:
 
 ```sh
-atm init                                # once: store, agent plugins, default agent + args
-atm project create --code ATM --name "Agent Tasks Management"
-
-atm --persona manager --project ATM     # run inside each working repo
+atm init                                 # once: store, agent plugins, default agent + args
 ```
 
-`atm --persona manager` autopilots by default: the manager discovers territory, records context pointers, and verifies drifted ones on later runs. Semantic indexing is optional — see [Advanced Features](#advanced-features).
-
-**3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
+**3. Onboard with the concierge.** Run the concierge to set up your first project — it walks you through what ATM can do, learns how you work, and recommends the capabilities that fit:
 
 ```sh
-atm                            # dashboard: tasks, projects, labels, activity
+atm --persona concierge                  # plain-language onboarding (no project needed)
+```
 
-atm --persona developer --project ATM          # developer session (run inside the working repo)
+The concierge creates your project, enables the right capabilities, and seeds their vocabulary.
+
+**4. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run the manager to keep the ledger converged:
+
+```sh
+atm                                       # dashboard: tasks, projects, labels, activity
+
+atm --persona developer --project ATM      # developer session (run inside the working repo)
 atm --persona developer --project ATM --agent claude
 
-atm --persona manager --project ATM                # autopilot: run all enabled capabilities (default)
-atm --persona manager --project ATM --mode brief   # to brief the manager on the structure/convention of the project
-atm --persona manager --project ATM --mode ask      # answer questions from the ledger (read-only)
+atm --persona manager --project ATM        # converge all enabled capabilities across the backlog
 ```
 
 ## The Story
