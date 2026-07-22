@@ -6,11 +6,13 @@ boards: [new-tasks, brainstormed-tasks, planned-tasks, revisions, done-tasks]
 ---
 # workflow_ai capability — agent guide
 
-The AI-native task cycle: brainstorm → clarify → plan → ready → implement → done, over the `stage:*` namespace, with task links and plan tracking in this capability's metadata key. Fully independent of the `workflow` capability (`status:*`): disjoint namespaces, no interplay — a task may carry both views.
+The AI-native task cycle: brainstorm → clarify → plan → ready → implement → done, over the `stage:*` namespace, with task links and plan tracking in this capability's metadata key. Independent of the `workflow` capability (`status:*`): the label namespaces are disjoint and neither capability's verbs touch the other's labels — a task may carry both views. Disjointness is about labels, not evidence: another capability's state is admissible evidence for staging (a `status:done` task with completed work behind it is evidence for `stage:done`).
 
 ## Semantics
 
 Stage verbs climb the ladder one rung at a time; each swaps the task's `stage:*` label (adds the target, removes any other), so exactly-one-stage is an invariant the capability maintains. "New" is the absence of any stage label, not a label. The store enforces nothing: raw `atm task label add/remove` works. This is a paved road, not a fence.
+
+Adoption: when this capability is enabled over an existing backlog, legacy tasks are stamped directly to the stage their existing evidence supports — completed work is its own evidence, so a finished task is stamped `stage:done` outright. Raw `atm task label add` is the sanctioned path for backfill; the one-rung climb governs live refinement, not adoption. Until the backlog is backfilled, the boards misread history as intake.
 
 There is no `implement` verb: implementation is a dev session. The gate is doctrine — **never implement a task whose stage is not `stage:implementable`**; check the stage first and refuse otherwise.
 
@@ -48,8 +50,10 @@ Sizing doctrine: a task is sized to one plan a framework like superpowers can ex
 A converged project under this capability looks like:
 
 - **The framework conventions are recorded and current.** The `<CODE>:wfai:framework` label's description says which framework the project uses (superpowers, speckit, grillme, or none), where plans normally live (committed plan docs vs ephemeral sessions), sizing expectations, and any customizations. Agents read it at session start (`atm label show <CODE>:wfai:framework`) and bend accordingly; when practice drifts from what it says, it gets updated — convention changes are confirmed with the decider before the label is rewritten. Where plans normally live is also recorded in the `stage:planned` label description. Specific one-off answers stay as task comments; only conventions live in `wfai:framework`.
+- **Coverage is total.** Every task carries a stage validated against its evidence; absence means un-triaged intake or a deliberate deferral recorded as a task comment — never "this task predates the capability". On adoption, backfilling stages across the existing backlog (see Semantics) is the first convergence job.
 - **Every stage is evidenced.** A `stage:brainstormed` task has exploration notes; `stage:clarified` has settled scope and success criteria; `stage:planned`/`stage:implementable` has a locatable plan (`report` verifies). Tasks whose evidence has decayed are demoted with a reason — replanning is cheaper than implementing against a ghost.
-- **The intake queue is triaged.** Tasks on `<CODE>:new-tasks` worth pursuing are brainstormed; the rest are left deliberately. Ambiguity goes to the decider — or is decided, recorded as a task comment, and flagged for the next decider review. Never let ambiguity stall silently.
+- **Staging is recognition at bounded depth.** Whoever stages a task reads its title, labels, and latest comments; a full read only when promoting a rung. When in doubt, keep the lower rung — under-staging is recoverable, over-staging misleads. Staging recognizes evidence that exists; creating it (exploration notes, settled scope, plans) is developing-session work — a curator stamps and demotes but does not invent evidence to enable a climb.
+- **The intake queue is triaged.** Tasks on `<CODE>:new-tasks` worth pursuing are brainstormed; the rest are deferred deliberately, with the deferral recorded as a task comment so absence reads as a decision, not neglect. Ambiguity goes to the decider — or is decided, recorded as a task comment, and flagged for the next decider review. Never let ambiguity stall silently.
 - **No skipped rungs, no premature implementation.** Tasks advance one rung at a time and only when the next rung's evidence exists; nothing below `stage:implementable` is implemented.
 - **Links hold.** Every `revision_of`/`relates_to` link points at a live task and a relationship that still holds; stale links are unlinked. Oversized planned tasks are split into `--revision-of` follow-ups.
 - **The vocabulary is fixed.** Five stages, absence-as-new, five boards, two link types. Extra stages are not part of the paved road.
