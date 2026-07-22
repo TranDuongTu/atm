@@ -16,22 +16,22 @@ curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/instal
 atm init                                # once: store, agent plugins, default agent + args
 atm project create --code ATM --name "Agent Tasks Management"
 
-atm manage --project ATM               # run inside each working repo
+atm --persona manager --project ATM     # run inside each working repo
 ```
 
-`atm manage` autopilots by default: the manager discovers territory, records context pointers, and verifies drifted ones on later runs. Semantic indexing is optional — see [Advanced Features](#advanced-features).
+`atm --persona manager` autopilots by default: the manager discovers territory, records context pointers, and verifies drifted ones on later runs. Semantic indexing is optional — see [Advanced Features](#advanced-features).
 
 **3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
 
 ```sh
 atm                            # dashboard: tasks, projects, labels, activity
 
-atm dev --project ATM          # developer session (run inside the working repo)
-atm dev --project ATM --agent claude
+atm --persona developer --project ATM          # developer session (run inside the working repo)
+atm --persona developer --project ATM --agent claude
 
-atm manage --project ATM                # autopilot: run all enabled capabilities (default)
-atm manage --project ATM --action brief # to brief the manager on the structure/convention of the project
-atm manage --project ATM --action ask   # answer questions from the ledger (read-only)
+atm --persona manager --project ATM                # autopilot: run all enabled capabilities (default)
+atm --persona manager --project ATM --mode brief   # to brief the manager on the structure/convention of the project
+atm --persona manager --project ATM --mode ask      # answer questions from the ledger (read-only)
 ```
 
 ## The Story
@@ -161,10 +161,10 @@ Enable capabilities per project and scope manager actions to one:
 
 ```sh
 atm project capability add workflow --project ATM
-atm manage --project ATM --action autopilot --capability workflow
+atm --persona manager --project ATM --mode autopilot --capability workflow
 ```
 
-Each capability ships a self-contained agent guide — read it to understand its semantics, vocabulary, and operating mode:
+Each capability ships a self-contained agent guide — read it to understand its semantics, actions, and converged state:
 
 ```sh
 atm capability workflow guide
@@ -216,7 +216,7 @@ atm index --project ATM              # continuous foreground indexing until Ctrl
 
 ### Personas And Agent Defaults
 
-Personas shape the role prompt and actor identity used in `atm dev` and `atm manage`. ATM seeds three built-in personas: `developer` (default for `atm dev`), `manager` (default for `atm manage`), and `admin` (human-driven CLI/TUI actions).
+Personas shape the role prompt and actor identity used in `atm --persona <name> --project <CODE>`. ATM ships three built-in personas: `developer` (the default developer persona), `manager` (the default manager persona), and `admin` (human-driven CLI/TUI actions), plus `concierge` (plain-language onboarding, launchable without `--project`). Built-ins ship inside the binary from the top-level `skills/` folder and are no longer seeded into the store; inspect one with `atm persona show <name>` and customize it with `atm persona personality <name>`.
 
 Create a custom persona when you want a recurring working style, and use it for one session with `--persona`:
 
@@ -226,7 +226,7 @@ atm persona create \
   --description "reviews implementation quality before handoff" \
   --prompt-file ./prompts/reviewer.md
 
-atm dev --project ATM --persona reviewer
+atm --persona developer --project ATM --persona reviewer
 ```
 
 `atm init` records your default agent separately from personas. Use `atm agents` to inspect readiness, change the default host, or save default host-agent args; for one-off launches, override with `--agent` and pass host-agent args after `--`:
@@ -236,7 +236,7 @@ atm agents list
 atm agents select claude
 atm agents args claude -- --dangerously-skip-permission
 
-atm dev --project ATM --agent codex -- --yolo
+atm --persona developer --project ATM --agent codex -- --yolo
 ```
 
 ### Lower-Level API

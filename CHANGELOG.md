@@ -1,6 +1,25 @@
 ## Unreleased
 
 ### feat
+- **Breaking:** `atm dev` and `atm manage` are removed. Launch sessions with
+  `atm --persona developer|manager|concierge --project <CODE>`; manager
+  brief/autopilot are now `--mode brief|autopilot|ask` (default autopilot).
+- Built-in personas (developer, manager, admin, new concierge) now ship inside
+  the binary from the top-level `skills/` folder and are no longer seeded into
+  the store; leftover seeded files are ignored. Customize a built-in with
+  `atm persona personality <name> --set/--file/--clear`.
+- Custom personas persist as markdown (`personas/<name>.md`); legacy JSON
+  personas migrate automatically on first read.
+- Capability guides are restructured: `## Semantics` / `## Actions` /
+  `## Converge` replace the manager-specific `## Brief` / `## Autopilot`.
+- New `concierge` persona: plain-language onboarding; launchable without
+  `--project`.
+- Env: `ATM_MODE`/`ATM_CAPABILITY` replace `ATM_MANAGER_ACTION`/
+  `ATM_MANAGER_CAPABILITY`. `ATM_ROLE` still reads `developing` for developer
+  sessions (installed session-start hooks keep working); reinstall plugins
+  (`atm init`) to pick up the new context-file-gated hooks.
+
+### feat
 - ATM-2e64a5: task metadata column. New `task.capability-meta-set` event folds into per-capability `meta!<name>` scalar slots on `eventsource.TaskState.Meta`; `core.Task.Meta` and `Store.SetTaskCapabilityMeta` (mirrored on `TaskWriter`, `TaskService`, `changeSet`) carry it through the write path; cache schema bumped to v4. `atm task show` lists metadata presence (capability + bytes, never content).
 - ATM-2e64a5: capability-annotated contextual column in the tasks pane. `Annotate(task core.Task) *Cell` on the `Capability` interface (with `Registry.Annotate`) supplies a tone-styled cell following `capabilityModel.current` — workflow renders status cells, contextmap renders kind cells on context tasks; `[C]` to unmanaged hides the column.
 - ATM-793b19: Recent Events feed in the TUI Projects pane — a git-log-style digest of the selected project's event stream (commit-graph gutter, event ids when space permits, per-action wording), rendered as a bordered box aligned with the summary chart boxes below it. Scrolls modelessly with `Shift`+arrows — up/down by line, left/right by page — with no focus mode to enter.
