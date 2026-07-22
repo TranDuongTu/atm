@@ -69,6 +69,14 @@ type PersonaService interface {
 	ListPersonas() []*Persona
 	EditPersona(name string, prompt, description *string, actor string) (*Persona, error)
 	RemovePersona(name string) error
+	// PersonaDoc returns a custom persona's raw markdown document (usage
+	// error for built-ins, which ship inside the binary).
+	PersonaDoc(name string) (string, error)
+	// Personality overlay: a user-set `## Personality` override applied over
+	// the persona's own default at session render time. "" = none.
+	GetPersonality(name string) (string, error)
+	SetPersonality(name, text, actor string) error
+	ClearPersonality(name string) error
 }
 
 type VocabularyService interface {

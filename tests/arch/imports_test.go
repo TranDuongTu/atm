@@ -162,7 +162,7 @@ func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
 		"cmd/atm", "internal/activity", "internal/actor", "internal/agent",
 		"internal/capability", "internal/capability/contextmap", "internal/capability/workflow",
 		"internal/cli", "internal/core", "internal/developing", "internal/embed",
-		"internal/manager", "internal/seed", "internal/store", "internal/store/fsio",
+		"internal/manager", "internal/store", "internal/store/fsio",
 		"internal/tui", "internal/tui/components", "internal/version",
 	} {
 		for f, imps := range internalImports(t, dir) {

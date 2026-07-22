@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestPersonaCRUD(t *testing.T) {
 	if _, err := s.CreatePersona("staff-engineer", "dup", "", testActor); !core.IsConflict(err) {
 		t.Fatalf("duplicate should be core.ErrConflict, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(s.Root, "personas", "staff-engineer.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(s.Root, "personas", "staff-engineer.md")); err != nil {
 		t.Fatalf("persona file missing: %v", err)
 	}
 
@@ -66,9 +67,6 @@ func TestPersonaNameTraversalRejected(t *testing.T) {
 
 func TestRemovePersonaRejectsBuiltins(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.SeedPersonas("admin@atm:seed"); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
 	for _, name := range []string{"developer", "manager", "admin"} {
 		if err := s.RemovePersona(name); !errors.Is(err, core.ErrUsage) {
 			t.Errorf("RemovePersona(%q) = %v, want core.ErrUsage", name, err)
@@ -79,42 +77,109 @@ func TestRemovePersonaRejectsBuiltins(t *testing.T) {
 	}
 }
 
-func TestSeedPersonasIncludesAdmin(t *testing.T) {
+func TestBuiltinPersonasResolveWithoutSeeding(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.SeedPersonas("admin@atm:seed"); err != nil {
-		t.Fatalf("seed: %v", err)
+	for _, name := range []string{"developer", "manager", "admin"} {
+		p, err := s.GetPersona(name)
+		if err != nil {
+			t.Fatalf("GetPersona(%s): %v", name, err)
+		}
+		if p.Prompt == "" || p.Description == "" {
+			t.Fatalf("built-in %s empty: %+v", name, p)
+		}
 	}
-	if _, err := s.GetPersona("admin"); err != nil {
-		t.Errorf("admin not seeded: %v", err)
+	if entries, _ := os.ReadDir(filepath.Join(s.Root, "personas")); len(entries) != 0 {
+		t.Fatalf("built-ins must not be materialized in the store; found %d files", len(entries))
 	}
 }
 
-func TestSeedPersonasIdempotent(t *testing.T) {
+func TestCustomPersonaMarkdownRoundTrip(t *testing.T) {
 	s := newTestStore(t)
-	added, err := s.SeedPersonas(testActor)
+	if _, err := s.CreatePersona("reviewer", "Review things.", "Reviews PRs.", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, "personas", "reviewer.md")); err != nil {
+		t.Fatalf("custom persona must persist as markdown: %v", err)
+	}
+	p, err := s.GetPersona("reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(added) != 3 {
-		t.Fatalf("first seed added %v, want 3", added)
+	if p.Prompt != "Review things." || p.Description != "Reviews PRs." {
+		t.Fatalf("round trip: %+v", p)
 	}
-	// User edits a built-in.
-	edited := "custom"
-	if _, err := s.EditPersona("developer", &edited, nil, testActor); err != nil {
+	doc, err := s.PersonaDoc("reviewer")
+	if err != nil || !strings.HasPrefix(doc, "---\n") {
+		t.Fatalf("PersonaDoc: %q err=%v", doc, err)
+	}
+}
+
+func TestLegacyJSONPersonaMigrates(t *testing.T) {
+	s := newTestStore(t)
+	old := core.Persona{Name: "legacy", Prompt: "Old prompt.", Description: "Old desc.",
+		CreatedAt: core.Now(), UpdatedAt: core.Now(), CreatedBy: "a@b:c", UpdatedBy: "a@b:c"}
+	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	added2, err := s.SeedPersonas(testActor)
-	if err != nil {
+	if err := WriteFileAtomic(filepath.Join(s.Root, "personas", "legacy.json"), &old); err != nil {
 		t.Fatal(err)
 	}
-	if len(added2) != 0 {
-		t.Fatalf("second seed added %v, want none", added2)
+	p, err := s.GetPersona("legacy")
+	if err != nil || p.Prompt != "Old prompt." {
+		t.Fatalf("migrated read: %+v err=%v", p, err)
 	}
-	got, _ := s.GetPersona("developer")
-	if got.Prompt != "custom" {
-		t.Fatalf("seed clobbered user edit: %q", got.Prompt)
+	if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy.md")); err != nil {
+		t.Fatalf("json must convert to md: %v", err)
 	}
-	if len(s.ListPersonas()) != 3 {
-		t.Fatalf("list = %d, want 3", len(s.ListPersonas()))
+	if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy.json")); !os.IsNotExist(err) {
+		t.Fatal("json must be removed after migration")
+	}
+}
+
+func TestBuiltinEditRefusedOverlayWorks(t *testing.T) {
+	s := newTestStore(t)
+	prompt := "x"
+	if _, err := s.EditPersona("manager", &prompt, nil, "admin@cli:unset"); err == nil {
+		t.Fatal("editing a built-in must fail; personality overlay is the customization path")
+	}
+	if err := s.SetPersonality("manager", "Dry wit.", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPersonality("manager")
+	if err != nil || got != "Dry wit." {
+		t.Fatalf("overlay: %q err=%v", got, err)
+	}
+	if err := s.ClearPersonality("manager"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPersonality("manager"); got != "" {
+		t.Fatalf("cleared overlay still returns %q", got)
+	}
+	if err := s.SetPersonality("ghost", "x", "admin@cli:unset"); err == nil {
+		t.Fatal("overlay for unknown persona must fail")
+	}
+}
+
+func TestListPersonasMergesBuiltinsAndCustoms(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreatePersona("zed", "p", "d", "admin@cli:unset"); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, p := range s.ListPersonas() {
+		names = append(names, p.Name)
+	}
+	joined := strings.Join(names, ",")
+	for _, want := range []string{"developer", "manager", "admin", "zed"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("list %v missing %s", names, want)
+		}
+	}
+}
+
+func TestCreatePersonaRefusesBuiltinName(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreatePersona("manager", "p", "d", "admin@cli:unset"); err == nil {
+		t.Fatal("shadowing a built-in must fail")
 	}
 }
