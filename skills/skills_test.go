@@ -12,7 +12,7 @@ func TestBuiltinPersonasLoad(t *testing.T) {
 		names = append(names, p.Name)
 	}
 	joined := strings.Join(names, ",")
-	for _, want := range []string{"developer", "manager", "admin"} {
+	for _, want := range []string{"developer", "manager", "admin", "concierge"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("built-ins %v missing %s", names, want)
 		}

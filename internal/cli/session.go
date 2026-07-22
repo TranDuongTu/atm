@@ -124,9 +124,6 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	if err != nil {
 		return err
 	}
-	if err := validateCapabilityScope(opts.Capability, st.registry.Names(), st.fullRegistry.Names()); err != nil {
-		return err
-	}
 
 	var code, projName string
 	if opts.Project == "" {
@@ -139,6 +136,21 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 			return err
 		}
 		code, projName = p.Code, p.Name
+	}
+
+	// Validate --capability against the project's enabled set AFTER the project
+	// is resolved: st.registry may be un-narrowed when the project was just
+	// auto-created by ensureProjectForLaunch (mountRegistry degraded to the
+	// full registry). Recompute enabled from the resolved project so the
+	// "not enabled for project" branch is reachable on that path.
+	enabled := st.registry.Names()
+	if opts.Project != "" && st.fullRegistry != nil {
+		if p, err := s.GetProject(code); err == nil {
+			enabled = st.fullRegistry.For(p).Names()
+		}
+	}
+	if err := validateCapabilityScope(opts.Capability, enabled, st.fullRegistry.Names()); err != nil {
+		return err
 	}
 
 	personality, err := s.GetPersonality(spec.Name)

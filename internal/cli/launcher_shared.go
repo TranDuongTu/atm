@@ -51,7 +51,7 @@ func shortUUID() string {
 }
 
 // runChild executes the host agent with inherited stdio and the given env.
-// Returns the exit code and error (if any). Shared by developing and manager.
+// Returns the exit code and error (if any). Shared by the unified session launcher.
 // notFoundHint is included in the error message when the binary is not on PATH.
 func runChild(name string, argv []string, env []string, notFoundHint string) (int, error) {
 	bin, err := exec.LookPath(argv[0])

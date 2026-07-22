@@ -21,4 +21,4 @@ command -v "$ATM" >/dev/null 2>&1 || { echo "atm binary UNAVAILABLE: $ATM"; exit
   || "$ATM" manage-context --project "$ATM_PROJECT" --actor "$ATM_ACTOR"
 ```
 
-The `manage-context` output is your full, current instructions — read it and follow it for this session. Do not gate on `ATM_ROLE`; being loaded as the `atm-manager` agent is the role signal.
+The `session-context` output is your full, current instructions — read it and follow it for this session. The dispatch is identity-free; being loaded as the `atm-manager` agent is the role signal.
