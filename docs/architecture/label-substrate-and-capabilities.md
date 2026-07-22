@@ -124,7 +124,7 @@ This is a fence on the **tooling surface**, not on the substrate. "Advisory, alw
 Because capabilities explain themselves (obligation 4) and are chosen per project (enablement), the agent-facing surfaces are **composed, not written**:
 
 - `atm conventions` = a minimal substrate primer (what ATM is, the substrate commands, advisory-only rule) + a one-line pointer at `atm capability list` and `atm capability <name> guide` for discovery. It does **not** enumerate capabilities; it teaches the substrate, and the capabilities teach themselves.
-- The manager scope = an irreducible substrate core (curate — keep the ledger legible; recall — grounded synthesis) + three semantic-agnostic actions — `brief`, `autopilot`, `ask` — scoped by an optional `--capability <name>`. Each capability's guide carries `## Brief` and `## Autopilot` sections; the manager prompt does not inline guide text — it instructs the agent to run `atm capability <name> guide` and follow the relevant section at runtime. `ManagerActions()` is not a capability concern; the procedure lives in the guide, not in the prompt.
+- The manager scope = an irreducible substrate core (curate — keep the ledger legible; recall — grounded synthesis) + three semantic-agnostic actions — `brief`, `autopilot`, `ask` — scoped by an optional `--capability <name>`. Each capability's guide carries `## Semantics` / `## Actions` / `## Converge` sections; the manager prompt does not inline guide text — it instructs the agent to run `atm capability <name> guide` and follow the relevant section at runtime. `ManagerActions()` is not a capability concern; the procedure lives in the guide, not in the prompt.
 
 ### Views live with the owner
 
@@ -157,8 +157,8 @@ Capabilities are the primary extension point, but not the only seam. The honest 
 | Seam | What it extends | Mechanism | Storage |
 |---|---|---|---|
 | **Capability** | Vocabulary, boards, verbs, guide, metadata *(planned)*, TUI cell *(planned)* | Go package implementing `capability.Capability`, registered in `cmd/atm/main.go`, enabled per project | Substrate (event-sourced) |
-| **Persona** | Who the working agent is (developer, manager, admin, custom) | Persona registry: seeded built-ins + user-defined, prompt rendered into dev/manage context | JSON side-files under `<store>/personas/` |
-| **Agent host** | Which agent binary `atm dev` / `atm manage` launches | Catalog + per-host launcher (`claude`, `codex`, `opencode`, ollama) | Agents config side-file |
+| **Persona** | Who the working agent is (developer, manager, admin, concierge, custom) | Persona registry: built-ins shipped in binary (top-level `skills/`) + user-defined, prompt rendered into the unified `--persona` launch context | Markdown (`personas/<name>.md`); legacy JSON migrates on first read |
+| **Agent host** | Which agent binary the unified `atm --persona` launcher launches | Catalog + per-host launcher (`claude`, `codex`, `opencode`, ollama) | Agents config side-file |
 | **Host plugins** | Skills/hooks installed into the selected agent | `atm init` installs embedded per-host plugin assets | Agent-side |
 | **Embed endpoint** | Semantic search embedding | Per-project endpoint config — the one model-touching boundary | Project config |
 | **Project vocabulary** | Search-term weighting (`atm vocabulary` — unrelated to capability label vocabulary) | Term list biasing semantic search | Project side-file |

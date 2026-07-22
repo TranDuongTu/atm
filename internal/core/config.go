@@ -37,9 +37,9 @@ type ProjectConfig struct {
 }
 
 // AgentsConfig is the global (store-root) record of the user's host-agent
-// preference: which catalog entry is selected for atm dev / atm manage, and
-// per-entry default passthrough args. It lives at <root>/agents.json, distinct
-// from the per-project config.json.
+// preference: which catalog entry is selected for the unified atm --persona
+// launcher, and per-entry default passthrough args. It lives at
+// <root>/agents.json, distinct from the per-project config.json.
 type AgentsConfig struct {
 	UpdatedAt string              `json:"updated_at,omitempty"`
 	UpdatedBy string              `json:"updated_by,omitempty"`

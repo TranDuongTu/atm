@@ -19,10 +19,10 @@ const conventionsCoreText = "# ATM Conventions (advisory)\n\n" +
 	"Semantics beyond the substrate live in capabilities. Each owns a slice of the label substrate, contributes verbs, and explains itself. A project enables a per-project subset; commands for disabled capabilities are not mounted.\n" +
 	"- `atm capability list` — enumerate registered capabilities (enabled + disabled).\n" +
 	"- `atm capability <name> -h` — the verb tree a capability mounts.\n" +
-	"- `atm capability <name> guide` — the capability's full agent-facing semantics, vocabulary, and operating mode (Brief + Autopilot sections).\n" +
+	"- `atm capability <name> guide` — the capability's full agent-facing semantics, actions, and converged state (Semantics / Actions / Converge sections).\n" +
 	"- `atm capability unmanaged --project <CODE>` — labels no enabled capability owns (the TUI's \"unmanaged\" umbrella); the manager triages these onto capability-owned labels or hides them (`atm project boards hide`).\n\n" +
 	"## Actor identity\n" +
-	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`. `atm dev -h`.\n\n" +
+	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`, `concierge`. `atm --persona <name> --project <CODE> -h`.\n\n" +
 	"Conventions are advisory only.\n"
 
 func conventionsStructured() map[string]any {
@@ -39,7 +39,7 @@ func conventionsStructured() map[string]any {
 			{"namespace": "atm search", "summary": "semantic search"},
 		},
 		"capabilities":   "Semantics beyond the substrate live in capabilities; a project enables a per-project subset, and commands for disabled capabilities are not mounted. Enumerate with `atm capability list`; discover one with `atm capability <name> -h` and `atm capability <name> guide`; surface unmanaged labels with `atm capability unmanaged --project <CODE>`.",
-		"actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin. See `atm dev -h`.",
+		"actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin, concierge. See `atm --persona <name> --project <CODE> -h`.",
 	}
 }
 

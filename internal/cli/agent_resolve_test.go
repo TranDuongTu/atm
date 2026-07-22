@@ -3,6 +3,7 @@ package cli
 import (
 	"testing"
 
+	"atm/internal/agent"
 	"atm/internal/store"
 )
 
@@ -52,15 +53,15 @@ func TestResolveEntryValidatesCatalog(t *testing.T) {
 	}
 }
 
-func TestDevAndManageLauncherFor(t *testing.T) {
+func TestSessionLauncherFor(t *testing.T) {
 	e, _, err := resolveEntry("ollama:codex", store.AgentsConfig{Selected: "ollama:codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dl, ok := devLauncherFor(e); !ok || dl.Name() != "ollama" {
-		t.Fatalf("dev launcher ok=%v name=%v", ok, dl)
+	if l, ok := sessionLauncherFor(e); !ok || l.Name() != "ollama" {
+		t.Fatalf("session launcher ollama ok=%v name=%v", ok, l)
 	}
-	if ml, ok := manageLauncherFor(e); !ok || ml.Name() != "ollama" {
-		t.Fatalf("manage launcher ok=%v name=%v", ok, ml)
+	if _, ok := sessionLauncherFor(agent.Entry{Launcher: "ghost"}); ok {
+		t.Fatal("unknown launcher should return ok=false")
 	}
 }

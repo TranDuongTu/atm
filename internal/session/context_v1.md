@@ -1,8 +1,9 @@
-# ATM developing session
+# ATM session — <CODE>
 
 Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>`
 
 <PERSONA_BLOCK>
+<MODE_BLOCK>
 
 ## Orientation
 
@@ -12,11 +13,11 @@ ATM is the visible ledger for this work. Use it to record ideas, discussions, de
 atm -h                                # general CLI landscape
 atm conventions                       # what ATM is, the label substrate, the actor convention
 atm capability list --project <CODE>  # which capabilities this project has enabled
-atm capability <name> guide           # how to use one capability (Brief + Autopilot + reference)
+atm capability <name> guide           # one capability's semantics, actions, and converged state
 atm search --project <CODE> "..."     # find prior tasks, decisions, and handoffs before starting
 ```
 
-Run `atm <cmd> --help` for exact flags.
+Run `atm <cmd> --help` for exact flags. Stamp every ATM mutation with actor `<ACTOR>` — replace the `:unset` model segment with your actual model.
 
 ## Working Principles
 

@@ -71,9 +71,11 @@ type Capability interface {
 	// Summary is a one-line description for enumeration surfaces
 	// (conventions, manager prompt). No trailing newline.
 	Summary() string
-	// Guide is the capability's full agent-facing semantics: vocabulary
-	// meaning, verb usage, operating procedure, and `## Brief` / `## Autopilot`
-	// sections (spec §7). Served verbatim by the uniform `guide` subcommand.
+	// Guide is the capability's full agent-facing semantics: `## Semantics`
+	// (data model and vocabulary), `## Actions` (exposed verbs), and
+	// `## Converge` (what a healthy, converged data state looks like) —
+	// persona-agnostic; personas decide what to DO with the converged state.
+	// Served verbatim by the uniform `guide` subcommand.
 	Guide() string
 	// Vocabulary declares every label this capability owns for the project:
 	// stored labels, namespace descriptors, and boards — exactly the set

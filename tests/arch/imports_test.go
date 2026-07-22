@@ -96,7 +96,7 @@ func TestCapabilityRegistryImportsOnlyCore(t *testing.T) {
 // reaches nothing but the registry seam and the domain leaf — never the
 // store, the cli, or the tui.
 func TestCapabilityPackagesImportOnlyRegistryAndCore(t *testing.T) {
-	for _, dir := range []string{"internal/capability/contextmap", "internal/capability/workflow"} {
+	for _, dir := range []string{"internal/capability/contextmap", "internal/capability/workflow", "internal/capability/workflowai"} {
 		for f, imps := range internalImports(t, dir) {
 			for _, p := range imps {
 				if p != "atm/internal/capability" && p != "atm/internal/core" {
@@ -119,6 +119,14 @@ func TestAdaptersDoNotImportCapabilityPackages(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestSkillsIsAPureLeaf pins the prompt-hosting package as importable by
+// every layer: it may import nothing from this repository.
+func TestSkillsIsAPureLeaf(t *testing.T) {
+	for f, imps := range internalImports(t, "skills") {
+		t.Errorf("%s imports %v; skills may import nothing from this repository", f, imps)
 	}
 }
 
@@ -154,7 +162,7 @@ func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
 		"cmd/atm", "internal/activity", "internal/actor", "internal/agent",
 		"internal/capability", "internal/capability/contextmap", "internal/capability/workflow",
 		"internal/cli", "internal/core", "internal/developing", "internal/embed",
-		"internal/manager", "internal/seed", "internal/store", "internal/store/fsio",
+		"internal/manager", "internal/session", "internal/store", "internal/store/fsio",
 		"internal/tui", "internal/tui/components", "internal/version",
 	} {
 		for f, imps := range internalImports(t, dir) {

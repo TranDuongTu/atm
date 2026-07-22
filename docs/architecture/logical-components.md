@@ -35,7 +35,7 @@ cmd/atm ─────────────── composition root: construc
 | `internal/capability/*` | One package per capability command (first: `contextmap`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
 | `libs/eventsource` | Nested Go module (own `go.mod`, stitched via `go.work`). Root package: event canon, hashing, HLC, DAG, fold, replay. `sync/` subpackage: sync engine, `LocalStore`/`SyncTarget` interfaces, dir and git transports. | Import anything from this repo. Depend on more than the standard library (plus `jcs`). |
 
-Satellites keep their current roles: `internal/actor` and `internal/seed` stay small leaves consumed by core or store; `internal/embed`, `internal/activity`, `internal/agent`, `internal/developing`, `internal/manager`, `internal/version` remain thin, with `version` restored to a pure leaf.
+Satellites keep their current roles: `internal/actor` stays a small leaf consumed by core or store; `internal/embed`, `internal/activity`, `internal/agent`, `internal/version` remain thin, with `version` restored to a pure leaf. The top-level `skills/` folder ships built-in personas inside the binary (no longer seeded into the store); `internal/session` owns the unified `atm --persona` launcher and the persona-generic context template. `internal/developing` and `internal/manager` are reduced to plugin-asset hosting (they no longer drive launch).
 
 ## Import rules
 
@@ -49,7 +49,7 @@ These rules are the enforceable heart of this document. A change that violates o
 | `internal/capability/*` | `capability`, `core` |
 | `internal/capability` | nothing internal but `core` |
 | `internal/core` | nothing internal (pure leaf) |
-| `internal/store` | `core`, `store/eventlog`, `store/fsio`, `seed` |
+| `internal/store` | `core`, `store/eventlog`, `store/fsio` |
 | `internal/store/eventlog` | `core`, `store/fsio`, `libs/eventsource` |
 | `internal/store/fsio` | `core` |
 | `libs/eventsource` | nothing from this repo |

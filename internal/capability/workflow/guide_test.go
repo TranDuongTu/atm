@@ -13,8 +13,9 @@ func TestSummaryIsOneLine(t *testing.T) {
 }
 
 // The guide is the single source of the capability's semantics: it must name
-// every verb and the invariant the capability maintains, and carry the Brief
-// and Autopilot sections (the composed manager prompt points here).
+// every verb and the invariant the capability maintains, and carry the
+// Semantics, Actions, and Converge sections (the composed manager prompt
+// points here).
 func TestGuideCarriesSemantics(t *testing.T) {
 	g := Cap{}.Guide()
 	for _, want := range []string{
@@ -23,7 +24,7 @@ func TestGuideCarriesSemantics(t *testing.T) {
 		"atm capability workflow seed",
 		"exactly-one-status", "backlog", "open-tasks", "in-progress-tasks",
 		"all-tasks", "paved road, not a fence",
-		"start|open|block",
+		"atm capability workflow complete",
 	} {
 		if !strings.Contains(g, want) {
 			t.Errorf("guide missing %q", want)
@@ -31,9 +32,9 @@ func TestGuideCarriesSemantics(t *testing.T) {
 	}
 }
 
-func TestGuideHasBriefAndAutopilotSections(t *testing.T) {
+func TestGuideHasSemanticsActionsConvergeSections(t *testing.T) {
 	g := Cap{}.Guide()
-	for _, section := range []string{"\n## Brief\n", "\n## Autopilot\n"} {
+	for _, section := range []string{"\n## Semantics\n", "\n## Actions\n", "\n## Converge\n"} {
 		if !strings.Contains(g, section) {
 			t.Errorf("guide missing %q section", strings.TrimSpace(section))
 		}

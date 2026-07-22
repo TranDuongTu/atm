@@ -24,8 +24,8 @@ const MarkerNamespace = "wfai"
 const MarkerRevision = "revision"
 
 // MarkerFramework is the label that carries the project's framework
-// conventions in its description (written during Brief, read at Autopilot
-// step 0). It is a stored label, not a marker stamped on tasks: the
+// conventions in its description (written during a Semantics pass, read at
+// Converge step 0). It is a stored label, not a marker stamped on tasks: the
 // description is the note, not membership on any task.
 const MarkerFramework = "framework"
 

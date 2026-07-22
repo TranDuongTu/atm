@@ -22,12 +22,6 @@ type Store struct {
 	cacheDBConn *sql.DB
 	cacheErr    error
 
-	// builtinsOnce seeds the built-in personas (developer/manager/admin) once
-	// per Store on the first validateActor call, skipping actor validation
-	// (the personas being created cannot yet satisfy it).
-	builtinsOnce sync.Once
-	builtinsErr  error
-
 	// logSnapshot memoizes per-project parsed log entries for the TUI's
 	// lifetime, so the per-frame renderSummary path doesn't re-scan
 	// log.jsonl. Invalidated against the O(1) LastLogSeq cache row: when
@@ -226,17 +220,6 @@ func (s *Store) StorePath() string { return s.Root }
 
 func (s *Store) StoreStats(project string) (core.StoreStats, error) {
 	return s.eng.StoreStats(project)
-}
-
-// ensureBuiltinPersonas seeds developer/manager/admin once per Store, skipping
-// actor validation (the personas being created cannot yet satisfy it). Called
-// lazily by validateActor before the first mutation that needs a registered
-// persona. Safe to call repeatedly; only the first call's error is retained.
-func (s *Store) ensureBuiltinPersonas() error {
-	s.builtinsOnce.Do(func() {
-		_, s.builtinsErr = s.SeedPersonas("admin@atm:seed")
-	})
-	return s.builtinsErr
 }
 
 func (s *Store) projectsDir() string { return filepath.Join(s.Root, "projects") }

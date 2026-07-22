@@ -39,7 +39,7 @@ func vocabulary(code string) []core.Label {
 		{Name: code + ":stage:done", Description: "workflow_ai stage: completed the brainstorm→implement cycle"},
 		{Name: code + ":wfai:*", Description: "workflow_ai markers; machine topology lives in the capability metadata, markers only make it board-visible"},
 		{Name: code + ":wfai:revision", Description: "revision follow-up of a bigger planned task (revision_of link in workflow_ai metadata)"},
-		{Name: code + ":wfai:framework", Description: "project framework conventions (written during Brief, read at session start); the description is the note"},
+		{Name: code + ":wfai:framework", Description: "project framework conventions (written during a Semantics pass, read at session start); the description is the note"},
 		{Name: BoardNewTasks(code), Description: "tasks not yet brainstormed: no stage label. The workflow_ai intake queue.", Expr: newTasksExpr()},
 		{Name: BoardBrainstormedTasks(code), Description: "tasks in refinement: brainstormed or clarified.", Expr: brainstormedTasksExpr()},
 		{Name: BoardPlannedTasks(code), Description: "tasks with a recorded plan: planned or implementable.", Expr: plannedTasksExpr()},

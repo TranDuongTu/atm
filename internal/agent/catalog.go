@@ -1,6 +1,6 @@
 // Package agent defines the fixed catalog of host agents ATM can launch and
 // computes their live readiness. Entries are selected via `atm agents` and
-// consumed by the atm dev / atm manage launchers.
+// consumed by the unified `atm --persona` launcher.
 package agent
 
 // Entry is one selectable launch profile. Native harnesses use their own name

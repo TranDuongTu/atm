@@ -14,10 +14,10 @@ Substrate commands live under these namespaces; run `-h` on each for verbs and f
 Semantics beyond the substrate live in capabilities. Each owns a slice of the label substrate, contributes verbs, and explains itself. A project enables a per-project subset; commands for disabled capabilities are not mounted.
 - `atm capability list` — enumerate registered capabilities (enabled + disabled).
 - `atm capability <name> -h` — the verb tree a capability mounts.
-- `atm capability <name> guide` — the capability's full agent-facing semantics, vocabulary, and operating mode (Brief + Autopilot sections).
+- `atm capability <name> guide` — the capability's full agent-facing semantics, actions, and converged state (Semantics / Actions / Converge sections).
 - `atm capability unmanaged --project <CODE>` — labels no enabled capability owns (the TUI's "unmanaged" umbrella); the manager triages these onto capability-owned labels or hides them (`atm project boards hide`).
 
 ## Actor identity
-Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`. `atm dev -h`.
+Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`, `concierge`. `atm --persona <name> --project <CODE> -h`.
 
 Conventions are advisory only.

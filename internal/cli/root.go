@@ -98,14 +98,22 @@ func (s *cliState) isStdinTerminal() bool {
 }
 
 func newRootCmdWithState(st *cliState) *cobra.Command {
+	var opts sessionOpts
 	root := &cobra.Command{
 		Use:           "atm",
 		Short:         "Agent Tasks Management",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.NoArgs,
+		Args:          cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return st.launchTUI()
+			if opts.Persona == "" || opts.Persona == "admin" {
+				if len(args) > 0 {
+					return fmt.Errorf("%w: unknown command %q", ErrUsage, args[0])
+				}
+				return st.launchTUI()
+			}
+			opts.ExtraArgs = args
+			return st.launchSession(opts)
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if v := os.Getenv("ATM_ACTOR"); v != "" && st.flags.actor == "" {
@@ -123,6 +131,11 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.PersistentFlags().StringVar(&st.flags.store, "store", "", "path to the store directory (overrides ATM_HOME)")
 	root.PersistentFlags().StringVar(&st.flags.output, "output", "", "output format: json|text (default text)")
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
+	root.Flags().StringVar(&opts.Persona, "persona", "", "launch as a persona: admin (default, opens the TUI) or an agent persona like developer, manager, concierge (see `atm persona list`)")
+	root.Flags().StringVar(&opts.Project, "project", "", "ATM project the session works on")
+	root.Flags().StringVar(&opts.Mode, "mode", "", "persona mode (validated against the persona's declared modes)")
+	root.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
+	root.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 
 	root.AddCommand(newInitCmd(st))
 	root.AddCommand(newStoreCmd(st))
@@ -138,8 +151,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newSearchCmd(st))
 	root.AddCommand(newInquiryCmd(st))
 	root.AddCommand(newAgentsCmd(st))
-	root.AddCommand(newDevCmd(st))
-	root.AddCommand(newManageCmd(st))
+	root.AddCommand(newSessionContextCmd(st))
 	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))
 

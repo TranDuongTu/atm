@@ -10,28 +10,29 @@ ATM is a fast, scalable, distributed task ledger — git-like in how it stores t
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
-**2. Initialize, then map your repos.** Run the guided setup once — it initializes the store, installs the agent plugins, and records your default agent and args. Then create a project and let the manager map each working repo into it:
+**2. Initialize** the store, install the agent plugins, and record your default agent and args:
 
 ```sh
-atm init                                # once: store, agent plugins, default agent + args
-atm project create --code ATM --name "Agent Tasks Management"
-
-atm manage --project ATM               # run inside each working repo
+atm init                                 # once: store, agent plugins, default agent + args
 ```
 
-`atm manage` autopilots by default: the manager discovers territory, records context pointers, and verifies drifted ones on later runs. Semantic indexing is optional — see [Advanced Features](#advanced-features).
-
-**3. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run manager actions to keep the ledger groomed:
+**3. Onboard with the concierge.** Run the concierge to set up your first project — it walks you through what ATM can do, learns how you work, and recommends the capabilities that fit:
 
 ```sh
-atm                            # dashboard: tasks, projects, labels, activity
+atm --persona concierge                  # plain-language onboarding (no project needed)
+```
 
-atm dev --project ATM          # developer session (run inside the working repo)
-atm dev --project ATM --agent claude
+The concierge creates your project, enables the right capabilities, and seeds their vocabulary.
 
-atm manage --project ATM                # autopilot: run all enabled capabilities (default)
-atm manage --project ATM --action brief # to brief the manager on the structure/convention of the project
-atm manage --project ATM --action ask   # answer questions from the ledger (read-only)
+**4. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run the manager to keep the ledger converged:
+
+```sh
+atm                                       # dashboard: tasks, projects, labels, activity
+
+atm --persona developer --project ATM      # developer session (run inside the working repo)
+atm --persona developer --project ATM --agent claude
+
+atm --persona manager --project ATM        # converge all enabled capabilities across the backlog
 ```
 
 ## The Story
@@ -161,10 +162,10 @@ Enable capabilities per project and scope manager actions to one:
 
 ```sh
 atm project capability add workflow --project ATM
-atm manage --project ATM --action autopilot --capability workflow
+atm --persona manager --project ATM --mode autopilot --capability workflow
 ```
 
-Each capability ships a self-contained agent guide — read it to understand its semantics, vocabulary, and operating mode:
+Each capability ships a self-contained agent guide — read it to understand its semantics, actions, and converged state:
 
 ```sh
 atm capability workflow guide
@@ -216,7 +217,7 @@ atm index --project ATM              # continuous foreground indexing until Ctrl
 
 ### Personas And Agent Defaults
 
-Personas shape the role prompt and actor identity used in `atm dev` and `atm manage`. ATM seeds three built-in personas: `developer` (default for `atm dev`), `manager` (default for `atm manage`), and `admin` (human-driven CLI/TUI actions).
+Personas shape the role prompt and actor identity used in `atm --persona <name> --project <CODE>`. ATM ships three built-in personas: `developer` (the default developer persona), `manager` (the default manager persona), and `admin` (human-driven CLI/TUI actions), plus `concierge` (plain-language onboarding, launchable without `--project`). Built-ins ship inside the binary from the top-level `skills/` folder and are no longer seeded into the store; inspect one with `atm persona show <name>` and customize it with `atm persona personality <name>`.
 
 Create a custom persona when you want a recurring working style, and use it for one session with `--persona`:
 
@@ -226,7 +227,7 @@ atm persona create \
   --description "reviews implementation quality before handoff" \
   --prompt-file ./prompts/reviewer.md
 
-atm dev --project ATM --persona reviewer
+atm --persona developer --project ATM --persona reviewer
 ```
 
 `atm init` records your default agent separately from personas. Use `atm agents` to inspect readiness, change the default host, or save default host-agent args; for one-off launches, override with `--agent` and pass host-agent args after `--`:
@@ -236,7 +237,7 @@ atm agents list
 atm agents select claude
 atm agents args claude -- --dangerously-skip-permission
 
-atm dev --project ATM --agent codex -- --yolo
+atm --persona developer --project ATM --agent codex -- --yolo
 ```
 
 ### Lower-Level API

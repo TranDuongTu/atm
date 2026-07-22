@@ -14,7 +14,7 @@ import (
 func newAgentsCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
-		Short: "Inspect and switch the host agent used by atm dev / atm manage",
+		Short: "Inspect and switch the host agent used by atm --persona",
 	}
 	cmd.AddCommand(newAgentsListCmd(st))
 	cmd.AddCommand(newAgentsSelectCmd(st))
@@ -75,7 +75,7 @@ func newAgentsListCmd(st *cliState) *cobra.Command {
 func newAgentsSelectCmd(st *cliState) *cobra.Command {
 	return &cobra.Command{
 		Use:   "select <name>",
-		Short: "Set the default agent for atm dev / atm manage",
+		Short: "Set the default agent for atm --persona",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
