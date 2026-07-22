@@ -222,6 +222,7 @@ func TestCapabilityScopeValidation(t *testing.T) {
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management",
 		"--capabilities", "workflow", "--actor", "admin@cli:unset")
 	stubLookPath(h)
+	captureChild(h)
 	h.reset()
 
 	// unknown capability → registered list.
