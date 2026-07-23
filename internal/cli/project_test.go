@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"atm/internal/tui/art"
 )
 
 func TestGoldenProjectCreate(t *testing.T) {
@@ -191,8 +194,21 @@ func TestProjectTheme(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 		}
-		if !strings.Contains(out, "auto") {
-			t.Errorf("expected output to mention auto mode: %s", out)
+		var shown struct {
+			Project   string   `json:"project"`
+			Theme     string   `json:"theme"`
+			Mode      string   `json:"mode"`
+			Available []string `json:"available"`
+		}
+		if err := json.Unmarshal([]byte(out), &shown); err != nil {
+			t.Fatalf("unmarshal show output: %v: %s", err, out)
+		}
+		if shown.Mode != "auto" {
+			t.Errorf("expected mode %q, got %q: %s", "auto", shown.Mode, out)
+		}
+		wantTheme := art.Effective("", "ATM").Name()
+		if shown.Theme != wantTheme {
+			t.Errorf("expected auto-assigned theme %q, got %q: %s", wantTheme, shown.Theme, out)
 		}
 		for _, name := range []string{"waves", "starfield", "circuit", "rain", "dunes"} {
 			if !strings.Contains(out, name) {
