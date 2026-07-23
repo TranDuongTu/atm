@@ -84,7 +84,7 @@ func Register(t Theme) { registry = append(registry, t) }
 func init() {
 	Register(wavesTheme{})
 	Register(starfieldTheme{})
-	// TODO(ATM-4eae82): insert starfield, circuit, rain here in spec order
+	Register(circuitTheme{})
 	Register(rainTheme{})
 	Register(dunesTheme{})
 }
