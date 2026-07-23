@@ -179,6 +179,92 @@ func TestProjectBoardsReorderValidation(t *testing.T) {
 	}
 }
 
+// TestProjectTheme covers show (unpinned/auto), pin, clear-to-auto, and the
+// invalid-name usage error. Display preference: config.json only, no
+// store-event side effects to assert.
+func TestProjectTheme(t *testing.T) {
+	t.Run("show when unpinned reports auto plus available list", func(t *testing.T) {
+		h := newGoldenHarness(t)
+		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+
+		out, _, code := h.run("project", "theme", "ATM")
+		if code != 0 {
+			t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
+		}
+		if !strings.Contains(out, "auto") {
+			t.Errorf("expected output to mention auto mode: %s", out)
+		}
+		for _, name := range []string{"waves", "starfield", "circuit", "rain", "dunes"} {
+			if !strings.Contains(out, name) {
+				t.Errorf("expected available theme %q listed in output: %s", name, out)
+			}
+		}
+	})
+
+	t.Run("pinning a valid theme is reflected by a following show", func(t *testing.T) {
+		h := newGoldenHarness(t)
+		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+
+		_, _, code := h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
+		if code != 0 {
+			t.Fatalf("pin exit = %d stderr=%s", code, h.stderr.String())
+		}
+
+		out, _, code := h.run("project", "theme", "ATM")
+		if code != 0 {
+			t.Fatalf("show exit = %d stderr=%s", code, h.stderr.String())
+		}
+		if !strings.Contains(out, "circuit") {
+			t.Errorf("expected pinned theme circuit in show output: %s", out)
+		}
+		if !strings.Contains(out, "pinned") {
+			t.Errorf("expected mode pinned in show output: %s", out)
+		}
+	})
+
+	t.Run("auto clears the pin", func(t *testing.T) {
+		h := newGoldenHarness(t)
+		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+		h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
+
+		_, _, code := h.run("project", "theme", "ATM", "auto", "--actor", "admin@cli:unset")
+		if code != 0 {
+			t.Fatalf("auto exit = %d stderr=%s", code, h.stderr.String())
+		}
+		cfg, err := h.store.GetProjectConfig("ATM")
+		if err != nil {
+			t.Fatalf("GetProjectConfig: %v", err)
+		}
+		if cfg != nil && cfg.ArtTheme != "" {
+			t.Errorf("expected ArtTheme cleared, got %q", cfg.ArtTheme)
+		}
+	})
+
+	t.Run("invalid theme name errors and leaves config unchanged", func(t *testing.T) {
+		h := newGoldenHarness(t)
+		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+		h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
+
+		out, stderr, code := h.run("project", "theme", "ATM", "bogus", "--actor", "admin@cli:unset")
+		if code == 0 {
+			t.Fatalf("expected non-zero exit for invalid theme name, got 0: out=%s", out)
+		}
+		combined := out + stderr
+		for _, name := range []string{"waves", "starfield", "circuit", "rain", "dunes"} {
+			if !strings.Contains(combined, name) {
+				t.Errorf("expected valid theme %q named in error: %s", name, combined)
+			}
+		}
+		cfg, err := h.store.GetProjectConfig("ATM")
+		if err != nil {
+			t.Fatalf("GetProjectConfig: %v", err)
+		}
+		if cfg == nil || cfg.ArtTheme != "circuit" {
+			t.Errorf("expected config unchanged (still pinned circuit), got %+v", cfg)
+		}
+	})
+}
+
 func TestGoldenProjectRemoveZeroTaskGuard(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
