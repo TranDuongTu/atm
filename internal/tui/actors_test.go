@@ -42,91 +42,67 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-// TestPersonaFocusActivatesAndShowsPersona verifies P toggles the inline
-// persona-focus mode and the persona rows render with the cursor marker.
-func TestPersonaFocusActivatesAndShowsPersona(t *testing.T) {
+// TestPersonaChartCtrlArrowsScroll verifies ctrl+down/up move the persona
+// cursor modelessly (no P toggle needed) and the cursor highlights the
+// persona name text.
+func TestPersonaChartCtrlArrowsScroll(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	update(t, m, "P")
-	if !m.projects.personaFocus {
-		t.Fatal("P should activate persona focus")
-	}
+	// Seed a second persona so the cursor can move.
+	seedTaskAsActor(t, m, "ATM", "task two", "developer@claude:opus-4.8")
+	m.refreshAll()
+
+	// The chart renders with a cursor on persona 0.
 	view := m.View()
 	if !strings.Contains(view, "activity by persona") {
 		t.Fatalf("persona chart missing:\n%s", view)
 	}
-	if !strings.Contains(view, "staff") {
-		t.Fatalf("persona row missing:\n%s", view)
-	}
-	// P again closes it.
-	update(t, m, "P")
-	if m.projects.personaFocus {
-		t.Fatal("second P should close persona focus")
-	}
+	// ctrl+down moves the cursor (no panic, no focus toggle needed).
+	update(t, m, "ctrl+down")
+	update(t, m, "ctrl+up")
 }
 
-// TestPersonaFocusNoProjectToasts verifies P without a project scope toasts.
-func TestPersonaFocusNoProjectToasts(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(100, 30)
-	m.focused = paneProjects
-	m.projectScope = ""
-	update(t, m, "P")
-	if m.projects.personaFocus {
-		t.Fatal("persona focus must not activate without a project")
-	}
-	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
-		t.Fatalf("expected a 'select a project' toast, got %q", m.toastMsg)
-	}
-}
-
-// TestPersonaFocusCtrlArrowsMoveAndDrill verifies ctrl+down/up move the
-// persona cursor and ctrl+right drills into the detail view.
-func TestPersonaFocusCtrlArrowsMoveAndDrill(t *testing.T) {
+// TestPersonaChartCtrlRightDrills verifies ctrl+right drills into the hovered
+// persona's detail and ctrl+left backs out.
+func TestPersonaChartCtrlRightDrills(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	update(t, m, "P")
-	if len(m.projects.personaGroups) < 1 {
-		t.Fatalf("need at least 1 persona group, got %d", len(m.projects.personaGroups))
-	}
-	// ctrl+down moves cursor (wrapping not expected; just don't panic).
-	update(t, m, "ctrl+down")
-	// ctrl+right drills into the hovered persona.
+
 	update(t, m, "ctrl+right")
 	if !m.projects.personaDrilled {
 		t.Fatal("ctrl+right should drill into persona detail")
 	}
 	view := m.View()
-	if !strings.Contains(view, "dispatch") {
-		t.Fatalf("drilled detail should show dispatch action:\n%s", view)
+	if !strings.Contains(view, "persona: ") {
+		t.Fatalf("drilled detail should show persona title:\n%s", view)
 	}
-	// ctrl+left backs out of the detail.
+	// No centered dispatch help text in the detail.
+	if strings.Contains(view, "dispatch") {
+		// The breakdown itself shouldn't contain the word "dispatch" —
+		// only the status hint (outside the box) may. Check the box body
+		// doesn't have a centered dispatch action.
+		if strings.Contains(view, "[D] dispatch") {
+			t.Fatalf("detail should not contain centered dispatch help:\n%s", view)
+		}
+	}
+	// ctrl+left backs out.
 	update(t, m, "ctrl+left")
 	if m.projects.personaDrilled {
 		t.Fatal("ctrl+left should leave persona detail")
 	}
-	if !m.projects.personaFocus {
-		t.Fatal("persona focus should still be active after ctrl+left")
-	}
-	// Esc closes focus (not drilled).
-	update(t, m, "esc")
-	if m.projects.personaFocus {
-		t.Fatal("Esc should close persona focus")
-	}
 }
 
-// TestPersonaFocusEscFromDetailBacksOut verifies Esc from the drilled detail
-// returns to the chart (not closing focus entirely).
-func TestPersonaFocusEscFromDetailBacksOut(t *testing.T) {
+// TestPersonaChartEscFromDetailBacksOut verifies Esc from the drilled detail
+// returns to the chart.
+func TestPersonaChartEscFromDetailBacksOut(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	update(t, m, "P")
 	update(t, m, "ctrl+right")
 	if !m.projects.personaDrilled {
 		t.Fatal("ctrl+right should drill in")
@@ -135,52 +111,11 @@ func TestPersonaFocusEscFromDetailBacksOut(t *testing.T) {
 	if m.projects.personaDrilled {
 		t.Fatal("Esc should leave detail")
 	}
-	if !m.projects.personaFocus {
-		t.Fatal("Esc from detail should keep focus active")
-	}
 }
 
-// TestPersonaFocusDetailBarsAlignToWidth verifies the drilled-in detail
-// breakdown bars align across agents/models/actions rows.
-func TestPersonaFocusDetailBarsAlignToWidth(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 40)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "P")
-	if len(m.projects.personaGroups) == 0 {
-		t.Fatal("need persona groups")
-	}
-	update(t, m, "ctrl+right")
-	view := m.View()
-	ansiRe := strings.NewReplacer("\x1b[0m", "", "\x1b[1m", "")
-	var barCols []int
-	for _, line := range strings.Split(view, "\n") {
-		stripped := ansiRe.Replace(line)
-		if !strings.Contains(stripped, "█") && !strings.Contains(stripped, "░") {
-			continue
-		}
-		idx := strings.IndexAny(stripped, "█░")
-		if idx < 0 {
-			continue
-		}
-		barCols = append(barCols, idx)
-	}
-	if len(barCols) < 1 {
-		t.Fatalf("expected at least 1 bar row in detail, got %d\n%s", len(barCols), view)
-	}
-	first := barCols[0]
-	for i, c := range barCols {
-		if c != first {
-			t.Fatalf("bar start column differs: row 0 at col %d, row %d at col %d\n%s", first, i, c, view)
-		}
-	}
-}
-
-// TestPersonaFocusDispatchOpensDialog verifies that pressing D on a drilled-in
-// persona opens the dispatch dialog pre-set to that persona, and the dialog
-// takes over key routing (Esc closes the dialog, not the focus).
-func TestPersonaFocusDispatchOpensDialog(t *testing.T) {
+// TestPersonaChartCtrlShiftRightDispatches verifies ctrl+shift+right
+// dispatches the hovered persona directly (no drill-in needed).
+func TestPersonaChartCtrlShiftRightDispatches(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
@@ -189,34 +124,63 @@ func TestPersonaFocusDispatchOpensDialog(t *testing.T) {
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 
-	update(t, m, "P")
-	update(t, m, "ctrl+right") // drill into "staff" persona
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
-	}
-	view := m.View()
-	if !strings.Contains(view, "dispatch staff") {
-		t.Fatalf("detail should show dispatch action for hovered persona:\n%s", view)
-	}
-	// "staff" is an unknown persona → falls back to manager.
-	update(t, m, "d")
+	// The default cursor is on persona 0 ("staff" — unknown → manager fallback).
+	update(t, m, "ctrl+shift+right")
 	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatalf("D should open manager dispatch (fallback), got kind=%v", m.dispatchDlg.kind)
+		t.Fatalf("ctrl+shift+right should dispatch hovered persona (manager fallback), got kind=%v", m.dispatchDlg.kind)
 	}
 	if m.dispatchDlg.project != "ATM" {
 		t.Errorf("dispatch project = %q want ATM", m.dispatchDlg.project)
 	}
-	// Dispatch dialog owns key routing: Esc closes it, persona focus stays.
-	update(t, m, "esc")
-	if m.dispatchDlg.kind != dispatchNone {
-		t.Fatal("Esc should close the dispatch dialog")
+}
+
+// TestPersonaChartDDispatchesWhenDrilled verifies the D key dispatches the
+// drilled-in persona (the reliable route for terminals that don't emit
+// ctrl+shift+right distinctly).
+func TestPersonaChartDDispatchesWhenDrilled(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	update(t, m, "ctrl+right") // drill into persona 0
+	if !m.projects.personaDrilled {
+		t.Fatal("ctrl+right should drill in")
 	}
-	if !m.projects.personaFocus || !m.projects.personaDrilled {
-		t.Fatal("persona focus/detail should still be active after dispatch Esc")
+	update(t, m, "d")
+	if m.dispatchDlg.kind != dispatchManager {
+		t.Fatalf("D should dispatch drilled persona (manager fallback), got kind=%v", m.dispatchDlg.kind)
 	}
 }
 
-func TestProjectsStatusHintMentionsP(t *testing.T) {
+// TestPersonaChartDetailScroll verifies ctrl+down/up scroll the drilled-in
+// breakdown body when it overflows the box.
+func TestPersonaChartDetailScroll(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "ctrl+right")
+	if !m.projects.personaDrilled {
+		t.Fatal("ctrl+right should drill in")
+	}
+	// Scrolling down then up must not panic and offset stays in range.
+	update(t, m, "ctrl+down")
+	update(t, m, "ctrl+down")
+	if m.projects.personaDetailOffset < 0 {
+		t.Fatalf("offset should not go negative: %d", m.projects.personaDetailOffset)
+	}
+	update(t, m, "ctrl+up")
+	update(t, m, "ctrl+up")
+	if m.projects.personaDetailOffset != 0 {
+		t.Fatalf("offset should clamp at 0: %d", m.projects.personaDetailOffset)
+	}
+}
+
+func TestProjectsStatusHintMentionsPersonaKeys(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(100, 30)
@@ -224,11 +188,11 @@ func TestProjectsStatusHintMentionsP(t *testing.T) {
 	m.projectScope = "ATM"
 	m.refreshAll()
 	hint := m.statusHint()
-	if !strings.Contains(hint, "P") {
-		t.Fatalf("status hint should mention P (persona focus): %q", hint)
+	if !strings.Contains(hint, "Ctrl") {
+		t.Fatalf("status hint should mention Ctrl persona keys: %q", hint)
 	}
 	if strings.Contains(hint, "[p]") {
-		t.Fatalf("status hint should no longer mention [p] (add persona removed): %q", hint)
+		t.Fatalf("status hint should not mention [p]: %q", hint)
 	}
 }
 

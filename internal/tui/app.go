@@ -589,6 +589,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpConventions)
 		return nil
 	case "D":
+		// When the persona chart is drilled into a persona, D dispatches
+		// that persona (takes precedence over the project-row manager
+		// dispatch). The projects pane's handlePersonaChartKey also handles
+		// ctrl+shift+right for terminals that emit it distinctly.
+		if m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
+			return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
+		}
 		if m.focused == paneProjects {
 			if row, ok := m.projects.selected(); ok {
 				m.dispatchDlg.open(dispatchManager, row.code, "", "")
@@ -624,10 +631,10 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// If a per-detail overlay (comment peek or history) is open, defer to
 	// the pane's overlay Esc handler so Esc returns to the detail rather
 	// than leaping out to the list and leaving the overlay state stale.
-	// Persona-focus Esc (back from drill / close focus) is handled by the
+	// Persona-chart drill-in Esc (back from detail) is handled by the
 	// projects pane's own key handler.
 	if k.String() == "esc" {
-		if m.focused == paneProjects && m.projects.personaFocus {
+		if m.focused == paneProjects && m.projects.personaDrilled {
 			return m.projects.handleKey(k)
 		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
