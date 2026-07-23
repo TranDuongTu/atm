@@ -39,6 +39,7 @@ type ProjectService interface {
 	GetProjectConfig(code string) (*ProjectConfig, error)
 	GetBoardsConfig(code string) (*BoardsConfig, error)
 	SetProjectBoards(code string, b *BoardsConfig, actor string) error
+	SetProjectArtTheme(code, theme, actor string) error
 	ProjectRemotes(code string) (map[string]string, error)
 	SetProjectRemote(code, name, url, actor string) error
 	RemoveProjectRemote(code, name, actor string) error

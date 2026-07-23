@@ -304,3 +304,61 @@ func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
 		t.Fatalf("after persist = %+v, pins.json must be ignored", b2.Pins)
 	}
 }
+
+func TestSetProjectArtTheme(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set a pin.
+	if err := s.SetProjectArtTheme("ATM", "circuit", testActor); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.GetProjectConfig("ATM")
+	if err != nil || c == nil {
+		t.Fatalf("config = %v, %v", c, err)
+	}
+	if c.ArtTheme != "circuit" {
+		t.Fatalf("ArtTheme = %q, want circuit", c.ArtTheme)
+	}
+	if c.UpdatedBy != testActor {
+		t.Fatalf("UpdatedBy = %q", c.UpdatedBy)
+	}
+
+	// Clearing with empty string removes the pin but keeps the config file
+	// readable.
+	if err := s.SetProjectArtTheme("ATM", "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != nil && c.ArtTheme != "" {
+		t.Fatalf("ArtTheme not cleared: %q", c.ArtTheme)
+	}
+
+	// A config holding ONLY art_theme must not read back as nil (regression
+	// guard for GetProjectConfig's emptiness check). Use a bare second
+	// project since ATM already carries updated_at/updated_by stamps from
+	// the writes above.
+	if _, err := s.CreateProject("XYZ", "Bare Project", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectArtTheme("XYZ", "waves", testActor); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.GetProjectConfig("XYZ")
+	if err != nil || c == nil {
+		t.Fatalf("art-theme-only config must be readable, got %v, %v", c, err)
+	}
+	if c.ArtTheme != "waves" {
+		t.Fatalf("ArtTheme = %q, want waves", c.ArtTheme)
+	}
+
+	// Invalid actor is rejected.
+	if err := s.SetProjectArtTheme("ATM", "waves", "not-an-actor"); err == nil {
+		t.Fatal("invalid actor must be rejected")
+	}
+}
