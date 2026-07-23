@@ -997,7 +997,11 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 
 func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(100, 14)
+	// h=100x24 -> contentHeight=23 -> pane inner height=21 ->
+	// projectPaneSplitHeights(21) = (listH=9, artH=0, eventsH=7, summaryH=5),
+	// the minimum summary height at which both activity charts render under
+	// the fixed 5-row project list (see projectPaneSplitHeights).
+	m.SetSize(100, 24)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
