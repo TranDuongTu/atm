@@ -41,7 +41,7 @@ func (circuitTheme) Draw(f *Frame, seed uint32, phase int) {
 					corner, landing = '┘', '┌'
 				}
 				if ny >= 0 && ny < f.H() &&
-					f.At(x, y) == '─' && // we own the approach cell
+					f.At(x, y) == ' ' && // corner cell still blank — claim it
 					f.At(x, ny) == ' ' && f.At(x+1, ny) == ' ' {
 					f.Set(x, y, corner)
 					f.Set(x, ny, landing)

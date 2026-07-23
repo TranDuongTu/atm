@@ -4,6 +4,43 @@ import "testing"
 
 func TestCircuitContract(t *testing.T) { assertThemeContract(t, circuitTheme{}) }
 
+// TestCircuitJogsOccur catches the "jog guard is unsatisfiable by a trace's
+// own drawing" regression. With a broken guard (f.At(x, y) == '─', checked
+// one cell past the last dash a trace itself drew), a jog can only fire when
+// some OTHER trace happens to already occupy that exact cell on the exact
+// same row -- a coincidence that depends on multiple traces colliding on one
+// row. That makes jogs fire on only a minority of seeds, and even then via
+// cross-trace corruption rather than the trace's own approach. Once the
+// guard correctly checks for a still-blank corner cell, a trace can jog off
+// its own dash run, so corners appear reliably on every seed. We assert the
+// stronger, distinguishing invariant: EVERY one of a fixed set of seeds
+// produces at least one corner glyph -- true after the fix, false (flaky,
+// only ~half the seeds) before it.
+func TestCircuitJogsOccur(t *testing.T) {
+	corners := "┐┌┘└"
+	for seed := uint32(1); seed <= 8; seed++ {
+		f := frameOf(circuitTheme{}, 44, 8, seed, 0)
+		found := false
+		for y := 0; y < f.H() && !found; y++ {
+			for x := 0; x < f.W(); x++ {
+				c := f.At(x, y)
+				for _, want := range corners {
+					if c == want {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("seed %d: no corner glyphs (┐┌┘└) found; jog did not fire", seed)
+		}
+	}
+}
+
 func TestRegistryCompleteSpecOrder(t *testing.T) {
 	want := []string{"waves", "starfield", "circuit", "rain", "dunes"}
 	got := Names()
