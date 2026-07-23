@@ -52,3 +52,19 @@ type Target interface {
 	Describe() string // human preview, e.g. "tmux · new window"
 	Spawn(Spec) error
 }
+
+// Detect returns the first available target in precedence order
+// herdr → tmux → terminal. The config template affects only the terminal
+// step — a tmux session still wins over a configured terminal_cmd.
+func Detect(cfg Config, env Env) (Target, error) {
+	if herdrAvailable(env) {
+		return herdrTarget{env: env}, nil
+	}
+	if tmuxAvailable(env) {
+		return tmuxTarget{env: env}, nil
+	}
+	if t, ok := terminalTarget(cfg, env); ok {
+		return t, nil
+	}
+	return nil, errors.New(`no dispatch target: not inside herdr or tmux and no known terminal detected — set "terminal_cmd" in dispatch.json at the store root`)
+}
