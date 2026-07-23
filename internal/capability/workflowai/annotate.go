@@ -10,7 +10,7 @@ import (
 type Cap struct{}
 
 // Annotate implements the contextual-column hook: PURE over the task value
-// (labels + own payload) — no store, no filesystem; on-disk plan
+// (labels + own payload) — no store, no filesystem; on-disk spec/plan
 // verification is PlanCheck's job, which is why ToneStale stays unused
 // here. Nil for tasks outside the cycle (no stage label), even when they
 // carry links. A malformed payload degrades to the label-only cell — never
@@ -25,13 +25,28 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 		return nil
 	}
 	cell := &capability.Cell{Text: stage, Tone: capability.ToneNeutral}
-	if stage != StagePlanned && stage != StageImplementable {
+	if stage == StageQueued || stage == StageBrainstormed || stage == StageDone {
 		return cell
 	}
 	pl, err := DecodePayload(t.Meta[CapabilityName])
 	if err != nil {
 		return cell
 	}
+	if stage == StageClarified {
+		s := pl.Spec()
+		switch {
+		case s == nil:
+			cell.Text += "·no-spec"
+			cell.Tone = capability.ToneAttention
+		case s.Kind == PlanKindEphemeral:
+			cell.Text += "·ephemeral"
+			cell.Tone = capability.ToneAttention
+		default:
+			cell.Text += "·" + s.Kind
+		}
+		return cell
+	}
+	// stage == StagePlanned: show plan kind (spec already verified at clarify).
 	p := pl.Plan()
 	switch {
 	case p == nil:
@@ -42,9 +57,6 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 		cell.Tone = capability.ToneAttention
 	default:
 		cell.Text += "·" + p.Kind
-		if stage == StageImplementable {
-			cell.Tone = capability.ToneOK
-		}
 	}
 	return cell
 }

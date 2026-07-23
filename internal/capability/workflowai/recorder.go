@@ -145,22 +145,63 @@ func fromWords(from []string) string {
 	return strings.Join(out, " or ")
 }
 
-// Brainstorm marks the idea explored: new → brainstormed.
-func (r *Recorder) Brainstorm(taskID string) (string, error) {
-	return r.setStage(taskID, "brainstorm", StageBrainstormed, StageNew)
+// Queue stamps the explicit entry label: new → queued.
+func (r *Recorder) Queue(taskID string) (string, error) {
+	return r.setStage(taskID, "queue", StageQueued, StageNew)
 }
 
-// Clarify marks scope and success criteria settled: brainstormed → clarified.
-func (r *Recorder) Clarify(taskID string) (string, error) {
+// Brainstorm marks the idea explored: queued → brainstormed.
+func (r *Recorder) Brainstorm(taskID string) (string, error) {
+	return r.setStage(taskID, "brainstorm", StageBrainstormed, StageQueued)
+}
+
+// Clarify records the spec locator and, from brainstormed, advances to
+// clarified. From clarified/planned it UPDATES the locator in place (stage
+// untouched) — a moved spec file or a re-clarification pass. The payload is
+// written before the label swap: a clarified task must never lack a spec
+// record. Returns the prior stage (== current stage on update).
+func (r *Recorder) Clarify(taskID, kind, ref string) (string, error) {
+	switch kind {
+	case PlanKindFile, PlanKindCommit, PlanKindEphemeral:
+	default:
+		return "", fmt.Errorf("invalid spec kind %q (want %s, %s or %s)", kind, PlanKindFile, PlanKindCommit, PlanKindEphemeral)
+	}
+	if strings.TrimSpace(ref) == "" {
+		return "", fmt.Errorf("clarify requires a non-empty --ref")
+	}
+	tk, pl, err := r.taskPayload(taskID)
+	if err != nil {
+		return "", err
+	}
+	code, _, ok := core.ParseTaskID(taskID)
+	if !ok {
+		return "", fmt.Errorf("invalid task id %q", taskID)
+	}
+	_, vals, _, _ := stageState(tk, code, StageClarified)
+	update := len(vals) == 1 && (vals[0] == StageClarified || vals[0] == StagePlanned)
+	if !update && !containsString(vals, StageBrainstormed) {
+		current := "new"
+		if len(vals) > 0 {
+			current = strings.Join(vals, ", ")
+		}
+		return "", fmt.Errorf("cannot clarify %s: stage is %s (clarify requires brainstormed, or clarified/planned to update the locator)", taskID, current)
+	}
+	pl.SetSpec(SpecRecord{Kind: kind, Ref: ref, RecordedAt: r.now(), Actor: r.Actor})
+	if err := r.writePayload(taskID, pl); err != nil {
+		return "", err
+	}
+	if update {
+		return firstStageValue(tk.Labels, code), nil
+	}
 	return r.setStage(taskID, "clarify", StageClarified, StageBrainstormed)
 }
 
 // Plan records the plan locator and, from clarified, advances to planned.
-// From planned/implementable it UPDATES the locator in place (stage
-// untouched) — a moved plan file or a re-planning pass. The payload is
-// written before the label swap: a planned task must never lack a plan
-// record; the recoverable direction is a leftover record on a still-
-// clarified task. Returns the prior stage (== current stage on update).
+// From planned it UPDATES the locator in place (stage untouched) — a moved
+// plan file or a re-planning pass. The payload is written before the label
+// swap: a planned task must never lack a plan record; the recoverable
+// direction is a leftover record on a still-clarified task. Returns the
+// prior stage (== current stage on update).
 func (r *Recorder) Plan(taskID, kind, ref string) (string, error) {
 	switch kind {
 	case PlanKindFile, PlanKindCommit, PlanKindEphemeral:
@@ -179,13 +220,13 @@ func (r *Recorder) Plan(taskID, kind, ref string) (string, error) {
 		return "", fmt.Errorf("invalid task id %q", taskID)
 	}
 	_, vals, _, _ := stageState(tk, code, StagePlanned)
-	update := containsString(vals, StagePlanned) || containsString(vals, StageImplementable)
+	update := len(vals) == 1 && vals[0] == StagePlanned
 	if !update && !containsString(vals, StageClarified) {
 		current := "new"
 		if len(vals) > 0 {
 			current = strings.Join(vals, ", ")
 		}
-		return "", fmt.Errorf("cannot plan %s: stage is %s (plan requires clarified, or planned/implementable to update the locator)", taskID, current)
+		return "", fmt.Errorf("cannot plan %s: stage is %s (plan requires clarified, or planned to update the locator)", taskID, current)
 	}
 	pl.SetPlan(PlanRecord{Kind: kind, Ref: ref, RecordedAt: r.now(), Actor: r.Actor})
 	if err := r.writePayload(taskID, pl); err != nil {
@@ -197,30 +238,19 @@ func (r *Recorder) Plan(taskID, kind, ref string) (string, error) {
 	return r.setStage(taskID, "plan", StagePlanned, StageClarified)
 }
 
-// Ready clears the task for implementation: planned → implementable. Guard:
-// a plan record must exist — "never implement an unplanned task" starts here.
-func (r *Recorder) Ready(taskID string) (string, error) {
-	_, pl, err := r.taskPayload(taskID)
-	if err != nil {
-		return "", err
-	}
-	if pl.Plan() == nil {
-		return "", fmt.Errorf("cannot ready %s: no plan recorded (run `plan` first)", taskID)
-	}
-	return r.setStage(taskID, "ready", StageImplementable, StagePlanned)
-}
-
-// Done closes the cycle: implementable → done.
+// Done closes the cycle: planned → done.
 func (r *Recorder) Done(taskID string) (string, error) {
-	return r.setStage(taskID, "done", StageDone, StageImplementable)
+	return r.setStage(taskID, "done", StageDone, StagePlanned)
 }
 
-// Demote resets the task to new from any stage: clears the stage label(s)
-// and the plan record, writes the demoted breadcrumb, and appends the
-// reason as a task comment (audit trail). Links and the revision marker
-// survive — topology is true regardless of stage. A task already new with
-// no plan record is a pure no-op. Payload is written first, labels second,
-// comment last: every partial-failure state converges on re-run.
+// Demote resets the task to queued from any stage: clears the spec and plan
+// records, writes the demoted breadcrumb, appends the reason as a task
+// comment, and stamps stage:queued so the task stays in the cycle on the
+// to-brainstorm board. Links and the revision marker survive — topology is
+// true regardless of stage. A task already queued (or new) with no artifacts
+// and no non-queued stage labels is a pure no-op. Payload is written first,
+// labels second, comment last: every partial-failure state converges on
+// re-run.
 func (r *Recorder) Demote(taskID, reason string) (string, error) {
 	if strings.TrimSpace(reason) == "" {
 		return "", fmt.Errorf("demote requires --reason")
@@ -235,20 +265,40 @@ func (r *Recorder) Demote(taskID, reason string) (string, error) {
 	}
 	existing, _, _, _ := stageState(tk, code, "\x00none")
 	prior := firstStageValue(tk.Labels, code)
-	if len(existing) == 0 && pl.Plan() == nil {
-		return StageNew, nil
+	queuedLabel := code + ":" + StageNamespace + ":" + StageQueued
+	hasArtifacts := pl.Plan() != nil || pl.Spec() != nil
+	hasOtherStage := false
+	for _, l := range existing {
+		if l != queuedLabel {
+			hasOtherStage = true
+		}
+	}
+	if !hasArtifacts && !hasOtherStage {
+		if prior == StageQueued {
+			return StageQueued, nil
+		}
+		if prior == StageNew {
+			return StageNew, nil
+		}
 	}
 	pl.ClearPlan()
+	pl.ClearSpec()
 	pl.SetDemoted(Demotion{At: r.now(), By: r.Actor, Reason: reason})
 	if err := r.writePayload(taskID, pl); err != nil {
 		return prior, err
 	}
 	for _, l := range existing {
+		if l == queuedLabel {
+			continue
+		}
 		if err := r.Store.TaskLabelRemove(taskID, l, r.Actor); err != nil {
 			return prior, fmt.Errorf("remove %s: %w", l, err)
 		}
 	}
-	if _, err := r.Store.CreateComment(taskID, "workflow_ai: demoted to new — "+reason, nil, "", r.Actor); err != nil {
+	if _, err := r.setStage(taskID, "demote", StageQueued, StageNew); err != nil {
+		return prior, err
+	}
+	if _, err := r.Store.CreateComment(taskID, "workflow_ai: demoted to queued — "+reason, nil, "", r.Actor); err != nil {
 		return prior, fmt.Errorf("demoted, but recording the reason comment failed: %w", err)
 	}
 	return prior, nil

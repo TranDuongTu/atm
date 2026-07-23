@@ -8,9 +8,6 @@ import (
 	"atm/internal/store"
 )
 
-// newTestStore opens a fresh store with project ATM and this capability's
-// vocabulary seeded. Every test in this package builds on it; nothing ever
-// touches a real store.
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
@@ -37,26 +34,34 @@ func TestEnsureVocabularySeedsStageAndMarkerLabels(t *testing.T) {
 		got[l.Name] = true
 	}
 	for _, want := range []string{
-		"ATM:stage:*", "ATM:stage:brainstormed", "ATM:stage:clarified",
-		"ATM:stage:planned", "ATM:stage:implementable", "ATM:stage:done",
+		"ATM:stage:*", "ATM:stage:queued", "ATM:stage:brainstormed",
+		"ATM:stage:clarified", "ATM:stage:planned", "ATM:stage:done",
 		"ATM:wfai:*", "ATM:wfai:revision", "ATM:wfai:framework",
-		"ATM:new-tasks", "ATM:brainstormed-tasks", "ATM:planned-tasks",
-		"ATM:revisions", "ATM:done-tasks",
+		"ATM:to-brainstorm", "ATM:to-clarify", "ATM:to-plan",
+		"ATM:to-implement", "ATM:revisions", "ATM:done-tasks",
 	} {
 		if !got[want] {
 			t.Errorf("missing label %s", want)
 		}
 	}
+	for _, gone := range []string{
+		"ATM:stage:implementable", "ATM:new-tasks",
+		"ATM:brainstormed-tasks", "ATM:planned-tasks",
+	} {
+		if got[gone] {
+			t.Errorf("old label %s should not be seeded", gone)
+		}
+	}
 }
 
-func TestEnsureVocabularyReturnsTheFiveBoards(t *testing.T) {
+func TestEnsureVocabularyReturnsTheSixBoards(t *testing.T) {
 	s := newTestStore(t)
-	boards, err := EnsureVocabulary(s, "ATM", "admin@cli:unset") // idempotent second run
+	boards, err := EnsureVocabulary(s, "ATM", "admin@cli:unset")
 	if err != nil {
 		t.Fatalf("EnsureVocabulary: %v", err)
 	}
-	if len(boards) != 5 {
-		t.Fatalf("boards = %d, want 5", len(boards))
+	if len(boards) != 6 {
+		t.Fatalf("boards = %d, want 6", len(boards))
 	}
 	for _, b := range boards {
 		if b.Expr == "" {
@@ -78,19 +83,21 @@ func TestExposedIsSubsetOfVocabulary(t *testing.T) {
 			t.Errorf("Exposed label %s not in Vocabulary", l.Name)
 		}
 	}
-	if len(Exposed("ATM")) != 7 { // 5 boards + 2 namespace descriptors
-		t.Errorf("Exposed = %d entries, want 7", len(Exposed("ATM")))
+	if len(Exposed("ATM")) != 8 { // 6 boards + 2 namespace descriptors
+		t.Errorf("Exposed = %d entries, want 8", len(Exposed("ATM")))
 	}
 }
 
 func TestBoardsSelectByStage(t *testing.T) {
 	s := newTestStore(t)
 	actor := "admin@cli:unset"
-	newTask, _ := s.CreateTask("ATM", "fresh", "", nil, actor)
+	queued, _ := s.CreateTask("ATM", "q", "", []string{"ATM:stage:queued"}, actor)
 	br, _ := s.CreateTask("ATM", "br", "", []string{"ATM:stage:brainstormed"}, actor)
+	cl, _ := s.CreateTask("ATM", "cl", "", []string{"ATM:stage:clarified"}, actor)
 	pl, _ := s.CreateTask("ATM", "pl", "", []string{"ATM:stage:planned"}, actor)
 	rev, _ := s.CreateTask("ATM", "rev", "", []string{"ATM:stage:clarified", "ATM:wfai:revision"}, actor)
 	done, _ := s.CreateTask("ATM", "dn", "", []string{"ATM:stage:done"}, actor)
+	noStage, _ := s.CreateTask("ATM", "naked", "", nil, actor)
 
 	find := func(board string) map[string]bool {
 		out := map[string]bool{}
@@ -99,14 +106,17 @@ func TestBoardsSelectByStage(t *testing.T) {
 		}
 		return out
 	}
-	if got := find(BoardNewTasks("ATM")); !got[newTask.ID] || got[br.ID] {
-		t.Errorf("new-tasks = %v", got)
+	if got := find(BoardToBrainstorm("ATM")); !got[queued.ID] || got[br.ID] || got[noStage.ID] {
+		t.Errorf("to-brainstorm = %v", got)
 	}
-	if got := find(BoardBrainstormedTasks("ATM")); !got[br.ID] || !got[rev.ID] || got[pl.ID] {
-		t.Errorf("brainstormed-tasks = %v (want brainstormed OR clarified)", got)
+	if got := find(BoardToClarify("ATM")); !got[br.ID] || got[cl.ID] {
+		t.Errorf("to-clarify = %v (want brainstormed only)", got)
 	}
-	if got := find(BoardPlannedTasks("ATM")); !got[pl.ID] || got[done.ID] {
-		t.Errorf("planned-tasks = %v", got)
+	if got := find(BoardToPlan("ATM")); !got[cl.ID] || !got[rev.ID] || got[pl.ID] {
+		t.Errorf("to-plan = %v (want clarified, including revision-marked)", got)
+	}
+	if got := find(BoardToImplement("ATM")); !got[pl.ID] || got[done.ID] {
+		t.Errorf("to-implement = %v", got)
 	}
 	if got := find(BoardRevisions("ATM")); !got[rev.ID] || got[br.ID] || got[done.ID] {
 		t.Errorf("revisions = %v", got)

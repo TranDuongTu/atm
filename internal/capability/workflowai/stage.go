@@ -1,10 +1,10 @@
 // Package workflowai is the AI-native workflow capability: a
-// brainstorm→clarify→plan→ready cycle over the stage:* namespace, task
-// links and plan tracking in the capability's metadata key, and boards
+// queue→brainstorm→clarify→plan→done cycle over the stage:* namespace, task
+// links and spec/plan tracking in the capability's metadata key, and boards
 // over the stage labels. It coexists with the workflow capability as an
 // independent view: disjoint namespaces, no interplay. The store enforces
 // nothing; every invariant here is a paved road maintained by the verbs
-// (docs/superpowers/specs/2026-07-21-workflow-ai-capability-design.md).
+// (docs/superpowers/specs/2026-07-23-workflow-ai-action-oriented-reframe-design.md).
 package workflowai
 
 import "strings"
@@ -29,16 +29,17 @@ const MarkerRevision = "revision"
 // description is the note, not membership on any task.
 const MarkerFramework = "framework"
 
-// Stage values: the ladder new → brainstormed → clarified → planned →
-// implementable → done. "New" is the ABSENCE of any stage:* label, not a
-// stored label; StageNew is the sentinel guards and reporters use for it.
+// Stage values: the ladder queued → brainstormed → clarified → planned →
+// done. "New" is the ABSENCE of any stage:* label, not a stored label;
+// StageNew is the sentinel guards and reporters use for it. queued is a
+// real stored label — the explicit entry stamp into the cycle.
 const (
-	StageNew           = ""
-	StageBrainstormed  = "brainstormed"
-	StageClarified     = "clarified"
-	StagePlanned       = "planned"
-	StageImplementable = "implementable"
-	StageDone          = "done"
+	StageNew          = ""
+	StageQueued       = "queued"
+	StageBrainstormed = "brainstormed"
+	StageClarified    = "clarified"
+	StagePlanned      = "planned"
+	StageDone         = "done"
 )
 
 // Plan locator kinds. Ephemeral is honest: a plan that lives in a

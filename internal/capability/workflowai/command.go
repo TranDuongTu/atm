@@ -31,18 +31,19 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   CapabilityName,
 		Short: "AI-native task cycle: stage ladder, links, plan tracking (the workflow_ai paved road)",
-		Long: "The workflow_ai capability climbs tasks through brainstorm → clarify → " +
-			"plan → ready → done over the stage:* namespace, one rung at a time; " +
-			"exactly-one-stage is an invariant the verbs maintain, and machine state " +
-			"(plan locator, links, demotion breadcrumb) lives in this capability's " +
-			"metadata key. The store enforces nothing. This is a paved road, not a fence.",
+		Long: "The workflow_ai capability climbs tasks through queue → " +
+			"brainstorm → clarify → plan → done over the stage:* namespace, " +
+			"one rung at a time; exactly-one-stage is an invariant the verbs " +
+			"maintain, and machine state (spec locator, plan locator, links, " +
+			"demotion breadcrumb) lives in this capability's metadata key. " +
+			"The store enforces nothing. This is a paved road, not a fence.",
 	}
 	env.BindActorFlag(cmd)
-	cmd.AddCommand(newStageCmd(env, "brainstorm", "Mark the idea brainstormed (new → brainstormed)", (*Recorder).Brainstorm))
-	cmd.AddCommand(newStageCmd(env, "clarify", "Mark scope settled (brainstormed → clarified)", (*Recorder).Clarify))
+	cmd.AddCommand(newStageCmd(env, "queue", "Stamp the entry label (new → queued)", (*Recorder).Queue))
+	cmd.AddCommand(newStageCmd(env, "brainstorm", "Mark the idea brainstormed (queued → brainstormed)", (*Recorder).Brainstorm))
+	cmd.AddCommand(newClarifyCmd(env))
 	cmd.AddCommand(newPlanCmd(env))
-	cmd.AddCommand(newStageCmd(env, "ready", "Clear for implementation (planned → implementable; requires a plan record)", (*Recorder).Ready))
-	cmd.AddCommand(newStageCmd(env, "done", "Close the cycle (implementable → done)", (*Recorder).Done))
+	cmd.AddCommand(newStageCmd(env, "done", "Close the cycle (planned → done)", (*Recorder).Done))
 	cmd.AddCommand(newDemoteCmd(env))
 	cmd.AddCommand(newLinkCmd(env, true))
 	cmd.AddCommand(newLinkCmd(env, false))
@@ -111,11 +112,59 @@ func newStageCmd(env capability.Env, use, short string, fn func(*Recorder, strin
 	return cmd
 }
 
+func newClarifyCmd(env capability.Env) *cobra.Command {
+	var id, legacy, kind, ref string
+	cmd := &cobra.Command{
+		Use:   "clarify",
+		Short: "Record the spec locator (brainstormed → clarified; from clarified/planned updates it in place)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := env.ResolveTaskID(id, legacy)
+			if err != nil {
+				return err
+			}
+			actor, err := env.RequireMutatingActor()
+			if err != nil {
+				return err
+			}
+			svc, err := env.OpenService()
+			if err != nil {
+				return err
+			}
+			rec := &Recorder{Store: svc, Actor: actor}
+			prior, err := rec.Clarify(taskID, kind, ref)
+			if err != nil {
+				return err
+			}
+			t, err := svc.GetTask(taskID)
+			if err != nil {
+				return err
+			}
+			now, err := (&Reporter{Store: svc}).Stage(taskID)
+			if err != nil {
+				return err
+			}
+			return env.Emit(map[string]any{"task": env.TaskJSON(t), "spec": map[string]string{"kind": kind, "ref": ref}}, func() {
+				if prior == now {
+					fmt.Fprintf(env.Stdout(), "%s: spec updated (%s %s); stage %s unchanged\n", t.ID, kind, ref, stageDisplay(now))
+					return
+				}
+				fmt.Fprintf(env.Stdout(), "%s: stage %s -> %s (spec: %s %s)\n", t.ID, stageDisplay(prior), stageDisplay(now), kind, ref)
+			})
+		},
+	}
+	env.BindTaskIDFlags(cmd, &id, &legacy)
+	cmd.Flags().StringVar(&kind, "kind", "", "spec locator kind: file|commit|ephemeral")
+	cmd.Flags().StringVar(&ref, "ref", "", "spec locator: repo-relative path, git revision, or ephemeral note")
+	_ = cmd.MarkFlagRequired("kind")
+	_ = cmd.MarkFlagRequired("ref")
+	return cmd
+}
+
 func newPlanCmd(env capability.Env) *cobra.Command {
 	var id, legacy, kind, ref string
 	cmd := &cobra.Command{
 		Use:   "plan",
-		Short: "Record the plan locator (clarified → planned; from planned/implementable updates it in place)",
+		Short: "Record the plan locator (clarified → planned; from planned updates it in place)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, err := env.ResolveTaskID(id, legacy)
 			if err != nil {
@@ -163,7 +212,7 @@ func newDemoteCmd(env capability.Env) *cobra.Command {
 	var id, legacy, reason string
 	cmd := &cobra.Command{
 		Use:   "demote",
-		Short: "Reset the task to new (any stage; clears the plan record, keeps links, logs the reason)",
+		Short: "Reset the task to queued (any stage; clears spec+plan records, keeps links, logs the reason)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStageVerb(env, id, legacy, func(r *Recorder, tid string) (string, error) {
 				return r.Demote(tid, reason)
@@ -231,7 +280,7 @@ func newStageReportCmd(env capability.Env) *cobra.Command {
 	var project string
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: "Check every planned/implementable task's plan locator; list what is at risk (read-only)",
+		Short: "Check every clarified/planned task's spec/plan locator; list what is at risk (read-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := env.OpenService()
 			if err != nil {
