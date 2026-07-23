@@ -104,6 +104,7 @@ type Model struct {
 	dispatcher     Dispatcher
 	agentOptionsFn func() []agentOption
 	dispatchDlg    dispatchModel
+	personasOv     personasModel
 
 	form *Form
 
@@ -188,6 +189,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
 	m.dispatchDlg.m = m
+	m.personasOv.m = m
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -589,6 +591,11 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.dispatchDlg.handleKey(k)
 	}
 
+	// Personas overlay (read-only) consumes keys until closed (Esc).
+	if m.personasOv.open {
+		return m.personasOv.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -662,6 +669,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		}
+	case "V":
+		m.personasOv.openOverlay()
+		return nil
 	case "T":
 		m.cycleTheme()
 		return nil
@@ -871,6 +881,9 @@ func (m *Model) View() string {
 	}
 	if m.dispatchDlg.kind != dispatchNone {
 		out = m.placeOverlay(out, m.dispatchDlg.renderOverlay())
+	}
+	if m.personasOv.open {
+		out = m.placeOverlay(out, m.personasOv.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.
