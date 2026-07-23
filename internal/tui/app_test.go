@@ -785,10 +785,10 @@ func TestProjectsListRendersSummaryRegionBelowList(t *testing.T) {
 	mustNotContain(t, body, "─ Overview ─")
 	mustNotContain(t, body, "total projects:")
 	mustContain(t, body, "showing 1-1 of 1")
-	mustContain(t, body, "Project Summary")
 	mustContain(t, body, "select a project to see summaries")
+	mustNotContain(t, body, "Project Summary")
 	listIdx := strings.Index(body, "showing 1-1 of 1")
-	summaryIdx := strings.Index(body, "Project Summary")
+	summaryIdx := strings.Index(body, "select a project to see summaries")
 	if listIdx < 0 || summaryIdx < 0 || summaryIdx <= listIdx {
 		t.Fatalf("summary should render below the list\n--- body ---\n%s", body)
 	}
@@ -890,8 +890,10 @@ func TestProjectsViewUsesThreeWaySplit(t *testing.T) {
 	if got := find("Recent Events"); got != 8 {
 		t.Fatalf("events caption on line %d, want 8\n--- body ---\n%s", got, body)
 	}
-	if got := find("Project Summary"); got != 17 {
-		t.Fatalf("summary caption on line %d, want 17\n--- body ---\n%s", got, body)
+	// The "Project Summary" heading was removed; the summary region now
+	// starts directly with the "activity by persona" chart box title.
+	if got := find("activity by persona"); got != 17 {
+		t.Fatalf("persona chart on line %d, want 17\n--- body ---\n%s", got, body)
 	}
 }
 
@@ -903,7 +905,7 @@ func TestProjectDetailDoesNotRenderSummaryCharts(t *testing.T) {
 	update(t, m, "enter")
 	body := m.projects.View()
 	mustContain(t, body, "Project ATM")
-	mustNotContain(t, body, "Project Summary")
+	mustNotContain(t, body, "activity by persona")
 	mustNotContain(t, body, "Activities by actor")
 }
 
@@ -1008,7 +1010,7 @@ func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.renderSummary(5)
-	mustContain(t, body, "Project Summary")
+	mustNotContain(t, body, "Project Summary")
 	mustContain(t, body, "activity by persona")
 	mustContain(t, body, "activity stripe")
 }
@@ -1044,7 +1046,7 @@ func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "Project Summary")
+	mustNotContain(t, body, "Project Summary")
 	_ = m.View()
 }
 

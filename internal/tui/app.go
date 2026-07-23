@@ -88,15 +88,10 @@ type Model struct {
 	// does not show through), unlike forms/confirms which layer on top.
 	helpOverlay helpOverlayKind
 
-	// actorsOverlay, when true, renders the persona activity list/detail as a
-	// centered modal over the workspace (opened by P in the Projects pane).
-	actorsOverlay bool
-
 	projects   projectsModel
 	tasks      tasksModel
 	boards     boardsModel
 	capability capabilityModel
-	actors     actorsModel
 	help       helpModel
 
 	// dispatch is the composition-root-injected dispatch port (the
@@ -184,7 +179,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
 	m.capability = newCapabilityModel(m)
-	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
@@ -266,39 +260,6 @@ func (m *Model) helpBoxSize() (int, int) {
 		bh = 1
 	}
 	return bw, bh
-}
-
-// actorsOverlayBoxSize returns the outer dimensions of the centered modal that
-// hosts the P overlay. It mirrors helpBoxSize's ~80% sizing so the persona list
-// and detail breakdowns stay readable.
-func (m *Model) actorsOverlayBoxSize() (int, int) {
-	bw, bh := m.helpBoxSize()
-	return bw, bh
-}
-
-// sizeActorsToOverlay sizes the actors model to the overlay box's inner area.
-// titledBoxHeight draws a 1-cell border + title row + bottom row, so inner =
-// (bw-2) x (bh-2).
-func (m *Model) sizeActorsToOverlay() {
-	bw, bh := m.actorsOverlayBoxSize()
-	innerW := bw - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := bh - 2
-	if innerH < 1 {
-		innerH = 1
-	}
-	m.actors.SetSize(innerW, innerH)
-}
-
-// renderActorsOverlay renders the persona activity list/detail as a centered
-// modal box (the P overlay) sized like the help overlay. The border title
-// carries the expand-to-dispatch hint so the user knows pressing Enter on a
-// persona leads to a dispatch prompt.
-func (m *Model) renderActorsOverlay() string {
-	bw, bh := m.actorsOverlayBoxSize()
-	return titledBoxHeight(m.styles.DialogBody, bw, "Activity by persona  [Enter]expand to dispatch", m.actors.View(), bh)
 }
 
 // openHelp activates the requested reference overlay and re-sizes the help
@@ -542,32 +503,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.dispatchDlg.handleKey(k)
 	}
 
-	// Actors overlay (P) consumes navigation + Esc until closed.
-	if m.actorsOverlay {
-		switch k.String() {
-		case "esc":
-			if m.actors.detail {
-				m.actors.handleKey(k)
-				return nil
-			}
-			m.actorsOverlay = false
-			return nil
-		case "?":
-			m.openHelp(helpKeys)
-			return nil
-		case "C":
-			m.openHelp(helpConventions)
-			return nil
-		case "T":
-			m.cycleTheme()
-			return nil
-		}
-		return m.actors.handleKey(k)
-	}
-
 	// Plugin overlay consumes keys until closed (Esc). T/?/C still work so the
 	// global help/theme shortcuts remain reachable while a plugin overlay is
-	// open (mirrors the actors-overlay behavior above).
+	// open.
 	if m.pluginOverlay != -1 {
 		switch k.String() {
 		case "esc":
@@ -686,7 +624,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// If a per-detail overlay (comment peek or history) is open, defer to
 	// the pane's overlay Esc handler so Esc returns to the detail rather
 	// than leaping out to the list and leaving the overlay state stale.
+	// Persona-focus Esc (back from drill / close focus) is handled by the
+	// projects pane's own key handler.
 	if k.String() == "esc" {
+		if m.focused == paneProjects && m.projects.personaFocus {
+			return m.projects.handleKey(k)
+		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
 			m.projects.backToList()
 			return nil
@@ -815,7 +758,6 @@ func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
 		return nil
 	}
 	m.showToast(fmt.Sprintf("created persona %s", name))
-	m.actors.refresh()
 	m.refreshAll()
 	return nil
 }
@@ -871,9 +813,6 @@ func (m *Model) View() string {
 	}
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
-	}
-	if m.actorsOverlay {
-		out = m.placeOverlay(out, m.renderActorsOverlay())
 	}
 	if m.pluginOverlay != -1 {
 		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))

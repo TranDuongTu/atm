@@ -185,6 +185,19 @@ func centerBlockBoth(s string, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
+// centerLine returns s centered within w columns, with the style applied to
+// the rendered text (the padding is unstyled). Useful for one-line centered
+// headings inside a fixed-width box.
+func centerLine(s string, w int, style lipgloss.Style) string {
+	rendered := style.Render(s)
+	width := lipgloss.Width(rendered)
+	if width >= w {
+		return rendered
+	}
+	pad := (w - width) / 2
+	return spaces(pad) + rendered
+}
+
 // centerLinesBoth top-pads pre-rendered lines to sit in the middle of an
 // h-line box, while keeping the text left-aligned inside the pane. Returns the
 // block without final height padding; callers pad to their content height so

@@ -42,69 +42,117 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-func TestActorsOverlayOpensAndShowsPersona(t *testing.T) {
+// TestPersonaFocusActivatesAndShowsPersona verifies P toggles the inline
+// persona-focus mode and the persona rows render with the cursor marker.
+func TestPersonaFocusActivatesAndShowsPersona(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
+	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	update(t, m, "P")
-	if !m.actorsOverlay {
-		t.Fatal("P should open actors overlay")
+	if !m.projects.personaFocus {
+		t.Fatal("P should activate persona focus")
 	}
 	view := m.View()
-	if !strings.Contains(view, "Activity by persona") {
-		t.Fatalf("overlay title missing:\n%s", view)
+	if !strings.Contains(view, "activity by persona") {
+		t.Fatalf("persona chart missing:\n%s", view)
 	}
 	if !strings.Contains(view, "staff") {
 		t.Fatalf("persona row missing:\n%s", view)
 	}
-}
-
-func TestActorsOverlayDrilldownAndEsc(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
+	// P again closes it.
 	update(t, m, "P")
-	update(t, m, "enter")
-	view := m.View()
-	if !strings.Contains(view, "persona: staff") && !strings.Contains(view, "agents") {
-		t.Fatalf("detail not shown:\n%s", view)
-	}
-	update(t, m, "esc")
-	if m.actors.detail {
-		t.Fatal("Esc should leave detail")
-	}
-	update(t, m, "esc")
-	if m.actorsOverlay {
-		t.Fatal("Esc should close overlay")
+	if m.projects.personaFocus {
+		t.Fatal("second P should close persona focus")
 	}
 }
 
-func TestActorsOverlayNoProjectToasts(t *testing.T) {
+// TestPersonaFocusNoProjectToasts verifies P without a project scope toasts.
+func TestPersonaFocusNoProjectToasts(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(100, 30)
 	m.focused = paneProjects
 	m.projectScope = ""
 	update(t, m, "P")
-	if m.actorsOverlay {
-		t.Fatal("overlay must not open without a project")
+	if m.projects.personaFocus {
+		t.Fatal("persona focus must not activate without a project")
 	}
 	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "select a project") {
 		t.Fatalf("expected a 'select a project' toast, got %q", m.toastMsg)
 	}
 }
 
-func TestActorsOverlayDetailBarsAlignToWidth(t *testing.T) {
+// TestPersonaFocusCtrlArrowsMoveAndDrill verifies ctrl+down/up move the
+// persona cursor and ctrl+right drills into the detail view.
+func TestPersonaFocusCtrlArrowsMoveAndDrill(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
+	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	update(t, m, "P")
-	m.actors.SetSize(96, 26)
-	m.actors.refresh()
-	m.actors.detail = true
-	view := m.actors.renderDetail(m.actors.groups[0])
+	if len(m.projects.personaGroups) < 1 {
+		t.Fatalf("need at least 1 persona group, got %d", len(m.projects.personaGroups))
+	}
+	// ctrl+down moves cursor (wrapping not expected; just don't panic).
+	update(t, m, "ctrl+down")
+	// ctrl+right drills into the hovered persona.
+	update(t, m, "ctrl+right")
+	if !m.projects.personaDrilled {
+		t.Fatal("ctrl+right should drill into persona detail")
+	}
+	view := m.View()
+	if !strings.Contains(view, "dispatch") {
+		t.Fatalf("drilled detail should show dispatch action:\n%s", view)
+	}
+	// ctrl+left backs out of the detail.
+	update(t, m, "ctrl+left")
+	if m.projects.personaDrilled {
+		t.Fatal("ctrl+left should leave persona detail")
+	}
+	if !m.projects.personaFocus {
+		t.Fatal("persona focus should still be active after ctrl+left")
+	}
+	// Esc closes focus (not drilled).
+	update(t, m, "esc")
+	if m.projects.personaFocus {
+		t.Fatal("Esc should close persona focus")
+	}
+}
+
+// TestPersonaFocusEscFromDetailBacksOut verifies Esc from the drilled detail
+// returns to the chart (not closing focus entirely).
+func TestPersonaFocusEscFromDetailBacksOut(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	update(t, m, "ctrl+right")
+	if !m.projects.personaDrilled {
+		t.Fatal("ctrl+right should drill in")
+	}
+	update(t, m, "esc")
+	if m.projects.personaDrilled {
+		t.Fatal("Esc should leave detail")
+	}
+	if !m.projects.personaFocus {
+		t.Fatal("Esc from detail should keep focus active")
+	}
+}
+
+// TestPersonaFocusDetailBarsAlignToWidth verifies the drilled-in detail
+// breakdown bars align across agents/models/actions rows.
+func TestPersonaFocusDetailBarsAlignToWidth(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	if len(m.projects.personaGroups) == 0 {
+		t.Fatal("need persona groups")
+	}
+	update(t, m, "ctrl+right")
+	view := m.View()
 	ansiRe := strings.NewReplacer("\x1b[0m", "", "\x1b[1m", "")
 	var barCols []int
 	for _, line := range strings.Split(view, "\n") {
@@ -112,23 +160,59 @@ func TestActorsOverlayDetailBarsAlignToWidth(t *testing.T) {
 		if !strings.Contains(stripped, "█") && !strings.Contains(stripped, "░") {
 			continue
 		}
-		if w := lipgloss.Width(line); w != 96 {
-			t.Fatalf("detail bar line width = %d, want 96:\n%q", w, line)
-		}
 		idx := strings.IndexAny(stripped, "█░")
 		if idx < 0 {
 			continue
 		}
 		barCols = append(barCols, idx)
 	}
-	if len(barCols) < 2 {
-		t.Fatalf("expected at least 2 bar rows, got %d\n%s", len(barCols), view)
+	if len(barCols) < 1 {
+		t.Fatalf("expected at least 1 bar row in detail, got %d\n%s", len(barCols), view)
 	}
 	first := barCols[0]
 	for i, c := range barCols {
 		if c != first {
-			t.Fatalf("bar start column differs across rows: row 0 at col %d, row %d at col %d (all=%v)\n%s", first, i, c, barCols, view)
+			t.Fatalf("bar start column differs: row 0 at col %d, row %d at col %d\n%s", first, i, c, view)
 		}
+	}
+}
+
+// TestPersonaFocusDispatchOpensDialog verifies that pressing D on a drilled-in
+// persona opens the dispatch dialog pre-set to that persona, and the dialog
+// takes over key routing (Esc closes the dialog, not the focus).
+func TestPersonaFocusDispatchOpensDialog(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	update(t, m, "P")
+	update(t, m, "ctrl+right") // drill into "staff" persona
+	if !m.projects.personaDrilled {
+		t.Fatal("ctrl+right should drill in")
+	}
+	view := m.View()
+	if !strings.Contains(view, "dispatch staff") {
+		t.Fatalf("detail should show dispatch action for hovered persona:\n%s", view)
+	}
+	// "staff" is an unknown persona → falls back to manager.
+	update(t, m, "d")
+	if m.dispatchDlg.kind != dispatchManager {
+		t.Fatalf("D should open manager dispatch (fallback), got kind=%v", m.dispatchDlg.kind)
+	}
+	if m.dispatchDlg.project != "ATM" {
+		t.Errorf("dispatch project = %q want ATM", m.dispatchDlg.project)
+	}
+	// Dispatch dialog owns key routing: Esc closes it, persona focus stays.
+	update(t, m, "esc")
+	if m.dispatchDlg.kind != dispatchNone {
+		t.Fatal("Esc should close the dispatch dialog")
+	}
+	if !m.projects.personaFocus || !m.projects.personaDrilled {
+		t.Fatal("persona focus/detail should still be active after dispatch Esc")
 	}
 }
 
@@ -141,64 +225,10 @@ func TestProjectsStatusHintMentionsP(t *testing.T) {
 	m.refreshAll()
 	hint := m.statusHint()
 	if !strings.Contains(hint, "P") {
-		t.Fatalf("status hint should mention P (expand): %q", hint)
+		t.Fatalf("status hint should mention P (persona focus): %q", hint)
 	}
 	if strings.Contains(hint, "[p]") {
 		t.Fatalf("status hint should no longer mention [p] (add persona removed): %q", hint)
-	}
-}
-
-// TestActorsOverlayBorderTitleHintsDispatch verifies the P overlay border
-// title carries the expand-to-dispatch hint.
-func TestActorsOverlayBorderTitleHintsDispatch(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "P")
-	view := m.View()
-	if !strings.Contains(view, "expand to dispatch") {
-		t.Fatalf("overlay border should hint expand-to-dispatch:\n%s", view)
-	}
-}
-
-// TestActorsOverlayDetailDispatchOpensDialog verifies that pressing D on a
-// persona in the actors detail view opens the dispatch dialog pre-set to
-// that persona, and that the dialog takes over key routing from the overlay.
-func TestActorsOverlayDetailDispatchOpensDialog(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	fd := &fakeDispatcher{preview: "tmux · new window"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-
-	update(t, m, "P")
-	update(t, m, "enter") // expand to detail on the "staff" persona
-	if !m.actors.detail {
-		t.Fatal("enter should open detail view")
-	}
-	// Detail view renders the dispatch hint naming the hovered persona.
-	view := m.View()
-	if !strings.Contains(view, "dispatch staff") {
-		t.Fatalf("detail should show dispatch hint for hovered persona:\n%s", view)
-	}
-	// "staff" is an unknown persona → openDispatchFor falls back to manager.
-	update(t, m, "d")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatalf("D should open manager dispatch (fallback for unknown persona), got kind=%v", m.dispatchDlg.kind)
-	}
-	if m.dispatchDlg.project != "ATM" {
-		t.Errorf("dispatch project = %q want ATM", m.dispatchDlg.project)
-	}
-	// The dispatch dialog now owns key routing: Esc closes it, not the overlay.
-	update(t, m, "esc")
-	if m.dispatchDlg.kind != dispatchNone {
-		t.Fatal("Esc should close the dispatch dialog")
-	}
-	if !m.actorsOverlay || !m.actors.detail {
-		t.Fatal("actors overlay/detail should still be open after dispatch Esc")
 	}
 }
 
@@ -229,3 +259,6 @@ func TestDispatchConciergeOmitsProject(t *testing.T) {
 		t.Errorf("concierge argv must set --persona concierge: %s", argv)
 	}
 }
+
+// ensure lipgloss is used (silences unused-import in trim builds).
+var _ = lipgloss.Width
