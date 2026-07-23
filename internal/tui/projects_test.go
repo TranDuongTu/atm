@@ -84,10 +84,10 @@ func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
 		}
 	}
 
-	// 1 line cannot fit a bar; the focus hint is the only acceptable content.
+	// 1 line cannot fit a bar; the title is the only acceptable content.
 	one := strings.Join(m.projects.renderPersonaActivityChart(entries, 1), "\n")
-	if !strings.Contains(one, "[P]focus") {
-		t.Fatalf("maxLines=1: focus hint missing:\n%s", one)
+	if !strings.Contains(one, "activity by persona") {
+		t.Fatalf("maxLines=1: title missing:\n%s", one)
 	}
 	if strings.ContainsAny(one, "█░") {
 		t.Fatalf("maxLines=1: should not render a bar in one line:\n%s", one)
