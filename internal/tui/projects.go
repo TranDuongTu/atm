@@ -8,6 +8,7 @@ import (
 
 	"atm/internal/activity"
 	"atm/internal/core"
+	"atm/internal/tui/art"
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -646,7 +647,7 @@ func (p *projectsModel) renderList() string {
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
-	listH, _, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	listH, artH, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
 	if p.m.projectScope == "" {
 		// With no project selected, the feed would render nothing but the
 		// same "select a project" placeholder the summary section already
@@ -666,6 +667,9 @@ func (p *projectsModel) renderList() string {
 	if listH > 0 {
 		parts = append(parts, padToHeight(p.renderListRows(listH), listH))
 	}
+	if artH > 0 {
+		parts = append(parts, padToHeight(p.renderArt(artH), artH))
+	}
 	if eventsH > 0 {
 		parts = append(parts, padToHeight(p.renderEventsFeed(eventsH, boxed), eventsH))
 	}
@@ -673,6 +677,30 @@ func (p *projectsModel) renderList() string {
 		parts = append(parts, padToHeight(p.renderSummary(summaryH), summaryH))
 	}
 	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
+}
+
+// renderArt draws the background art for the pane's context project: the
+// scoped project when one is selected, else the cursor row. Falls back to
+// blank lines (padToHeight in the caller) when the region or project list
+// can't support art.
+func (p *projectsModel) renderArt(height int) string {
+	if len(p.list) == 0 {
+		return ""
+	}
+	code := p.m.projectScope
+	if code == "" {
+		if p.cursor < 0 || p.cursor >= len(p.list) {
+			return ""
+		}
+		code = p.list[p.cursor].code
+	}
+	theme := art.Effective(p.m.artPins[code], code)
+	lines := art.Render(theme, p.width, height, art.Seed(code), p.m.artPhase,
+		p.m.styles.ArtBase, p.m.styles.ArtAccent)
+	if lines == nil {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 // projectColumnWidths returns fixed widths for CODE/TASKS/LABELS/UPDATED and a

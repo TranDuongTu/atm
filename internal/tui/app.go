@@ -137,6 +137,13 @@ type Model struct {
 	// indexer is the lazy-init model behind the indexer plugin; populated by
 	// indexerPlugin.model on first use.
 	indexer *indexerModel
+
+	// artPhase is the background-art animation clock, advanced by artTickMsg
+	// only while the plain workspace is visible; artPins caches each listed
+	// project's config.json art_theme pin (refreshed by refreshAll) so View
+	// never touches the filesystem.
+	artPhase int
+	artPins  map[string]string
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -310,6 +317,15 @@ func innerPaneHeight(height int) int {
 func (m *Model) refreshAll() {
 	m.capability.refresh()
 	m.projects.refresh()
+	// Refresh the art-pin cache alongside the project list so renderers
+	// never read config.json during View.
+	pins := make(map[string]string, len(m.projects.list))
+	for _, r := range m.projects.list {
+		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil {
+			pins[r.code] = cfg.ArtTheme
+		}
+	}
+	m.artPins = pins
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
@@ -358,12 +374,27 @@ func (m *Model) cycleTheme() {
 // for callers.
 func (m *Model) canMutate() bool { return true }
 
+// workspaceIdle reports whether the plain two-pane workspace is what View
+// shows — no overlay, form, confirm, plugin, capability switcher, dispatch
+// dialog, or personas overlay layered over it (see View's overlay chain).
+// Art animates only then; anything covering the workspace freezes the phase
+// clock.
+func (m *Model) workspaceIdle() bool {
+	return m.helpOverlay == helpNone &&
+		!(m.form != nil && m.form.Active) &&
+		m.confirm == confirmNone &&
+		m.pluginOverlay == -1 &&
+		!m.capability.open &&
+		m.dispatchDlg.kind == dispatchNone &&
+		!m.personasOv.open
+}
+
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
 // tick that re-runs refreshAll so external mutations (CLI writes in another
 // process) surface in the TUI without a manual key. The tick is cheap: with
 // the O(1) LastLogSeq staleness check, refreshAll skips rebuilds when the
-// cache is fresh.
-func (m *Model) Init() tea.Cmd { return refreshTickCmd() }
+// cache is fresh. It also starts the background-art animation tick.
+func (m *Model) Init() tea.Cmd { return tea.Batch(refreshTickCmd(), artTickCmd()) }
 
 // refreshTickMsg is the periodic message that triggers a refreshAll to pick
 // up external mutations (a CLI invocation in another process appending to
@@ -382,6 +413,17 @@ func refreshTickCmd() tea.Cmd {
 	return tea.Tick(refreshTickInterval, func(time.Time) tea.Msg { return refreshTickMsg{} })
 }
 
+// artTickMsg advances the background-art animation. The tick always
+// reschedules (cheap no-op off-workspace) but the phase only advances while
+// the plain workspace is visible, so art freezes under overlays and forms.
+type artTickMsg struct{}
+
+const artTickInterval = 600 * time.Millisecond
+
+func artTickCmd() tea.Cmd {
+	return tea.Tick(artTickInterval, func(time.Time) tea.Msg { return artTickMsg{} })
+}
+
 // Update routes messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -395,6 +437,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so the user's selection isn't disturbed by a background tick.
 		m.refreshAll()
 		return m, refreshTickCmd()
+	case artTickMsg:
+		if m.workspaceIdle() {
+			m.artPhase++
+		}
+		return m, artTickCmd()
 	case pluginTickMsg:
 		im := m.indexer
 		if im == nil {
