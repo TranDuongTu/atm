@@ -340,13 +340,21 @@ func TestSetProjectArtTheme(t *testing.T) {
 	}
 
 	// A config holding ONLY art_theme must not read back as nil (regression
-	// guard for GetProjectConfig's emptiness check). Use a bare second
-	// project since ATM already carries updated_at/updated_by stamps from
-	// the writes above.
+	// guard for GetProjectConfig's emptiness check). Written as a raw JSON
+	// fixture straight to config.json, NOT via SetProjectArtTheme: the setter
+	// always stamps UpdatedAt, so routing through it would make
+	// GetProjectConfig non-nil via the UpdatedAt clause and never actually
+	// exercise the ArtTheme clause under test. With every other field left
+	// empty, this fixture isolates that one clause -- the assertion below
+	// fails if the `&& c.ArtTheme == ""` conjunct is removed from
+	// GetProjectConfig. Use a bare second project so nothing else on disk
+	// (e.g. ATM's updated_at/updated_by stamps from the writes above) could
+	// keep the config non-nil for an unrelated reason.
 	if _, err := s.CreateProject("XYZ", "Bare Project", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectArtTheme("XYZ", "waves", testActor); err != nil {
+	rawConfigPath := filepath.Join(s.StorePath(), "projects", "XYZ", "config.json")
+	if err := os.WriteFile(rawConfigPath, []byte(`{"art_theme":"waves"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err = s.GetProjectConfig("XYZ")
