@@ -545,3 +545,64 @@ func TestTasksListContextualColumnHiddenOnNarrowPane(t *testing.T) {
 		t.Errorf("narrow pane lost TITLE/UPDATED columns:\n%s", view)
 	}
 }
+
+// TestTasksPaneFillsGapWithArt verifies that with few tasks in a tall pane,
+// the dead space between the last task row and the boards ring is filled
+// with the scoped project's background art, and that the fill never changes
+// the pane's overall height (art replaces blank padding in place).
+func TestTasksPaneFillsGapWithArt(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+
+	m.tasks.SetSize(70, 46)
+	out := m.tasks.renderListWithStrip()
+	lines := strings.Split(out, "\n")
+
+	// The rows directly above the boards ring + pinned box were blank
+	// padding before; with one task and a tall pane at least one of them
+	// must now carry art glyphs.
+	// The slice below stripHeight+pinnedBoxHeight excludes the strip/pinned
+	// boxes entirely, but still includes the task table's own header rule
+	// (a plain run of '─'), so the probe deliberately omits bare '─'/'│' —
+	// those would false-positive on the table's own divider rows regardless
+	// of whether art rendered. The corner/node glyphs below are unique to
+	// the art package's themes within this window.
+	top := len(lines) - stripHeight - pinnedBoxHeight
+	found := false
+	for _, ln := range lines[:top] {
+		s := strings.TrimSpace(stripANSI(ln))
+		if strings.ContainsAny(s, "~≈·✦*░▒▓┌┐└┘╷○◉") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no art glyphs in the tasks-pane gap:\n%s", out)
+	}
+	// Height must be unchanged by art injection.
+	if len(lines) != 46 {
+		t.Fatalf("pane height = %d, want 46", len(lines))
+	}
+}
+
+// TestTasksPaneNoArtWithoutScope verifies art never renders in the Tasks
+// pane's gap when no project is scoped (that gap is the empty-state screen,
+// which centers its message with blank lines above and below).
+func TestTasksPaneNoArtWithoutScope(t *testing.T) {
+	m := newTestModel(t)
+	m.projectScope = ""
+	m.tasks.SetSize(70, 46)
+	out := m.tasks.renderListWithStrip()
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.ContainsAny(stripANSI(ln), "≈✦░▒▓") {
+			t.Fatalf("art must not render without a project scope:\n%s", out)
+		}
+	}
+}

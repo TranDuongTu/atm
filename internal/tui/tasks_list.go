@@ -6,6 +6,7 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/tui/art"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -247,6 +248,7 @@ func (t *tasksModel) renderListWithStrip() string {
 	}
 	listOut := t.renderList()
 	t.contentHeight, t.pageSize = savedH, savedPageSize
+	listOut = t.fillGapWithArt(listOut)
 
 	pinned := t.m.boards.renderPinnedTabs(t.width)
 	strip := t.m.boards.renderStrip(t.width, stripHeight)
@@ -260,6 +262,37 @@ func (t *tasksModel) renderListWithStrip() string {
 		b.WriteString(pinned)
 	}
 	return padToHeight(b.String(), t.contentHeight)
+}
+
+// fillGapWithArt replaces the task table's trailing blank padding (the dead
+// space between the last rendered row and the boards ring) with background
+// art for the scoped project. The table block keeps its exact height —
+// padToHeight pads with empty lines ("" — see padToHeight), so trailing
+// lines that trim to empty are exactly the reclaimable gap. Below art.MinH
+// blank lines the gap stays as-is (spec collapse threshold). No project
+// scope means the gap is the empty-state screen's centered blank padding, so
+// art is skipped entirely.
+func (t *tasksModel) fillGapWithArt(listOut string) string {
+	code := t.m.projectScope
+	if code == "" {
+		return listOut
+	}
+	lines := strings.Split(listOut, "\n")
+	gap := 0
+	for i := len(lines) - 1; i >= 0 && strings.TrimSpace(lines[i]) == ""; i-- {
+		gap++
+	}
+	if gap < art.MinH {
+		return listOut
+	}
+	theme := art.Effective(t.m.artPins[code], code)
+	artLines := art.Render(theme, t.width, gap, art.Seed(code), t.m.artPhase,
+		t.m.styles.ArtBase, t.m.styles.ArtAccent)
+	if artLines == nil {
+		return listOut
+	}
+	copy(lines[len(lines)-gap:], artLines)
+	return strings.Join(lines, "\n")
 }
 
 func (t *tasksModel) headerLine() string {
