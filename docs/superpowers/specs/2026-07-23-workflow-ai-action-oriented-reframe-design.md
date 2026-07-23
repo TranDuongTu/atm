@@ -1,6 +1,6 @@
 # workflow_ai capability: action-oriented reframe
 
-**Task:** TBD · **Initiative:** workflow_ai capability evolution · **Status:** Draft 2026-07-23
+**Task:** ATM-711a9d · **Initiative:** workflow_ai capability evolution · **Status:** Draft 2026-07-23
 
 **Supersedes (in part):** `docs/superpowers/specs/2026-07-21-workflow-ai-capability-design.md` — the ladder, boards, verbs, payload, and guide text defined here replace the corresponding sections of that spec. The package identity, metadata-key contract, capability-independence doctrine, and link topology are unchanged and remain authoritative from the 2026-07-21 spec.
 
