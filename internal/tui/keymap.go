@@ -40,7 +40,7 @@ var keymapRows = []keyEntry{
 	{"l", "-", "remove label", "-", "-"},
 	{"x", "remove project (confirm)", "-", "-", "remove task (confirm)"},
 	{"b/B", "-", "-", "-", "add/remove label (task)"},
-	{"p", "add persona", "pin board", "-", "-"},
+	{"p", "-", "pin board", "-", "-"},
 	{"Shift-1..9", "-", "jump to pinned board", "-", "-"},
 	{"Shift-0", "-", "focus center board", "-", "-"},
 	{"Space", "-", "enable/disable capability (in switcher)", "-", "scroll down"},

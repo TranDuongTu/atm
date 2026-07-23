@@ -173,10 +173,10 @@ func TestGroupedPagingDerivesFromListContentHeight(t *testing.T) {
 	if !m.tasks.grouped() {
 		t.Fatalf("expected a grouped (namespace) focus, got %+v", m.tasks.focus)
 	}
-	// Grouped body reserves 3 chrome lines: header + blank + "showing" footer.
-	want := m.tasks.listContentHeight() - 3
+	// Grouped body reserves 4 chrome lines: header + blank + footer divider + "showing" footer.
+	want := m.tasks.listContentHeight() - 4
 	if got := m.tasks.listPageSize(); got != want {
-		t.Errorf("grouped listPageSize() = %d, want listContentHeight()-3 = %d", got, want)
+		t.Errorf("grouped listPageSize() = %d, want listContentHeight()-4 = %d", got, want)
 	}
 
 	// Pinning must not shift the grouped page boundary.

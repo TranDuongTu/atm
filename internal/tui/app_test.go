@@ -754,8 +754,8 @@ func TestProjectsListPopulated(t *testing.T) {
 		t.Fatalf("projects body repeats tab title\n--- body ---\n%s", body)
 	}
 	mustNotContain(t, body, "─ Overview ─")
-	mustContain(t, body, "total projects: 2")
-	mustContain(t, body, "selected: none")
+	mustNotContain(t, body, "total projects:")
+	mustNotContain(t, body, "selected: none")
 	mustContain(t, body, "showing 1-2 of 2")
 	for _, col := range []string{"CODE", "NAME"} {
 		mustContain(t, v, col)
@@ -773,7 +773,7 @@ func TestProjectsListPopulated(t *testing.T) {
 		t.Errorf("after s: projectScope = %q want ATM", m.projectScope)
 	}
 	selected := m.View()
-	mustContain(t, m.projects.View(), "selected: ATM")
+	mustNotContain(t, m.projects.View(), "selected:")
 	mustContain(t, selected, "▸")
 }
 
@@ -783,13 +783,14 @@ func TestProjectsListRendersSummaryRegionBelowList(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	body := m.projects.View()
 	mustNotContain(t, body, "─ Overview ─")
-	mustContain(t, body, "total projects: 1")
+	mustNotContain(t, body, "total projects:")
+	mustContain(t, body, "showing 1-1 of 1")
 	mustContain(t, body, "Project Summary")
 	mustContain(t, body, "select a project to see summaries")
-	captionIdx := strings.Index(body, "total projects: 1")
+	listIdx := strings.Index(body, "showing 1-1 of 1")
 	summaryIdx := strings.Index(body, "Project Summary")
-	if captionIdx < 0 || summaryIdx < 0 || summaryIdx <= captionIdx {
-		t.Fatalf("summary should render below the list caption\n--- body ---\n%s", body)
+	if listIdx < 0 || summaryIdx < 0 || summaryIdx <= listIdx {
+		t.Fatalf("summary should render below the list\n--- body ---\n%s", body)
 	}
 }
 
@@ -801,7 +802,7 @@ func TestProjectsListSummaryUsesSelectedProjectNotCursor(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "j")
 	body := m.projects.View()
-	mustContain(t, body, "project: ATM")
+	mustNotContain(t, body, "project: ATM")
 	if m.projectScope != "ATM" {
 		t.Fatalf("projectScope = %q want ATM", m.projectScope)
 	}
@@ -2140,58 +2141,6 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 	// And the task is gone from the store.
 	if _, err := m.store.GetTask(tk.ID); !core.IsNotFound(err) {
 		t.Errorf("GetTask after remove: err=%v, want ErrNotFound", err)
-	}
-}
-
-func TestPersonaCreateFormFromOverlay(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "P")
-	if !m.actorsOverlay {
-		t.Fatal("overlay should be open")
-	}
-	update(t, m, "p")
-	if m.form == nil || m.formKind != formPersonaCreate {
-		t.Fatalf("persona form not open: form=%v kind=%v", m.form, m.formKind)
-	}
-	for _, r := range "reviewer" {
-		update(t, m, string(r))
-	}
-	update(t, m, "tab")
-	for _, r := range "holds a high bar" {
-		update(t, m, string(r))
-	}
-	update(t, m, "enter")
-	if m.form != nil {
-		t.Fatalf("form should be closed after submit: %v", m.form)
-	}
-	p, err := m.store.GetPersona("reviewer")
-	if err != nil || p.Description != "holds a high bar" {
-		t.Fatalf("persona not created: %+v %v", p, err)
-	}
-	if !m.actorsOverlay {
-		t.Fatal("overlay should still be open after form submit")
-	}
-}
-
-func TestPersonaCreateFormEscReturnsToOverlay(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 30)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "P")
-	update(t, m, "p")
-	if m.form == nil {
-		t.Fatal("form should be open")
-	}
-	update(t, m, "esc")
-	if m.form != nil {
-		t.Fatal("form should be closed on Esc")
-	}
-	if !m.actorsOverlay {
-		t.Fatal("overlay should still be open after form Esc (form was on top)")
 	}
 }
 

@@ -293,10 +293,12 @@ func (m *Model) sizeActorsToOverlay() {
 }
 
 // renderActorsOverlay renders the persona activity list/detail as a centered
-// modal box (the P overlay) sized like the help overlay.
+// modal box (the P overlay) sized like the help overlay. The border title
+// carries the expand-to-dispatch hint so the user knows pressing Enter on a
+// persona leads to a dispatch prompt.
 func (m *Model) renderActorsOverlay() string {
 	bw, bh := m.actorsOverlayBoxSize()
-	return titledBoxHeight(m.styles.DialogBody, bw, "Activity by persona", m.actors.View(), bh)
+	return titledBoxHeight(m.styles.DialogBody, bw, "Activity by persona  [Enter]expand to dispatch", m.actors.View(), bh)
 }
 
 // openHelp activates the requested reference overlay and re-sizes the help
@@ -533,7 +535,14 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.handleFormKey(k)
 	}
 
-	// Actors overlay (P) consumes navigation + p (add persona) + Esc until closed.
+	// Dispatch dialog consumes keys until closed (Esc). Checked before the
+	// actors overlay because dispatch can be opened from within the actors
+	// detail view and must take over key routing immediately.
+	if m.dispatchDlg.kind != dispatchNone {
+		return m.dispatchDlg.handleKey(k)
+	}
+
+	// Actors overlay (P) consumes navigation + Esc until closed.
 	if m.actorsOverlay {
 		switch k.String() {
 		case "esc":
@@ -543,8 +552,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			}
 			m.actorsOverlay = false
 			return nil
-		case "p":
-			return m.openPersonaCreateForm()
 		case "?":
 			m.openHelp(helpKeys)
 			return nil
@@ -584,11 +591,6 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// cycles the theme, mirroring the other overlays.
 	if m.capability.open {
 		return m.capability.handleKey(k)
-	}
-
-	// Dispatch dialog consumes keys until closed (Esc).
-	if m.dispatchDlg.kind != dispatchNone {
-		return m.dispatchDlg.handleKey(k)
 	}
 
 	// Personas overlay (read-only) consumes keys until closed (Esc).

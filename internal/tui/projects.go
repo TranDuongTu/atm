@@ -205,8 +205,6 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "P":
 		return p.openActorsOverlay()
-	case "p":
-		return p.m.openPersonaCreateForm()
 	}
 	switch p.view {
 	case pViewList:
@@ -575,11 +573,12 @@ func (p *projectsModel) projectColumnWidths() (codeW, tasksW, labelsW, updatedW,
 }
 
 // listPageSize returns the number of project rows that fit in the list
-// section at the given section height, after the caption/header/rule/footer
-// overhead. Shared by rendering (the visible window) and the "[" / "]" page
-// jump so both agree on what a "page" is.
+// section at the given section height, after the header/rule/footer
+// overhead (header + rule + footer divider + footer line = 4). Shared by
+// rendering (the visible window) and the "[" / "]" page jump so both agree
+// on what a "page" is.
 func (p *projectsModel) listPageSize(maxRows int) int {
-	availableRows := maxRows - 4 // caption + header + rule + footer
+	availableRows := maxRows - 4 // header + rule + footer divider + footer
 	if availableRows < 1 {
 		availableRows = 1
 	}
@@ -588,11 +587,6 @@ func (p *projectsModel) listPageSize(maxRows int) int {
 
 func (p *projectsModel) renderListRows(maxRows int) string {
 	var b strings.Builder
-	selected := p.m.projectScope
-	if selected == "" {
-		selected = "none"
-	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
 	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
 	header := fmt.Sprintf(" %-*s %-*s %*s %*s %*s", codeW, "CODE", nameW, "NAME", tasksW, "TASKS", labelsW, "LABELS", updatedW, "UPDATED")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(header)))
@@ -617,9 +611,9 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
 	}
 	if end == start {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
+		b.WriteString(dashboardFooter(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
 	} else {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(p.list)))))
+		b.WriteString(dashboardFooter(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(p.list)))))
 	}
 	return b.String()
 }
@@ -635,7 +629,8 @@ func (p *projectsModel) renderSummary(height int) string {
 		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	lines = append(lines, dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+	_ = project
+	_ = tasks
 
 	remaining := height - len(lines)
 	if remaining <= 0 {
@@ -703,8 +698,12 @@ func chartBoxHeights(total int) (int, int) {
 // pre-existing wrinkle inside the summary section is unchanged here; this
 // keys off the persona chart specifically because that is the section the
 // feed is being compared against.
+//
+// The fixed lines renderSummary emits above the charts are now just the
+// "Project Summary" header (1 line); the per-project "project: … tasks: …"
+// header was removed, so the remaining-height base is summaryH-1.
 func summaryChartsBoxed(summaryH int) bool {
-	remaining := summaryH - 2
+	remaining := summaryH - 1
 	if remaining < 6 {
 		return false
 	}
@@ -1070,11 +1069,11 @@ func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
 		if len(p.list) == 0 {
-			return "[a]add [p]ersona"
+			return "[a]dd"
 		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new"
+		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona"
 	case pViewDetail:
-		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
+		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [Esc]back"
 	}
 	return ""
 }

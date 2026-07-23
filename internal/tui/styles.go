@@ -288,6 +288,20 @@ func dashboardBlock(width int, block string) string {
 	return strings.Join(lines, "\n")
 }
 
+// dashboardFooter renders a table footer: a bottom divider followed by a
+// right-aligned, dim-gray summary line. `body` is the already-styled text
+// (e.g. "showing 1-2 of 3"); the caller passes the plain string and the
+// helper applies the muted style and right pad.
+func dashboardFooter(width int, body string) string {
+	contentW := dashboardContentWidth(width)
+	divider := dashboardLine(width, repeat("─", contentW))
+	pad := contentW - lipgloss.Width(body)
+	if pad < 0 {
+		pad = 0
+	}
+	return divider + "\n" + spaces(pad) + body
+}
+
 // windowLines returns the [start, end) bounds of a `pageSize`-line page of
 // `total` lines that contains `cursorLine`. Pages are pageSize-aligned (page
 // N covers lines [N*pageSize, (N+1)*pageSize)) rather than following the

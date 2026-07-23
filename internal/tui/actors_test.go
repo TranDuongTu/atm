@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -131,7 +132,7 @@ func TestActorsOverlayDetailBarsAlignToWidth(t *testing.T) {
 	}
 }
 
-func TestProjectsStatusHintMentionsPandp(t *testing.T) {
+func TestProjectsStatusHintMentionsP(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.SetSize(100, 30)
@@ -142,7 +143,89 @@ func TestProjectsStatusHintMentionsPandp(t *testing.T) {
 	if !strings.Contains(hint, "P") {
 		t.Fatalf("status hint should mention P (expand): %q", hint)
 	}
-	if !strings.Contains(hint, "p") {
-		t.Fatalf("status hint should mention p (add persona): %q", hint)
+	if strings.Contains(hint, "[p]") {
+		t.Fatalf("status hint should no longer mention [p] (add persona removed): %q", hint)
+	}
+}
+
+// TestActorsOverlayBorderTitleHintsDispatch verifies the P overlay border
+// title carries the expand-to-dispatch hint.
+func TestActorsOverlayBorderTitleHintsDispatch(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	update(t, m, "P")
+	view := m.View()
+	if !strings.Contains(view, "expand to dispatch") {
+		t.Fatalf("overlay border should hint expand-to-dispatch:\n%s", view)
+	}
+}
+
+// TestActorsOverlayDetailDispatchOpensDialog verifies that pressing D on a
+// persona in the actors detail view opens the dispatch dialog pre-set to
+// that persona, and that the dialog takes over key routing from the overlay.
+func TestActorsOverlayDetailDispatchOpensDialog(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 30)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	update(t, m, "P")
+	update(t, m, "enter") // expand to detail on the "staff" persona
+	if !m.actors.detail {
+		t.Fatal("enter should open detail view")
+	}
+	// Detail view renders the dispatch hint naming the hovered persona.
+	view := m.View()
+	if !strings.Contains(view, "dispatch staff") {
+		t.Fatalf("detail should show dispatch hint for hovered persona:\n%s", view)
+	}
+	// "staff" is an unknown persona → openDispatchFor falls back to manager.
+	update(t, m, "d")
+	if m.dispatchDlg.kind != dispatchManager {
+		t.Fatalf("D should open manager dispatch (fallback for unknown persona), got kind=%v", m.dispatchDlg.kind)
+	}
+	if m.dispatchDlg.project != "ATM" {
+		t.Errorf("dispatch project = %q want ATM", m.dispatchDlg.project)
+	}
+	// The dispatch dialog now owns key routing: Esc closes it, not the overlay.
+	update(t, m, "esc")
+	if m.dispatchDlg.kind != dispatchNone {
+		t.Fatal("Esc should close the dispatch dialog")
+	}
+	if !m.actorsOverlay || !m.actors.detail {
+		t.Fatal("actors overlay/detail should still be open after dispatch Esc")
+	}
+}
+
+// TestDispatchConciergeOmitsProject verifies the concierge dispatch kind
+// builds an argv without --project (concierge is project-optional).
+func TestDispatchConciergeOmitsProject(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	m.dispatchDlg.m = m
+	m.dispatchDlg.open(dispatchConcierge, "", "", "")
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("concierge should spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if strings.Contains(argv, "--project") {
+		t.Errorf("concierge argv must omit --project: %s", argv)
+	}
+	if !strings.Contains(argv, "--persona concierge") {
+		t.Errorf("concierge argv must set --persona concierge: %s", argv)
 	}
 }

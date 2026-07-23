@@ -24,7 +24,15 @@ const (
 	dispatchNone dispatchKind = iota
 	dispatchManager
 	dispatchDeveloper
+	dispatchConcierge
+	dispatchAdmin
 )
+
+// projectRequired reports whether the persona needs --project in its argv.
+// concierge and admin launch without a project.
+func (k dispatchKind) projectRequired() bool {
+	return k == dispatchManager || k == dispatchDeveloper
+}
 
 type agentOption struct {
 	name  string
@@ -58,14 +66,22 @@ type dispatchModel struct {
 }
 
 func (d *dispatchModel) persona() string {
-	if d.kind == dispatchDeveloper {
+	switch d.kind {
+	case dispatchDeveloper:
 		return "developer"
+	case dispatchConcierge:
+		return "concierge"
+	case dispatchAdmin:
+		return "admin"
 	}
 	return "manager"
 }
 
 func (d *dispatchModel) title() string {
-	t := d.project + " · " + d.persona()
+	t := d.persona()
+	if d.kind.projectRequired() {
+		t = d.project + " · " + d.persona()
+	}
 	if d.taskID != "" {
 		t += " · " + d.taskID
 	}
@@ -126,7 +142,11 @@ func (d *dispatchModel) submit() {
 		d.m.showToast("error: agent " + a.name + " not ready: " + a.hint)
 		return
 	}
-	argv := []string{"atm", "--persona", d.persona(), "--project", d.project, "--agent", a.name}
+	argv := []string{"atm", "--persona", d.persona()}
+	if d.kind.projectRequired() {
+		argv = append(argv, "--project", d.project)
+	}
+	argv = append(argv, "--agent", a.name)
 	if d.taskID != "" {
 		argv = append(argv, "--task", d.taskID)
 	}
@@ -185,5 +205,9 @@ func (d *dispatchModel) renderOverlay() string {
 	b.WriteString("\n" + styles.KeyMenuDim.Render("[←/→]agent  [Enter]dispatch  [Esc]close"))
 
 	bh := strings.Count(b.String(), "\n") + 3
-	return titledBoxHeight(styles.DialogBody, bw, "Dispatch "+d.persona()+" — "+d.project, b.String(), bh)
+	dialogTitle := "Dispatch " + d.persona()
+	if d.kind.projectRequired() {
+		dialogTitle += " — " + d.project
+	}
+	return titledBoxHeight(styles.DialogBody, bw, dialogTitle, b.String(), bh)
 }

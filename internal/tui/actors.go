@@ -71,8 +71,37 @@ func (a *actorsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		if len(a.groups) > 0 {
 			a.detail = true
 		}
+	case "d":
+		// Dispatch the hovered persona. Opens the dispatch dialog pre-set
+		// to this persona over the current project scope (developer/admin
+		// have no task context here, which is fine — the user steers the
+		// session iteratively once it spawns).
+		if a.detail && a.cursor < len(a.groups) {
+			return a.openDispatchFor(a.groups[a.cursor].Key)
+		}
 	case "esc":
 		a.detail = false
+	}
+	return nil
+}
+
+// openDispatchFor maps a persona name to its dispatch kind and opens the
+// dispatch dialog over the current project scope (empty for project-optional
+// personas). Falls back to manager for unknown personas.
+func (a *actorsModel) openDispatchFor(persona string) tea.Cmd {
+	m := a.m
+	project := m.projectScope
+	switch persona {
+	case "developer":
+		// Developer dispatch from the actors view has no task context; the
+		// user picks one inside the spawned session.
+		m.dispatchDlg.open(dispatchDeveloper, project, "", "")
+	case "concierge":
+		m.dispatchDlg.open(dispatchConcierge, "", "", "")
+	case "admin":
+		m.dispatchDlg.open(dispatchAdmin, "", "", "")
+	default:
+		m.dispatchDlg.open(dispatchManager, project, "", "")
 	}
 	return nil
 }
@@ -141,7 +170,10 @@ func (a *actorsModel) renderDetail(g activity.Group) string {
 	writeBreakdown(&b, a, "models", g.Models, nameW)
 	writeBreakdown(&b, a, "actions", g.Actions, nameW)
 	b.WriteString("\n")
-	b.WriteString(dashboardLine(a.width, a.m.styles.Muted.Render("[Esc] back")))
+	// Centered dispatch guidance for the hovered persona. Developer/admin
+	// launch without a task (the user steers the session once it spawns).
+	hint := fmt.Sprintf("[D] dispatch %s   [Esc] back", g.Key)
+	b.WriteString(centerLinesBoth([]string{a.m.styles.KeyMenuDim.Render(hint)}, a.width, 1))
 	return padToHeight(b.String(), a.contentHeight)
 }
 
