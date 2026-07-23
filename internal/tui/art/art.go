@@ -79,6 +79,14 @@ var registry []Theme
 
 func Register(t Theme) { registry = append(registry, t) }
 
+// init owns registration order; it is the auto-assign contract. Theme files
+// define types only — registration lives here, in spec order.
+func init() {
+	Register(wavesTheme{})
+	// TODO(ATM-4eae82): insert starfield, circuit, rain here in spec order
+	Register(dunesTheme{})
+}
+
 func Names() []string {
 	out := make([]string, 0, len(registry))
 	for _, t := range registry {
