@@ -4,6 +4,7 @@ Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>`
 
 <PERSONA_BLOCK>
 <MODE_BLOCK>
+<TASK_BLOCK>
 
 ## Orientation
 

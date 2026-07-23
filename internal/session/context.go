@@ -25,6 +25,8 @@ type ContextData struct {
 	Mode string
 	// Capability scopes the session to one enabled capability ("" = all).
 	Capability string
+	// Task assigns the session a single task; "" renders no assignment block.
+	Task string
 }
 
 // RenderContext substitutes ContextData into the session template. Empty
@@ -54,17 +56,23 @@ func RenderContext(d ContextData) string {
 		}
 	}
 
+	taskBlock := ""
+	if d.Task != "" {
+		taskBlock = fmt.Sprintf("## Assigned task\n\nThis session is assigned task `%s`. Read it first (`atm task show %s`), record your intent as a task comment before any design or code work, and keep every change in this session serving it.\n", d.Task, d.Task)
+	}
+
 	pairs := []string{
 		"<CODE>", d.Code,
 		"<PROJECT_NAME>", d.Name,
 		"<ACTOR>", d.Actor,
 		"<PERSONA_BLOCK>", pb.String(),
 		"<MODE_BLOCK>", modeBlock,
+		"<TASK_BLOCK>", taskBlock,
 	}
 	final := make([]string, 0, len(pairs))
 	for i := 0; i < len(pairs); i += 2 {
 		key, val := pairs[i], pairs[i+1]
-		if val == "" && key != "<PERSONA_BLOCK>" && key != "<MODE_BLOCK>" {
+		if val == "" && key != "<PERSONA_BLOCK>" && key != "<MODE_BLOCK>" && key != "<TASK_BLOCK>" {
 			final = append(final, key, key) // keep placeholder literal
 		} else {
 			final = append(final, key, val)
