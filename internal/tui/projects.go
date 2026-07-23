@@ -41,7 +41,7 @@ type projectsModel struct {
 	// personaCursor indexes into personaGroups for the inline "activity by
 	// persona" chart navigation. ctrl+up/down move it modelessly (like the
 	// events feed's shift+arrows); ctrl+right drills into the hovered
-	// persona's breakdown; ctrl+shift+right / D dispatches it directly.
+	// persona's breakdown; D dispatches it directly.
 	// personaDetailOffset scrolls the drilled-in breakdown body.
 	personaCursor       int
 	personaDrilled      bool
@@ -214,7 +214,7 @@ func (p *projectsModel) refresh() {
 func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	// Persona-chart navigation is modeless (like the events feed's
 	// shift+arrows): ctrl+up/down move the persona cursor, ctrl+right
-	// drills in, ctrl+left/Esc backs out, ctrl+shift+right dispatches.
+	// drills in, ctrl+left/Esc backs out, D dispatches.
 	// These take precedence over list/detail keys only in the list view
 	// (where the chart is visible).
 	if p.view == pViewList {
@@ -243,7 +243,7 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 // caller falls through to normal list/detail routing.
 func (p *projectsModel) handlePersonaChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	// If drilled into a persona detail, ctrl+up/down scroll the breakdown
-	// body, ctrl+left/Esc back out, D / ctrl+shift+right dispatch.
+	// body, ctrl+left/Esc back out, D dispatches the hovered persona.
 	if p.personaDrilled {
 		switch k.String() {
 		case "ctrl+left", "esc":
@@ -258,7 +258,7 @@ func (p *projectsModel) handlePersonaChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		case "ctrl+down":
 			p.personaDetailOffset++
 			return nil, true
-		case "ctrl+shift+right", "d":
+		case "d", "D":
 			if p.personaCursor < len(p.personaGroups) {
 				return p.openDispatchForPersona(p.personaGroups[p.personaCursor].Key), true
 			}
@@ -286,12 +286,6 @@ func (p *projectsModel) handlePersonaChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		if p.personaCursor < len(p.personaGroups) {
 			p.personaDrilled = true
 			p.personaDetailOffset = 0
-		}
-		return nil, true
-	case "ctrl+shift+right", "d":
-		p.ensurePersonaGroups()
-		if p.personaCursor < len(p.personaGroups) {
-			return p.openDispatchForPersona(p.personaGroups[p.personaCursor].Key), true
 		}
 		return nil, true
 	}
@@ -920,10 +914,10 @@ func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxL
 }
 
 // renderPersonaDetailChart renders the drilled-in persona breakdown inside
-// the chart box. The border title names the persona; the body shows the
-// agents/models/actions breakdown bars.
+// the chart box. The border title names the persona and carries the key
+// hints; the body shows the agents/models/actions breakdown bars.
 func (p *projectsModel) renderPersonaDetailChart(g activity.Group, maxLines int) []string {
-	title := fmt.Sprintf("persona: %s", g.Key)
+	title := fmt.Sprintf("persona: %s  [Ctrl+↑/↓] [D]dispatch [Ctrl+←]back", g.Key)
 	if maxLines < 4 {
 		return []string{dashboardLine(p.width, title)}[:maxLines]
 	}

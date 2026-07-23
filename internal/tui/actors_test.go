@@ -113,30 +113,8 @@ func TestPersonaChartEscFromDetailBacksOut(t *testing.T) {
 	}
 }
 
-// TestPersonaChartCtrlShiftRightDispatches verifies ctrl+shift+right
-// dispatches the hovered persona directly (no drill-in needed).
-func TestPersonaChartCtrlShiftRightDispatches(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 40)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	fd := &fakeDispatcher{preview: "tmux · new window"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-
-	// The default cursor is on persona 0 ("staff" — unknown → manager fallback).
-	update(t, m, "ctrl+shift+right")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatalf("ctrl+shift+right should dispatch hovered persona (manager fallback), got kind=%v", m.dispatchDlg.kind)
-	}
-	if m.dispatchDlg.project != "ATM" {
-		t.Errorf("dispatch project = %q want ATM", m.dispatchDlg.project)
-	}
-}
-
 // TestPersonaChartDDispatchesWhenDrilled verifies the D key dispatches the
-// drilled-in persona (the reliable route for terminals that don't emit
-// ctrl+shift+right distinctly).
+// drilled-in persona.
 func TestPersonaChartDDispatchesWhenDrilled(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)

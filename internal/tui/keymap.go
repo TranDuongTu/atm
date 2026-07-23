@@ -49,7 +49,6 @@ var keymapRows = []keyEntry{
 	{"H", "toggle history (project detail)", "-", "-", "history overlay (task detail)"},
 	{"Ctrl+Up/Down", "scroll persona chart", "-", "-", "-"},
 	{"Ctrl+Right", "drill into persona", "-", "-", "-"},
-	{"Ctrl+Shift+Right / D", "dispatch persona", "-", "-", "-"},
 	{"Ctrl+Left", "back from persona detail", "-", "-", "-"},
 	{"T", "cycle theme", "cycle theme", "cycle theme", "cycle theme"},
 	{"?", "open keys help", "open keys help", "open keys help", "close help overlay"},
