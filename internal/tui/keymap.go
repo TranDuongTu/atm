@@ -51,6 +51,7 @@ var keymapRows = []keyEntry{
 	{"T", "cycle theme", "cycle theme", "cycle theme", "cycle theme"},
 	{"?", "open keys help", "open keys help", "open keys help", "close help overlay"},
 	{"C", "open conventions", "capabilities switcher", "open conventions", "close help overlay"},
+	{"D", "dispatch manager", "dispatch developer on task", "-", "-"},
 	{"g", "plugin prefix", "plugin prefix", "plugin prefix", "plugin prefix"},
 	{"g 1", "open indexer overlay", "open indexer overlay", "open indexer overlay", "open indexer overlay"},
 	{"q / ctrl+c", "quit", "quit", "quit", "quit"},

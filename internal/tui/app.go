@@ -99,6 +99,12 @@ type Model struct {
 	actors     actorsModel
 	help       helpModel
 
+	// dispatch is the composition-root-injected dispatch port (the
+	// *dispatch.Service facade). nil disables dispatch with a clear error.
+	dispatcher     Dispatcher
+	agentOptionsFn func() []agentOption
+	dispatchDlg    dispatchModel
+
 	form *Form
 
 	formKind formAction
@@ -139,9 +145,10 @@ type Model struct {
 
 // NewModelOpts are the inputs to NewModel.
 type NewModelOpts struct {
-	Service  core.Service
-	Actor    string
-	Registry *capability.Registry
+	Service    core.Service
+	Actor      string
+	Registry   *capability.Registry
+	Dispatcher Dispatcher
 }
 
 // NewModel builds the root Model over an opened store (auto-initing the
@@ -178,6 +185,9 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.capability = newCapabilityModel(m)
 	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
+	m.dispatcher = opts.Dispatcher
+	m.agentOptionsFn = agentOptions
+	m.dispatchDlg.m = m
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -574,6 +584,11 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.capability.handleKey(k)
 	}
 
+	// Dispatch dialog consumes keys until closed (Esc).
+	if m.dispatchDlg.kind != dispatchNone {
+		return m.dispatchDlg.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -626,6 +641,27 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 		m.openHelp(helpConventions)
 		return nil
+	case "D":
+		if m.focused == paneProjects {
+			if row, ok := m.projects.selected(); ok {
+				m.dispatchDlg.open(dispatchManager, row.code, "", "")
+			}
+			return nil
+		}
+		if m.focused == paneTasks {
+			if r, ok := m.tasks.selectedRow(); ok {
+				project := m.projectScope
+				if r.task != nil && r.task.ProjectCode != "" {
+					project = r.task.ProjectCode
+				}
+				if project == "" {
+					m.showToast("error: no project scope for dispatch")
+					return nil
+				}
+				m.dispatchDlg.open(dispatchDeveloper, project, r.id, r.title)
+			}
+			return nil
+		}
 	case "T":
 		m.cycleTheme()
 		return nil
@@ -832,6 +868,9 @@ func (m *Model) View() string {
 	}
 	if m.capability.open {
 		out = m.placeOverlay(out, m.capability.renderOverlay())
+	}
+	if m.dispatchDlg.kind != dispatchNone {
+		out = m.placeOverlay(out, m.dispatchDlg.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

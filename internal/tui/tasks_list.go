@@ -169,6 +169,20 @@ func (t *tasksModel) openDetailAtCursor() tea.Cmd {
 	return nil
 }
 
+// selectedRow returns the task row under the cursor in either the flat or
+// the grouped view. The flat/grouped branching mirrors openDetailAtCursor
+// (flat) and rowAtCursor (grouped): grouped delegates to rowAtCursor, flat
+// indexes t.rows with a bounds check.
+func (t *tasksModel) selectedRow() (taskRow, bool) {
+	if t.grouped() {
+		return t.rowAtCursor()
+	}
+	if t.cursor >= 0 && t.cursor < len(t.rows) {
+		return t.rows[t.cursor], true
+	}
+	return taskRow{}, false
+}
+
 // rowAtCursor returns the leaf row the cursor currently sits on in the
 // grouped view, or (zero, false) if the cursor is on a group/bucket header
 // (or out of range). Used to make `Enter` context-sensitive per the spec.
