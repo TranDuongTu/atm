@@ -240,6 +240,38 @@ atm agents args claude -- --dangerously-skip-permission
 atm --persona developer --project ATM --agent codex -- --yolo
 ```
 
+### Dispatching Sessions From The TUI
+
+The TUI can spawn manager and developer sessions into a separate terminal
+surface (herdr pane → tmux window → new terminal tab, auto-detected in that
+order). From the projects pane, `D` dispatches a **manager** session for the
+selected project; from the tasks pane, `D` dispatches a **developer** session
+bound to the selected task row. The only interactive field is the host agent
+(cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its
+missing-bin hint. `V` opens a read-only **personas** browser (list built-ins
+and customs, `Enter` views a persona's effective prompt, `Esc` backs out).
+
+A developer session can equally be handed a task from the shell with the new
+`--task <id>` flag — it is validated against `--project`'s store, exported to
+the host as `ATM_TASK=<id>`, and rendered into the session context as an
+assigned-task block (so it works identically for `launch: hook` and
+`launch: prompt` personas, and task-keyed context caches prevent concurrent
+task sessions from sharing a context file):
+
+```sh
+atm --persona developer --project ATM --agent claude --task ATM-4b7e24
+```
+
+When neither herdr nor tmux is present, the terminal fallback opens a new tab
+in a known emulator (kitty, wezterm, gnome-terminal, konsole, alacritty,
+foot). Override it by hand-editing `dispatch.json` at the store root
+(sibling of `agents.json`) with a `terminal_cmd` template run via `sh -c` and
+`{cmd}` (shell-quoted argv) / `{dir}` / `{title}` placeholders:
+
+```json
+{ "terminal_cmd": "kitty @ launch --type=tab --cwd {dir} --tab-title {title} -- {cmd}" }
+```
+
 ### Lower-Level API
 
 The lower-level task, label, project, store, search, index, persona, and activity commands remain available for agents and scripts. Discover them with:

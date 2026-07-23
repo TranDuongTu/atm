@@ -198,13 +198,12 @@ Behavior:
   closes the dialog, and reports success or the spawn error in the status
   bar. Fire-and-forget: no record is kept in the TUI.
 
-The existing `internal/tui/form.go` component is text-input-only; this work
-adds a **select/cycle field type** (used here for the agent picker, reusable
-by later forms).
-
-Keybinding specifics (which letter, help-pane entries) follow the existing
-keymap conventions in `internal/tui/keymap.go` and are settled at
-implementation time.
+The dialogs are dedicated overlay sub-models following the existing
+`capabilityModel` pattern (`internal/tui/dispatch.go`), not a `form.go`
+select/cycle field; `form.go` is unchanged. Keybinding specifics (which
+letter, help-pane entries) follow the existing keymap conventions in
+`internal/tui/keymap.go`: `D` dispatches a manager (projects pane) or
+developer-on-task (tasks pane) session; `V` opens the personas browser.
 
 ## Testing
 
@@ -221,13 +220,11 @@ implementation time.
   detection-failure disable; dispatch invocation argv (through a fake
   dispatcher); status-bar outcomes. Existing `internal/tui` test patterns
   apply.
-- Form component: select/cycle field unit tests.
 
 ## Implementation stages (one branch)
 
 1. Session launcher `--task` / `ATM_TASK` / context assignment block.
 2. `internal/dispatch` package: targets, detection, config template.
-3. Form select/cycle field type.
-4. TUI dispatch dialogs + keybindings + status-bar wiring.
-5. TUI personas overlay.
-6. Docs (README, AGENTS.md) + ledger updates.
+3. TUI dispatch dialogs (overlay sub-models) + keybindings + status-bar wiring.
+4. TUI personas overlay.
+5. Docs (README, CHANGELOG) + ledger updates.
