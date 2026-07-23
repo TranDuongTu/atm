@@ -83,7 +83,7 @@ func TestAppendAgentArgs_DoesNotMutateBase(t *testing.T) {
 }
 
 func TestContextCachePathPersona(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "developer", "", "")
+	got := contextCachePath("/STORE", "FOO", "developer", "", "", "")
 	want := "/STORE/projects/FOO/cache/session-developer.md"
 	if got != want {
 		t.Fatalf("contextCachePath developer = %q, want %q", got, want)
@@ -91,7 +91,7 @@ func TestContextCachePathPersona(t *testing.T) {
 }
 
 func TestContextCachePathManagerMode(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "manager", "autopilot", "")
+	got := contextCachePath("/STORE", "FOO", "manager", "autopilot", "", "")
 	want := "/STORE/projects/FOO/cache/session-manager-autopilot.md"
 	if got != want {
 		t.Fatalf("contextCachePath manager-autopilot = %q, want %q", got, want)
@@ -99,7 +99,7 @@ func TestContextCachePathManagerMode(t *testing.T) {
 }
 
 func TestContextCachePathManagerScopedCapability(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "manager", "brief", "contextmap")
+	got := contextCachePath("/STORE", "FOO", "manager", "brief", "contextmap", "")
 	want := "/STORE/projects/FOO/cache/session-manager-brief-contextmap.md"
 	if got != want {
 		t.Fatalf("contextCachePath manager-scoped = %q, want %q", got, want)
@@ -107,7 +107,7 @@ func TestContextCachePathManagerScopedCapability(t *testing.T) {
 }
 
 func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
-	got := contextCachePath("/STORE", "", "concierge", "", "")
+	got := contextCachePath("/STORE", "", "concierge", "", "", "")
 	want := "/STORE/cache/session-concierge.md"
 	if got != want {
 		t.Fatalf("contextCachePath no-project = %q, want %q", got, want)
@@ -115,7 +115,7 @@ func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
 }
 
 func TestContextCachePathNormalizes(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "")
+	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "", "")
 	want := "/STORE/projects/FOO/cache/session-dev-staff.md"
 	if got != want {
 		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
@@ -166,6 +166,17 @@ func TestWriteContextIfDiffNoOpOnMatch(t *testing.T) {
 	}
 	if !info.ModTime().Equal(prevMtime) {
 		t.Fatalf("writeContextIfDiff should be a no-op when content matches; mtime changed")
+	}
+}
+
+// TestCacheKeyWithTask verifies the task id joins the cache key so two
+// concurrent sessions on different tasks never share a context file.
+func TestCacheKeyWithTask(t *testing.T) {
+	if got, want := cacheKey("developer", "", "", "ATM-4b7e24"), "session-developer-atm-4b7e24"; got != want {
+		t.Fatalf("cacheKey = %q, want %q", got, want)
+	}
+	if got, want := cacheKey("developer", "", "", ""), "session-developer"; got != want {
+		t.Fatalf("cacheKey no-task = %q, want %q", got, want)
 	}
 }
 

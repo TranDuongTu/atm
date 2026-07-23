@@ -88,16 +88,18 @@ type Model struct {
 	// does not show through), unlike forms/confirms which layer on top.
 	helpOverlay helpOverlayKind
 
-	// actorsOverlay, when true, renders the persona activity list/detail as a
-	// centered modal over the workspace (opened by P in the Projects pane).
-	actorsOverlay bool
-
 	projects   projectsModel
 	tasks      tasksModel
 	boards     boardsModel
 	capability capabilityModel
-	actors     actorsModel
 	help       helpModel
+
+	// dispatch is the composition-root-injected dispatch port (the
+	// *dispatch.Service facade). nil disables dispatch with a clear error.
+	dispatcher     Dispatcher
+	agentOptionsFn func() []agentOption
+	dispatchDlg    dispatchModel
+	personasOv     personasModel
 
 	form *Form
 
@@ -139,9 +141,10 @@ type Model struct {
 
 // NewModelOpts are the inputs to NewModel.
 type NewModelOpts struct {
-	Service  core.Service
-	Actor    string
-	Registry *capability.Registry
+	Service    core.Service
+	Actor      string
+	Registry   *capability.Registry
+	Dispatcher Dispatcher
 }
 
 // NewModel builds the root Model over an opened store (auto-initing the
@@ -176,8 +179,11 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
 	m.capability = newCapabilityModel(m)
-	m.actors = newActorsModel(m)
 	m.help = newHelpModel(m)
+	m.dispatcher = opts.Dispatcher
+	m.agentOptionsFn = agentOptions
+	m.dispatchDlg.m = m
+	m.personasOv.m = m
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -254,37 +260,6 @@ func (m *Model) helpBoxSize() (int, int) {
 		bh = 1
 	}
 	return bw, bh
-}
-
-// actorsOverlayBoxSize returns the outer dimensions of the centered modal that
-// hosts the P overlay. It mirrors helpBoxSize's ~80% sizing so the persona list
-// and detail breakdowns stay readable.
-func (m *Model) actorsOverlayBoxSize() (int, int) {
-	bw, bh := m.helpBoxSize()
-	return bw, bh
-}
-
-// sizeActorsToOverlay sizes the actors model to the overlay box's inner area.
-// titledBoxHeight draws a 1-cell border + title row + bottom row, so inner =
-// (bw-2) x (bh-2).
-func (m *Model) sizeActorsToOverlay() {
-	bw, bh := m.actorsOverlayBoxSize()
-	innerW := bw - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := bh - 2
-	if innerH < 1 {
-		innerH = 1
-	}
-	m.actors.SetSize(innerW, innerH)
-}
-
-// renderActorsOverlay renders the persona activity list/detail as a centered
-// modal box (the P overlay) sized like the help overlay.
-func (m *Model) renderActorsOverlay() string {
-	bw, bh := m.actorsOverlayBoxSize()
-	return titledBoxHeight(m.styles.DialogBody, bw, "Activity by persona", m.actors.View(), bh)
 }
 
 // openHelp activates the requested reference overlay and re-sizes the help
@@ -521,34 +496,16 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.handleFormKey(k)
 	}
 
-	// Actors overlay (P) consumes navigation + p (add persona) + Esc until closed.
-	if m.actorsOverlay {
-		switch k.String() {
-		case "esc":
-			if m.actors.detail {
-				m.actors.handleKey(k)
-				return nil
-			}
-			m.actorsOverlay = false
-			return nil
-		case "p":
-			return m.openPersonaCreateForm()
-		case "?":
-			m.openHelp(helpKeys)
-			return nil
-		case "C":
-			m.openHelp(helpConventions)
-			return nil
-		case "T":
-			m.cycleTheme()
-			return nil
-		}
-		return m.actors.handleKey(k)
+	// Dispatch dialog consumes keys until closed (Esc). Checked before the
+	// actors overlay because dispatch can be opened from within the actors
+	// detail view and must take over key routing immediately.
+	if m.dispatchDlg.kind != dispatchNone {
+		return m.dispatchDlg.handleKey(k)
 	}
 
 	// Plugin overlay consumes keys until closed (Esc). T/?/C still work so the
 	// global help/theme shortcuts remain reachable while a plugin overlay is
-	// open (mirrors the actors-overlay behavior above).
+	// open.
 	if m.pluginOverlay != -1 {
 		switch k.String() {
 		case "esc":
@@ -572,6 +529,11 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// cycles the theme, mirroring the other overlays.
 	if m.capability.open {
 		return m.capability.handleKey(k)
+	}
+
+	// Personas overlay (read-only) consumes keys until closed (Esc).
+	if m.personasOv.open {
+		return m.personasOv.handleKey(k)
 	}
 
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
@@ -626,6 +588,37 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 		m.openHelp(helpConventions)
 		return nil
+	case "D":
+		// When the persona chart is drilled into a persona, D dispatches
+		// that persona (takes precedence over the project-row manager
+		// dispatch). The projects pane's handlePersonaChartKey also handles
+		// ctrl+shift+right for terminals that emit it distinctly.
+		if m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
+			return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
+		}
+		if m.focused == paneProjects {
+			if row, ok := m.projects.selected(); ok {
+				m.dispatchDlg.open(dispatchManager, row.code, "", "")
+			}
+			return nil
+		}
+		if m.focused == paneTasks {
+			if r, ok := m.tasks.selectedRow(); ok {
+				project := m.projectScope
+				if r.task != nil && r.task.ProjectCode != "" {
+					project = r.task.ProjectCode
+				}
+				if project == "" {
+					m.showToast("error: no project scope for dispatch")
+					return nil
+				}
+				m.dispatchDlg.open(dispatchDeveloper, project, r.id, r.title)
+			}
+			return nil
+		}
+	case "V":
+		m.personasOv.openOverlay()
+		return nil
 	case "T":
 		m.cycleTheme()
 		return nil
@@ -638,7 +631,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// If a per-detail overlay (comment peek or history) is open, defer to
 	// the pane's overlay Esc handler so Esc returns to the detail rather
 	// than leaping out to the list and leaving the overlay state stale.
+	// Persona-chart drill-in Esc (back from detail) is handled by the
+	// projects pane's own key handler.
 	if k.String() == "esc" {
+		if m.focused == paneProjects && m.projects.personaDrilled {
+			return m.projects.handleKey(k)
+		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
 			m.projects.backToList()
 			return nil
@@ -767,7 +765,6 @@ func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
 		return nil
 	}
 	m.showToast(fmt.Sprintf("created persona %s", name))
-	m.actors.refresh()
 	m.refreshAll()
 	return nil
 }
@@ -824,14 +821,17 @@ func (m *Model) View() string {
 	if m.confirm != confirmNone {
 		out = m.placeOverlay(out, m.renderConfirm())
 	}
-	if m.actorsOverlay {
-		out = m.placeOverlay(out, m.renderActorsOverlay())
-	}
 	if m.pluginOverlay != -1 {
 		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))
 	}
 	if m.capability.open {
 		out = m.placeOverlay(out, m.capability.renderOverlay())
+	}
+	if m.dispatchDlg.kind != dispatchNone {
+		out = m.placeOverlay(out, m.dispatchDlg.renderOverlay())
+	}
+	if m.personasOv.open {
+		out = m.placeOverlay(out, m.personasOv.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

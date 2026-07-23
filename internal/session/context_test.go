@@ -87,3 +87,31 @@ func TestRenderContextNoMode(t *testing.T) {
 		t.Fatal("no mode selected → no mode block")
 	}
 }
+
+// TestRenderContextTaskBlock verifies ContextData.Task renders an assigned-task
+// block naming the task, and that an empty Task renders neither the block nor
+// a literal placeholder.
+func TestRenderContextTaskBlock(t *testing.T) {
+	spec, ok := skills.Persona("developer")
+	if !ok {
+		t.Fatal("built-in developer persona missing")
+	}
+	out := RenderContext(ContextData{
+		Code: "ATM", Name: "Agent Tasks Management",
+		Actor: "developer@claude:unset", Spec: spec, Task: "ATM-4b7e24",
+	})
+	if !strings.Contains(out, "## Assigned task") {
+		t.Fatalf("missing assigned-task block:\n%s", out)
+	}
+	if !strings.Contains(out, "`ATM-4b7e24`") || !strings.Contains(out, "atm task show ATM-4b7e24") {
+		t.Fatalf("task block must name the task and the show command:\n%s", out)
+	}
+	if strings.Contains(out, "<TASK_BLOCK>") {
+		t.Fatalf("literal placeholder leaked:\n%s", out)
+	}
+
+	out = RenderContext(ContextData{Code: "ATM", Name: "x", Actor: "a", Spec: spec})
+	if strings.Contains(out, "## Assigned task") || strings.Contains(out, "<TASK_BLOCK>") {
+		t.Fatalf("no-task render must omit block and placeholder:\n%s", out)
+	}
+}

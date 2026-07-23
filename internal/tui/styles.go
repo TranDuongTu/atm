@@ -185,6 +185,19 @@ func centerBlockBoth(s string, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
+// centerLine returns s centered within w columns, with the style applied to
+// the rendered text (the padding is unstyled). Useful for one-line centered
+// headings inside a fixed-width box.
+func centerLine(s string, w int, style lipgloss.Style) string {
+	rendered := style.Render(s)
+	width := lipgloss.Width(rendered)
+	if width >= w {
+		return rendered
+	}
+	pad := (w - width) / 2
+	return spaces(pad) + rendered
+}
+
 // centerLinesBoth top-pads pre-rendered lines to sit in the middle of an
 // h-line box, while keeping the text left-aligned inside the pane. Returns the
 // block without final height padding; callers pad to their content height so
@@ -286,6 +299,20 @@ func dashboardBlock(width int, block string) string {
 		lines[i] = dashboardLine(width, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// dashboardFooter renders a table footer: a bottom divider followed by a
+// right-aligned, dim-gray summary line. `body` is the already-styled text
+// (e.g. "showing 1-2 of 3"); the caller passes the plain string and the
+// helper applies the muted style and right pad.
+func dashboardFooter(width int, body string) string {
+	contentW := dashboardContentWidth(width)
+	divider := dashboardLine(width, repeat("─", contentW))
+	pad := contentW - lipgloss.Width(body)
+	if pad < 0 {
+		pad = 0
+	}
+	return divider + "\n" + spaces(pad) + body
 }
 
 // windowLines returns the [start, end) bounds of a `pageSize`-line page of

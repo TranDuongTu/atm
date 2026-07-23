@@ -10,9 +10,11 @@ import (
 // Run launches the Bubble Tea TUI over an already-opened store, with the
 // given free-form actor id. The composition root (cmd/atm) resolves the
 // store path and opens the concrete store; Run auto-inits it if absent,
-// builds the root Model, and runs the program until the user quits.
-func Run(svc core.Service, actor string, reg *capability.Registry) error {
-	m, err := NewModel(NewModelOpts{Service: svc, Actor: actor, Registry: reg})
+// builds the root Model, and runs the program until the user quits. d is
+// the dispatch port (the *dispatch.Service facade); nil disables dispatch
+// with a clear error in the dialog.
+func Run(svc core.Service, actor string, reg *capability.Registry, d Dispatcher) error {
+	m, err := NewModel(NewModelOpts{Service: svc, Actor: actor, Registry: reg, Dispatcher: d})
 	if err != nil {
 		return err
 	}

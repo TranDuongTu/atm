@@ -24,6 +24,7 @@ type sessionOpts struct {
 	Mode        string
 	Capability  string
 	Agent       string
+	Task        string
 	Integration string
 	DefaultArgs []string
 	ExtraArgs   []string
@@ -138,6 +139,20 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		code, projName = p.Code, p.Name
 	}
 
+	if opts.Task != "" {
+		if code == "" {
+			return fmt.Errorf("%w: --task requires --project", ErrUsage)
+		}
+		t, err := s.GetTask(opts.Task)
+		if err != nil {
+			return err
+		}
+		if t.ProjectCode != code {
+			return fmt.Errorf("%w: task %s belongs to project %s, not %s", ErrUsage, t.ID, t.ProjectCode, code)
+		}
+		opts.Task = t.ID
+	}
+
 	// Validate --capability against the project's enabled set AFTER the project
 	// is resolved: st.registry may be un-narrowed when the project was just
 	// auto-created by ensureProjectForLaunch (mountRegistry degraded to the
@@ -170,11 +185,12 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	}
 	runID := newRunID(runCode)
 	timestamp := core.RFC3339UTC(now)
-	contextPath := contextCachePath(s.StorePath(), code, spec.Name, mode, opts.Capability)
+	contextPath := contextCachePath(s.StorePath(), code, spec.Name, mode, opts.Capability, opts.Task)
 
 	rendered := session.RenderContext(session.ContextData{
 		Code: code, Name: projName, Actor: actor,
 		Spec: spec, Personality: personality, Mode: mode, Capability: opts.Capability,
+		Task: opts.Task,
 	})
 	if err := writeContextIfDiff(contextPath, []byte(rendered)); err != nil {
 		return fmt.Errorf("write context file %s: %w", contextPath, err)
@@ -190,7 +206,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	}
 	envArgs := agentEnvArgs(e.Launcher, e.Integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)
-	envValues := sessionEnvValues(code, actor, runID, contextPath, l.Name(), spec.Name, role, mode, opts.Capability, timestamp)
+	envValues := sessionEnvValues(code, actor, runID, contextPath, l.Name(), spec.Name, role, mode, opts.Capability, opts.Task, timestamp)
 	env := assembleEnv(envValues)
 	if err := emitLaunchHeader(st, spec.Name, code, runID, contextPath, l.Name(), argv, envValues); err != nil {
 		return err
@@ -211,7 +227,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 // session-start hooks that gate on it) and the persona name otherwise.
 // ATM_MODE / ATM_CAPABILITY are omitted when empty (the host agent can
 // distinguish "no mode" from "named mode").
-func sessionEnvValues(project, actor, runID, contextPath, agentName, persona, role, mode, capability, timestamp string) map[string]string {
+func sessionEnvValues(project, actor, runID, contextPath, agentName, persona, role, mode, capability, task, timestamp string) map[string]string {
 	m := map[string]string{
 		"ATM_ROLE":         role,
 		"ATM_PROJECT":      project,
@@ -228,6 +244,9 @@ func sessionEnvValues(project, actor, runID, contextPath, agentName, persona, ro
 	if capability != "" {
 		m["ATM_CAPABILITY"] = capability
 	}
+	if task != "" {
+		m["ATM_TASK"] = task
+	}
 	return m
 }
 
@@ -241,13 +260,14 @@ func newSessionContextCmd(st *cliState) *cobra.Command {
 		Actor      string
 		Mode       string
 		Capability string
+		Task       string
 	}
 	cmd := &cobra.Command{
 		Use:    "session-context",
 		Short:  "Print a persona's rendered session prompt to stdout",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderSessionContext(st, opts.Persona, opts.Project, opts.Actor, opts.Mode, opts.Capability)
+			return renderSessionContext(st, opts.Persona, opts.Project, opts.Actor, opts.Mode, opts.Capability, opts.Task)
 		},
 	}
 	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name")
@@ -255,6 +275,7 @@ func newSessionContextCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id (optional)")
 	cmd.Flags().StringVar(&opts.Mode, "mode", "", "persona mode (default: the persona's default_mode)")
 	cmd.Flags().StringVar(&opts.Capability, "capability", "", "scope to one capability")
+	cmd.Flags().StringVar(&opts.Task, "task", "", "assign the session a task (rendered into the prompt; not validated here)")
 	_ = cmd.MarkFlagRequired("persona")
 	return cmd
 }
@@ -271,7 +292,7 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 		Short:  "Print the ATM manager system prompt to stdout (alias of session-context --persona manager)",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderSessionContext(st, "manager", opts.Project, opts.Actor, "", "")
+			return renderSessionContext(st, "manager", opts.Project, opts.Actor, "", "", "")
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project code")
@@ -282,7 +303,7 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 // renderSessionContext is the shared render path for `session-context` and the
 // `manage-context` alias: resolve the persona, apply the mode, look up the
 // project name (or leave the placeholder), and emit the rendered prompt.
-func renderSessionContext(st *cliState, persona, project, actor, mode, capability string) error {
+func renderSessionContext(st *cliState, persona, project, actor, mode, capability, task string) error {
 	s, err := st.openStore()
 	if err != nil {
 		return err
@@ -302,6 +323,7 @@ func renderSessionContext(st *cliState, persona, project, actor, mode, capabilit
 	data := session.ContextData{
 		Code: project, Actor: actor,
 		Spec: spec, Personality: personality, Mode: resolvedMode, Capability: capability,
+		Task: task,
 	}
 	if project != "" {
 		data.Name = project

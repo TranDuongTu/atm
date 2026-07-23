@@ -37,6 +37,16 @@ type projectsModel struct {
 	// stay pure), so out-of-range values persist harmlessly until the next
 	// key handler that moves it.
 	logsOffset int
+
+	// personaCursor indexes into personaGroups for the inline "activity by
+	// persona" chart navigation. ctrl+up/down move it modelessly (like the
+	// events feed's shift+arrows); ctrl+right drills into the hovered
+	// persona's breakdown; D dispatches it directly.
+	// personaDetailOffset scrolls the drilled-in breakdown body.
+	personaCursor       int
+	personaDrilled      bool
+	personaGroups       []activity.Group
+	personaDetailOffset int
 }
 
 type pView int
@@ -202,17 +212,124 @@ func (p *projectsModel) refresh() {
 }
 
 func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	// Persona-chart navigation is modeless (like the events feed's
+	// shift+arrows): ctrl+up/down move the persona cursor, ctrl+right
+	// drills in, ctrl+left/Esc backs out, D dispatches.
+	// These take precedence over list/detail keys only in the list view
+	// (where the chart is visible).
+	if p.view == pViewList {
+		if cmd, handled := p.handlePersonaChartKey(k); handled {
+			return cmd
+		}
+	}
 	switch k.String() {
 	case "P":
-		return p.openActorsOverlay()
-	case "p":
-		return p.m.openPersonaCreateForm()
+		// No-op: P no longer opens an overlay or toggles a focus mode.
+		// Kept in keymap for backwards discoverability; the chart is
+		// always navigable via ctrl+arrows.
+		return nil
 	}
 	switch p.view {
 	case pViewList:
 		return p.handleListKey(k)
 	case pViewDetail:
 		return p.handleDetailKey(k)
+	}
+	return nil
+}
+
+// handlePersonaChartKey handles the modeless persona-chart navigation keys.
+// Returns (cmd, true) if the key was claimed, (nil, false) otherwise so the
+// caller falls through to normal list/detail routing.
+func (p *projectsModel) handlePersonaChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
+	// If drilled into a persona detail, ctrl+up/down scroll the breakdown
+	// body, ctrl+left/Esc back out, D dispatches the hovered persona.
+	if p.personaDrilled {
+		switch k.String() {
+		case "ctrl+left", "esc":
+			p.personaDrilled = false
+			p.personaDetailOffset = 0
+			return nil, true
+		case "ctrl+up":
+			if p.personaDetailOffset > 0 {
+				p.personaDetailOffset--
+			}
+			return nil, true
+		case "ctrl+down":
+			p.personaDetailOffset++
+			return nil, true
+		case "d", "D":
+			if p.personaCursor < len(p.personaGroups) {
+				return p.openDispatchForPersona(p.personaGroups[p.personaCursor].Key), true
+			}
+			return nil, true
+		}
+		// While drilled, list keys (j/k/etc) still work on the project list
+		// above — fall through.
+		return nil, false
+	}
+	switch k.String() {
+	case "ctrl+up":
+		p.ensurePersonaGroups()
+		if p.personaCursor > 0 {
+			p.personaCursor--
+		}
+		return nil, true
+	case "ctrl+down":
+		p.ensurePersonaGroups()
+		if p.personaCursor < len(p.personaGroups)-1 {
+			p.personaCursor++
+		}
+		return nil, true
+	case "ctrl+right":
+		p.ensurePersonaGroups()
+		if p.personaCursor < len(p.personaGroups) {
+			p.personaDrilled = true
+			p.personaDetailOffset = 0
+		}
+		return nil, true
+	}
+	return nil, false
+}
+
+// ensurePersonaGroups lazily loads the persona groups from the current
+// project's event log if not yet loaded (the chart is always navigable).
+func (p *projectsModel) ensurePersonaGroups() {
+	if p.personaGroups != nil {
+		return
+	}
+	p.refreshPersonaGroups()
+}
+
+func (p *projectsModel) refreshPersonaGroups() {
+	p.personaGroups = nil
+	p.personaCursor = 0
+	code := p.m.projectScope
+	if code == "" {
+		return
+	}
+	entries, err := p.m.store.ReadLogCached(code)
+	if err != nil {
+		return
+	}
+	p.personaGroups = activity.Aggregate(activity.Build(entries), "persona")
+}
+
+// openDispatchForPersona maps a persona name to its dispatch kind and opens
+// the dispatch dialog over the current project scope (empty for
+// project-optional personas). Falls back to manager for unknown personas.
+func (p *projectsModel) openDispatchForPersona(persona string) tea.Cmd {
+	m := p.m
+	project := m.projectScope
+	switch persona {
+	case "developer":
+		m.dispatchDlg.open(dispatchDeveloper, project, "", "")
+	case "concierge":
+		m.dispatchDlg.open(dispatchConcierge, "", "", "")
+	case "admin":
+		m.dispatchDlg.open(dispatchAdmin, "", "", "")
+	default:
+		m.dispatchDlg.open(dispatchManager, project, "", "")
 	}
 	return nil
 }
@@ -575,11 +692,12 @@ func (p *projectsModel) projectColumnWidths() (codeW, tasksW, labelsW, updatedW,
 }
 
 // listPageSize returns the number of project rows that fit in the list
-// section at the given section height, after the caption/header/rule/footer
-// overhead. Shared by rendering (the visible window) and the "[" / "]" page
-// jump so both agree on what a "page" is.
+// section at the given section height, after the header/rule/footer
+// overhead (header + rule + footer divider + footer line = 4). Shared by
+// rendering (the visible window) and the "[" / "]" page jump so both agree
+// on what a "page" is.
 func (p *projectsModel) listPageSize(maxRows int) int {
-	availableRows := maxRows - 4 // caption + header + rule + footer
+	availableRows := maxRows - 4 // header + rule + footer divider + footer
 	if availableRows < 1 {
 		availableRows = 1
 	}
@@ -588,11 +706,6 @@ func (p *projectsModel) listPageSize(maxRows int) int {
 
 func (p *projectsModel) renderListRows(maxRows int) string {
 	var b strings.Builder
-	selected := p.m.projectScope
-	if selected == "" {
-		selected = "none"
-	}
-	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("total projects: %d   selected: %s", len(p.list), selected)))
 	codeW, tasksW, labelsW, updatedW, nameW := p.projectColumnWidths()
 	header := fmt.Sprintf(" %-*s %-*s %*s %*s %*s", codeW, "CODE", nameW, "NAME", tasksW, "TASKS", labelsW, "LABELS", updatedW, "UPDATED")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.HeaderLabel.Render(header)))
@@ -617,31 +730,32 @@ func (p *projectsModel) renderListRows(maxRows int) string {
 		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, line))
 	}
 	if end == start {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
+		b.WriteString(dashboardFooter(p.width, p.m.styles.Muted.Render("showing 0-0 of 0")))
 	} else {
-		fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(p.list)))))
+		b.WriteString(dashboardFooter(p.width, p.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(p.list)))))
 	}
 	return b.String()
 }
 
 func (p *projectsModel) renderSummary(height int) string {
-	lines := []string{dashboardLine(p.width, p.m.styles.HeaderLabel.Render("Project Summary"))}
 	if p.m.projectScope == "" {
-		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries")))
+		lines := []string{dashboardLine(p.width, p.m.styles.Muted.Render("select a project to see summaries"))}
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
 	project, tasks, entries, ok := p.projectSummaryData()
 	if !ok {
-		lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded")))
+		lines := []string{dashboardLine(p.width, p.m.styles.Muted.Render("selected project could not be loaded"))}
 		return padToHeight(strings.Join(lines, "\n"), height)
 	}
-	lines = append(lines, dashboardLine(p.width, fmt.Sprintf("project: %s   tasks: %d", project.Code, len(tasks))))
+	_ = project
+	_ = tasks
 
-	remaining := height - len(lines)
+	remaining := height
 	if remaining <= 0 {
-		return padToHeight(strings.Join(lines, "\n"), height)
+		return padToHeight("", height)
 	}
 
+	var lines []string
 	if remaining >= 6 {
 		actorH, stripeH := chartBoxHeights(remaining)
 		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
@@ -692,10 +806,10 @@ func chartBoxHeights(total int) (int, int) {
 // summaryChartsBoxed reports whether renderSummary will draw its persona
 // chart as a bordered box at the given summary-section height, without
 // duplicating renderSummary's own rendering: it repeats only the arithmetic
-// that decides the frame — the "Project Summary" header plus the "project:
-// … tasks: …" line (2 lines) subtracted from height, then
-// renderPersonaActivityChart's own boxed-from-4-lines-up rule applied to the
-// actor split chartBoxHeights returns. renderEventsFeed keys its own
+// that decides the frame — no fixed header lines above the charts now (the
+// "Project Summary" heading was removed), so the full summaryH is available,
+// then renderPersonaActivityChart's own boxed-from-4-lines-up rule applied
+// to the actor split chartBoxHeights returns. renderEventsFeed keys its own
 // compact-vs-boxed choice off this (ATM-793b19 revision-2 review, I1) so the
 // feed and the persona chart never disagree about which visual language the
 // pane is speaking, even though the activity stripe chart below it can still
@@ -704,7 +818,7 @@ func chartBoxHeights(total int) (int, int) {
 // keys off the persona chart specifically because that is the section the
 // feed is being compared against.
 func summaryChartsBoxed(summaryH int) bool {
-	remaining := summaryH - 2
+	remaining := summaryH
 	if remaining < 6 {
 		return false
 	}
@@ -716,27 +830,42 @@ func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxL
 	if maxLines <= 0 {
 		return nil
 	}
+	// Drilled-in detail view: render the hovered persona's breakdown inside
+	// the chart box.
+	if p.personaDrilled && p.personaCursor < len(p.personaGroups) {
+		return p.renderPersonaDetailChart(p.personaGroups[p.personaCursor], maxLines)
+	}
+
 	// 1 line genuinely cannot fit a bar row alongside a label, so the
-	// expand hint is the only legible content there. 2-3 lines render a
-	// compact title + bar rows (no border). From 4 up the bordered chart
-	// box takes over (its title lives in the top border, so we do not
-	// prepend one ourselves).
+	// title is the only legible content there. 2-3 lines render a compact
+	// title + bar rows (no border). From 4 up the bordered chart box takes
+	// over (its title lives in the top border).
+	const title = "activity by persona  [Ctrl+↑/↓]"
 	if maxLines == 1 {
-		return []string{dashboardLine(p.width, "activity by persona  [P]expand")}
+		return []string{dashboardLine(p.width, title)}
 	}
 	groups := activity.Aggregate(activity.Build(entries), "persona")
+	// Keep the cursor in sync with the rendered groups so ctrl+up/down
+	// always highlight a visible row.
+	p.personaGroups = groups
+	if p.personaCursor >= len(groups) {
+		p.personaCursor = len(groups) - 1
+	}
+	if p.personaCursor < 0 {
+		p.personaCursor = 0
+	}
 	if len(groups) == 0 {
 		body := p.m.styles.Muted.Render("no activity yet")
 		if maxLines < 4 {
 			return []string{
-				dashboardLine(p.width, "activity by persona  [P]expand"),
+				dashboardLine(p.width, title),
 				dashboardLine(p.width, body),
 			}[:maxLines]
 		}
-		return strings.Split(p.renderChartBox("activity by persona  [P]expand", body, maxLines), "\n")
+		return strings.Split(p.renderChartBox(title, body, maxLines), "\n")
 	}
 	nameW := longestPersonaKeyWidth(groups)
-	meterW := chartBoxInnerWidth(p.width) - nameW - 10
+	meterW := chartBoxInnerWidth(p.width) - nameW - 12
 	if meterW < 10 {
 		meterW = 10
 	}
@@ -744,36 +873,113 @@ func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxL
 	for _, g := range groups {
 		total += g.Count
 	}
-	barRow := func(g activity.Group) string {
+	// barRow renders one persona row. The cursor highlights the persona
+	// name text only (not the bar) via reverse style on the name segment.
+	barRow := func(g activity.Group, idx int) string {
 		percent := 0
 		if total > 0 {
 			percent = (g.Count*100 + total/2) / total
 		}
-		return fmt.Sprintf("%-*s %s %3d%% %3d", nameW, g.Key, meterBar(percent, meterW), percent, g.Count)
+		name := fmt.Sprintf("%-*s", nameW, g.Key)
+		if idx == p.personaCursor {
+			name = p.m.styles.RowCursor.Render(name)
+		}
+		return fmt.Sprintf(" %s %s %3d%% %4d", name, meterBar(percent, meterW), percent, g.Count)
 	}
 	if maxLines < 4 {
 		// Compact: title row + as many bar rows as fit.
-		rows := []string{dashboardLine(p.width, "activity by persona  [P]expand")}
+		rows := []string{dashboardLine(p.width, title)}
 		cap := maxLines - 1
-		if len(groups) > cap {
-			groups = groups[:cap]
+		visible := groups
+		if len(visible) > cap {
+			visible = visible[:cap]
 		}
-		for _, g := range groups {
-			rows = append(rows, dashboardLine(p.width, barRow(g)))
+		for i, g := range visible {
+			rows = append(rows, dashboardLine(p.width, barRow(g, i)))
 		}
 		return rows
 	}
 	// Boxed: renderChartBox draws the title in the border; emit bar rows
 	// only, capped to the box's inner height (maxLines - 2).
 	cap := maxLines - 2
-	if len(groups) > cap {
-		groups = groups[:cap]
+	visible := groups
+	if len(visible) > cap {
+		visible = visible[:cap]
 	}
 	var body []string
-	for _, g := range groups {
-		body = append(body, barRow(g))
+	for i, g := range visible {
+		body = append(body, barRow(g, i))
 	}
-	return strings.Split(p.renderChartBox("activity by persona  [P]expand", strings.Join(body, "\n"), maxLines), "\n")
+	return strings.Split(p.renderChartBox(title, strings.Join(body, "\n"), maxLines), "\n")
+}
+
+// renderPersonaDetailChart renders the drilled-in persona breakdown inside
+// the chart box. The border title names the persona and carries the key
+// hints; the body shows the agents/models/actions breakdown bars.
+func (p *projectsModel) renderPersonaDetailChart(g activity.Group, maxLines int) []string {
+	title := fmt.Sprintf("persona: %s  [Ctrl+↑/↓] [D]dispatch [Ctrl+←]back", g.Key)
+	if maxLines < 4 {
+		return []string{dashboardLine(p.width, title)}[:maxLines]
+	}
+	// Shared label width across all three breakdowns so bars align.
+	nameW := 0
+	for _, counts := range []map[string]int{g.Agents, g.Models, g.Actions} {
+		for k := range counts {
+			if w := lipgloss.Width(k); w > nameW {
+				nameW = w
+			}
+		}
+	}
+	innerW := chartBoxInnerWidth(p.width)
+	meterW := innerW - nameW - 8
+	if meterW < 8 {
+		meterW = 8
+	}
+	writeBreakdownLine := func(label string, counts map[string]int) []string {
+		var out []string
+		out = append(out, p.m.styles.Muted.Render(label))
+		if len(counts) == 0 {
+			out = append(out, "  (none)")
+			return out
+		}
+		var rows []kvRow
+		t := 0
+		for k, v := range counts {
+			rows = append(rows, kvRow{k, v})
+			t += v
+		}
+		sortKV(rows)
+		for _, r := range rows {
+			percent := 0
+			if t > 0 {
+				percent = (r.v*100 + t/2) / t
+			}
+			out = append(out, fmt.Sprintf("  %-*s %s %4d", nameW, r.k, meterBar(percent, meterW), r.v))
+		}
+		return out
+	}
+	bodyLines := writeBreakdownLine("agents", g.Agents)
+	bodyLines = append(bodyLines, writeBreakdownLine("models", g.Models)...)
+	bodyLines = append(bodyLines, writeBreakdownLine("actions", g.Actions)...)
+	// Scroll the body by personaDetailOffset, clamped to the available
+	// content so ctrl+down can never walk it past the last visible window.
+	cap := maxLines - 2
+	max := len(bodyLines) - cap
+	if max < 0 {
+		max = 0
+	}
+	if p.personaDetailOffset > max {
+		p.personaDetailOffset = max
+	}
+	if p.personaDetailOffset < 0 {
+		p.personaDetailOffset = 0
+	}
+	start := p.personaDetailOffset
+	end := start + cap
+	if end > len(bodyLines) {
+		end = len(bodyLines)
+	}
+	return strings.Split(p.renderChartBox(title, strings.Join(bodyLines[start:end], "\n"), maxLines), "\n")
 }
 
 func longestPersonaKeyWidth(groups []activity.Group) int {
@@ -1069,12 +1275,15 @@ func (p *projectsModel) renderDetailView() string {
 func (p *projectsModel) statusHint() string {
 	switch p.view {
 	case pViewList:
-		if len(p.list) == 0 {
-			return "[a]add [p]ersona"
+		if p.personaDrilled {
+			return "[Ctrl+←]back from persona"
 		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [P]ersona [p]new"
+		if len(p.list) == 0 {
+			return "[a]dd"
+		}
+		return "[a]dd [s]elect [Enter]detail [x]remove [Ctrl+↑/↓]persona [Ctrl+→]drill [Ctrl+Shift+→]dispatch"
 	case pViewDetail:
-		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [P]ersona [p]new [Esc]back"
+		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [Esc]back"
 	}
 	return ""
 }
@@ -1082,19 +1291,6 @@ func (p *projectsModel) statusHint() string {
 // --- form openers ---
 
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
-
-// openActorsOverlay opens the P overlay showing persona activity for the
-// current project scope. Tosts and does nothing if no project is selected.
-func (p *projectsModel) openActorsOverlay() tea.Cmd {
-	if p.m.projectScope == "" {
-		p.m.showToast("select a project first")
-		return nil
-	}
-	p.m.actorsOverlay = true
-	p.m.actors.refresh()
-	p.m.sizeActorsToOverlay()
-	return nil
-}
 
 func (p *projectsModel) openCreateForm() {
 	codeValidator := func(field, value string) error {

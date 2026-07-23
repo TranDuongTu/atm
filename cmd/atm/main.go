@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 
 	"atm/internal/capability"
 	"atm/internal/capability/contextmap"
@@ -9,6 +10,7 @@ import (
 	"atm/internal/capability/workflowai"
 	"atm/internal/cli"
 	"atm/internal/core"
+	"atm/internal/dispatch"
 	"atm/internal/store"
 	"atm/internal/tui"
 )
@@ -40,7 +42,11 @@ func main() {
 		if err != nil {
 			return err
 		}
-		return tui.Run(s, actor, reg)
+		d, err := dispatch.NewService(filepath.Join(s.StorePath(), "dispatch.json"))
+		if err != nil {
+			return err
+		}
+		return tui.Run(s, actor, reg, d)
 	}
 	os.Exit(cli.Execute(cli.Deps{RunTUI: runTUI, Registry: reg, OpenService: openService, OpenAdmin: openAdmin}))
 }

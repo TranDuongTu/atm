@@ -169,6 +169,20 @@ func (t *tasksModel) openDetailAtCursor() tea.Cmd {
 	return nil
 }
 
+// selectedRow returns the task row under the cursor in either the flat or
+// the grouped view. The flat/grouped branching mirrors openDetailAtCursor
+// (flat) and rowAtCursor (grouped): grouped delegates to rowAtCursor, flat
+// indexes t.rows with a bounds check.
+func (t *tasksModel) selectedRow() (taskRow, bool) {
+	if t.grouped() {
+		return t.rowAtCursor()
+	}
+	if t.cursor >= 0 && t.cursor < len(t.rows) {
+		return t.rows[t.cursor], true
+	}
+	return taskRow{}, false
+}
+
 // rowAtCursor returns the leaf row the cursor currently sits on in the
 // grouped view, or (zero, false) if the cursor is on a group/bucket header
 // (or out of range). Used to make `Enter` context-sensitive per the spec.
@@ -406,7 +420,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
 	}
-	b.WriteString(dashboardLine(t.width, fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(t.rows))))
+	b.WriteString(dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(t.rows)))))
 }
 
 func (t *tasksModel) renderGroupedList(b *strings.Builder) {
@@ -472,7 +486,7 @@ func (t *tasksModel) renderGroupedList(b *strings.Builder) {
 		b.WriteString(lines[i])
 		b.WriteString("\n")
 	}
-	b.WriteString(dashboardLine(t.width, fmt.Sprintf(" showing %d-%d of %d", start+1, end, len(lines))))
+	b.WriteString(dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(lines)))))
 }
 
 // renderGroup renders one group (header + its leaf rows or its expanded
@@ -540,17 +554,18 @@ func (t *tasksModel) pageWindow(total int) (int, int) {
 }
 
 // groupPageSize returns the number of lines that fit in the grouped/tree list
-// body. Fixed overhead is 3 lines: the header line + blank line written by
-// renderList, PLUS the "showing X of Y" footer renderGroupedList writes after
-// the body. Reserving only 2 makes the body one line too tall, so padToHeight
-// truncates the footer (and the pinned stack then renders where it would be).
+// body. Fixed overhead is 4 lines: the header line + blank line written by
+// renderList, PLUS the footer divider + "showing X of Y" footer line
+// renderGroupedList writes after the body. Reserving only 3 makes the body
+// one line too tall, so padToHeight truncates the footer (and the pinned
+// stack then renders where it would be).
 // Called ONLY during render, where renderListWithStrip has already shrunk
 // t.contentHeight to the list sub-height (listContentHeight), so
-// t.contentHeight-3 == listH-3 here. The keypress side (listPageSize)
-// reconstructs the same listH-3 from listContentHeight() directly, since at
+// t.contentHeight-4 == listH-4 here. The keypress side (listPageSize)
+// reconstructs the same listH-4 from listContentHeight() directly, since at
 // keypress time t.contentHeight is the full pane height.
 func (t *tasksModel) groupPageSize() int {
-	size := t.contentHeight - 3
+	size := t.contentHeight - 4
 	if size < 1 {
 		size = 1
 	}
@@ -560,17 +575,17 @@ func (t *tasksModel) groupPageSize() int {
 // listPageSize returns the page size for whichever list mode is active, used by
 // the pgdown / pgup page-jump keys. Both modes derive from listContentHeight()
 // (the list sub-height) so a jump always lands on the exact page boundary the
-// renderer draws: the flat body reserves 6 lines of chrome, the grouped body 3
-// (header + blank + "showing" footer).
+// renderer draws: the flat body reserves 7 lines of chrome, the grouped body 4
+// (header + blank + footer divider + "showing" footer).
 func (t *tasksModel) listPageSize() int {
 	if t.grouped() {
-		size := t.listContentHeight() - 3
+		size := t.listContentHeight() - 4
 		if size < 1 {
 			size = 1
 		}
 		return size
 	}
-	size := t.listContentHeight() - 6
+	size := t.listContentHeight() - 7
 	if size < 1 {
 		size = 1
 	}

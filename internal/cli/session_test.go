@@ -522,7 +522,7 @@ func TestSessionLauncherNotFound(t *testing.T) {
 // env map (no ATM_MANAGER_ACTION / ATM_MANAGER_CAPABILITY).
 func TestSessionEnvIncludesATMValues(t *testing.T) {
 	os.Unsetenv("ATM_BIN")
-	got := assembleEnv(sessionEnvValues("FOO", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer", "developing", "", "", "2026-07-19T00:00:00Z"))
+	got := assembleEnv(sessionEnvValues("FOO", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer", "developing", "", "", "", "2026-07-19T00:00:00Z"))
 	joined := strings.Join(got, "\n")
 	for _, want := range []string{
 		"ATM_ROLE=developing",
@@ -549,7 +549,7 @@ func TestSessionEnvIncludesATMValues(t *testing.T) {
 // ATM_CAPABILITY (when set) and never the old manager names. Manager
 // declares no modes, so ATM_MODE is never set in a manager launch.
 func TestSessionManagerEnvSetsCapability(t *testing.T) {
-	got := sessionEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "opencode", "manager", "manager", "", "", "2026-07-19T00:00:00Z")
+	got := sessionEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "opencode", "manager", "manager", "", "", "", "2026-07-19T00:00:00Z")
 	joined := strings.Join(gotToSlice(got), "\n")
 	for _, want := range []string{
 		"ATM_PERSONA=manager",
@@ -646,6 +646,76 @@ func TestSessionTailSummaryJSON(t *testing.T) {
 	}
 	got := normalizeSessionOutput(buf.String(), "")
 	compareGolden(t, "session-developer-tail-summary", got)
+}
+
+// TestSessionTaskAssignment verifies --task validates the task, exports
+// ATM_TASK, keys the context cache on the task, and renders the assignment.
+func TestSessionTaskAssignment(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	out, _, code := h.run("task", "create", "--project", "ATM", "--title", "dispatch work", "--actor", "admin@cli:unset", "--output", "json")
+	if code != ExitSuccess {
+		t.Fatalf("task create failed: %d", code)
+	}
+	m := regexp.MustCompile(`"id":\s*"(ATM-[0-9a-f]+)"`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no task id in: %s", out)
+	}
+	taskID := m[1]
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code = h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--task", taskID)
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	joined := strings.Join(c.env, "\n")
+	if !strings.Contains(joined, "ATM_TASK="+taskID) {
+		t.Errorf("env missing ATM_TASK=%s:\n%s", taskID, joined)
+	}
+	re := regexp.MustCompile(`ATM_CONTEXT_FILE=(\S+)`)
+	cm := re.FindStringSubmatch(joined)
+	if cm == nil {
+		t.Fatalf("no ATM_CONTEXT_FILE in env:\n%s", joined)
+	}
+	if !strings.Contains(cm[1], "session-developer-atm-") {
+		t.Errorf("context cache key must include task: %s", cm[1])
+	}
+	b, err := os.ReadFile(cm[1])
+	if err != nil {
+		t.Fatalf("read context: %v", err)
+	}
+	if !strings.Contains(string(b), "## Assigned task") || !strings.Contains(string(b), taskID) {
+		t.Errorf("context missing assignment block:\n%s", b)
+	}
+}
+
+// TestSessionTaskValidation verifies bad --task values fail before launch.
+func TestSessionTaskValidation(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "ATM", "--name", "A", "--actor", "admin@cli:unset")
+	h.run("project", "create", "--code", "OTH", "--name", "B", "--actor", "admin@cli:unset")
+	out, _, _ := h.run("task", "create", "--project", "OTH", "--title", "other", "--actor", "admin@cli:unset", "--output", "json")
+	m := regexp.MustCompile(`"id":\s*"(OTH-[0-9a-f]+)"`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no task id in: %s", out)
+	}
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	if _, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--task", "ATM-ffffff"); code == ExitSuccess {
+		t.Error("missing task must fail")
+	}
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--task", m[1]); code == ExitSuccess {
+		t.Error("task from another project must fail")
+	}
+	h.reset()
+	if _, _, code := h.run("--persona", "concierge", "--agent", "claude", "--task", "ATM-ffffff"); code == ExitSuccess {
+		t.Error("--task without --project must fail")
+	}
 }
 
 // normalizeSessionOutput rewrites the test harness's volatile bits to stable
