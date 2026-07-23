@@ -858,6 +858,12 @@ func (m *Model) View() string {
 	// placeOverlay: the workspace stays visible on the rows above and below
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
+	//
+	// KEEP IN SYNC WITH workspaceIdle(): the seven gates below are exactly the
+	// states in which View renders something over the plain workspace, and
+	// workspaceIdle() is their negation (it gates the background-art animation
+	// tick). Adding an overlay here without adding it to workspaceIdle() would
+	// let art animate underneath the new overlay.
 	out := b.String()
 	if m.helpOverlay != helpNone {
 		out = m.placeOverlay(out, m.renderHelpOverlay())
