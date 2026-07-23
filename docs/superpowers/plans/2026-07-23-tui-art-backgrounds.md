@@ -901,9 +901,9 @@ git commit -m "feat(ATM-4eae82): circuit art theme with connected-corner jogs"
 ### Task 5: Config substrate — `ArtTheme` field + `SetProjectArtTheme`
 
 **Files:**
-- Modify: `internal/core/config.go:31-37` (ProjectConfig)
-- Modify: `internal/store/config.go:10-22` (GetProjectConfig nil-check) and append setter
-- Modify: `internal/core/service.go` (interface; near `SetProjectBoards` at line ~41)
+- Modify: `internal/core/config.go` (ProjectConfig struct; locate by name)
+- Modify: `internal/store/config.go` (GetProjectConfig emptiness-check ~line 18, append setter)
+- Modify: `internal/core/service.go` (interface; near `SetProjectBoards`)
 - Test: alongside the existing store config tests — find them first: `grep -rn "SetProjectBoards" internal/store/*_test.go tests/ 2>/dev/null | head`. Add tests in the same file/pattern (if none exist, create `internal/store/config_art_test.go` using the store-opening helper other store tests use — copy their setup).
 
 **Interfaces:**
@@ -1174,7 +1174,7 @@ git commit -m "feat(ATM-4eae82): atm project theme show/pin/auto CLI"
 ### Task 7: Projects pane geometry — 4-way split + fixed 5-row page
 
 **Files:**
-- Modify: `internal/tui/projects.go:75-108` (`projectPaneSplitHeights`), `:577-587` (`listPageSize`)
+- Modify: `internal/tui/projects.go` — `projectPaneSplitHeights` (~line 85-125 after the ATM-4b7e24 merge; locate by name), `listPageSize` (~line 699; locate by name)
 - Test: wherever `projectPaneSplitHeights` is currently tested — `grep -rn "projectPaneSplitHeights" internal/tui/*_test.go`. Update/extend there (create `internal/tui/projects_split_test.go` if untested).
 
 **Interfaces:**
@@ -1333,9 +1333,9 @@ git commit -m "feat(ATM-4eae82): 4-way Projects pane split, list fixed at 5 rows
 ### Task 8: Model wiring — art tick, pins map, styles, Projects pane render
 
 **Files:**
-- Modify: `internal/tui/app.go` (Model fields ~line 67-138, `Init` ~391, `Update` ~413, `refreshAll` — locate: `grep -n "func (m \*Model) refreshAll" internal/tui/app.go`)
+- Modify: `internal/tui/app.go` (Model fields ~line 67-138; `Init` ~366; `Update` `refreshTickMsg` case ~391; `refreshAll` ~310 — all located by name, not line)
 - Modify: `internal/tui/theme.go` (Styles struct ~28, `buildStyles` ~92)
-- Modify: `internal/tui/projects.go` (`renderList` ~527)
+- Modify: `internal/tui/projects.go` (`renderList` ~644)
 - Test: `internal/tui/app_test.go` / `internal/tui/projects_test.go` (mirror existing model-test setup — find how tests build a Model: `grep -n "NewModel\|newTestModel" internal/tui/app_test.go | head`)
 
 **Interfaces:**
@@ -1476,17 +1476,17 @@ Add the predicate near `canMutate` (line 384) — verify each zero-value name ag
 // shows — no overlay, form, or confirm layered over it. Art animates only
 // then; anything covering the workspace freezes the phase clock.
 func (m *Model) workspaceIdle() bool {
-	return m.helpOverlay == helpNone && // ← use the real zero/none constant
+	return m.helpOverlay == helpNone &&
 		!m.actorsOverlay &&
 		m.form == nil &&
-		m.confirm == confirmNone && // ← real zero constant
-		!m.pluginOverlayOpen() // ← see warning below
+		m.confirm == confirmNone &&
+		m.pluginOverlay == -1
 }
 ```
 
-**Warning — `pluginOverlay`'s zero value is 0, not -1** (the field comment at `app.go:126-128` says 0 is *unused-but-not-open* until the first plugin registers). A naive `m.pluginOverlay < 0` check would report an overlay open on every fresh model and freeze art forever. Derive the real "plugin overlay open" predicate from how `View()` decides to render a plugin overlay (grep `pluginOverlay` in `app.go`) and wrap it as `pluginOverlayOpen()` — likely something like `len(m.plugins) > 0 && m.pluginOverlay >= 0 && <whatever flag View checks>`.
+**Confirmed against merged code (2026-07-23):** `NewModel` sets `m.pluginOverlay = -1` (`app.go:188`) and every open-check in the file is `m.pluginOverlay != -1` (e.g. `app.go:412,509,824`), so `== -1` is exactly "no plugin overlay open". `helpNone`/`confirmNone` are the `iota` zero constants (`app.go:29,59`). These four fields plus `actorsOverlay` and `form` are the complete set View layers over the workspace.
 
-**Verify each condition against `View()`'s actual dispatch order** (`grep -n "func (m \*Model) View" internal/tui/app.go` and read it) — the predicate must return false exactly when View draws something other than the workspace. Include detail views? Spec says no detail views: also require `m.projects.view == pViewList` when focused... simpler and spec-faithful: add `&& m.projects.view == pViewList && m.tasks.view == tViewList` using the real view-enum names from `projects.go`/`tasks.go`.
+**Still verify each condition against `View()`'s actual dispatch order** (`grep -n "func (m \*Model) View" internal/tui/app.go` and read it) — the predicate must return false exactly when View draws something other than the workspace. Include detail views? Spec says no detail views: also require `m.projects.view == pViewList` when focused... simpler and spec-faithful: add `&& m.projects.view == pViewList && m.tasks.view == tViewList` using the real view-enum names from `projects.go`/`tasks.go`.
 
 In `refreshAll` (after the projects list refresh), rebuild the pins cache:
 
@@ -1578,7 +1578,7 @@ git commit -m "feat(ATM-4eae82): art tick, pin cache, Projects pane art region"
 ### Task 9: Tasks pane — art in the gap above the boards ring
 
 **Files:**
-- Modify: `internal/tui/tasks_list.go:226-249` (`renderListWithStrip`)
+- Modify: `internal/tui/tasks_list.go` — `renderListWithStrip` (~line 240; locate by name)
 - Test: `internal/tui/tasks_list_test.go` (or wherever `renderListWithStrip` is tested — `grep -rn "renderListWithStrip" internal/tui/*_test.go`)
 
 **Interfaces:**
