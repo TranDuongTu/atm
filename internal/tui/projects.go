@@ -82,39 +82,40 @@ func newProjectsModel(m *Model) projectsModel {
 	return projectsModel{m: m}
 }
 
-// projectPaneSplitHeights allocates the list view's vertical space three
-// ways: project list ~30%, recent-events feed ~35%, summary the rest. An
-// events slot under 4 rows is not worth rendering: 4 is the minimum that
-// still leaves 2 content lines under 2 lines of frame — top/bottom border in
-// the boxed form, the caption line plus a padding line in the compact form
-// (see summaryChartsBoxed and renderEventsFeed) — below that it collapses to
-// 0 and the pre-feed 30/70 list/summary split is restored.
-func projectPaneSplitHeights(total int) (int, int, int) {
+// projectPaneSplitHeights allocates the list view's vertical space four
+// ways, top to bottom: project list (fixed page of 5 rows = 9 lines with
+// caption/header/rule/footer), background art (absorbs the spare height),
+// recent-events feed (~35%, collapses under 4 — see the boxed/compact frame
+// note on renderEventsFeed), and summary (~35%, keeps the bottom). An art
+// slot under 3 lines is not worth drawing (art.MinH) and folds into summary,
+// restoring the pre-art layout on short panes.
+func projectPaneSplitHeights(total int) (listH, artH, eventsH, summaryH int) {
 	if total <= 0 {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
-	if total == 1 {
-		return 1, 0, 0
+	listH = 9 // caption + header + rule + 5 rows + footer
+	if listH > total {
+		return total, 0, 0, 0
 	}
-	listH := total * 30 / 100
-	if listH < 1 {
-		listH = 1
+	remaining := total - listH
+	eventsH = total * 35 / 100
+	if eventsH > remaining {
+		eventsH = remaining
 	}
-	eventsH := total * 35 / 100
 	if eventsH < 4 {
 		eventsH = 0
 	}
-	summaryH := total - listH - eventsH
-	if summaryH < 1 {
-		summaryH = 1
-		listH = total - summaryH - eventsH
-		if listH < 1 {
-			listH = 1
-			eventsH = 0
-			summaryH = total - listH
-		}
+	remaining -= eventsH
+	summaryH = total * 35 / 100
+	if summaryH > remaining {
+		summaryH = remaining
 	}
-	return listH, eventsH, summaryH
+	artH = remaining - summaryH
+	if artH < 3 {
+		summaryH += artH
+		artH = 0
+	}
+	return listH, artH, eventsH, summaryH
 }
 
 func computeStripDays(width int) int {
@@ -362,7 +363,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 		p.scrollEventsFeed(dir, p.eventsPageSize())
 	case "]":
-		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor += p.listPageSize(listH)
 		if p.cursor > len(p.list)-1 {
 			p.cursor = len(p.list) - 1
@@ -371,7 +372,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.cursor = 0
 		}
 	case "[":
-		listH, _, _ := projectPaneSplitHeights(p.contentHeight)
+		listH, _, _, _ := projectPaneSplitHeights(p.contentHeight)
 		p.cursor -= p.listPageSize(listH)
 		if p.cursor < 0 {
 			p.cursor = 0
@@ -645,7 +646,7 @@ func (p *projectsModel) renderList() string {
 	if len(p.list) == 0 {
 		return p.renderEmpty()
 	}
-	listH, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
+	listH, _, eventsH, summaryH := projectPaneSplitHeights(p.contentHeight)
 	if p.m.projectScope == "" {
 		// With no project selected, the feed would render nothing but the
 		// same "select a project" placeholder the summary section already
@@ -691,15 +692,17 @@ func (p *projectsModel) projectColumnWidths() (codeW, tasksW, labelsW, updatedW,
 	return
 }
 
-// listPageSize returns the number of project rows that fit in the list
-// section at the given section height, after the header/rule/footer
-// overhead (header + rule + footer divider + footer line = 4). Shared by
-// rendering (the visible window) and the "[" / "]" page jump so both agree
-// on what a "page" is.
+// listPageSize returns the project rows per page: fixed at 5 (the list
+// section is sized for exactly 5 by projectPaneSplitHeights), degrading
+// only when the whole pane is shorter than the fixed list section. Shared
+// by rendering and the "[" / "]" page jump so both agree on a page.
 func (p *projectsModel) listPageSize(maxRows int) int {
-	availableRows := maxRows - 4 // header + rule + footer divider + footer
+	availableRows := maxRows - 4 // caption + header + rule + footer
 	if availableRows < 1 {
 		availableRows = 1
+	}
+	if availableRows > 5 {
+		availableRows = 5
 	}
 	return availableRows
 }
