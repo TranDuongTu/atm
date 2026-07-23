@@ -28,16 +28,19 @@ func TestSummaryIsOneLine(t *testing.T) {
 func TestGuideCarriesSemantics(t *testing.T) {
 	g := Cap{}.Guide()
 	for _, want := range []string{
-		"atm capability workflow_ai brainstorm|clarify|ready|done",
+		"atm capability workflow_ai queue",
+		"atm capability workflow_ai brainstorm",
+		"atm capability workflow_ai clarify",
 		"atm capability workflow_ai plan",
+		"atm capability workflow_ai done",
 		"atm capability workflow_ai demote",
 		"atm capability workflow_ai link",
 		"atm capability workflow_ai report",
 		"atm capability workflow_ai seed",
 		"links --task",
 		"exactly-one-stage", "paved road, not a fence",
-		"new-tasks", "brainstormed-tasks", "planned-tasks", "revisions", "done-tasks",
-		"stage:implementable", "never implement", "ephemeral",
+		"to-brainstorm", "to-clarify", "to-plan", "to-implement", "revisions", "done-tasks",
+		"stage:queued", "stage:planned", "never implement", "ephemeral",
 		"revision_of", "--relates-to",
 	} {
 		if !strings.Contains(g, want) {
