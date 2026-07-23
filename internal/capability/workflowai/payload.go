@@ -87,6 +87,31 @@ func (p *Payload) SetPlan(r PlanRecord) {
 
 func (p *Payload) ClearPlan() { delete(p.raw, "plan") }
 
+// SpecRecord is the typed spec locator stored in the payload: where the
+// task's design spec lives. Kind is one of the PlanKind constants (the
+// same three kinds as plans).
+type SpecRecord struct {
+	Kind       string
+	Ref        string
+	RecordedAt string
+	Actor      string
+}
+
+// Spec returns the recorded spec locator, or nil when none is recorded.
+func (p *Payload) Spec() *SpecRecord {
+	m, ok := p.raw["spec"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return &SpecRecord{Kind: str(m["kind"]), Ref: str(m["ref"]), RecordedAt: str(m["recorded_at"]), Actor: str(m["actor"])}
+}
+
+func (p *Payload) SetSpec(r SpecRecord) {
+	p.raw["spec"] = map[string]any{"kind": r.Kind, "ref": r.Ref, "recorded_at": r.RecordedAt, "actor": r.Actor}
+}
+
+func (p *Payload) ClearSpec() { delete(p.raw, "spec") }
+
 // RevisionOf returns the parent task ID, or "" when this task is not a
 // revision follow-up. At most one parent (spec §3).
 func (p *Payload) RevisionOf() string { return str(p.raw["revision_of"]) }

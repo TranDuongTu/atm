@@ -119,6 +119,46 @@ func TestRevisionOfAndDemoted(t *testing.T) {
 	}
 }
 
+func TestPayloadSpecRoundTrip(t *testing.T) {
+	pl, _ := DecodePayload("")
+	pl.SetSpec(SpecRecord{Kind: PlanKindFile, Ref: "docs/superpowers/specs/x.md", RecordedAt: "2026-07-23T00:00:00Z", Actor: "a"})
+	out, err := pl.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	back, err := DecodePayload(out)
+	if err != nil {
+		t.Fatalf("DecodePayload(%q): %v", out, err)
+	}
+	s := back.Spec()
+	if s == nil || s.Kind != PlanKindFile || s.Ref != "docs/superpowers/specs/x.md" || s.RecordedAt != "2026-07-23T00:00:00Z" || s.Actor != "a" {
+		t.Errorf("Spec = %+v", s)
+	}
+}
+
+func TestPayloadSpecAndPlanCoexist(t *testing.T) {
+	pl, _ := DecodePayload("")
+	pl.SetSpec(SpecRecord{Kind: PlanKindFile, Ref: "spec.md", RecordedAt: "t0", Actor: "a"})
+	pl.SetPlan(PlanRecord{Kind: PlanKindFile, Ref: "plan.md", RecordedAt: "t1", Actor: "b"})
+	out, _ := pl.Encode()
+	back, _ := DecodePayload(out)
+	if s := back.Spec(); s == nil || s.Ref != "spec.md" {
+		t.Errorf("spec lost: %+v", s)
+	}
+	if p := back.Plan(); p == nil || p.Ref != "plan.md" {
+		t.Errorf("plan lost: %+v", p)
+	}
+}
+
+func TestPayloadClearSpec(t *testing.T) {
+	pl, _ := DecodePayload("")
+	pl.SetSpec(SpecRecord{Kind: PlanKindFile, Ref: "s.md", RecordedAt: "t", Actor: "a"})
+	pl.ClearSpec()
+	if out, _ := pl.Encode(); out != "" {
+		t.Errorf("Encode = %q, want \"\" after clearing the only field", out)
+	}
+}
+
 func TestFirstStageValue(t *testing.T) {
 	labels := []string{"ATM:status:open", "ATM:stage:clarified", "ATM:wfai:revision"}
 	if got := firstStageValue(labels, "ATM"); got != StageClarified {
