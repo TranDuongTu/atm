@@ -618,6 +618,9 @@ func newProjectThemeCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if _, err := s.GetProject(code); err != nil {
+				return err
+			}
 			cfg, err := s.GetProjectConfig(code)
 			if err != nil {
 				return err

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -277,6 +279,32 @@ func TestProjectTheme(t *testing.T) {
 		}
 		if cfg == nil || cfg.ArtTheme != "circuit" {
 			t.Errorf("expected config unchanged (still pinned circuit), got %+v", cfg)
+		}
+	})
+
+	t.Run("unknown_project_errors", func(t *testing.T) {
+		h := newGoldenHarness(t)
+		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+
+		// Bare show on an unknown code must error like every sibling project
+		// subcommand (ExitNotFound / core.ErrNotFound), not silently succeed.
+		out, _, code := h.run("project", "theme", "BOGUS")
+		if code != ExitNotFound {
+			t.Fatalf("show on unknown project exit = %d, want %d (ErrNotFound): out=%s", code, ExitNotFound, out)
+		}
+
+		// Pin form on an unknown code must also error, and — the regression
+		// guard — must NOT create projects/BOGUS on disk. Before the fix this
+		// path reached SetProjectArtTheme -> WriteFileAtomic -> os.MkdirAll,
+		// writing a phantom project directory with no event log.
+		out, _, code = h.run("project", "theme", "BOGUS", "circuit", "--actor", "admin@cli:unset")
+		if code != ExitNotFound {
+			t.Fatalf("pin on unknown project exit = %d, want %d (ErrNotFound): out=%s", code, ExitNotFound, out)
+		}
+
+		phantom := filepath.Join(h.store.StorePath(), "projects", "BOGUS")
+		if _, err := os.Stat(phantom); !os.IsNotExist(err) {
+			t.Fatalf("expected no phantom project dir at %s, stat err=%v", phantom, err)
 		}
 	})
 }
