@@ -67,3 +67,15 @@ func TestHerdrSpawnTwoStep(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", calls, want)
 	}
 }
+
+func TestTmuxWinsOverConfigTemplate(t *testing.T) {
+	var calls [][]string
+	env := fakeEnv(map[string]string{"TMUX": "x"}, map[string]bool{"tmux": true}, &calls)
+	tgt, err := Detect(Config{TerminalCmd: "echo {cmd}"}, env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tgt.Name() != "tmux" {
+		t.Fatalf("tmux must win over configured terminal_cmd, got %q", tgt.Name())
+	}
+}

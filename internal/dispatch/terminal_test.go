@@ -17,7 +17,7 @@ func TestTemplateTargetSubstitutes(t *testing.T) {
 	if err := tgt.Spawn(spec); err != nil {
 		t.Fatal(err)
 	}
-	want := [][]string{{"sh", "-c", `kitty @ launch --type=tab --cwd /w --tab-title ATM · manager -- 'atm' '--persona' 'manager'`}}
+	want := [][]string{{"sh", "-c", `kitty @ launch --type=tab --cwd '/w' --tab-title 'ATM · manager' -- 'atm' '--persona' 'manager'`}}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %v, want %v", calls, want)
 	}

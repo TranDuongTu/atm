@@ -120,6 +120,6 @@ func (p *personasModel) renderOverlay() string {
 		}
 		body.WriteString(line + "\n")
 	}
-	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]view prompt  [Esc]close"))
+	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]view prompt  [g]top  [Esc]close"))
 	return titledBoxHeight(styles.DialogBody, bw, "Personas", body.String(), len(p.entries)+5)
 }

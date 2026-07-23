@@ -15,11 +15,17 @@ func (t templateTarget) Describe() string { return "terminal · configured comma
 func (t templateTarget) Spawn(s Spec) error {
 	line := strings.NewReplacer(
 		"{cmd}", ShellCommand(s.Argv),
-		"{dir}", s.Dir,
-		"{title}", s.Title,
+		"{dir}", shellQuote(s.Dir),
+		"{title}", shellQuote(s.Title),
 	).Replace(t.tmpl)
 	_, err := t.env.Run([]string{"sh", "-c", line})
 	return err
+}
+
+// shellQuote single-quotes v for safe interpolation into a sh -c template,
+// escaping embedded single quotes with the '\” idiom.
+func shellQuote(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
 }
 
 // emulator is one spawn-table row: an env fingerprint plus the argv that
