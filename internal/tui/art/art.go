@@ -83,7 +83,9 @@ func Register(t Theme) { registry = append(registry, t) }
 // define types only — registration lives here, in spec order.
 func init() {
 	Register(wavesTheme{})
+	Register(starfieldTheme{})
 	// TODO(ATM-4eae82): insert starfield, circuit, rain here in spec order
+	Register(rainTheme{})
 	Register(dunesTheme{})
 }
 
