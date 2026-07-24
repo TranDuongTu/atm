@@ -692,7 +692,7 @@ func eventsFeedVisibleRows(height int) int {
 // renderer windows by — never a value computed independently — or a page
 // jump can skip or duplicate rows relative to what's actually on screen.
 func (p *projectsModel) eventsPageSize() int {
-	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
 	page := eventsFeedVisibleRows(eventsH) - 1
 	if page < 1 {
 		page = 1
@@ -717,7 +717,7 @@ func (p *projectsModel) eventsPageSize() int {
 // for display, never writing back, to keep the render path pure — so an
 // unbounded delta must not be able to walk it past the feed's last window.
 func (p *projectsModel) scrollEventsFeed(dir, magnitude int) {
-	_, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(p.contentHeight)
 	if eventsH == 0 {
 		// The events slot is collapsed (too short to render at all, or
 		// folded away for an empty scope) — an explicit no-op rather than

@@ -21,6 +21,26 @@
 
 ### feat
 - ATM-0871aa: project repo dispatch targets. New `atm project repo add/list/remove` records machine-local repo dispatch targets (name + path + url) in `config.json` — config, not substrate (no event-log entry, not synced), so a fresh machine re-records them via a concierge session. The developer dispatch dialog gains a `Repo:` cycle-picker (`↑/↓`) over the project's repos; `Spec.Dir` becomes the selected repo's path, falling back to cwd when none are recorded. Manager/concierge/admin dispatches are unchanged. The concierge persona records repos during onboarding (Step 2 asks for the local folder + remote link; Step 4 writes them via the CLI verb in plain language).
+- ATM-4eae82: TUI per-project background art. The spare vertical space in the
+  Projects pane (between the project list, now a fixed 5-row page, and the
+  events feed) and the Tasks pane (between the task table and the boards ring)
+  now fills with a dim, subtly-animated ASCII motif that gives each project a
+  stable visual identity. Art rescales with the terminal, collapses back to
+  blank padding when space is tight, and animates only while the plain
+  workspace is visible. (Default-on auto-assignment and the `atm project theme`
+  CLI described in the original shipped release were later replaced — see
+  ATM-cac464.)
+- ATM-cac464: TUI art is now off by default and switchable per project. Each
+  project shows a pair of two of six motion themes (galaxy, lorenz, matrix,
+  tunnel, skyline, constellation); `A` (Shift+A) toggles art on/off for the
+  scoped project, persisting to `art_on` and flashing the status line. Each
+  off->on re-rolls a fresh random pair and pins it to a new `art_pair` config
+  field so it survives a TUI restart; turning art off clears the pin. (A
+  project that has never toggled art falls back to a deterministic,
+  code-derived pair.) When art is on, pair[0] renders in the Projects pane
+  and pair[1] in the Tasks pane gap, and only when a project is selected
+  (fixes art appearing on TUI startup). The `atm project theme` CLI is
+  removed; art switching is TUI-only.
 - ATM-4b7e24: TUI agent dispatch. `D` from the projects pane dispatches a manager session and `D` from the tasks pane dispatches a developer session bound to the selected task, each spawned into an auto-detected terminal surface (herdr → tmux → terminal tab) via the new `internal/dispatch` package. The agent is the only interactive field (cycle with `←/→`); an unready agent is refused with its missing-bin hint; the target preview and any detection failure render in the dialog. Fire-and-forget — no session registry.
 - ATM-4b7e24: `V` opens a read-only personas overlay in the TUI (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out to the list then closes). No create/edit/personality customization from the TUI.
 - ATM-4b7e24: `--task <id>` session assignment. New optional `atm --persona <p> --project <CODE> --agent <a> --task <id>` flag — validated against the project's store (missing task or cross-project task fails before launch), exported to the host as `ATM_TASK=<id>`, and rendered into the session context as an assigned-task block. Task-keyed context caches prevent concurrent task sessions from sharing a context file.

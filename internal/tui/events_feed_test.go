@@ -238,20 +238,25 @@ func TestEventGraphRowsV1EntriesSingleLane(t *testing.T) {
 	}
 }
 
-func TestProjectPaneSplitHeightsThreeWay(t *testing.T) {
+// TestProjectPaneSplitHeightsFourWayLegacyCases pins the same totals the
+// pre-art three-way split test covered (27, 10, 2, 1, 0), recomputed for the
+// four-way split added by ATM-4eae82 (list fixed at 9, art absorbing the
+// remainder after events/summary, folding into summary below its 3-line
+// minimum). See TestProjectPaneSplitHeights4Way for the fuller table.
+func TestProjectPaneSplitHeightsFourWayLegacyCases(t *testing.T) {
 	cases := []struct {
-		total, list, events, summary int
+		total, list, art, events, summary int
 	}{
-		{27, 8, 9, 10},
-		{10, 3, 0, 7}, // events slot would be 3 (<4): collapses to old 30/70
-		{2, 1, 0, 1},
-		{1, 1, 0, 0},
-		{0, 0, 0, 0},
+		{27, 9, 0, 9, 9},
+		{10, 9, 0, 0, 1}, // list alone (9) leaves 1: too small for events, art
+		{2, 2, 0, 0, 0},  // below the fixed list height: list takes it all
+		{1, 1, 0, 0, 0},
+		{0, 0, 0, 0, 0},
 	}
 	for _, c := range cases {
-		l, e, s := projectPaneSplitHeights(c.total)
-		if l != c.list || e != c.events || s != c.summary {
-			t.Errorf("split(%d) = (%d,%d,%d), want (%d,%d,%d)", c.total, l, e, s, c.list, c.events, c.summary)
+		l, a, e, s := projectPaneSplitHeights(c.total)
+		if l != c.list || a != c.art || e != c.events || s != c.summary {
+			t.Errorf("split(%d) = (%d,%d,%d,%d), want (%d,%d,%d,%d)", c.total, l, a, e, s, c.list, c.art, c.events, c.summary)
 		}
 	}
 }
@@ -466,7 +471,7 @@ func TestRecentEventsFeedScrollRevealsNewContent(t *testing.T) {
 	if top < 0 {
 		t.Fatal("no events box")
 	}
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	for i := top; i < top+eventsH && i < len(lines); i++ {
 		if strings.Contains(lines[i], "\x1b[7m") {
 			t.Fatalf("events box row has a reverse-video escape; no row should be highlighted: %q", lines[i])
@@ -527,7 +532,7 @@ func TestShiftLeftRightPageFeedAndOffsetClamps(t *testing.T) {
 	// test's own heavy shift+right hammering (a different call
 	// path/contentHeight than that test's fixed setup) from silently
 	// regressing to the wrong bound.
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	wantMax := m.projects.feedLen() - eventsFeedVisibleRows(eventsH)
 	if wantMax < 0 {
 		wantMax = 0
@@ -646,7 +651,13 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 // pass when only one section's framing actually changed. A height where the
 // events slot has collapsed entirely (too short to render at all — a
 // legitimate state, see projectPaneSplitHeights) is skipped rather than
-// failed, since there is no feed framing to compare.
+// failed, since there is no feed framing to compare. Likewise, ATM-4eae82's
+// four-way split can independently collapse the summary slot to 0 (list
+// fixed at 9, events at its own ~35% share, leaving nothing for summary —
+// e.g. total 13 gives (9,0,4,0)) even while the events slot still renders:
+// that state is skipped the same way, keyed off projectPaneSplitHeights
+// rather than the rendered body, since a collapsed summary has no persona
+// chart to compare framing against either.
 func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 	findLine := func(body, marker string) string {
 		for _, line := range strings.Split(body, "\n") {
@@ -677,6 +688,11 @@ func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 		}
 		personaLine := findLine(body, "activity by persona")
 		if personaLine == "" {
+			_, _, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
+			if summaryH == 0 {
+				// Summary slot collapsed at this height — nothing to compare.
+				continue
+			}
 			t.Fatalf("height %d: events feed rendered but persona chart section is missing\n--- body ---\n%s", h, body)
 		}
 
@@ -720,7 +736,7 @@ func TestScrollEventsFeedNoopWhenSlotCollapsed(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	m.projects.contentHeight = 3
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	if eventsH != 0 {
 		t.Fatalf("setup: expected the events slot collapsed to 0 at contentHeight 3, got %d", eventsH)
 	}
@@ -747,7 +763,7 @@ func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 	// selecting a project produces on its own (EnsureVocabulary seeds a
 	// handful of label events).
 	m.projects.contentHeight = 63
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	rows := eventsFeedVisibleRows(eventsH)
 
 	// (a) feed shorter than the window: shift+down is a no-op, offset stays 0.
@@ -822,7 +838,7 @@ func TestShiftRightPageOverlapsByOneLine(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
 	}
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 
 	before := feedBodyLines(t, m.projects.View(), eventsH)
 	update(t, m, "shift+right")
@@ -947,7 +963,7 @@ func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
 
 	// Small window: scroll all the way to its own max offset.
 	m.projects.contentHeight = 30
-	_, smallEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, smallEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	smallRows := eventsFeedVisibleRows(smallEventsH)
 	for i := 0; i < 200; i++ {
 		update(t, m, "shift+down")
@@ -961,7 +977,7 @@ func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
 	// Grow the terminal (no key press): a bigger window means more visible
 	// rows, but logsOffset does not move on its own.
 	m.projects.contentHeight = 63
-	_, bigEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, bigEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	bigRows := eventsFeedVisibleRows(bigEventsH)
 	if bigRows <= smallRows {
 		t.Fatalf("setup: grown window (%d rows) is not bigger than the original (%d rows)", bigRows, smallRows)
@@ -1048,7 +1064,7 @@ func boxedFeedView(t *testing.T, w, h int, title string) (*Model, string) {
 	t.Helper()
 	m := newTestModel(t)
 	m.SetSize(w, h)
-	_, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
 	if !summaryChartsBoxed(summaryH) {
 		t.Fatalf("setup: expected the events section boxed at %dx%d", w, h)
 	}
@@ -1178,7 +1194,7 @@ func TestHeaderRowAccountedInVisibleRows(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("Task %02d", i))
 	}
-	_, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
+	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	rows := feedBoxRows(t, m.projects.View())
 	want := eventsFeedVisibleRows(eventsH) + 1
 	if len(rows) != want {
@@ -1211,7 +1227,7 @@ func TestCompactFeedHeaderAndRowAccounting(t *testing.T) {
 	for h := 8; h <= 60; h++ {
 		mm := newTestModel(t)
 		mm.SetSize(width, h)
-		_, eh, summaryH := projectPaneSplitHeights(mm.projects.contentHeight)
+		_, _, eh, summaryH := projectPaneSplitHeights(mm.projects.contentHeight)
 		if eh >= 4 && !summaryChartsBoxed(summaryH) {
 			m, eventsH = mm, eh
 			break

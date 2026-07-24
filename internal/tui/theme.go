@@ -63,6 +63,12 @@ type Styles struct {
 	Toast            lipgloss.Style
 	OverlayBackdrop  lipgloss.Style
 	HelpTable        lipgloss.Style
+
+	// ArtBase/ArtAccent style the background art: base is the palette's
+	// subtle tone so art reads as background; accent is the palette accent,
+	// used sparsely by the generators.
+	ArtBase   lipgloss.Style
+	ArtAccent lipgloss.Style
 }
 
 func defaultThemeName() ThemeName { return themeGraphite }
@@ -129,6 +135,8 @@ func buildStyles(themeName ThemeName) Styles {
 		Toast:            lipgloss.NewStyle().Foreground(t.AccentText).Background(t.Error).Bold(true).Padding(0, 1),
 		OverlayBackdrop:  lipgloss.NewStyle().Foreground(t.Subtle),
 		HelpTable:        lipgloss.NewStyle().Foreground(t.Text),
+		ArtBase:          lipgloss.NewStyle().Foreground(t.Subtle),
+		ArtAccent:        lipgloss.NewStyle().Foreground(t.Accent),
 	}
 	if themeName == themeMono {
 		s.ActiveTab = lipgloss.NewStyle().Reverse(true).Bold(true).Padding(0, 1)

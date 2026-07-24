@@ -15,7 +15,7 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 		}
 		return nil, err
 	}
-	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 {
+	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 && !c.ArtOn {
 		return nil, nil
 	}
 	return &c, nil
@@ -258,6 +258,36 @@ func (s *Store) SetProjectBoards(code string, b *core.BoardsConfig, actor string
 			merged = existing
 		}
 		merged.Boards = b
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
+// SetProjectArtOn writes the project's TUI art on/off flag and, when turning
+// art on, the pinned two-theme pair to render, under the project lock,
+// read-modify-write like SetProjectBoards. Turning art off clears the pinned
+// pair so a later off->on re-roll is not confused with a stale pin. No store
+// event: display preference, not substrate state.
+func (s *Store) SetProjectArtOn(code string, on bool, pair []string, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	return s.WithLock(code, func() error {
+		existing, err := s.GetProjectConfig(code)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		merged := &ProjectConfig{}
+		if existing != nil {
+			merged = existing
+		}
+		merged.ArtOn = on
+		if on {
+			merged.ArtPair = pair
+		} else {
+			merged.ArtPair = nil
+		}
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)

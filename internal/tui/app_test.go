@@ -866,14 +866,14 @@ func TestProjectsBracketKeysPageThroughList(t *testing.T) {
 	}
 }
 
-func TestProjectsViewUsesThreeWaySplit(t *testing.T) {
+func TestProjectsViewUsesFourWaySplit(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 30)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	// A project must be selected: with no selection the events section is
 	// folded away (its rows given back to the summary) rather than showing
 	// a placeholder that doubles the summary's own "select a project"
-	// message, so the three-way split this test pins only appears once a
+	// message, so the four-way split this test pins only appears once a
 	// project is selected.
 	update(t, m, "s")
 	body := m.projects.View()
@@ -886,14 +886,18 @@ func TestProjectsViewUsesThreeWaySplit(t *testing.T) {
 		}
 		return -1
 	}
-	// contentHeight 27: list 8 (30%), events 9 (35%), summary 10 (rest).
-	if got := find("Recent Events"); got != 8 {
-		t.Fatalf("events caption on line %d, want 8\n--- body ---\n%s", got, body)
+	// contentHeight 27: list 9 (fixed, 5-row page), art 0 (folds into
+	// summary — 27's remainder after list/events/summary is under the
+	// 3-line art minimum), events 9 (35%), summary 9 (rest). See
+	// TestProjectPaneSplitHeightsFourWayLegacyCases for the same total
+	// pinned directly against projectPaneSplitHeights.
+	if got := find("Recent Events"); got != 9 {
+		t.Fatalf("events caption on line %d, want 9\n--- body ---\n%s", got, body)
 	}
 	// The "Project Summary" heading was removed; the summary region now
 	// starts directly with the "activity by persona" chart box title.
-	if got := find("activity by persona"); got != 17 {
-		t.Fatalf("persona chart on line %d, want 17\n--- body ---\n%s", got, body)
+	if got := find("activity by persona"); got != 18 {
+		t.Fatalf("persona chart on line %d, want 18\n--- body ---\n%s", got, body)
 	}
 }
 
@@ -927,17 +931,17 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 }
 
 func TestProjectPaneSplitHeights(t *testing.T) {
-	listH, eventsH, summaryH := projectPaneSplitHeights(30)
-	if listH != 9 || eventsH != 10 || summaryH != 11 {
-		t.Fatalf("projectPaneSplitHeights(30) = (%d,%d,%d), want (9,10,11)", listH, eventsH, summaryH)
+	listH, artH, eventsH, summaryH := projectPaneSplitHeights(30)
+	if listH != 9 || artH != 0 || eventsH != 10 || summaryH != 11 {
+		t.Fatalf("projectPaneSplitHeights(30) = (%d,%d,%d,%d), want (9,0,10,11)", listH, artH, eventsH, summaryH)
 	}
-	listH, eventsH, summaryH = projectPaneSplitHeights(3)
-	if listH < 1 || summaryH < 1 || listH+eventsH+summaryH != 3 {
-		t.Fatalf("projectPaneSplitHeights(3) = (%d,%d,%d), want positive list/summary heights summing to 3", listH, eventsH, summaryH)
+	listH, artH, eventsH, summaryH = projectPaneSplitHeights(3)
+	if listH < 1 || listH+artH+eventsH+summaryH != 3 {
+		t.Fatalf("projectPaneSplitHeights(3) = (%d,%d,%d,%d), want positive list height summing to 3", listH, artH, eventsH, summaryH)
 	}
-	listH, eventsH, summaryH = projectPaneSplitHeights(1)
-	if listH != 1 || eventsH != 0 || summaryH != 0 {
-		t.Fatalf("projectPaneSplitHeights(1) = (%d,%d,%d), want (1,0,0)", listH, eventsH, summaryH)
+	listH, artH, eventsH, summaryH = projectPaneSplitHeights(1)
+	if listH != 1 || artH != 0 || eventsH != 0 || summaryH != 0 {
+		t.Fatalf("projectPaneSplitHeights(1) = (%d,%d,%d,%d), want (1,0,0,0)", listH, artH, eventsH, summaryH)
 	}
 }
 
@@ -993,7 +997,11 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 
 func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	m := newTestModel(t)
-	m.SetSize(100, 14)
+	// h=100x24 -> contentHeight=23 -> pane inner height=21 ->
+	// projectPaneSplitHeights(21) = (listH=9, artH=0, eventsH=7, summaryH=5),
+	// the minimum summary height at which both activity charts render under
+	// the fixed 5-row project list (see projectPaneSplitHeights).
+	m.SetSize(100, 24)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")

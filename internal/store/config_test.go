@@ -493,3 +493,74 @@ func TestProjectReposAbsentConfigReturnsEmptyNoError(t *testing.T) {
 		t.Errorf("repos = %+v, want empty", repos)
 	}
 }
+
+func TestSetProjectArtOn(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+
+	// Turn art on with a pinned pair.
+	if err := s.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.GetProjectConfig("ATM")
+	if err != nil || c == nil {
+		t.Fatalf("config = %v, %v", c, err)
+	}
+	if !c.ArtOn {
+		t.Fatalf("ArtOn = false, want true")
+	}
+	if len(c.ArtPair) != 2 || c.ArtPair[0] != "galaxy" || c.ArtPair[1] != "matrix" {
+		t.Fatalf("ArtPair = %v, want [galaxy matrix]", c.ArtPair)
+	}
+	if c.UpdatedBy != testActor {
+		t.Fatalf("UpdatedBy = %q", c.UpdatedBy)
+	}
+
+	// Turning art off clears both the flag and the pinned pair.
+	if err := s.SetProjectArtOn("ATM", false, nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != nil && c.ArtOn {
+		t.Fatalf("ArtOn still true after clear")
+	}
+	if c != nil && len(c.ArtPair) != 0 {
+		t.Fatalf("ArtPair not cleared on off: %v", c.ArtPair)
+	}
+
+	// A config holding ONLY art_on must not read back as nil (regression
+	// guard for GetProjectConfig's emptiness check). Written as a raw JSON
+	// fixture straight to config.json, NOT via SetProjectArtOn: the setter
+	// always stamps UpdatedAt, so routing through it would make
+	// GetProjectConfig non-nil via the UpdatedAt clause and never actually
+	// exercise the ArtOn clause under test. With every other field left
+	// empty, this fixture isolates that one clause -- the assertion below
+	// fails if the `&& !c.ArtOn` conjunct is removed from
+	// GetProjectConfig. Use a bare second project so nothing else on disk
+	// (e.g. ATM's updated_at/updated_by stamps from the writes above) could
+	// keep the config non-nil for an unrelated reason.
+	if _, err := s.CreateProject("XYZ", "Bare Project", testActor); err != nil {
+		t.Fatal(err)
+	}
+	rawConfigPath := filepath.Join(s.StorePath(), "projects", "XYZ", "config.json")
+	if err := os.WriteFile(rawConfigPath, []byte(`{"art_on":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.GetProjectConfig("XYZ")
+	if err != nil || c == nil {
+		t.Fatalf("art-on-only config must be readable, got %v, %v", c, err)
+	}
+	if !c.ArtOn {
+		t.Fatalf("ArtOn = false, want true")
+	}
+
+	// Invalid actor is rejected.
+	if err := s.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, "not-an-actor"); err == nil {
+		t.Fatal("invalid actor must be rejected")
+	}
+}

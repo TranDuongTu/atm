@@ -2,12 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/tui/art"
 	"atm/internal/version"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -137,6 +139,15 @@ type Model struct {
 	// indexer is the lazy-init model behind the indexer plugin; populated by
 	// indexerPlugin.model on first use.
 	indexer *indexerModel
+
+	// artPhase is the background-art animation clock, advanced by artTickMsg
+	// only while the plain workspace is visible; artOn caches each listed
+	// project's config.json art_on flag and artPair caches the pinned
+	// two-theme pair (both refreshed by refreshAll) so View never touches
+	// the filesystem.
+	artPhase int
+	artOn    map[string]bool
+	artPair  map[string][]string
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -310,6 +321,22 @@ func innerPaneHeight(height int) int {
 func (m *Model) refreshAll() {
 	m.capability.refresh()
 	m.projects.refresh()
+	// Refresh the art-on cache alongside the project list so renderers
+	// never read config.json during View.
+	on := make(map[string]bool, len(m.projects.list))
+	pairs := make(map[string][]string, len(m.projects.list))
+	for _, r := range m.projects.list {
+		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil {
+			if cfg.ArtOn {
+				on[r.code] = true
+			}
+			if len(cfg.ArtPair) > 0 {
+				pairs[r.code] = cfg.ArtPair
+			}
+		}
+	}
+	m.artOn = on
+	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
@@ -358,12 +385,27 @@ func (m *Model) cycleTheme() {
 // for callers.
 func (m *Model) canMutate() bool { return true }
 
+// workspaceIdle reports whether the plain two-pane workspace is what View
+// shows — no overlay, form, confirm, plugin, capability switcher, dispatch
+// dialog, or personas overlay layered over it (see View's overlay chain).
+// Art animates only then; anything covering the workspace freezes the phase
+// clock.
+func (m *Model) workspaceIdle() bool {
+	return m.helpOverlay == helpNone &&
+		!(m.form != nil && m.form.Active) &&
+		m.confirm == confirmNone &&
+		m.pluginOverlay == -1 &&
+		!m.capability.open &&
+		m.dispatchDlg.kind == dispatchNone &&
+		!m.personasOv.open
+}
+
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
 // tick that re-runs refreshAll so external mutations (CLI writes in another
 // process) surface in the TUI without a manual key. The tick is cheap: with
 // the O(1) LastLogSeq staleness check, refreshAll skips rebuilds when the
-// cache is fresh.
-func (m *Model) Init() tea.Cmd { return refreshTickCmd() }
+// cache is fresh. It also starts the background-art animation tick.
+func (m *Model) Init() tea.Cmd { return tea.Batch(refreshTickCmd(), artTickCmd()) }
 
 // refreshTickMsg is the periodic message that triggers a refreshAll to pick
 // up external mutations (a CLI invocation in another process appending to
@@ -382,6 +424,17 @@ func refreshTickCmd() tea.Cmd {
 	return tea.Tick(refreshTickInterval, func(time.Time) tea.Msg { return refreshTickMsg{} })
 }
 
+// artTickMsg advances the background-art animation. The tick always
+// reschedules (cheap no-op off-workspace) but the phase only advances while
+// the plain workspace is visible, so art freezes under overlays and forms.
+type artTickMsg struct{}
+
+const artTickInterval = 600 * time.Millisecond
+
+func artTickCmd() tea.Cmd {
+	return tea.Tick(artTickInterval, func(time.Time) tea.Msg { return artTickMsg{} })
+}
+
 // Update routes messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -395,6 +448,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so the user's selection isn't disturbed by a background tick.
 		m.refreshAll()
 		return m, refreshTickCmd()
+	case artTickMsg:
+		if m.workspaceIdle() {
+			m.artPhase++
+		}
+		return m, artTickCmd()
 	case pluginTickMsg:
 		im := m.indexer
 		if im == nil {
@@ -776,6 +834,44 @@ func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
 }
 
+// toggleScopedArt flips the on/off flag for the currently scoped project,
+// persists it to the project config, and refreshes the in-memory cache. When
+// turning art ON it re-rolls a fresh random two-theme pair and pins it; when
+// turning it OFF it clears the pinned pair. It is a no-op (with a toast hint)
+// when no project is scoped. Bound to the `A` key in the projects and tasks
+// panes.
+func (m *Model) toggleScopedArt() {
+	code := m.projectScope
+	if code == "" {
+		m.showToast("select a project first (s) to toggle art")
+		return
+	}
+	next := !m.artOn[code]
+	var pair []string
+	if next {
+		rolled := art.RollPair(rand.New(rand.NewSource(time.Now().UnixNano())))
+		pair = []string{rolled[0].Name(), rolled[1].Name()}
+	}
+	if err := m.store.SetProjectArtOn(code, next, pair, m.actor); err != nil {
+		m.showToast("art: " + err.Error())
+		return
+	}
+	if m.artOn == nil {
+		m.artOn = map[string]bool{}
+	}
+	if m.artPair == nil {
+		m.artPair = map[string][]string{}
+	}
+	m.artOn[code] = next
+	if next {
+		m.artPair[code] = pair
+		m.showToast("art: on")
+	} else {
+		delete(m.artPair, code)
+		m.showToast("art: off")
+	}
+}
+
 // openPersonaCreateForm opens the New persona form (name + description only).
 // The prompt is left empty; the user sets it later via CLI --prompt-file.
 func (m *Model) openPersonaCreateForm() tea.Cmd {
@@ -811,6 +907,12 @@ func (m *Model) View() string {
 	// placeOverlay: the workspace stays visible on the rows above and below
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
+	//
+	// KEEP IN SYNC WITH workspaceIdle(): the seven gates below are exactly the
+	// states in which View renders something over the plain workspace, and
+	// workspaceIdle() is their negation (it gates the background-art animation
+	// tick). Adding an overlay here without adding it to workspaceIdle() would
+	// let art animate underneath the new overlay.
 	out := b.String()
 	if m.helpOverlay != helpNone {
 		out = m.placeOverlay(out, m.renderHelpOverlay())
