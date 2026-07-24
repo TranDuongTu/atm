@@ -128,7 +128,7 @@ func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, l
 		if log != nil {
 			log(fmt.Sprintf("embedding %d/%d %s (%s)", i+1, len(pending), doc.ID, doc.Kind))
 		}
-		vec, err := embed(doc.Text, "document")
+		vec, err := embed(ctx, doc.Text, "document")
 		if err != nil {
 			return res, fmt.Errorf("embed %s: %w", doc.ID, err)
 		}

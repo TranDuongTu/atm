@@ -481,8 +481,9 @@ func (p *indexerPlugin) handleReindexOnce(m *Model) tea.Cmd {
 		return nil
 	}
 	embedFn := im.embedFnBuilder(im.cfg)
+	ch := im.msgCh // capture: a later start swaps im.msgCh on the Update thread
 	progress := func(msg string) {
-		sendIndexerMsg(im, indexerMsg{kind: msgProgress, line: msg})
+		sendIndexerMsgCh(ch, indexerMsg{kind: msgProgress, line: msg})
 	}
 	return func() tea.Msg {
 		res, err := m.store.ReindexOnce(context.Background(), m.projectScope, embedFn, progress)
@@ -558,7 +559,7 @@ func (p *indexerPlugin) model(m *Model) *indexerModel {
 
 func defaultEmbedFnBuilder(cfg *core.EmbeddingConfig) core.EmbedFunc {
 	client := embed.New(*cfg)
-	return func(text, role string) ([]float64, error) { return client.Embed(text, role) }
+	return func(ctx context.Context, text, role string) ([]float64, error) { return client.Embed(ctx, text, role) }
 }
 
 func (im *indexerModel) refreshStatus() {
@@ -593,8 +594,20 @@ func (im *indexerModel) refreshStatus() {
 
 type pluginTickMsg struct{}
 
-func pluginTickCmd() tea.Cmd {
-	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return pluginTickMsg{} })
+// pluginTickInterval picks the drain cadence for im.msgCh. Every tick forces
+// a full View render, so the fast cadence is reserved for an OPEN overlay
+// (live log tailing); a watcher running in the background only needs the
+// dock state roughly current, and the relaxed tick cuts the steady-state
+// render rate ~4x (ATM-4c476c).
+func pluginTickInterval(m *Model) time.Duration {
+	if m.pluginOverlay != -1 {
+		return 120 * time.Millisecond
+	}
+	return 500 * time.Millisecond
+}
+
+func pluginTickCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return pluginTickMsg{} })
 }
 
 func startIndexer(m *Model, code string) tea.Cmd {
@@ -618,8 +631,15 @@ func startIndexer(m *Model, code string) tea.Cmd {
 	im.done = done
 	im.state = idxWorking
 	im.startedAt = time.Now()
+	// Each run gets a fresh channel, and the goroutine's send closures
+	// capture the channel VALUE — never the im.msgCh field. A watcher
+	// abandoned by the non-blocking stopIndexer keeps writing to its own
+	// orphaned channel, so it can neither pollute the next run's log nor
+	// race the Update thread's channel swap (ATM-4c476c).
+	ch := make(chan indexerMsg, 256)
+	im.msgCh = ch
 	send := func(kind indexerMsgKind, line string, st indexerState, err string) {
-		sendIndexerMsg(im, indexerMsg{kind: kind, line: line, state: st, err: err})
+		sendIndexerMsgCh(ch, indexerMsg{kind: kind, line: line, state: st, err: err})
 	}
 	progress := func(msg string) {
 		switch {
@@ -643,7 +663,7 @@ func startIndexer(m *Model, code string) tea.Cmd {
 		}
 		send(msgDone, "", idxStopped, "")
 	}()
-	return pluginTickCmd()
+	return pluginTickCmd(pluginTickInterval(m))
 }
 
 // autoStartIndexer is the project-selection entry point (D15). It refreshes
@@ -725,45 +745,48 @@ func resetIndexer(m *Model) {
 	im.refreshStatus()
 }
 
+// stopIndexer cancels the running watcher WITHOUT waiting for it. It runs on
+// the Bubble Tea Update thread, and the old <-im.done wait blocked the whole
+// UI for the length of an in-flight embed call (unbounded against an
+// endpoint that ignores cancellation — ATM-4c476c, regression of the
+// ATM-17e9cc mitigation). The dying goroutine still sends on the channel it
+// captured at start; swapping in a fresh channel here both discards its
+// stale queue (the old drainChannel) and orphans its future sends. Store
+// writes after this point are impossible: ReindexOnce checks ctx.Err()
+// before WriteVectorBatch.
 func stopIndexer(m *Model) {
 	im := m.indexer
 	if im == nil || im.cancel == nil {
 		return
 	}
 	im.cancel()
-	if im.done != nil {
-		<-im.done
-	}
-	drainChannel(im.msgCh)
 	im.cancel = nil
 	im.done = nil
-}
-
-func drainChannel(ch chan indexerMsg) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
+	im.msgCh = make(chan indexerMsg, 256)
 }
 
 // sendIndexerMsg performs a non-blocking send onto im.msgCh, dropping the
 // oldest queued message on overflow so the latest progress is preferred. It
 // is safe to call from a Cmd goroutine; the Update tick drain applies the
-// messages (all model mutation happens in Update, per D6).
+// messages (all model mutation happens in Update, per D6). Long-lived
+// watcher goroutines must NOT use this — they capture their run's channel
+// and use sendIndexerMsgCh, so a stop's channel swap orphans them cleanly.
 func sendIndexerMsg(im *indexerModel, msg indexerMsg) {
+	sendIndexerMsgCh(im.msgCh, msg)
+}
+
+// sendIndexerMsgCh is the channel-value form of sendIndexerMsg.
+func sendIndexerMsgCh(ch chan indexerMsg, msg indexerMsg) {
 	select {
-	case im.msgCh <- msg:
+	case ch <- msg:
 	default:
 		// drop-oldest on overflow
 		select {
-		case <-im.msgCh:
+		case <-ch:
 		default:
 		}
 		select {
-		case im.msgCh <- msg:
+		case ch <- msg:
 		default:
 		}
 	}

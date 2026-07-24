@@ -97,7 +97,7 @@ func TestIndexerStateStoppedWhenConfigPresent(t *testing.T) {
 // fakeEmbedFnBuilder returns an embedFn that yields deterministic 2-dim vectors.
 func fakeEmbedFnBuilder(vec []float64) func(*store.EmbeddingConfig) store.EmbedFunc {
 	return func(*store.EmbeddingConfig) store.EmbedFunc {
-		return func(text, role string) ([]float64, error) { return vec, nil }
+		return func(_ context.Context, text, role string) ([]float64, error) { return vec, nil }
 	}
 }
 
@@ -163,7 +163,7 @@ func TestStartIndexerErrorsOnEmbedFailure(t *testing.T) {
 	im := p.model(m)
 	var calls int32
 	im.embedFnBuilder = func(*store.EmbeddingConfig) store.EmbedFunc {
-		return func(text, role string) ([]float64, error) {
+		return func(_ context.Context, text, role string) ([]float64, error) {
 			atomic.AddInt32(&calls, 1)
 			return nil, errors.New("endpoint down")
 		}
@@ -750,7 +750,7 @@ func TestErrorAutoOpensOverlay(t *testing.T) {
 	p := newIndexerPlugin()
 	im := p.model(m)
 	im.embedFnBuilder = func(*store.EmbeddingConfig) store.EmbedFunc {
-		return func(text, role string) ([]float64, error) {
+		return func(_ context.Context, text, role string) ([]float64, error) {
 			return nil, errors.New("endpoint down")
 		}
 	}
