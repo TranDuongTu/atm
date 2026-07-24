@@ -51,6 +51,23 @@
 - ATM-0083: agent as config, not flags. The host agent is now a stored default — choose it once with `atm agents select <name>` (`atm agents list` shows readiness; `atm agents args <name> -- <flags>` sets per-agent defaults), then launch with `atm dev --project <CODE>` and `atm manage --project <CODE> --<action>`. Override a single launch with `--agent <name>` or `ATM_AGENT`.
 - ATM-0115: boards (computed labels). A label may carry an expression over other labels; its membership is computed, not asserted. New `--expr` flag on `atm label add` and `atm task list` (`--label <CODE>:<board>` resolves a board's expression). Label-name grammar widened so `:*` namespace wildcards are legal labels; `atm label seed` back-fills namespace descriptors into existing projects.
 
+### perf
+- ATM-4c476c: TUI lag fixes. The v2 cache-freshness probe (`ChangeCount`) is
+  memoized against the event file's stat identity, so the steady-state probe
+  is one `os.Stat` instead of reading the whole `events.v2.jsonl`; the tasks
+  pane resolves its annotate registry once per refresh instead of once per
+  row; and the summary pane + events feed render from refresh-time snapshots,
+  making `View()` pure formatting (zero store reads per frame). On a live-
+  scale store (2.4k events, 188 tasks): refreshAll 106ms→48ms with 635MB→19MB
+  allocated, View 18ms→2.9ms per frame.
+- ATM-4c476c: the indexer can no longer block the UI. Embedding requests are
+  context-aware with a 60s backstop timeout (`EmbedFunc` now takes a
+  `context.Context`), and stopping the watcher (project switch, `q` quit,
+  reset) cancels without waiting — each run gets its own message channel, so
+  an abandoned watcher can't pollute the next run's log. The background
+  watcher's drain tick relaxes from 120ms to 500ms when the indexer overlay
+  is closed, cutting steady-state re-renders ~4x.
+
 ### changed
 - ATM-0115: the Labels pane is now the Boards pane — a flat list of computed labels (boards + namespaces) with a live-validated expression editor.
 - Removed per-agent launch subcommands (`atm claude|codex|opencode|ollama` and `atm manage <agent>`). Ollama variants are now catalog entries (`ollama:<integration>`), so the `--integration` flag is gone. `atm init` additionally records the first installed agent as the default.
