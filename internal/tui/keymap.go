@@ -34,6 +34,7 @@ var keymapRows = []keyEntry{
 	{"s", "select project", "cycle sort", "-", "-"},
 	{"S", "-", "re-ensure capability vocabulary", "-", "-"},
 	{"a", "add project", "add task", "-", "-"},
+	{"A", "toggle project art", "toggle project art", "-", "-"},
 	{"n", "-", "new board", "-", "-"},
 	{"e", "-", "edit board", "-", "edit title (task)"},
 	{"d", "-", "describe label", "-", "edit description (task)"},

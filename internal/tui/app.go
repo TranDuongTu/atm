@@ -139,11 +139,11 @@ type Model struct {
 	indexer *indexerModel
 
 	// artPhase is the background-art animation clock, advanced by artTickMsg
-	// only while the plain workspace is visible; artPins caches each listed
-	// project's config.json art_theme pin (refreshed by refreshAll) so View
+	// only while the plain workspace is visible; artOn caches each listed
+	// project's config.json art_on flag (refreshed by refreshAll) so View
 	// never touches the filesystem.
 	artPhase int
-	artPins  map[string]string
+	artOn    map[string]bool
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -317,15 +317,15 @@ func innerPaneHeight(height int) int {
 func (m *Model) refreshAll() {
 	m.capability.refresh()
 	m.projects.refresh()
-	// Refresh the art-pin cache alongside the project list so renderers
+	// Refresh the art-on cache alongside the project list so renderers
 	// never read config.json during View.
-	pins := make(map[string]string, len(m.projects.list))
+	on := make(map[string]bool, len(m.projects.list))
 	for _, r := range m.projects.list {
-		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil {
-			pins[r.code] = cfg.ArtTheme
+		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil && cfg.ArtOn {
+			on[r.code] = true
 		}
 	}
-	m.artPins = pins
+	m.artOn = on
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
@@ -821,6 +821,32 @@ func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
 // never locks the user out of the workspace behind a notification screen.
 func (m *Model) showToast(msg string) {
 	m.toastMsg = msg
+}
+
+// toggleScopedArt flips the on/off flag for the currently scoped project,
+// persists it to the project config, and refreshes the in-memory cache. It is
+// a no-op (with a toast hint) when no project is scoped. Bound to the `A` key
+// in the projects and tasks panes.
+func (m *Model) toggleScopedArt() {
+	code := m.projectScope
+	if code == "" {
+		m.showToast("select a project first (s) to toggle art")
+		return
+	}
+	next := !m.artOn[code]
+	if err := m.store.SetProjectArtOn(code, next, m.actor); err != nil {
+		m.showToast("art: " + err.Error())
+		return
+	}
+	if m.artOn == nil {
+		m.artOn = map[string]bool{}
+	}
+	m.artOn[code] = next
+	if next {
+		m.showToast("art: on")
+	} else {
+		m.showToast("art: off")
+	}
 }
 
 // openPersonaCreateForm opens the New persona form (name + description only).

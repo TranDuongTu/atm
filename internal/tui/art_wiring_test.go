@@ -116,6 +116,13 @@ func TestProjectsRenderListIncludesArtRegion(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	m.projects.SetSize(60, 40)
+	// Art is default-off and scoped: enable it for the scoped project before
+	// asserting the art region is populated.
+	m.projectScope = "ATM"
+	if err := m.store.SetProjectArtOn("ATM", true, m.actor); err != nil {
+		t.Fatalf("SetProjectArtOn: %v", err)
+	}
+	m.artOn["ATM"] = true
 	out := m.projects.renderList()
 	lines := strings.Split(out, "\n")
 	if len(lines) != 40 {

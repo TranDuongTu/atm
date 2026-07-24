@@ -431,6 +431,8 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "a":
 		p.openCreateForm()
+	case "A":
+		p.m.toggleScopedArt()
 	case "x":
 		if r, ok := p.selected(); ok {
 			return p.requestRemoveProject(r.code)
@@ -679,22 +681,19 @@ func (p *projectsModel) renderList() string {
 	return padToHeight(strings.Join(parts, "\n"), p.contentHeight)
 }
 
-// renderArt draws the background art for the pane's context project: the
-// scoped project when one is selected, else the cursor row. Falls back to
-// blank lines (padToHeight in the caller) when the region or project list
-// can't support art.
+// renderArt draws the background art for the pane's scoped project: blank
+// when no project is selected or art is off for it. Falls back to blank lines
+// (padToHeight in the caller) when the region or project list can't support
+// art.
 func (p *projectsModel) renderArt(height int) string {
 	if len(p.list) == 0 {
 		return ""
 	}
 	code := p.m.projectScope
-	if code == "" {
-		if p.cursor < 0 || p.cursor >= len(p.list) {
-			return ""
-		}
-		code = p.list[p.cursor].code
+	if code == "" || !p.m.artOn[code] {
+		return ""
 	}
-	theme := art.Effective(p.m.artPins[code], code)
+	theme := art.Pair(code)[0]
 	lines := art.Render(theme, p.width, height, art.Seed(code), p.m.artPhase,
 		p.m.styles.ArtBase, p.m.styles.ArtAccent)
 	if lines == nil {

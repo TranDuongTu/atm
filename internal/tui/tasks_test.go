@@ -554,6 +554,10 @@ func TestTasksPaneFillsGapWithArt(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
+	if err := m.store.SetProjectArtOn("ATM", true, m.actor); err != nil {
+		t.Fatalf("SetProjectArtOn: %v", err)
+	}
+	m.artOn["ATM"] = true
 	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}

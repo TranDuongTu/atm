@@ -109,6 +109,8 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		t.openCreateForm()
+	case "A":
+		t.m.toggleScopedArt()
 	case "n", "e", "S", "d", "l":
 		// Board-authoring keys, scoped to the SELECTED board at its current
 		// drill level. Delegated to a selection-aware handler on boardsModel
@@ -274,7 +276,7 @@ func (t *tasksModel) renderListWithStrip() string {
 // art is skipped entirely.
 func (t *tasksModel) fillGapWithArt(listOut string) string {
 	code := t.m.projectScope
-	if code == "" {
+	if code == "" || !t.m.artOn[code] {
 		return listOut
 	}
 	lines := strings.Split(listOut, "\n")
@@ -285,7 +287,7 @@ func (t *tasksModel) fillGapWithArt(listOut string) string {
 	if gap < art.MinH {
 		return listOut
 	}
-	theme := art.Effective(t.m.artPins[code], code)
+	theme := art.Pair(code)[1]
 	artLines := art.Render(theme, t.width, gap, art.Seed(code), t.m.artPhase,
 		t.m.styles.ArtBase, t.m.styles.ArtAccent)
 	if artLines == nil {
