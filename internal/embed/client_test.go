@@ -1,6 +1,7 @@
 package embed
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,7 @@ func TestClientEmbedAppliesRolePrefix(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(store.EmbeddingConfig{Model: "m", Endpoint: srv.URL, QueryPrefix: "search_query: ", DocPrefix: "search_document: ", Dim: 3})
-	got, err := c.Embed("hello", "query")
+	got, err := c.Embed(context.Background(), "hello", "query")
 	if err != nil {
 		t.Fatalf("Embed: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestClientEmbedDocumentRole(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(store.EmbeddingConfig{Model: "m", Endpoint: srv.URL, DocPrefix: "search_document: "})
-	if _, err := c.Embed("doc", "document"); err != nil {
+	if _, err := c.Embed(context.Background(), "doc", "document"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(gotBody, "search_document: doc") {
@@ -63,7 +64,7 @@ func TestClientEmbedBatch(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(store.EmbeddingConfig{Model: "m", Endpoint: srv.URL, Dim: 2})
-	got, err := c.EmbedBatch([]EmbedItem{{Text: "a"}, {Text: "b"}})
+	got, err := c.EmbedBatch(context.Background(), []EmbedItem{{Text: "a"}, {Text: "b"}})
 	if err != nil {
 		t.Fatalf("EmbedBatch: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestClientEmbedEndpointError(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(store.EmbeddingConfig{Model: "m", Endpoint: srv.URL})
-	if _, err := c.Embed("x", "query"); err == nil {
+	if _, err := c.Embed(context.Background(), "x", "query"); err == nil {
 		t.Fatal("want error on 500, got nil")
 	}
 }

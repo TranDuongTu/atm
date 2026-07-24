@@ -2,10 +2,12 @@ package embed
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"atm/internal/store"
 )
@@ -15,8 +17,13 @@ type Client struct {
 	client *http.Client
 }
 
+// requestTimeout is a backstop so a hung endpoint can never wedge an embed
+// call forever, even under a background context. Cancellation via the
+// request context remains the prompt path (ATM-4c476c).
+const requestTimeout = 60 * time.Second
+
 func New(cfg store.EmbeddingConfig) *Client {
-	return &Client{cfg: cfg, client: &http.Client{}}
+	return &Client{cfg: cfg, client: &http.Client{Timeout: requestTimeout}}
 }
 
 type EmbedItem struct {
@@ -36,7 +43,7 @@ type embedResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-func (c *Client) Embed(text, role string) ([]float64, error) {
+func (c *Client) Embed(ctx context.Context, text, role string) ([]float64, error) {
 	prefix := c.cfg.QueryPrefix
 	if role == "document" {
 		prefix = c.cfg.DocPrefix
@@ -45,7 +52,7 @@ func (c *Client) Embed(text, role string) ([]float64, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, c.cfg.Endpoint+"/embeddings", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Endpoint+"/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +79,7 @@ func (c *Client) Embed(text, role string) ([]float64, error) {
 	return er.Data[0].Embedding, nil
 }
 
-func (c *Client) EmbedBatch(items []EmbedItem) ([][]float64, error) {
+func (c *Client) EmbedBatch(ctx context.Context, items []EmbedItem) ([][]float64, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
@@ -88,7 +95,7 @@ func (c *Client) EmbedBatch(items []EmbedItem) ([][]float64, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, c.cfg.Endpoint+"/embeddings", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Endpoint+"/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

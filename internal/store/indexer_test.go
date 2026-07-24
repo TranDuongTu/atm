@@ -69,7 +69,7 @@ func TestReindexOnceWithFakeEmbedder(t *testing.T) {
 	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	fake := func(text, role string) ([]float64, error) {
+	fake := func(_ context.Context, text, role string) ([]float64, error) {
 		return []float64{0.1, 0.2}, nil
 	}
 	res, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
@@ -105,7 +105,7 @@ func TestReindexOnceHonorsContextCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	fake := func(text, role string) ([]float64, error) {
+	fake := func(_ context.Context, text, role string) ([]float64, error) {
 		calls++
 		cancel() // cancel after the first embed; the pass must stop before the rest
 		return []float64{0.1, 0.2}, nil
@@ -133,7 +133,7 @@ func TestReindexOnceEmbedErrorAborts(t *testing.T) {
 	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	fake := func(text, role string) ([]float64, error) {
+	fake := func(_ context.Context, text, role string) ([]float64, error) {
 		return nil, errors.New("endpoint down")
 	}
 	if _, err := s.ReindexOnce(context.Background(), "ATM", fake, nil); err == nil {
@@ -149,7 +149,7 @@ func TestReindexOnceNoConfigErrUsage(t *testing.T) {
 	if _, err := s.CreateTask("ATM", "t", "", nil, testActor); err != nil {
 		t.Fatal(err)
 	}
-	fake := func(text, role string) ([]float64, error) { return []float64{0.1}, nil }
+	fake := func(_ context.Context, text, role string) ([]float64, error) { return []float64{0.1}, nil }
 	_, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
 	if !core.IsUsage(err) {
 		t.Errorf("err = %v, want core.ErrUsage (no embedding config)", err)
@@ -182,7 +182,7 @@ func TestReindexOnceOnV2EmbedsAndPinsFreshnessToEventCount(t *testing.T) {
 	if !v2TaskAliasRe.MatchString(tk.ID) {
 		t.Fatalf("task id = %q, want a v2 hash alias (test is not exercising v2)", tk.ID)
 	}
-	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
+	fake := func(_ context.Context, text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
 	res, err := s.ReindexOnce(context.Background(), "ATM", fake, nil)
 	if err != nil {
 		t.Fatalf("ReindexOnce on v2: %v", err)
@@ -243,7 +243,7 @@ func TestReindexOnceOnV2PropagatesFormatLookupError(t *testing.T) {
 	if err := os.WriteFile(s.storeMetaPath(), []byte("{ not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
+	fake := func(_ context.Context, text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
 	if _, err := s.ReindexOnce(context.Background(), "ATM", fake, nil); err == nil {
 		t.Fatal("ReindexOnce swallowed a format-lookup failure and indexed anyway")
 	}
@@ -260,7 +260,7 @@ func TestWatchTriggersOnNewLogAppend(t *testing.T) {
 	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 2, Threshold: 0.5}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	fake := func(text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
+	fake := func(_ context.Context, text, role string) ([]float64, error) { return []float64{0.1, 0.2}, nil }
 	calls := 0
 	progress := func(msg string) { calls++ }
 	ctx, cancel := context.WithCancel(context.Background())

@@ -42,7 +42,7 @@ func newEmbedCmd(st *cliState) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				vecs, err := client.EmbedBatch(items)
+				vecs, err := client.EmbedBatch(cmd.Context(), items)
 				if err != nil {
 					return err
 				}
@@ -55,7 +55,7 @@ func newEmbedCmd(st *cliState) *cobra.Command {
 			if len(args) == 0 {
 				return fmt.Errorf("%w: provide text or --file", ErrUsage)
 			}
-			vec, err := client.Embed(args[0], role)
+			vec, err := client.Embed(cmd.Context(), args[0], role)
 			if err != nil {
 				return err
 			}

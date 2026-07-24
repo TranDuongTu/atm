@@ -30,6 +30,13 @@ type tasksModel struct {
 	capCount   int
 	totalCount int
 
+	// annReg is the capability registry annotate renders cells from,
+	// resolved ONCE at the top of refresh — regFor runs a GetProject
+	// freshness probe, and per-row resolution made refresh O(rows) probes
+	// (ATM-4c476c). Nil when no scope is set or the unmanaged
+	// pseudo-capability is current.
+	annReg *capability.Registry
+
 	// detail
 	detail taskDetailState
 
@@ -128,6 +135,7 @@ func (t *tasksModel) refresh() {
 	t.rows = nil
 	t.groups = nil
 	t.others = nil
+	t.annReg = nil
 	if t.m.projectScope == "" {
 		t.capCount = 0
 		t.totalCount = 0
@@ -135,6 +143,9 @@ func (t *tasksModel) refresh() {
 		return
 	}
 	scope := t.m.projectScope
+	if !t.m.capability.unmanagedCurrent() {
+		t.annReg = t.m.regFor(scope)
+	}
 	t.totalCount = len(t.m.store.ListTasks(core.QueryFilters{Project: scope}))
 	t.capCount = t.m.capabilityTaskCount(t.m.capability.current)
 	switch t.focus.mode {
@@ -216,13 +227,13 @@ func (t *tasksModel) toRow(tk *core.Task) taskRow {
 
 // annotate renders the current capability's cell at refresh time so the
 // per-frame render path stays pure formatting. Nil (no cell, no column) when
-// no project is scoped or the unmanaged pseudo-capability is current.
+// no project is scoped or the unmanaged pseudo-capability is current. Uses
+// the registry refresh resolved once (annReg), never regFor per row.
 func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
-	scope := t.m.projectScope
-	if scope == "" || t.m.capability.unmanagedCurrent() {
+	if t.annReg == nil {
 		return nil
 	}
-	return t.m.regFor(scope).Annotate(t.m.capability.current, *tk)
+	return t.annReg.Annotate(t.m.capability.current, *tk)
 }
 
 func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {

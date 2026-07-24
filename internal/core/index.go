@@ -1,5 +1,7 @@
 package core
 
+import "context"
+
 type Hit struct {
 	ID      string   `json:"id"`
 	Kind    string   `json:"kind"`
@@ -26,7 +28,10 @@ type IndexResult struct {
 	LogSeq  int
 }
 
-type EmbedFunc func(text, role string) ([]float64, error)
+// EmbedFunc embeds one text. The context is the indexing pass's: an
+// implementation MUST abort promptly when it is canceled, so stopping the
+// watcher never waits out an in-flight endpoint call (ATM-4c476c).
+type EmbedFunc func(ctx context.Context, text, role string) ([]float64, error)
 
 type ProgressFunc func(msg string)
 

@@ -468,7 +468,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	drained:
 		if m.pluginOverlay != -1 || im.cancel != nil {
-			return m, pluginTickCmd()
+			return m, pluginTickCmd(pluginTickInterval(m))
 		}
 		return m, nil
 	case tea.KeyMsg:

@@ -33,7 +33,7 @@ func newIndexCmd(st *cliState) *cobra.Command {
 				return fmt.Errorf("%w: no embedding configured for project %q; run 'atm project set-embedding' first", ErrUsage, project)
 			}
 			client := embed.New(*cfg.Embedding)
-			embedFn := func(text, role string) ([]float64, error) { return client.Embed(text, role) }
+			embedFn := func(ctx context.Context, text, role string) ([]float64, error) { return client.Embed(ctx, text, role) }
 			progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
@@ -71,7 +71,7 @@ func newIndexReindexCmd(st *cliState) *cobra.Command {
 				return fmt.Errorf("%w: no embedding configured for project %q", ErrUsage, project)
 			}
 			client := embed.New(*cfg.Embedding)
-			embedFn := func(text, role string) ([]float64, error) { return client.Embed(text, role) }
+			embedFn := func(ctx context.Context, text, role string) ([]float64, error) { return client.Embed(ctx, text, role) }
 			progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 			res, err := s.ReindexOnce(cmd.Context(), project, embedFn, progress)
 			if err != nil {

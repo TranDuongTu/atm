@@ -44,7 +44,7 @@ func newSearchCmd(st *cliState) *cobra.Command {
 				}
 				if cfg != nil && cfg.Embedding != nil {
 					client := embed.New(*cfg.Embedding)
-					vec, err := client.Embed(args[0], "query")
+					vec, err := client.Embed(cmd.Context(), args[0], "query")
 					if err != nil {
 						return err
 					}
