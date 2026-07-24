@@ -128,13 +128,9 @@ func newPersonaShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			spec, specErr := resolvePersonaSpec(s, resolved)
 			overlay, _ := s.GetPersonality(resolved)
-			return st.emit(st.stdout(), map[string]any{"persona": p, "modes": spec.ModeNames(), "default_mode": spec.DefaultMode, "personality_custom": overlay != ""}, func() {
+			return st.emit(st.stdout(), map[string]any{"persona": p, "personality_custom": overlay != ""}, func() {
 				fmt.Fprintf(st.stdout(), "%s\t%s\n", p.Name, p.Description)
-				if specErr == nil && len(spec.Modes) > 0 {
-					fmt.Fprintf(st.stdout(), "modes: %s (default %s)\n", strings.Join(spec.ModeNames(), ", "), spec.DefaultMode)
-				}
 				if overlay != "" {
 					fmt.Fprintln(st.stdout(), "personality: customized")
 				}

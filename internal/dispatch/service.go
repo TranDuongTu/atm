@@ -17,7 +17,17 @@ func NewService(configPath string) (*Service, error) {
 
 // Preview describes what Spawn would do, e.g. "tmux · new window".
 func (s *Service) Preview() (string, error) {
-	t, err := Detect(s.cfg, s.env)
+	t, err := Detect(s.cfg, s.env, "")
+	if err != nil {
+		return "", err
+	}
+	return t.Describe(), nil
+}
+
+// PreviewTarget describes the target that would be used for the given forced
+// target name, e.g. "herdr · new pane" or "terminal · kitty".
+func (s *Service) PreviewTarget(target string) (string, error) {
+	t, err := Detect(s.cfg, s.env, target)
 	if err != nil {
 		return "", err
 	}
@@ -25,7 +35,7 @@ func (s *Service) Preview() (string, error) {
 }
 
 func (s *Service) Spawn(spec Spec) error {
-	t, err := Detect(s.cfg, s.env)
+	t, err := Detect(s.cfg, s.env, spec.Target)
 	if err != nil {
 		return err
 	}

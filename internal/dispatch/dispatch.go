@@ -13,9 +13,10 @@ import (
 
 // Spec describes one session spawn.
 type Spec struct {
-	Title string   // surface label: "<CODE> · <persona>[ · <task-id>]"
-	Argv  []string // the atm launcher invocation
-	Dir   string   // working directory
+	Title  string   // surface label: task id, or "<CODE> · <persona>"
+	Argv   []string // the atm launcher invocation
+	Dir    string   // working directory
+	Target string   // force a specific target: "herdr", "tmux", "terminal"; "" = auto-detect
 }
 
 // Env abstracts process environment and execution so targets are testable
@@ -54,17 +55,32 @@ type Target interface {
 }
 
 // Detect returns the first available target in precedence order
-// herdr → tmux → terminal. The config template affects only the terminal
-// step — a tmux session still wins over a configured terminal_cmd.
-func Detect(cfg Config, env Env) (Target, error) {
-	if herdrAvailable(env) {
+// herdr → tmux → terminal. When force is non-empty it bypasses detection
+// and constructs the named target directly. The config template affects only
+// the terminal step — a tmux session still wins over a configured terminal_cmd.
+func Detect(cfg Config, env Env, force string) (Target, error) {
+	switch force {
+	case "herdr":
 		return herdrTarget{env: env}, nil
-	}
-	if tmuxAvailable(env) {
+	case "tmux":
 		return tmuxTarget{env: env}, nil
-	}
-	if t, ok := terminalTarget(cfg, env); ok {
-		return t, nil
+	case "terminal":
+		if t, ok := terminalTarget(cfg, env); ok {
+			return t, nil
+		}
+		return nil, errors.New(`no terminal target: no known terminal detected and no "terminal_cmd" configured — set "terminal_cmd" in dispatch.json or pick another target`)
+	case "":
+		if herdrAvailable(env) {
+			return herdrTarget{env: env}, nil
+		}
+		if tmuxAvailable(env) {
+			return tmuxTarget{env: env}, nil
+		}
+		if t, ok := terminalTarget(cfg, env); ok {
+			return t, nil
+		}
+	default:
+		return nil, fmt.Errorf("unknown dispatch target %q (valid: herdr, tmux, terminal, or empty for auto)", force)
 	}
 	return nil, errors.New(`no dispatch target: not inside herdr or tmux and no known terminal detected — set "terminal_cmd" in dispatch.json at the store root`)
 }

@@ -1,6 +1,8 @@
 ---
 name: manager
 description: Curates the ledger and oversees work.
+expects: [CODE, PROJECT_NAME, ACTOR]
+optional: [TASK_ID]
 ---
 # Persona: manager
 

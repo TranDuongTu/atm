@@ -5,14 +5,6 @@
 // depend on it.
 package skills
 
-// Mode is one operating mode a persona declares: the frontmatter summary and
-// the matching `## Mode: <name>` body section.
-type Mode struct {
-	Name         string
-	Summary      string // one-line, from frontmatter (CLI help / validation messages)
-	Instructions string // full section body, rendered into the session prompt
-}
-
 // PersonaSpec is one parsed persona prompt file.
 type PersonaSpec struct {
 	Name        string
@@ -21,34 +13,17 @@ type PersonaSpec struct {
 	// (default — an initial message points at the rendered context file) or
 	// "hook" (a session-start plugin hook loads it; the agent starts idle).
 	Launch string
-	// DefaultMode is used when --mode is not given. Empty means no mode block.
-	DefaultMode string
 	// ProjectOptional personas may launch without --project (concierge: the
 	// project may not exist yet).
 	ProjectOptional bool
-	Modes           []Mode // declaration order
-	Body            string // full markdown body (after frontmatter)
-	CorePrompt      string // Body minus `## Mode:` and `## Personality` sections
-	Personality     string // default `## Personality` section body, "" if none
-}
-
-// Mode returns the named mode.
-func (p PersonaSpec) Mode(name string) (Mode, bool) {
-	for _, m := range p.Modes {
-		if m.Name == name {
-			return m, true
-		}
-	}
-	return Mode{}, false
-}
-
-// ModeNames lists declared mode names in declaration order.
-func (p PersonaSpec) ModeNames() []string {
-	out := make([]string, 0, len(p.Modes))
-	for _, m := range p.Modes {
-		out = append(out, m.Name)
-	}
-	return out
+	// Expects lists the required context params this persona expects the
+	// session context to provide (CODE, PROJECT_NAME, ACTOR, TASK_ID).
+	Expects []string // declaration order
+	// Optional lists context params that may or may not be present.
+	Optional    []string // declaration order
+	Body        string   // full markdown body (after frontmatter)
+	CorePrompt  string   // Body minus `## Personality` section
+	Personality string   // default `## Personality` section body, "" if none
 }
 
 // CapabilitySpec is one parsed capability prompt file. Labels and Boards are

@@ -11,13 +11,20 @@ import (
 )
 
 type fakeDispatcher struct {
-	preview    string
-	previewErr error
-	spawned    []dispatch.Spec
-	spawnErr   error
+	preview       string
+	previewErr    error
+	spawned       []dispatch.Spec
+	spawnErr      error
+	previewTarget func(string) (string, error)
 }
 
 func (f *fakeDispatcher) Preview() (string, error) { return f.preview, f.previewErr }
+func (f *fakeDispatcher) PreviewTarget(target string) (string, error) {
+	if f.previewTarget != nil {
+		return f.previewTarget(target)
+	}
+	return f.preview, f.previewErr
+}
 func (f *fakeDispatcher) Spawn(s dispatch.Spec) error {
 	f.spawned = append(f.spawned, s)
 	return f.spawnErr
@@ -116,7 +123,7 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	if !strings.Contains(argv, "--persona developer") || !strings.Contains(argv, "--task "+task.ID) {
 		t.Errorf("argv = %s", argv)
 	}
-	if want := "ATM · developer · " + task.ID; fd.spawned[0].Title != want {
+	if want := task.ID; fd.spawned[0].Title != want {
 		t.Errorf("title = %q, want %q", fd.spawned[0].Title, want)
 	}
 }

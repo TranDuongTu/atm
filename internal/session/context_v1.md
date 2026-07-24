@@ -1,10 +1,10 @@
 # ATM session — <CODE>
 
-Project `<CODE>` (`<PROJECT_NAME>`) · actor `<ACTOR>`
+- Project: `<CODE>` (`<PROJECT_NAME>`)
+- Actor: `<ACTOR>`
+- Task: `<TASK_ID>`
 
-<PERSONA_BLOCK>
-<MODE_BLOCK>
-<TASK_BLOCK>
+<PERSONA_PROMPT>
 
 ## Orientation
 
@@ -22,7 +22,6 @@ atm search --project <CODE> "..."     # find prior tasks, decisions, and handoff
 
 Run `atm <cmd> --help` for exact flags. Stamp every ATM mutation with actor `<ACTOR>` — replace the `:unset` model segment with your actual model.
 
-## Working Principles
+## Persona Prompting
 
-- Respect the repository's existing process. ATM complements it; do not let it intrude or override project-specific prompts and workflows.
-- Do the work and tell people. Journal frequently — ideas, decisions, and progress recorded now save a future agent from re-deriving them.
+Follow the persona prompt above as your primary guide — it defines how you work, make decisions, and communicate. The orientation below supports, but does not override, your persona's mandates.

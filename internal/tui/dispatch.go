@@ -16,6 +16,7 @@ import (
 // it. nil disables dispatch with a clear error in the dialog.
 type Dispatcher interface {
 	Preview() (string, error)
+	PreviewTarget(string) (string, error)
 	Spawn(dispatch.Spec) error
 }
 
@@ -55,17 +56,19 @@ func agentOptions() []agentOption {
 
 // dispatchModel is the dispatch dialog overlay (pattern: capabilityModel).
 type dispatchModel struct {
-	m          *Model
-	kind       dispatchKind
-	project    string
-	taskID     string
-	taskTitle  string
-	agents     []agentOption
-	cursor     int
-	preview    string
-	previewErr string
-	repos      []core.RepoConfig
-	repoCursor int
+	m            *Model
+	kind         dispatchKind
+	project      string
+	taskID       string
+	taskTitle    string
+	agents       []agentOption
+	cursor       int
+	targets      []string
+	targetCursor int
+	preview      string
+	previewErr   string
+	repos        []core.RepoConfig
+	repoCursor   int
 }
 
 func (d *dispatchModel) persona() string {
@@ -80,15 +83,21 @@ func (d *dispatchModel) persona() string {
 	return "manager"
 }
 
+func (d *dispatchModel) target() string {
+	if d.targetCursor == 0 {
+		return ""
+	}
+	return d.targets[d.targetCursor]
+}
+
 func (d *dispatchModel) title() string {
-	t := d.persona()
-	if d.kind.projectRequired() {
-		t = d.project + " · " + d.persona()
-	}
 	if d.taskID != "" {
-		t += " · " + d.taskID
+		return d.taskID
 	}
-	return t
+	if d.kind.projectRequired() {
+		return d.project + " · " + d.persona()
+	}
+	return d.persona()
 }
 
 // repoLabel renders the Repo: line's value: the selected repo's path, or
@@ -130,6 +139,8 @@ func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle strin
 			break
 		}
 	}
+	d.targets = []string{"auto", "herdr", "tmux", "terminal"}
+	d.targetCursor = 0
 	d.preview, d.previewErr = "", ""
 	d.repos, d.repoCursor = nil, 0
 	if kind == dispatchDeveloper && project != "" {
@@ -141,7 +152,17 @@ func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle strin
 		d.previewErr = "dispatch unavailable in this build"
 		return
 	}
-	if p, err := d.m.dispatcher.Preview(); err != nil {
+	d.refreshPreview()
+}
+
+func (d *dispatchModel) refreshPreview() {
+	d.preview, d.previewErr = "", ""
+	target := ""
+	if d.targetCursor > 0 {
+		target = d.targets[d.targetCursor]
+	}
+	p, err := d.m.dispatcher.PreviewTarget(target)
+	if err != nil {
 		d.previewErr = err.Error()
 	} else {
 		d.preview = p
@@ -168,6 +189,9 @@ func (d *dispatchModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		if len(d.repos) > 0 {
 			d.repoCursor = (d.repoCursor - 1 + len(d.repos)) % len(d.repos)
 		}
+	case "t":
+		d.targetCursor = (d.targetCursor + 1) % len(d.targets)
+		d.refreshPreview()
 	case "enter":
 		d.submit()
 	}
@@ -204,7 +228,7 @@ func (d *dispatchModel) submit() {
 	if len(d.repos) > 0 {
 		dir = d.repos[d.repoCursor].Path
 	}
-	if err := d.m.dispatcher.Spawn(dispatch.Spec{Title: d.title(), Argv: argv, Dir: dir}); err != nil {
+	if err := d.m.dispatcher.Spawn(dispatch.Spec{Title: d.title(), Argv: argv, Dir: dir, Target: d.target()}); err != nil {
 		d.m.showToast("error: " + err.Error())
 		return
 	}
@@ -250,11 +274,11 @@ func (d *dispatchModel) renderOverlay() string {
 	if d.previewErr != "" {
 		b.WriteString(styles.Error.Render("Target: x "+d.previewErr) + "\n")
 	} else {
-		b.WriteString("Target: " + d.preview + " \"" + d.title() + "\"\n")
+		b.WriteString("Target: " + d.targets[d.targetCursor] + " · " + d.preview + " \"" + d.title() + "\"\n")
 	}
-	help := "[←/→]agent  [Enter]dispatch  [Esc]close"
+	help := "[←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
 	if d.kind == dispatchDeveloper {
-		help = "[←/→]agent  [↑/↓]repo  [Enter]dispatch  [Esc]close"
+		help = "[←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
 	}
 	b.WriteString("\n" + styles.KeyMenuDim.Render(help))
 

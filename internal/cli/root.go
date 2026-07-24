@@ -133,7 +133,6 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
 	root.Flags().StringVar(&opts.Persona, "persona", "", "launch as a persona: admin (default, opens the TUI) or an agent persona like developer, manager, concierge (see `atm persona list`)")
 	root.Flags().StringVar(&opts.Project, "project", "", "ATM project the session works on")
-	root.Flags().StringVar(&opts.Mode, "mode", "", "persona mode (validated against the persona's declared modes)")
 	root.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
 	root.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 	root.Flags().StringVar(&opts.Task, "task", "", "assign the session a task from the project (exported as ATM_TASK and rendered into the session prompt)")

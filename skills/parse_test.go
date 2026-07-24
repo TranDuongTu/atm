@@ -8,22 +8,12 @@ import (
 const managerDoc = `---
 name: manager
 description: Curates the ledger and oversees work.
-modes:
-  brief: Interview the human.
-  autopilot: Converge autonomously.
-default_mode: autopilot
+expects: [CODE, PROJECT_NAME, ACTOR]
+optional: [TASK_ID]
 ---
 # Persona: manager
 
 Core prompt line.
-
-## Mode: brief
-
-Brief instructions.
-
-## Mode: autopilot
-
-Autopilot instructions.
 
 ## Personality
 
@@ -41,25 +31,20 @@ func TestParsePersonaFull(t *testing.T) {
 	if p.Launch != "prompt" {
 		t.Fatalf("launch default = %q, want prompt", p.Launch)
 	}
-	if p.DefaultMode != "autopilot" {
-		t.Fatalf("default_mode = %q", p.DefaultMode)
+	if got := strings.Join(p.Expects, ","); got != "CODE,PROJECT_NAME,ACTOR" {
+		t.Fatalf("expects = %v (want declaration order)", got)
 	}
-	if got := p.ModeNames(); strings.Join(got, ",") != "brief,autopilot" {
-		t.Fatalf("mode order = %v (want declaration order)", got)
-	}
-	m, ok := p.Mode("brief")
-	if !ok || !strings.Contains(m.Instructions, "Brief instructions.") || m.Summary != "Interview the human." {
-		t.Fatalf("mode brief = %+v ok=%v", m, ok)
+	if got := strings.Join(p.Optional, ","); got != "TASK_ID" {
+		t.Fatalf("optional = %v (want [TASK_ID])", got)
 	}
 	if !strings.Contains(p.Personality, "Calm and terse.") {
 		t.Fatalf("personality = %q", p.Personality)
 	}
 	if !strings.Contains(p.CorePrompt, "Core prompt line.") ||
-		strings.Contains(p.CorePrompt, "Brief instructions.") ||
 		strings.Contains(p.CorePrompt, "Calm and terse.") {
-		t.Fatalf("core prompt must exclude mode/personality sections: %q", p.CorePrompt)
+		t.Fatalf("core prompt must exclude personality section: %q", p.CorePrompt)
 	}
-	if !strings.Contains(p.Body, "Brief instructions.") {
+	if !strings.Contains(p.Body, "Calm and terse.") {
 		t.Fatalf("body must be the full document body")
 	}
 }
@@ -70,7 +55,7 @@ func TestParsePersonaMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Modes) != 0 || p.Personality != "" || p.ProjectOptional {
+	if len(p.Expects) != 0 || len(p.Optional) != 0 || p.Personality != "" || p.ProjectOptional {
 		t.Fatalf("minimal persona: %+v", p)
 	}
 }
@@ -96,15 +81,13 @@ func TestParsePersonaOptionalFlags(t *testing.T) {
 
 func TestParsePersonaErrors(t *testing.T) {
 	cases := map[string]struct{ stem, doc string }{
-		"no frontmatter":     {"x", "just text"},
-		"name mismatch":      {"other", "---\nname: x\ndescription: d\n---\nb"},
-		"missing desc":       {"x", "---\nname: x\n---\nb"},
-		"mode no section":    {"x", "---\nname: x\ndescription: d\nmodes:\n  brief: b\n---\nb"},
-		"section no mode":    {"x", "---\nname: x\ndescription: d\n---\n## Mode: brief\n\nb"},
-		"bad default_mode":   {"x", "---\nname: x\ndescription: d\nmodes:\n  a: s\ndefault_mode: z\n---\n## Mode: a\n\nb"},
-		"bad launch":         {"x", "---\nname: x\ndescription: d\nlaunch: warp\n---\nb"},
-		"default no modes":   {"x", "---\nname: x\ndescription: d\ndefault_mode: a\n---\nb"},
-		"invalid name chars": {"X!", "---\nname: X!\ndescription: d\n---\nb"},
+		"no frontmatter":       {"x", "just text"},
+		"name mismatch":        {"other", "---\nname: x\ndescription: d\n---\nb"},
+		"missing desc":         {"x", "---\nname: x\n---\nb"},
+		"bad launch":           {"x", "---\nname: x\ndescription: d\nlaunch: warp\n---\nb"},
+		"invalid name chars":   {"X!", "---\nname: X!\ndescription: d\n---\nb"},
+		"bad expects":          {"x", "---\nname: x\ndescription: d\nexpects: [UNKNOWN]\n---\nb"},
+		"bad optional":         {"x", "---\nname: x\ndescription: d\noptional: [UNKNOWN]\n---\nb"},
 	}
 	for label, c := range cases {
 		if _, err := ParsePersona(c.stem, []byte(c.doc)); err == nil {

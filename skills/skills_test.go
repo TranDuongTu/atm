@@ -24,8 +24,11 @@ func TestManagerPersonaShape(t *testing.T) {
 	if !ok {
 		t.Fatal("manager not found")
 	}
-	if len(m.Modes) != 0 {
-		t.Fatalf("manager declares no modes: %v", m.ModeNames())
+	if len(m.Expects) == 0 {
+		t.Fatal("manager must declare expects")
+	}
+	if len(m.Optional) == 0 {
+		t.Fatal("manager must declare optional params")
 	}
 	if !strings.Contains(m.Body, "Converge") {
 		t.Fatal("manager prompt should drive toward capability Converge sections")
@@ -40,8 +43,11 @@ func TestDeveloperPersonaShape(t *testing.T) {
 	if d.Launch != "hook" {
 		t.Fatalf("developer launches via plugin hook, got %q", d.Launch)
 	}
-	if len(d.Modes) != 0 {
-		t.Fatalf("developer declares no modes: %v", d.ModeNames())
+	if len(d.Expects) == 0 {
+		t.Fatal("developer must declare expects")
+	}
+	if !strings.Contains(d.Body, "Working Principles") {
+		t.Fatal("developer prompt must contain Working Principles")
 	}
 }
 
