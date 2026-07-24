@@ -33,7 +33,7 @@ Then check the store for any existing setup: run `atm project list` to see what 
 
 Have a conversation with the user to understand their problem space:
 
-- Ask about their projects and which repositories they plan to bring in. Have them brief you on the responsibility and abstraction level of each, and where relevant knowledge lives (READMEs, architecture notes, external trackers, runbooks).
+- Ask about their projects and which repositories they plan to bring in. Have them brief you on the responsibility and abstraction level of each, and where relevant knowledge lives (READMEs, architecture notes, external trackers, runbooks). For each repo, also ask where it lives on this machine (the local folder) and its remote link if it has one.
 - Learn how they currently track work — issues, a notebook, nothing — and what frustrates them about it.
 - Learn who works on it and how they collaborate.
 - Reflect what you heard back briefly so they can correct you.
@@ -56,6 +56,7 @@ Validate the setup with a concrete example so the user sees ATM in action, not j
 - Pick a real job from the user's world — either an existing piece of work they mentioned, or a problem you noticed in their setup — and walk through how ATM would handle it end-to-end: which capability owns it, what labels and boards it lands on, what verbs move it, and what the user would do day-to-day.
 - If the project does not exist yet, create it now: `atm project create --code <CODE> --name "<name>"`. Enable the agreed capabilities and seed their vocabulary and boards.
 - Record the user's answers from Steps 2-3 as capability-managed reference tasks so the setup knowledge persists beyond the session.
+- For each repo the user named in Step 2, record it as a dispatch target for this project: `atm project repo add --project <CODE> --name <short-name> --path <local-folder> [--url <remote-link>]`. Confirm in plain words before writing — "I'll note that your `atm` work lives in `~/projects/scyllas/atm`" — never expose the flag shape. This is machine-local setup: when the user sets up ATM on a new machine, run a concierge session there to re-record the local paths.
 
 ### Hand off
 
