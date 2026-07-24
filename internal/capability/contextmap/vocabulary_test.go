@@ -144,12 +144,10 @@ func TestVocabularyAndExposedSets(t *testing.T) {
 	}
 }
 
-func TestEnsureVocabularyPreservesHumanDescription(t *testing.T) {
-	// A human curated the description. The capability must not clobber it:
-	// paved road, not fence.
+func TestEnsureVocabularyOverwritesExistingDescription(t *testing.T) {
 	s, actor := newTestStore(t)
 	name := LabelSuperseded("TST")
-	if err := s.LabelAdd(name, "my own wording", "", actor); err != nil {
+	if err := s.LabelAdd(name, "old wording", "", actor); err != nil {
 		t.Fatalf("LabelAdd: %v", err)
 	}
 	if _, err := EnsureVocabulary(s, "TST", actor); err != nil {
@@ -159,7 +157,7 @@ func TestEnsureVocabularyPreservesHumanDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LabelShow: %v", err)
 	}
-	if l.Description != "my own wording" {
-		t.Errorf("description clobbered: got %q", l.Description)
+	if l.Description != "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`." {
+		t.Errorf("description = %q, want contextmap vocabulary", l.Description)
 	}
 }

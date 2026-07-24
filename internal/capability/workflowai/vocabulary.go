@@ -75,11 +75,12 @@ func Exposed(code string) []core.Label {
 	return out
 }
 
-// EnsureVocabulary seeds this capability's full vocabulary idempotently
-// (LabelSeed upserts only when absent, so curated descriptions survive) and
-// returns the six board labels it owns. Old boards from the prior vocabulary
-// (new-tasks, brainstormed-tasks, planned-tasks) are removed so a reseed
-// over an existing project converges to the new board set.
+// EnsureVocabulary seeds this capability's full vocabulary idempotently.
+// Seeded descriptions are authoritative for labels this capability owns;
+// re-running ensure refreshes descriptions while LabelSeed keeps existing
+// expressions create-only. Old boards from the prior vocabulary (new-tasks,
+// brainstormed-tasks, planned-tasks) are removed so a reseed over an existing
+// project converges to the new board set.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	var boards []core.Label
 	for _, l := range vocabulary(code) {

@@ -80,10 +80,11 @@ func Exposed(code string) []core.Label {
 // namespace it owns (absorbed from the deleted internal/seed default set),
 // the priority:* namespace it owns (priority is a planning concern, and
 // workflow is the planning/status capability), and the four workflow boards.
-// Idempotent: LabelSeed upserts only when the label is absent, so a human's
-// curated description is never overwritten. It returns the board labels
-// (Expr != "") it owns, in the documented order; status and priority labels
-// are stored/namespace labels (Expr == "") and are not returned.
+// Seeded descriptions are authoritative for labels this capability owns;
+// re-running ensure refreshes descriptions while LabelSeed keeps existing
+// expressions create-only. It returns the board labels (Expr != "") it owns, in
+// the documented order; status and priority labels are stored/namespace labels
+// (Expr == "") and are not returned.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	var boards []core.Label
 	for _, l := range vocabulary(code) {

@@ -74,11 +74,10 @@ func TestEnsureVocabularyIdempotent(t *testing.T) {
 	}
 }
 
-func TestEnsureVocabularyDoesNotOverwriteHumanDescription(t *testing.T) {
+func TestEnsureVocabularyOverwritesOpenTasksDescription(t *testing.T) {
 	s := newTestStore(t)
-	humanDesc := "curated by a human"
-	if err := s.LabelAdd(BoardOpenTasks("ATM"), humanDesc, "status:open", "admin@cli:unset"); err != nil {
-		t.Fatalf("seed human label: %v", err)
+	if err := s.LabelAdd(BoardOpenTasks("ATM"), "old wording", "status:open", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed old label: %v", err)
 	}
 	if _, err := EnsureVocabulary(s, "ATM", "admin@cli:unset"); err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -87,8 +86,11 @@ func TestEnsureVocabularyDoesNotOverwriteHumanDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("label show: %v", err)
 	}
-	if l.Description != humanDesc {
-		t.Errorf("description = %q, want %q (human curation must survive ensure)", l.Description, humanDesc)
+	if l.Description != "every open task: the project's active work." {
+		t.Errorf("description = %q, want workflow vocabulary", l.Description)
+	}
+	if l.Expr != "status:open" {
+		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
 	}
 }
 
@@ -137,11 +139,10 @@ func TestEnsureVocabularySeedsInProgressTasksBoard(t *testing.T) {
 	}
 }
 
-func TestEnsureVocabularyPreservesHumanBacklogDescription(t *testing.T) {
+func TestEnsureVocabularyOverwritesBacklogDescription(t *testing.T) {
 	s := newTestStore(t)
-	humanDesc := "curated by a human"
-	if err := s.LabelAdd(BoardBacklog("ATM"), humanDesc, "NOT status:*", "admin@cli:unset"); err != nil {
-		t.Fatalf("seed human label: %v", err)
+	if err := s.LabelAdd(BoardBacklog("ATM"), "old wording", "NOT status:*", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed old label: %v", err)
 	}
 	if _, err := EnsureVocabulary(s, "ATM", "admin@cli:unset"); err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -150,8 +151,11 @@ func TestEnsureVocabularyPreservesHumanBacklogDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("label show: %v", err)
 	}
-	if l.Description != humanDesc {
-		t.Errorf("backlog description = %q, want %q (human curation must survive ensure)", l.Description, humanDesc)
+	if l.Description != "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks." {
+		t.Errorf("backlog description = %q, want workflow vocabulary", l.Description)
+	}
+	if l.Expr != "NOT status:*" {
+		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
 	}
 }
 
@@ -175,9 +179,8 @@ func TestEnsureVocabularySeedsAllTasksBoard(t *testing.T) {
 func TestEnsureVocabularyFreshOpenTasksDescriptionDropsDefaultClause(t *testing.T) {
 	// On a fresh project (open-tasks does not yet exist), LabelSeed writes
 	// the new description that drops the "Default board in the TUI." clause
-	// (all-tasks now holds that role). Existing projects keep their current
-	// description (the never-overwrite contract); that path is covered by
-	// TestEnsureVocabularyDoesNotOverwriteHumanDescription.
+	// (all-tasks now holds that role). Existing projects converge to the same
+	// description on the next EnsureVocabulary run.
 	s := newTestStore(t)
 	if _, err := EnsureVocabulary(s, "ATM", "admin@cli:unset"); err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -387,15 +390,10 @@ func TestEnsureVocabularySeedsExactlyVocabulary(t *testing.T) {
 	}
 }
 
-func TestEnsureVocabularyPreservesHumanAllTasksDescription(t *testing.T) {
-	// Extends the never-overwrite contract to all-tasks: a human-curated
-	// all-tasks description survives a re-ensure, exactly as open-tasks and
-	// backlog do (TestEnsureVocabularyDoesNotOverwriteHumanDescription /
-	// TestEnsureVocabularyPreservesHumanBacklogDescription).
+func TestEnsureVocabularyOverwritesAllTasksDescription(t *testing.T) {
 	s := newTestStore(t)
-	humanDesc := "curated by a human"
-	if err := s.LabelAdd(BoardAllTasks("ATM"), humanDesc, "*", "admin@cli:unset"); err != nil {
-		t.Fatalf("seed human label: %v", err)
+	if err := s.LabelAdd(BoardAllTasks("ATM"), "old wording", "*", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed old label: %v", err)
 	}
 	if _, err := EnsureVocabulary(s, "ATM", "admin@cli:unset"); err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -404,7 +402,10 @@ func TestEnsureVocabularyPreservesHumanAllTasksDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("label show: %v", err)
 	}
-	if l.Description != humanDesc {
-		t.Errorf("all-tasks description = %q, want %q (human curation must survive ensure)", l.Description, humanDesc)
+	if l.Description != "every task in the project, ordered by recent activity. Default board in the TUI." {
+		t.Errorf("all-tasks description = %q, want workflow vocabulary", l.Description)
+	}
+	if l.Expr != "*" {
+		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
 	}
 }

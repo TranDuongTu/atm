@@ -683,9 +683,9 @@ type undescribedCap struct {
 	code string
 }
 
-func (u *undescribedCap) Name() string      { return "undescribed-test" }
-func (u *undescribedCap) Summary() string    { return "synthetic test capability" }
-func (u *undescribedCap) Guide() string     { return "" }
+func (u *undescribedCap) Name() string    { return "undescribed-test" }
+func (u *undescribedCap) Summary() string { return "synthetic test capability" }
+func (u *undescribedCap) Guide() string   { return "" }
 func (u *undescribedCap) Command(_ capability.Env) *cobra.Command {
 	return &cobra.Command{Use: u.Name()}
 }
@@ -1921,8 +1921,9 @@ func TestHiddenAndOrderApply(t *testing.T) {
 	}
 }
 
-// TestStoredDescriptionWinsOverExposedLiteral: a human-curated label
-// description beats the capability's baked-in text.
+// TestStoredDescriptionWinsOverExposedLiteral guards board rendering: once a
+// label row exists, the TUI displays the stored description rather than the
+// capability's baked-in Exposed literal.
 func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")

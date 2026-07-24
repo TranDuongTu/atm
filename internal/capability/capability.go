@@ -95,9 +95,10 @@ type Capability interface {
 	// cell (degrade, never panic, never leak raw bytes).
 	Annotate(task core.Task) *Cell
 	// EnsureVocabulary seeds ALL the capability's labels (stored, namespace,
-	// boards) for a project, idempotently, and returns the BOARD labels
-	// (Expr != "") the capability owns. One call leaves the project fully
-	// seeded for this capability.
+	// boards) for a project and returns the BOARD labels (Expr != "") the
+	// capability owns. Seeded descriptions are authoritative; expressions are
+	// create-only through seed. One call leaves the project converged for this
+	// capability.
 	EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error)
 	// Command returns the capability's cobra verb tree, built over env.
 	Command(env Env) *cobra.Command

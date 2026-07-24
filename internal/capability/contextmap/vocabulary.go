@@ -55,14 +55,14 @@ func Exposed(code string) []core.Label {
 	return nil
 }
 
-// EnsureVocabulary creates the labels and the board this capability uses, with
-// descriptions, if they are absent. Idempotent, and it never overwrites a
-// description a human already curated (the LabelSeed contract upserts only
-// when the label is absent).
+// EnsureVocabulary creates or refreshes the labels and board this capability
+// uses. Seeded descriptions are authoritative for labels this capability owns;
+// re-running ensure refreshes descriptions while LabelSeed keeps existing
+// expressions create-only.
 //
 // This is what makes the capability self-bootstrapping: it works in any
-// project, whether or not `atm label seed` ever ran. It returns the board
-// labels (Expr != "") it owns — exactly the context-current board.
+// project. It returns the board labels (Expr != "") it owns — exactly the
+// context-current board.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	var boards []core.Label
 	for _, l := range vocabulary(code) {
