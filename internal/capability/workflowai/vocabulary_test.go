@@ -73,6 +73,26 @@ func TestEnsureVocabularyReturnsTheSixBoards(t *testing.T) {
 	}
 }
 
+func TestEnsureVocabularyOverwritesExistingDescription(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.LabelAdd(BoardToBrainstorm("ATM"), "old wording", "stage:queued", "admin@cli:unset"); err != nil {
+		t.Fatalf("LabelAdd: %v", err)
+	}
+	if _, err := EnsureVocabulary(s, "ATM", "admin@cli:unset"); err != nil {
+		t.Fatalf("EnsureVocabulary: %v", err)
+	}
+	l, err := s.LabelShow(BoardToBrainstorm("ATM"))
+	if err != nil {
+		t.Fatalf("LabelShow: %v", err)
+	}
+	if l.Description != "tasks queued for brainstorming." {
+		t.Errorf("description = %q, want workflow_ai vocabulary", l.Description)
+	}
+	if l.Expr != "stage:queued" {
+		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
+	}
+}
+
 func TestExposedIsSubsetOfVocabulary(t *testing.T) {
 	vocab := map[string]bool{}
 	for _, l := range Vocabulary("ATM") {

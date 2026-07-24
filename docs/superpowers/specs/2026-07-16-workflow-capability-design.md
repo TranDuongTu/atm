@@ -97,7 +97,7 @@ func EnsureVocabulary(s *store.Store, code, actor string) error {
 }
 ```
 
-`LabelSeed` upserts only when absent — a human's curated description is never overwritten, matching the existing contract.
+Current `LabelSeed` behavior (updated by ATM-0116 on 2026-07-24) creates absent labels and refreshes capability-owned descriptions when vocabulary text changes; existing expressions remain create-only through seed.
 
 ### Status constants (private to the capability)
 

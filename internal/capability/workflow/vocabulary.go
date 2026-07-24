@@ -4,7 +4,8 @@
 // intent-level verbs (see recorder.go / reporter.go), and owns the status
 // label namespace. The store enforces nothing; this capability is a paved
 // road, not a fence. A human may edit or delete any board or status label;
-// the next project-select / label-seed re-ensures the vocabulary.
+// the next project-select, Boards re-ensure, project capability add, or
+// capability seed command re-ensures the vocabulary.
 package workflow
 
 import "atm/internal/core"
