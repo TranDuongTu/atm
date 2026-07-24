@@ -19,15 +19,15 @@ func BenchmarkView_SelectedProject(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
-	if _, err := s.CreateProject("ATM", "Acme Task Manager", "bench"); err != nil {
+	if _, err := s.CreateProject("ATM", "Acme Task Manager", benchActor); err != nil {
 		b.Fatalf("CreateProject: %v", err)
 	}
 	for i := 0; i < 80; i++ {
-		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, "bench"); err != nil {
+		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, benchActor); err != nil {
 			b.Fatalf("CreateTask %d: %v", i, err)
 		}
 	}
@@ -54,15 +54,15 @@ func BenchmarkRefreshAll(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
-	if _, err := s.CreateProject("ATM", "Acme Task Manager", "bench"); err != nil {
+	if _, err := s.CreateProject("ATM", "Acme Task Manager", benchActor); err != nil {
 		b.Fatalf("CreateProject: %v", err)
 	}
 	for i := 0; i < 80; i++ {
-		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, "bench"); err != nil {
+		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, benchActor); err != nil {
 			b.Fatalf("CreateTask %d: %v", i, err)
 		}
 	}
@@ -87,15 +87,15 @@ func BenchmarkView_NoSelection(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: "bench", Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
-	if _, err := s.CreateProject("ATM", "Acme Task Manager", "bench"); err != nil {
+	if _, err := s.CreateProject("ATM", "Acme Task Manager", benchActor); err != nil {
 		b.Fatalf("CreateProject: %v", err)
 	}
 	for i := 0; i < 80; i++ {
-		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, "bench"); err != nil {
+		if _, err := s.CreateTask("ATM", taskTitle(i), "", []string{"ATM:status:open", "ATM:type:bug"}, benchActor); err != nil {
 			b.Fatalf("CreateTask %d: %v", i, err)
 		}
 	}
@@ -109,6 +109,8 @@ func BenchmarkView_NoSelection(b *testing.B) {
 		_ = m.View()
 	}
 }
+
+const benchActor = "developer@bench:model"
 
 func taskTitle(i int) string {
 	titles := []string{
