@@ -82,11 +82,12 @@ func Register(t Theme) { registry = append(registry, t) }
 // init owns registration order; it is the auto-assign contract. Theme files
 // define types only — registration lives here, in spec order.
 func init() {
-	Register(wavesTheme{})
-	Register(starfieldTheme{})
-	Register(circuitTheme{})
-	Register(rainTheme{})
-	Register(dunesTheme{})
+	Register(galaxyTheme{})
+	Register(lorenzTheme{})
+	Register(matrixTheme{})
+	Register(tunnelTheme{})
+	Register(skylineTheme{})
+	Register(constellationTheme{})
 }
 
 func Names() []string {
@@ -113,22 +114,28 @@ func Seed(code string) uint32 {
 	return h.Sum32()
 }
 
-// For auto-assigns a theme to a project code. Stable for a fixed registry.
-func For(code string) Theme {
-	if len(registry) == 0 {
-		return nil
-	}
-	return registry[int(Seed(code))%len(registry)]
-}
-
-// Effective resolves a pinned theme name, falling back to auto-assignment
-// when the pin is empty or names nothing (renamed theme, typo). Never errors:
-// display preference is not worth failing a render over.
+// Effective resolves a pinned theme name, returning nil when the pin is
+// empty or names nothing (renamed theme, typo). There is no hash fallback:
+// a missing pin means no art. The code parameter is reserved for future
+// callers and is currently unused.
 func Effective(pinned, code string) Theme {
 	if t, ok := ByName(pinned); ok {
 		return t
 	}
-	return For(code)
+	return nil
+}
+
+// Pair returns two distinct registered themes, deterministic per code and
+// stable for a fixed registry (append-only). Requires len(registry) >= 2.
+func Pair(code string) [2]Theme {
+	n := len(registry)
+	s := Seed(code)
+	i := int(s) % n
+	j := int(s/uint32(n)) % (n - 1)
+	if j >= i {
+		j++
+	}
+	return [2]Theme{registry[i], registry[j]}
 }
 
 // CellHash is the shared per-cell PRN for themes: deterministic, cheap, and

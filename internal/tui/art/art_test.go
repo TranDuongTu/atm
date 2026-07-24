@@ -1,6 +1,7 @@
 package art
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -87,9 +88,6 @@ func TestRegistryAndAssignment(t *testing.T) {
 	old := registry
 	defer func() { registry = old }()
 	registry = nil
-	if For("ATM") != nil {
-		t.Fatal("empty registry must yield nil theme")
-	}
 	Register(stubTheme{name: "alpha"})
 	Register(stubTheme{name: "beta"})
 	if got := Names(); len(got) != 2 || got[0] != "alpha" || got[1] != "beta" {
@@ -98,22 +96,16 @@ func TestRegistryAndAssignment(t *testing.T) {
 	if _, ok := ByName("nope"); ok {
 		t.Fatal("unknown name must not resolve")
 	}
-	// Stability: same code always picks the same theme.
-	first := For("ATM").Name()
-	for i := 0; i < 10; i++ {
-		if For("ATM").Name() != first {
-			t.Fatal("For must be stable per code")
-		}
-	}
-	// Pin resolution: valid pin wins, invalid pin falls back to auto.
+	// Pin resolution: valid pin wins, invalid/empty pin resolves to nil
+	// (no hash fallback).
 	if Effective("beta", "ATM").Name() != "beta" {
 		t.Fatal("valid pin must win")
 	}
-	if Effective("junk", "ATM").Name() != first {
-		t.Fatal("invalid pin must fall back to For(code)")
+	if Effective("junk", "ATM") != nil {
+		t.Fatal("invalid pin must resolve to nil, not a hashed theme")
 	}
-	if Effective("", "ATM").Name() != first {
-		t.Fatal("empty pin must fall back to For(code)")
+	if Effective("", "ATM") != nil {
+		t.Fatal("empty pin must resolve to nil, not a hashed theme")
 	}
 }
 
@@ -127,5 +119,78 @@ func TestCellHashDistributionBasics(t *testing.T) {
 	v := CellHashF(5, 5, 42)
 	if v < 0 || v >= 1 {
 		t.Fatalf("CellHashF out of [0,1): %f", v)
+	}
+}
+
+func TestEffectiveNoFallback(t *testing.T) {
+	if Effective("galaxy", "ATM") == nil || Effective("galaxy", "ATM").Name() != "galaxy" {
+		t.Fatal("valid pin must resolve to that theme")
+	}
+	if Effective("", "ATM") != nil {
+		t.Fatal("empty pin must resolve to nil (none), not a hashed theme")
+	}
+	if Effective("bogus", "ATM") != nil {
+		t.Fatal("unknown pin must resolve to nil, not a hashed theme")
+	}
+}
+
+func TestPairIsStableDistinctAndVaried(t *testing.T) {
+	p := Pair("ATM")
+	if p[0] == nil || p[1] == nil {
+		t.Fatal("pair must have two themes")
+	}
+	if p[0].Name() == p[1].Name() {
+		t.Fatalf("pair themes must be distinct, got %q twice", p[0].Name())
+	}
+	q := Pair("ATM")
+	if q[0].Name() != p[0].Name() || q[1].Name() != p[1].Name() {
+		t.Fatal("Pair must be stable for a given code")
+	}
+	for _, th := range p {
+		if _, ok := ByName(th.Name()); !ok {
+			t.Fatalf("pair theme %q not in registry", th.Name())
+		}
+	}
+}
+
+func TestRegistryIsSixMotionThemes(t *testing.T) {
+	want := []string{"galaxy", "lorenz", "matrix", "tunnel", "skyline", "constellation"}
+	if got := Names(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("registry = %v, want %v", got, want)
+	}
+}
+
+// TestThemesRenderWithoutPanic renders each registered theme at a few sizes
+// and phases, asserting no panic and that below-MinW/MinH sizes return nil.
+func TestThemesRenderWithoutPanic(t *testing.T) {
+	base, accent := plain()
+	sizes := [][2]int{{60, 8}, {16, 3}, {10, 2}}
+	for _, name := range Names() {
+		th, ok := ByName(name)
+		if !ok {
+			t.Fatalf("ByName(%q) not in registry", name)
+		}
+		for _, sz := range sizes {
+			w, h := sz[0], sz[1]
+			for phase := 0; phase <= 3; phase++ {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							t.Fatalf("Render(%s,%dx%d,phase=%d) panicked: %v", name, w, h, phase, r)
+						}
+					}()
+					lines := Render(th, w, h, Seed("ATM"), phase, base, accent)
+					if w < MinW || h < MinH {
+						if lines != nil {
+							t.Fatalf("Render(%s,%dx%d) below min must be nil, got %d lines", name, w, h, len(lines))
+						}
+						return
+					}
+					if len(lines) != h {
+						t.Fatalf("Render(%s,%dx%d) = %d lines, want %d", name, w, h, len(lines), h)
+					}
+				}()
+			}
+		}
 	}
 }
