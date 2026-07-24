@@ -7,7 +7,6 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/core"
-	"atm/internal/tui/art"
 
 	"github.com/spf13/cobra"
 )
@@ -31,7 +30,6 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
 	cmd.AddCommand(newProjectCapabilityCmd(st))
 	cmd.AddCommand(newProjectBoardsCmd(st))
-	cmd.AddCommand(newProjectThemeCmd(st))
 	return cmd
 }
 
@@ -602,70 +600,4 @@ func indexOf(list []string, s string) int {
 	return -1
 }
 
-// newProjectThemeCmd shows or pins the project's TUI background art theme.
-// Display preference: stored in config.json, no event-log entry.
-func newProjectThemeCmd(st *cliState) *cobra.Command {
-	return &cobra.Command{
-		Use:   "theme <CODE> [<name>|auto]",
-		Short: "Show or pin the TUI background art theme",
-		Long: "Each project's TUI background art is auto-assigned by hashing its code over the " +
-			"built-in themes. Pin a specific theme with a name, or restore auto-assignment with " +
-			"'auto'. Available: " + strings.Join(art.Names(), ", ") + ".",
-		Args: cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			code := args[0]
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			if _, err := s.GetProject(code); err != nil {
-				return err
-			}
-			cfg, err := s.GetProjectConfig(code)
-			if err != nil {
-				return err
-			}
-			pinned := ""
-			if cfg != nil {
-				pinned = cfg.ArtTheme
-			}
-			if len(args) == 1 {
-				eff := art.Effective(pinned, code)
-				mode := "pinned"
-				if _, ok := art.ByName(pinned); !ok {
-					mode = "auto"
-				}
-				return st.emit(st.stdout(), map[string]any{
-					"project": code, "theme": eff.Name(), "mode": mode, "available": art.Names(),
-				}, func() {
-					fmt.Fprintf(st.stdout(), "%s theme: %s (%s)\navailable: %s\n",
-						code, eff.Name(), mode, strings.Join(art.Names(), ", "))
-				})
-			}
-			want := args[1]
-			if want == "auto" {
-				want = ""
-			} else if _, ok := art.ByName(want); !ok {
-				return fmt.Errorf("%w: unknown theme %q (available: %s, or 'auto')",
-					ErrUsage, want, strings.Join(art.Names(), ", "))
-			}
-			actor, err := st.RequireMutatingActor()
-			if err != nil {
-				return err
-			}
-			if err := s.SetProjectArtTheme(code, want, actor); err != nil {
-				return err
-			}
-			eff := art.Effective(want, code)
-			mode := "pinned"
-			if want == "" {
-				mode = "auto"
-			}
-			return st.emit(st.stdout(), map[string]any{
-				"project": code, "theme": eff.Name(), "mode": mode,
-			}, func() {
-				fmt.Fprintf(st.stdout(), "%s theme: %s (%s)\n", code, eff.Name(), mode)
-			})
-		},
-	}
-}
+

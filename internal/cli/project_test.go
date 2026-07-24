@@ -1,13 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"atm/internal/tui/art"
 )
 
 func TestGoldenProjectCreate(t *testing.T) {
@@ -182,131 +177,6 @@ func TestProjectBoardsReorderValidation(t *testing.T) {
 		"--name", "PBX:backlog", "--after", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder --name X --after X must fail (not panic)")
 	}
-}
-
-// TestProjectTheme covers show (unpinned/auto), pin, clear-to-auto, and the
-// invalid-name usage error. Display preference: config.json only, no
-// store-event side effects to assert.
-func TestProjectTheme(t *testing.T) {
-	t.Run("show when unpinned reports auto plus available list", func(t *testing.T) {
-		h := newGoldenHarness(t)
-		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-
-		out, _, code := h.run("project", "theme", "ATM")
-		if code != 0 {
-			t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
-		}
-		var shown struct {
-			Project   string   `json:"project"`
-			Theme     string   `json:"theme"`
-			Mode      string   `json:"mode"`
-			Available []string `json:"available"`
-		}
-		if err := json.Unmarshal([]byte(out), &shown); err != nil {
-			t.Fatalf("unmarshal show output: %v: %s", err, out)
-		}
-		if shown.Mode != "auto" {
-			t.Errorf("expected mode %q, got %q: %s", "auto", shown.Mode, out)
-		}
-		wantTheme := art.Effective("", "ATM").Name()
-		if shown.Theme != wantTheme {
-			t.Errorf("expected auto-assigned theme %q, got %q: %s", wantTheme, shown.Theme, out)
-		}
-		for _, name := range []string{"waves", "starfield", "circuit", "rain", "dunes"} {
-			if !strings.Contains(out, name) {
-				t.Errorf("expected available theme %q listed in output: %s", name, out)
-			}
-		}
-	})
-
-	t.Run("pinning a valid theme is reflected by a following show", func(t *testing.T) {
-		h := newGoldenHarness(t)
-		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-
-		_, _, code := h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
-		if code != 0 {
-			t.Fatalf("pin exit = %d stderr=%s", code, h.stderr.String())
-		}
-
-		out, _, code := h.run("project", "theme", "ATM")
-		if code != 0 {
-			t.Fatalf("show exit = %d stderr=%s", code, h.stderr.String())
-		}
-		if !strings.Contains(out, "circuit") {
-			t.Errorf("expected pinned theme circuit in show output: %s", out)
-		}
-		if !strings.Contains(out, "pinned") {
-			t.Errorf("expected mode pinned in show output: %s", out)
-		}
-	})
-
-	t.Run("auto clears the pin", func(t *testing.T) {
-		h := newGoldenHarness(t)
-		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-		h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
-
-		_, _, code := h.run("project", "theme", "ATM", "auto", "--actor", "admin@cli:unset")
-		if code != 0 {
-			t.Fatalf("auto exit = %d stderr=%s", code, h.stderr.String())
-		}
-		cfg, err := h.store.GetProjectConfig("ATM")
-		if err != nil {
-			t.Fatalf("GetProjectConfig: %v", err)
-		}
-		if cfg != nil && cfg.ArtTheme != "" {
-			t.Errorf("expected ArtTheme cleared, got %q", cfg.ArtTheme)
-		}
-	})
-
-	t.Run("invalid theme name errors and leaves config unchanged", func(t *testing.T) {
-		h := newGoldenHarness(t)
-		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-		h.run("project", "theme", "ATM", "circuit", "--actor", "admin@cli:unset")
-
-		out, stderr, code := h.run("project", "theme", "ATM", "bogus", "--actor", "admin@cli:unset")
-		if code == 0 {
-			t.Fatalf("expected non-zero exit for invalid theme name, got 0: out=%s", out)
-		}
-		combined := out + stderr
-		for _, name := range []string{"waves", "starfield", "circuit", "rain", "dunes"} {
-			if !strings.Contains(combined, name) {
-				t.Errorf("expected valid theme %q named in error: %s", name, combined)
-			}
-		}
-		cfg, err := h.store.GetProjectConfig("ATM")
-		if err != nil {
-			t.Fatalf("GetProjectConfig: %v", err)
-		}
-		if cfg == nil || cfg.ArtTheme != "circuit" {
-			t.Errorf("expected config unchanged (still pinned circuit), got %+v", cfg)
-		}
-	})
-
-	t.Run("unknown_project_errors", func(t *testing.T) {
-		h := newGoldenHarness(t)
-		h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
-
-		// Bare show on an unknown code must error like every sibling project
-		// subcommand (ExitNotFound / core.ErrNotFound), not silently succeed.
-		out, _, code := h.run("project", "theme", "BOGUS")
-		if code != ExitNotFound {
-			t.Fatalf("show on unknown project exit = %d, want %d (ErrNotFound): out=%s", code, ExitNotFound, out)
-		}
-
-		// Pin form on an unknown code must also error, and — the regression
-		// guard — must NOT create projects/BOGUS on disk. Before the fix this
-		// path reached SetProjectArtTheme -> WriteFileAtomic -> os.MkdirAll,
-		// writing a phantom project directory with no event log.
-		out, _, code = h.run("project", "theme", "BOGUS", "circuit", "--actor", "admin@cli:unset")
-		if code != ExitNotFound {
-			t.Fatalf("pin on unknown project exit = %d, want %d (ErrNotFound): out=%s", code, ExitNotFound, out)
-		}
-
-		phantom := filepath.Join(h.store.StorePath(), "projects", "BOGUS")
-		if _, err := os.Stat(phantom); !os.IsNotExist(err) {
-			t.Fatalf("expected no phantom project dir at %s, stat err=%v", phantom, err)
-		}
-	})
 }
 
 func TestGoldenProjectRemoveZeroTaskGuard(t *testing.T) {
