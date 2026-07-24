@@ -24,11 +24,19 @@
   Projects pane (between the project list, now a fixed 5-row page, and the
   events feed) and the Tasks pane (between the task table and the boards ring)
   now fills with a dim, subtly-animated ASCII motif that gives each project a
-  stable visual identity. Five procedural themes (waves, starfield, circuit,
-  rain, dunes) are auto-assigned per project by hashing its code; pin a
-  specific one with `atm project theme <CODE> <name|auto>`. Art rescales with
-  the terminal, collapses back to blank padding when space is tight, and
-  animates only while the plain workspace is visible.
+  stable visual identity. Art rescales with the terminal, collapses back to
+  blank padding when space is tight, and animates only while the plain
+  workspace is visible. (Default-on auto-assignment and the `atm project theme`
+  CLI described in the original shipped release were later replaced — see
+  ATM-cac464.)
+- ATM-cac464: TUI art is now off by default and switchable per project. Each
+  project gets a stable, code-derived pair of two of six motion themes (galaxy,
+  lorenz, matrix, tunnel, skyline, constellation); `A` (Shift+A) toggles all
+  art on/off for the scoped project, persisting to `art_on` and flashing the
+  status line. When art is on, pair[0] renders in the Projects pane and pair[1]
+  in the Tasks pane gap, and only when a project is selected (fixes art
+  appearing on TUI startup). The `atm project theme` CLI is removed; art
+  switching is TUI-only.
 - ATM-4b7e24: TUI agent dispatch. `D` from the projects pane dispatches a manager session and `D` from the tasks pane dispatches a developer session bound to the selected task, each spawned into an auto-detected terminal surface (herdr → tmux → terminal tab) via the new `internal/dispatch` package. The agent is the only interactive field (cycle with `←/→`); an unready agent is refused with its missing-bin hint; the target preview and any detection failure render in the dialog. Fire-and-forget — no session registry.
 - ATM-4b7e24: `V` opens a read-only personas overlay in the TUI (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out to the list then closes). No create/edit/personality customization from the TUI.
 - ATM-4b7e24: `--task <id>` session assignment. New optional `atm --persona <p> --project <CODE> --agent <a> --task <id>` flag — validated against the project's store (missing task or cross-project task fails before launch), exported to the host as `ATM_TASK=<id>`, and rendered into the session context as an assigned-task block. Task-keyed context caches prevent concurrent task sessions from sharing a context file.
