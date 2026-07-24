@@ -783,6 +783,10 @@ func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 		if err := m.store.SetProjectName("ATM", fmt.Sprintf("Acme %d", m.projects.feedLen()), m.actor); err != nil {
 			t.Fatalf("SetProjectName: %v", err)
 		}
+		// Direct store writes are external mutations to the TUI; surface
+		// them the way the app does (the refresh tick) — the feed renders
+		// from a refresh-time snapshot, not per-frame reads (ATM-4c476c).
+		m.refreshAll()
 	}
 	if got := m.projects.feedLen(); got != rows+1 {
 		t.Fatalf("setup: feedLen = %d, want exactly %d (rows+1)", got, rows+1)
@@ -804,6 +808,7 @@ func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 			t.Fatalf("SetProjectName: %v", err)
 		}
 	}
+	m.refreshAll() // surface the external-style writes into the feed snapshot
 	for i := 0; i < 200; i++ {
 		update(t, m, "shift+down")
 	}

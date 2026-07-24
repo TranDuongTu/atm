@@ -71,6 +71,9 @@ func TestPersonaChartCtrlRightDrills(t *testing.T) {
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
+	// The chart renders from the refresh-time snapshot (ATM-4c476c), so a
+	// directly-assigned scope needs a refresh — same as the sibling tests.
+	m.refreshAll()
 
 	update(t, m, "ctrl+right")
 	if !m.projects.personaDrilled {
