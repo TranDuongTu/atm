@@ -42,6 +42,9 @@ type ProjectService interface {
 	ProjectRemotes(code string) (map[string]string, error)
 	SetProjectRemote(code, name, url, actor string) error
 	RemoveProjectRemote(code, name, actor string) error
+	ProjectRepos(code string) ([]RepoConfig, error)
+	SetProjectRepo(code, name, path, url, actor string) error
+	RemoveProjectRepo(code, name, actor string) error
 }
 
 type LabelService interface {

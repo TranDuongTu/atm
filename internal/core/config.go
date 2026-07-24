@@ -28,12 +28,24 @@ type BoardsConfig struct {
 	Capability string `json:"capability,omitempty"`
 }
 
+// RepoConfig is one machine-local dispatch target recorded for a project:
+// a local path to spawn agent sessions into, plus an optional remote link
+// the concierge logged during onboarding. It is config, not substrate
+// state — no event-log entry, not synced — so a fresh machine carrying a
+// synced event log has no repos until a concierge session records them.
+type RepoConfig struct {
+	Name string `json:"name"`          // short handle, unique within the project
+	Path string `json:"path"`          // absolute local path (existence-validated on add)
+	URL  string `json:"url,omitempty"` // remote link the concierge logged; optional
+}
+
 type ProjectConfig struct {
 	UpdatedAt string            `json:"updated_at,omitempty"`
 	UpdatedBy string            `json:"updated_by,omitempty"`
 	Embedding *EmbeddingConfig  `json:"embedding,omitempty"`
 	Remotes   map[string]string `json:"remotes,omitempty"`
 	Boards    *BoardsConfig     `json:"boards,omitempty"`
+	Repos     []RepoConfig      `json:"repos,omitempty"`
 }
 
 // AgentsConfig is the global (store-root) record of the user's host-agent
