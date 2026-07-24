@@ -246,10 +246,14 @@ The TUI can spawn manager and developer sessions into a separate terminal
 surface (herdr pane → tmux window → new terminal tab, auto-detected in that
 order). From the projects pane, `D` dispatches a **manager** session for the
 selected project; from the tasks pane, `D` dispatches a **developer** session
-bound to the selected task row. The only interactive field is the host agent
-(cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its
-missing-bin hint. `V` opens a read-only **personas** browser (list built-ins
-and customs, `Enter` views a persona's effective prompt, `Esc` backs out).
+bound to the selected task row. The host agent is the interactive field in
+both dialogs (cycle with `←/→`, dispatch with `Enter`); an unready agent is
+refused with its missing-bin hint. The developer dialog adds a second field —
+the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's
+recorded repo dispatch targets (see below); when none are recorded it falls
+back to the TUI's current directory. `V` opens a read-only **personas**
+browser (list built-ins and customs, `Enter` views a persona's effective
+prompt, `Esc` backs out).
 
 A developer session can equally be handed a task from the shell with the new
 `--task <id>` flag — it is validated against `--project`'s store, exported to
@@ -260,6 +264,16 @@ task sessions from sharing a context file):
 
 ```sh
 atm --persona developer --project ATM --agent claude --task ATM-4b7e24
+```
+
+A project records its repo dispatch targets with `atm project repo add` —
+machine-local config (not synced), so re-record them on each new machine via a
+concierge session:
+
+```sh
+atm project repo add main ~/projects/scyllas/atm --url https://example.com/atm.git --project ATM
+atm project repo list --project ATM
+atm project repo remove main --project ATM
 ```
 
 When neither herdr nor tmux is present, the terminal fallback opens a new tab
