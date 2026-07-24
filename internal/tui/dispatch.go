@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"atm/internal/agent"
+	"atm/internal/core"
 	"atm/internal/dispatch"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -63,6 +64,8 @@ type dispatchModel struct {
 	cursor     int
 	preview    string
 	previewErr string
+	repos      []core.RepoConfig
+	repoCursor int
 }
 
 func (d *dispatchModel) persona() string {
@@ -88,6 +91,35 @@ func (d *dispatchModel) title() string {
 	return t
 }
 
+// repoLabel renders the Repo: line's value: the selected repo's path, or
+// "(cwd)" when no repos are recorded. Paths are truncated to the box's inner
+// width with fitLine so a long path cannot widen the dialog.
+func (d *dispatchModel) repoLabel() string {
+	if len(d.repos) == 0 {
+		return "‹ (cwd) ›"
+	}
+	r := d.repos[d.repoCursor]
+	label := r.Path
+	if r.Name != "" {
+		label = r.Name + " · " + r.Path
+	}
+	return "‹ " + fitLine(label, bwInner(d.m.width)) + " ›"
+}
+
+// bwInner returns the inner text width of the dispatch dialog box for the
+// given terminal width, mirroring renderOverlay's box-width math so a long
+// repo path truncates consistently with the task title.
+func bwInner(width int) int {
+	bw := width * 60 / 100
+	if bw < 64 {
+		bw = 64
+	}
+	if bw > width-4 {
+		bw = width - 4
+	}
+	return bw - 4
+}
+
 func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle string) {
 	d.kind, d.project, d.taskID, d.taskTitle = kind, project, taskID, taskTitle
 	d.agents = d.m.agentOptionsFn()
@@ -99,6 +131,12 @@ func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle strin
 		}
 	}
 	d.preview, d.previewErr = "", ""
+	d.repos, d.repoCursor = nil, 0
+	if kind == dispatchDeveloper && project != "" {
+		if repos, err := d.m.store.ProjectRepos(project); err == nil {
+			d.repos = repos
+		}
+	}
 	if d.m.dispatcher == nil {
 		d.previewErr = "dispatch unavailable in this build"
 		return
@@ -121,6 +159,14 @@ func (d *dispatchModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "right", "l":
 		if d.cursor < len(d.agents)-1 {
 			d.cursor++
+		}
+	case "down", "j":
+		if len(d.repos) > 0 {
+			d.repoCursor = (d.repoCursor + 1) % len(d.repos)
+		}
+	case "up", "k":
+		if len(d.repos) > 0 {
+			d.repoCursor = (d.repoCursor - 1 + len(d.repos)) % len(d.repos)
 		}
 	case "enter":
 		d.submit()
@@ -155,6 +201,9 @@ func (d *dispatchModel) submit() {
 		d.m.showToast("error: " + err.Error())
 		return
 	}
+	if len(d.repos) > 0 {
+		dir = d.repos[d.repoCursor].Path
+	}
 	if err := d.m.dispatcher.Spawn(dispatch.Spec{Title: d.title(), Argv: argv, Dir: dir}); err != nil {
 		d.m.showToast("error: " + err.Error())
 		return
@@ -186,6 +235,7 @@ func (d *dispatchModel) renderOverlay() string {
 	if d.kind == dispatchDeveloper {
 		b.WriteString("Task:   " + d.taskID + "\n")
 		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, bw-10)) + "\n\n")
+		b.WriteString("Repo:   " + d.repoLabel() + "\n\n")
 	}
 	a := agentOption{name: "—"}
 	if len(d.agents) > 0 {
@@ -202,7 +252,11 @@ func (d *dispatchModel) renderOverlay() string {
 	} else {
 		b.WriteString("Target: " + d.preview + " \"" + d.title() + "\"\n")
 	}
-	b.WriteString("\n" + styles.KeyMenuDim.Render("[←/→]agent  [Enter]dispatch  [Esc]close"))
+	help := "[←/→]agent  [Enter]dispatch  [Esc]close"
+	if d.kind == dispatchDeveloper {
+		help = "[←/→]agent  [↑/↓]repo  [Enter]dispatch  [Esc]close"
+	}
+	b.WriteString("\n" + styles.KeyMenuDim.Render(help))
 
 	bh := strings.Count(b.String(), "\n") + 3
 	dialogTitle := "Dispatch " + d.persona()

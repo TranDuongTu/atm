@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -163,5 +164,186 @@ func TestDispatchNoTargetDisables(t *testing.T) {
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(m.dispatcher.(*fakeDispatcher).spawned) != 0 {
 		t.Fatal("enter with no target must not spawn")
+	}
+}
+
+func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	repoDir := t.TempDir()
+	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "https://example.com/atm.git", testActor); err != nil {
+		t.Fatal(err)
+	}
+	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "herdr · new pane"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if m.dispatchDlg.kind != dispatchDeveloper {
+		t.Fatal("D on tasks pane must open the developer dialog")
+	}
+	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Path != repoDir {
+		t.Fatalf("repos = %+v, want one main -> %s", m.dispatchDlg.repos, repoDir)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "Repo:") || !strings.Contains(view, "main") {
+		t.Errorf("overlay must show Repo: line with the repo name:\n%s", view)
+	}
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if fd.spawned[0].Dir != repoDir {
+		t.Errorf("Spec.Dir = %q, want repo path %q", fd.spawned[0].Dir, repoDir)
+	}
+	_ = task
+}
+
+func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "herdr · new pane"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dispatchKey(m, "D")
+	if m.dispatchDlg.kind != dispatchDeveloper {
+		t.Fatal("D on tasks pane must open the developer dialog")
+	}
+	if len(m.dispatchDlg.repos) != 0 {
+		t.Fatalf("repos = %+v, want empty", m.dispatchDlg.repos)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "Repo:") || !strings.Contains(view, "(cwd)") {
+		t.Errorf("overlay must show Repo: (cwd) when no repos recorded:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.dispatchDlg.repoCursor != 0 {
+		t.Errorf("repoCursor = %d, want 0 (no-op with empty repos)", m.dispatchDlg.repoCursor)
+	}
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if fd.spawned[0].Dir != cwd {
+		t.Errorf("Spec.Dir = %q, want cwd %q", fd.spawned[0].Dir, cwd)
+	}
+	_ = task
+}
+
+func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	d1, d2 := t.TempDir(), t.TempDir()
+	if err := m.store.SetProjectRepo("ATM", "main", d1, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetProjectRepo("ATM", "docs", d2, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "herdr · new pane"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if len(m.dispatchDlg.repos) != 2 || m.dispatchDlg.repoCursor != 0 {
+		t.Fatalf("repos = %+v cursor = %d, want 2 repos cursor 0", m.dispatchDlg.repos, m.dispatchDlg.repoCursor)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.dispatchDlg.repoCursor != 1 {
+		t.Fatalf("repoCursor = %d, want 1 after down", m.dispatchDlg.repoCursor)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	// The selected repo's name renders in the Repo: line; the path may be
+	// truncated by fitLine for long temp dirs, so assert on the name.
+	if !strings.Contains(view, "docs") {
+		t.Errorf("overlay must show second repo name after down:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.dispatchDlg.repoCursor != 0 {
+		t.Fatalf("repoCursor = %d, want 0 after up", m.dispatchDlg.repoCursor)
+	}
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if fd.spawned[0].Dir != d1 {
+		t.Errorf("Spec.Dir = %q, want first repo %q", fd.spawned[0].Dir, d1)
+	}
+	_ = task
+}
+
+// TestDispatchManagerUnchangedByRepoPicker is a regression guard: the
+// manager dialog has no Repo: line and still dispatches into cwd.
+func TestDispatchManagerUnchangedByRepoPicker(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	repoDir := t.TempDir()
+	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dispatchKey(m, "D")
+	if m.dispatchDlg.kind != dispatchManager {
+		t.Fatal("D on projects pane must open the manager dialog")
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if strings.Contains(view, "Repo:") {
+		t.Errorf("manager dialog must not show a Repo line:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if fd.spawned[0].Dir != cwd {
+		t.Errorf("manager Spec.Dir = %q, want cwd %q (unchanged)", fd.spawned[0].Dir, cwd)
 	}
 }
