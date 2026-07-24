@@ -304,3 +304,192 @@ func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
 		t.Fatalf("after persist = %+v, pins.json must be ignored", b2.Pins)
 	}
 }
+
+func TestProjectRepoRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", dir, "https://example.com/atm.git", testActor); err != nil {
+		t.Fatalf("SetProjectRepo: %v", err)
+	}
+	repos, err := s.ProjectRepos("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRepos: %v", err)
+	}
+	if len(repos) != 1 || repos[0].Name != "main" || repos[0].Path != dir || repos[0].URL != "https://example.com/atm.git" {
+		t.Errorf("repos = %+v, want one main -> %s", repos, dir)
+	}
+	if err := s.RemoveProjectRepo("ATM", "main", testActor); err != nil {
+		t.Fatalf("RemoveProjectRepo: %v", err)
+	}
+	repos, err = s.ProjectRepos("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRepos after remove: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Errorf("repos = %+v, want empty after remove", repos)
+	}
+}
+
+func TestSetProjectRepoUpsertUpdatesExisting(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", dir, "https://example.com/a", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir2 := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", dir2, "https://example.com/b", testActor); err != nil {
+		t.Fatal(err)
+	}
+	repos, _ := s.ProjectRepos("ATM")
+	if len(repos) != 1 || repos[0].Path != dir2 || repos[0].URL != "https://example.com/b" {
+		t.Errorf("upsert = %+v, want one main -> %s with url b", repos, dir2)
+	}
+}
+
+func TestSetProjectRepoMultipleNamesCoexist(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	d1, d2 := t.TempDir(), t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", d1, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRepo("ATM", "docs", d2, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	repos, _ := s.ProjectRepos("ATM")
+	if len(repos) != 2 || repos[0].Name != "main" || repos[1].Name != "docs" {
+		t.Errorf("repos = %+v, want [main docs] in insertion order", repos)
+	}
+}
+
+func TestRemoveProjectRepoUnknownNameReturnsNotFound(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	err := s.RemoveProjectRepo("ATM", "nope", testActor)
+	if !core.IsNotFound(err) {
+		t.Errorf("err = %v, want core.ErrNotFound", err)
+	}
+}
+
+func TestSetProjectRepoEmptyNameOrPathIsUsage(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "", dir, "", testActor); !core.IsUsage(err) {
+		t.Errorf("empty name: err = %v, want core.ErrUsage", err)
+	}
+	if err := s.SetProjectRepo("ATM", "main", "", "", testActor); !core.IsUsage(err) {
+		t.Errorf("empty path: err = %v, want core.ErrUsage", err)
+	}
+}
+
+func TestSetProjectRepoRequiresActor(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	err := s.SetProjectRepo("ATM", "main", dir, "", "")
+	if !core.IsUsage(err) {
+		t.Errorf("err = %v, want core.ErrUsage (missing actor)", err)
+	}
+}
+
+func TestSetProjectRepoRejectsNonexistentPath(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if err := s.SetProjectRepo("ATM", "main", missing, "", testActor); err == nil {
+		t.Errorf("err = nil, want error for non-existent path %s", missing)
+	}
+}
+
+func TestSetProjectRepoResolvesRelativeAndTildePath(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRepo("ATM", "main", ".", "", testActor); err != nil {
+		t.Fatalf("relative path '.': %v", err)
+	}
+	repos, _ := s.ProjectRepos("ATM")
+	if len(repos) != 1 || repos[0].Path != cwd {
+		t.Errorf("path = %q, want resolved absolute %q", repos[0].Path, cwd)
+	}
+}
+
+func TestSetProjectRepoPreservesOtherConfigFields(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEmbeddingConfig("ATM", EmbeddingConfig{Model: "m", Endpoint: "http://x", Dim: 4, Threshold: 0.5}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectRemote("ATM", "origin", "https://example.com/sync", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", dir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetProjectConfig("ATM")
+	if got.Embedding == nil || got.Embedding.Model != "m" {
+		t.Errorf("Embedding lost after repo add: %+v", got.Embedding)
+	}
+	if got.Remotes["origin"] != "https://example.com/sync" {
+		t.Errorf("Remotes lost after repo add: %+v", got.Remotes)
+	}
+	if len(got.Repos) != 1 || got.Repos[0].Path != dir {
+		t.Errorf("Repos = %+v, want one main -> %s", got.Repos, dir)
+	}
+}
+
+// TestGetProjectConfigReposOnlyIsNotAbsent guards the emptiness check: a
+// config carrying only a repos key must not read as nil.
+func TestGetProjectConfigReposOnlyIsNotAbsent(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "main", dir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil || got == nil || len(got.Repos) != 1 {
+		t.Fatalf("GetProjectConfig = (%+v, %v), want non-nil with one repo", got, err)
+	}
+}
+
+func TestProjectReposAbsentConfigReturnsEmptyNoError(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	repos, err := s.ProjectRepos("ATM")
+	if err != nil {
+		t.Fatalf("ProjectRepos: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Errorf("repos = %+v, want empty", repos)
+	}
+}

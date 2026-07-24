@@ -34,6 +34,7 @@ type Vocabulary = core.Vocabulary
 type VocabularyTerm = core.VocabularyTerm
 type EmbeddingConfig = core.EmbeddingConfig
 type ProjectConfig = core.ProjectConfig
+type RepoConfig = core.RepoConfig
 type AgentsConfig = core.AgentsConfig
 type SearchParams = core.SearchParams
 type Hit = core.Hit

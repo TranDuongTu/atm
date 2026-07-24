@@ -15,7 +15,7 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 		}
 		return nil, err
 	}
-	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil {
+	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 {
 		return nil, nil
 	}
 	return &c, nil
@@ -107,6 +107,96 @@ func (s *Store) ProjectRemotes(code string) (map[string]string, error) {
 		return nil, nil
 	}
 	return c.Remotes, nil
+}
+
+// SetProjectRepo adds or updates a named repo dispatch target in the
+// project's config. name and path are required; url is optional. The path
+// is resolved to absolute (expanding ~ and relative paths) and must exist.
+// Config, not substrate state: no event-log entry, not synced.
+func (s *Store) SetProjectRepo(code, name, path, url, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if name == "" || path == "" {
+		return core.ErrUsage
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve repo path: %w", err)
+	}
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		return fmt.Errorf("%w: repo path does not exist or is not a directory: %s", core.ErrUsage, abs)
+	}
+	return s.WithLock(code, func() error {
+		existing, err := s.GetProjectConfig(code)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		merged := &ProjectConfig{}
+		if existing != nil {
+			merged = existing
+		}
+		rep := RepoConfig{Name: name, Path: abs, URL: url}
+		found := false
+		for i, r := range merged.Repos {
+			if r.Name == name {
+				merged.Repos[i] = rep
+				found = true
+				break
+			}
+		}
+		if !found {
+			merged.Repos = append(merged.Repos, rep)
+		}
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
+// RemoveProjectRepo deletes a named repo dispatch target from the project's
+// config. Returns core.ErrNotFound if the name is not present.
+func (s *Store) RemoveProjectRepo(code, name, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	return s.WithLock(code, func() error {
+		existing, err := s.GetProjectConfig(code)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if existing == nil || len(existing.Repos) == 0 {
+			return fmt.Errorf("%w: repo %q", core.ErrNotFound, name)
+		}
+		idx := -1
+		for i, r := range existing.Repos {
+			if r.Name == name {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fmt.Errorf("%w: repo %q", core.ErrNotFound, name)
+		}
+		existing.Repos = append(existing.Repos[:idx], existing.Repos[idx+1:]...)
+		existing.UpdatedAt = core.RFC3339UTC(core.Now())
+		existing.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), existing)
+	})
+}
+
+// ProjectRepos returns the project's configured repo dispatch targets. It
+// returns an empty (nil) slice and no error if the project has no config or
+// no repos set.
+func (s *Store) ProjectRepos(code string) ([]RepoConfig, error) {
+	c, err := s.GetProjectConfig(code)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, nil
+	}
+	return c.Repos, nil
 }
 
 // legacyPinBoards reads the board list from a pre-boards pins.json, kept
