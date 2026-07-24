@@ -599,5 +599,3 @@ func indexOf(list []string, s string) int {
 	}
 	return -1
 }
-
-
