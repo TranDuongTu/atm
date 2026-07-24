@@ -7,6 +7,7 @@ package art
 
 import (
 	"hash/fnv"
+	"math/rand"
 
 	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/lipgloss"
@@ -136,6 +137,36 @@ func Pair(code string) [2]Theme {
 		j++
 	}
 	return [2]Theme{registry[i], registry[j]}
+}
+
+// RollPair returns two distinct registered themes drawn at random from the
+// live registry using r. Selection is uniform and non-deterministic; the
+// caller owns the source (typically time-seeded for a user-triggered
+// re-roll). Requires len(registry) >= 2.
+func RollPair(r *rand.Rand) [2]Theme {
+	n := len(registry)
+	i := r.Intn(n)
+	j := r.Intn(n - 1)
+	if j >= i {
+		j++
+	}
+	return [2]Theme{registry[i], registry[j]}
+}
+
+// EffectivePair resolves a pinned two-theme pair by name, falling back to
+// Pair(code) when pinned is empty, has the wrong length, or any name does
+// not resolve. The fallback keeps the render path simple: callers persist a
+// rolled pair and read it back through this single resolver. Always returns
+// two distinct registered themes.
+func EffectivePair(pinned []string, code string) [2]Theme {
+	if len(pinned) == 2 {
+		t0, ok0 := ByName(pinned[0])
+		t1, ok1 := ByName(pinned[1])
+		if ok0 && ok1 && t0.Name() != t1.Name() {
+			return [2]Theme{t0, t1}
+		}
+	}
+	return Pair(code)
 }
 
 // CellHash is the shared per-cell PRN for themes: deterministic, cheap, and

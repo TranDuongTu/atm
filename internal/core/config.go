@@ -37,6 +37,12 @@ type ProjectConfig struct {
 	// ArtOn toggles the TUI background art on or off. Display preference,
 	// not substrate state: no event-log entry, and the default is off.
 	ArtOn bool `json:"art_on,omitempty"`
+	// ArtPair pins the two theme names shown when ArtOn is true. Empty when
+	// the project has never toggled art on (the deterministic Pair(code) is
+	// used as a fallback). Set together with ArtOn by the TUI's re-roll
+	// toggle; not validated at the store layer (readers fall back to
+	// Pair(code) on unknown names).
+	ArtPair []string `json:"art_pair,omitempty"`
 }
 
 // AgentsConfig is the global (store-root) record of the user's host-agent

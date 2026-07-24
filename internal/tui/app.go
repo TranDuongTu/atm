@@ -2,12 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/tui/art"
 	"atm/internal/version"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -140,10 +142,12 @@ type Model struct {
 
 	// artPhase is the background-art animation clock, advanced by artTickMsg
 	// only while the plain workspace is visible; artOn caches each listed
-	// project's config.json art_on flag (refreshed by refreshAll) so View
-	// never touches the filesystem.
+	// project's config.json art_on flag and artPair caches the pinned
+	// two-theme pair (both refreshed by refreshAll) so View never touches
+	// the filesystem.
 	artPhase int
 	artOn    map[string]bool
+	artPair  map[string][]string
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -320,12 +324,19 @@ func (m *Model) refreshAll() {
 	// Refresh the art-on cache alongside the project list so renderers
 	// never read config.json during View.
 	on := make(map[string]bool, len(m.projects.list))
+	pairs := make(map[string][]string, len(m.projects.list))
 	for _, r := range m.projects.list {
-		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil && cfg.ArtOn {
-			on[r.code] = true
+		if cfg, err := m.store.GetProjectConfig(r.code); err == nil && cfg != nil {
+			if cfg.ArtOn {
+				on[r.code] = true
+			}
+			if len(cfg.ArtPair) > 0 {
+				pairs[r.code] = cfg.ArtPair
+			}
 		}
 	}
 	m.artOn = on
+	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
 	m.help.refresh()
@@ -824,9 +835,11 @@ func (m *Model) showToast(msg string) {
 }
 
 // toggleScopedArt flips the on/off flag for the currently scoped project,
-// persists it to the project config, and refreshes the in-memory cache. It is
-// a no-op (with a toast hint) when no project is scoped. Bound to the `A` key
-// in the projects and tasks panes.
+// persists it to the project config, and refreshes the in-memory cache. When
+// turning art ON it re-rolls a fresh random two-theme pair and pins it; when
+// turning it OFF it clears the pinned pair. It is a no-op (with a toast hint)
+// when no project is scoped. Bound to the `A` key in the projects and tasks
+// panes.
 func (m *Model) toggleScopedArt() {
 	code := m.projectScope
 	if code == "" {
@@ -834,17 +847,27 @@ func (m *Model) toggleScopedArt() {
 		return
 	}
 	next := !m.artOn[code]
-	if err := m.store.SetProjectArtOn(code, next, m.actor); err != nil {
+	var pair []string
+	if next {
+		rolled := art.RollPair(rand.New(rand.NewSource(time.Now().UnixNano())))
+		pair = []string{rolled[0].Name(), rolled[1].Name()}
+	}
+	if err := m.store.SetProjectArtOn(code, next, pair, m.actor); err != nil {
 		m.showToast("art: " + err.Error())
 		return
 	}
 	if m.artOn == nil {
 		m.artOn = map[string]bool{}
 	}
+	if m.artPair == nil {
+		m.artPair = map[string][]string{}
+	}
 	m.artOn[code] = next
 	if next {
+		m.artPair[code] = pair
 		m.showToast("art: on")
 	} else {
+		delete(m.artPair, code)
 		m.showToast("art: off")
 	}
 }

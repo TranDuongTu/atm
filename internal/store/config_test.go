@@ -311,8 +311,8 @@ func TestSetProjectArtOn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Set a pin.
-	if err := s.SetProjectArtOn("ATM", true, testActor); err != nil {
+	// Turn art on with a pinned pair.
+	if err := s.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	c, err := s.GetProjectConfig("ATM")
@@ -322,13 +322,15 @@ func TestSetProjectArtOn(t *testing.T) {
 	if !c.ArtOn {
 		t.Fatalf("ArtOn = false, want true")
 	}
+	if len(c.ArtPair) != 2 || c.ArtPair[0] != "galaxy" || c.ArtPair[1] != "matrix" {
+		t.Fatalf("ArtPair = %v, want [galaxy matrix]", c.ArtPair)
+	}
 	if c.UpdatedBy != testActor {
 		t.Fatalf("UpdatedBy = %q", c.UpdatedBy)
 	}
 
-	// Clearing with false removes the pin but keeps the config file
-	// readable.
-	if err := s.SetProjectArtOn("ATM", false, testActor); err != nil {
+	// Turning art off clears both the flag and the pinned pair.
+	if err := s.SetProjectArtOn("ATM", false, nil, testActor); err != nil {
 		t.Fatal(err)
 	}
 	c, err = s.GetProjectConfig("ATM")
@@ -337,6 +339,9 @@ func TestSetProjectArtOn(t *testing.T) {
 	}
 	if c != nil && c.ArtOn {
 		t.Fatalf("ArtOn still true after clear")
+	}
+	if c != nil && len(c.ArtPair) != 0 {
+		t.Fatalf("ArtPair not cleared on off: %v", c.ArtPair)
 	}
 
 	// A config holding ONLY art_on must not read back as nil (regression
@@ -366,7 +371,7 @@ func TestSetProjectArtOn(t *testing.T) {
 	}
 
 	// Invalid actor is rejected.
-	if err := s.SetProjectArtOn("ATM", true, "not-an-actor"); err == nil {
+	if err := s.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, "not-an-actor"); err == nil {
 		t.Fatal("invalid actor must be rejected")
 	}
 }

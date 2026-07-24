@@ -119,10 +119,11 @@ func TestProjectsRenderListIncludesArtRegion(t *testing.T) {
 	// Art is default-off and scoped: enable it for the scoped project before
 	// asserting the art region is populated.
 	m.projectScope = "ATM"
-	if err := m.store.SetProjectArtOn("ATM", true, m.actor); err != nil {
+	if err := m.store.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, m.actor); err != nil {
 		t.Fatalf("SetProjectArtOn: %v", err)
 	}
 	m.artOn["ATM"] = true
+	m.artPair["ATM"] = []string{"galaxy", "matrix"}
 	out := m.projects.renderList()
 	lines := strings.Split(out, "\n")
 	if len(lines) != 40 {

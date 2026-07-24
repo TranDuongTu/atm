@@ -1,6 +1,7 @@
 package art
 
 import (
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
@@ -150,6 +151,71 @@ func TestPairIsStableDistinctAndVaried(t *testing.T) {
 		if _, ok := ByName(th.Name()); !ok {
 			t.Fatalf("pair theme %q not in registry", th.Name())
 		}
+	}
+}
+
+// TestRollPairIsDistinctAndRegistered proves RollPair returns two distinct
+// registered themes drawn from the live registry, and that different seeds
+// can produce different pairs (the whole point of re-rolling).
+func TestRollPairIsDistinctAndRegistered(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	p := RollPair(r)
+	if p[0] == nil || p[1] == nil {
+		t.Fatal("roll pair must have two themes")
+	}
+	if p[0].Name() == p[1].Name() {
+		t.Fatalf("roll pair themes must be distinct, got %q twice", p[0].Name())
+	}
+	for _, th := range p {
+		if _, ok := ByName(th.Name()); !ok {
+			t.Fatalf("roll pair theme %q not in registry", th.Name())
+		}
+	}
+	// Across many rolls, a uniform draw over 6 themes should produce at
+	// least 3 distinct first-slot themes (sanity that the source is not
+	// stuck on one value).
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		seen[RollPair(r)[0].Name()] = true
+	}
+	if len(seen) < 3 {
+		t.Fatalf("roll first-slot diversity too low: %d distinct over 50 rolls", len(seen))
+	}
+}
+
+// TestEffectivePairPinnedOrFallback proves EffectivePair returns the pinned
+// pair when both names resolve, falls back to Pair(code) when the pin is
+// empty or partially/wholly unresolvable, and always returns distinct themes.
+func TestEffectivePairPinnedOrFallback(t *testing.T) {
+	// Valid pinned pair overrides the code-derived pair.
+	pinned := []string{"galaxy", "matrix"}
+	got := EffectivePair(pinned, "ATM")
+	if got[0].Name() != "galaxy" || got[1].Name() != "matrix" {
+		t.Fatalf("pinned pair must resolve verbatim, got %q/%q", got[0].Name(), got[1].Name())
+	}
+
+	// Empty pin falls back to Pair(code).
+	fb := EffectivePair(nil, "ATM")
+	want := Pair("ATM")
+	if fb[0].Name() != want[0].Name() || fb[1].Name() != want[1].Name() {
+		t.Fatalf("empty pin must fall back to Pair(code), got %q/%q want %q/%q",
+			fb[0].Name(), fb[1].Name(), want[0].Name(), want[1].Name())
+	}
+
+	// Partially-unknown pin falls back to Pair(code) rather than returning a
+	// pair with a nil slot.
+	bad := EffectivePair([]string{"galaxy", "nope"}, "ATM")
+	if bad[0] == nil || bad[1] == nil || bad[0].Name() == bad[1].Name() {
+		t.Fatalf("partial-unknown pin must fall back to a distinct Pair(code), got %+v", bad)
+	}
+	if bad[0].Name() != want[0].Name() || bad[1].Name() != want[1].Name() {
+		t.Fatalf("partial-unknown pin must fall back to Pair(code), got %q/%q", bad[0].Name(), bad[1].Name())
+	}
+
+	// A single-element pin is malformed and must fall back.
+	one := EffectivePair([]string{"galaxy"}, "ATM")
+	if one[0].Name() != want[0].Name() || one[1].Name() != want[1].Name() {
+		t.Fatalf("single-element pin must fall back to Pair(code), got %q/%q", one[0].Name(), one[1].Name())
 	}
 }
 

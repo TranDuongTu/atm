@@ -174,10 +174,12 @@ func (s *Store) SetProjectBoards(code string, b *core.BoardsConfig, actor string
 	})
 }
 
-// SetProjectArtOn writes the project's TUI art on/off flag under the
-// project lock, read-modify-write like SetProjectBoards. No store event:
-// display preference, not substrate state.
-func (s *Store) SetProjectArtOn(code string, on bool, actor string) error {
+// SetProjectArtOn writes the project's TUI art on/off flag and, when turning
+// art on, the pinned two-theme pair to render, under the project lock,
+// read-modify-write like SetProjectBoards. Turning art off clears the pinned
+// pair so a later off->on re-roll is not confused with a stale pin. No store
+// event: display preference, not substrate state.
+func (s *Store) SetProjectArtOn(code string, on bool, pair []string, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
@@ -191,6 +193,11 @@ func (s *Store) SetProjectArtOn(code string, on bool, actor string) error {
 			merged = existing
 		}
 		merged.ArtOn = on
+		if on {
+			merged.ArtPair = pair
+		} else {
+			merged.ArtPair = nil
+		}
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)

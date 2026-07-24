@@ -287,7 +287,7 @@ func (t *tasksModel) fillGapWithArt(listOut string) string {
 	if gap < art.MinH {
 		return listOut
 	}
-	theme := art.Pair(code)[1]
+	theme := art.EffectivePair(t.m.artPair[code], code)[1]
 	artLines := art.Render(theme, t.width, gap, art.Seed(code), t.m.artPhase,
 		t.m.styles.ArtBase, t.m.styles.ArtAccent)
 	if artLines == nil {

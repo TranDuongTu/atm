@@ -693,7 +693,7 @@ func (p *projectsModel) renderArt(height int) string {
 	if code == "" || !p.m.artOn[code] {
 		return ""
 	}
-	theme := art.Pair(code)[0]
+	theme := art.EffectivePair(p.m.artPair[code], code)[0]
 	lines := art.Render(theme, p.width, height, art.Seed(code), p.m.artPhase,
 		p.m.styles.ArtBase, p.m.styles.ArtAccent)
 	if lines == nil {
