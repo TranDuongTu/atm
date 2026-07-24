@@ -30,6 +30,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
 	cmd.AddCommand(newProjectCapabilityCmd(st))
 	cmd.AddCommand(newProjectBoardsCmd(st))
+	cmd.AddCommand(newProjectRepoCmd(st))
 	return cmd
 }
 
@@ -598,4 +599,113 @@ func indexOf(list []string, s string) int {
 		}
 	}
 	return -1
+}
+
+// newProjectRepoCmd returns the `atm project repo` subgroup managing a
+// project's machine-local repo dispatch targets (config, not substrate).
+func newProjectRepoCmd(st *cliState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Manage a project's repo dispatch targets (local paths to spawn agent sessions into)",
+		Long: "A repo dispatch target is a machine-local path to spawn agent " +
+			"sessions into, plus an optional remote link. Repos are config, not " +
+			"substrate state: they are not written to the event log and are not " +
+			"synced, so a fresh machine has no repos until a concierge session " +
+			"records them there. A project is not 1:1 with a repo — record as " +
+			"many as the project spans.",
+	}
+	bindActorFlag(cmd, st)
+
+	repoAddCmd := &cobra.Command{
+		Use:   "add <name> <path>",
+		Short: "Add or update a project's repo dispatch target (upsert)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			if project == "" {
+				return fmt.Errorf("%w: --project is required", core.ErrUsage)
+			}
+			url, _ := cmd.Flags().GetString("url")
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.SetProjectRepo(project, args[0], args[1], url, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0], "path": args[1], "url": url}, func() {
+				fmt.Fprintf(st.stdout(), "added repo %s -> %s (project %s)\n", args[0], args[1], project)
+			})
+		},
+	}
+	repoAddCmd.Flags().String("project", "", "project code")
+	repoAddCmd.Flags().String("url", "", "remote link (optional)")
+	cmd.AddCommand(repoAddCmd)
+
+	repoListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List a project's repo dispatch targets",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			if project == "" {
+				return fmt.Errorf("%w: --project is required", core.ErrUsage)
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			repos, err := s.ProjectRepos(project)
+			if err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), repos)
+			}
+			for _, r := range repos {
+				if r.URL != "" {
+					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", r.Name, r.Path, r.URL)
+				} else {
+					fmt.Fprintf(st.stdout(), "%s\t%s\n", r.Name, r.Path)
+				}
+			}
+			return nil
+		},
+	}
+	repoListCmd.Flags().String("project", "", "project code")
+	cmd.AddCommand(repoListCmd)
+
+	repoRemoveCmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a project's repo dispatch target",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, _ := cmd.Flags().GetString("project")
+			if project == "" {
+				return fmt.Errorf("%w: --project is required", core.ErrUsage)
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := s.RemoveProjectRepo(project, args[0], actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0]}, func() {
+				fmt.Fprintf(st.stdout(), "removed repo %s (project %s)\n", args[0], project)
+			})
+		},
+	}
+	repoRemoveCmd.Flags().String("project", "", "project code")
+	cmd.AddCommand(repoRemoveCmd)
+
+	return cmd
 }
