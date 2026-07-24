@@ -10,6 +10,12 @@ ATM is a fast, scalable, distributed task ledger — git-like in how it stores t
 curl -fsSL https://raw.githubusercontent.com/TranDuongTu/atm/main/scripts/install.sh | bash
 ```
 
+Later, upgrade the installed binary in place:
+
+```sh
+atm update
+```
+
 **2. Initialize** the store, install the agent plugins, and record your default agent and args:
 
 ```sh

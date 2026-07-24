@@ -1,6 +1,9 @@
 ## Unreleased
 
 ### feat
+- ATM-0119: `atm update` self-updates the running binary from GitHub releases,
+  verifies `SHA256SUMS`, and atomically replaces `os.Executable()`; use
+  `--version <tag>` to pin a release.
 - **Breaking:** `atm dev` and `atm manage` are removed. Launch sessions with
   `atm --persona developer|manager|concierge --project <CODE>`; manager
   brief/autopilot are now `--mode brief|autopilot|ask` (default autopilot).

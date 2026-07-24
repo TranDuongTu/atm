@@ -48,6 +48,7 @@ type cliState struct {
 	runTUI          tuiRunner
 	stdinIsTerminal func() bool
 	lookPathFn      func(string) (string, error)
+	runUpdate       updateRunner
 
 	// openServiceFn / openAdminFn construct the store for a --store path. The
 	// CLI never names the concrete store; the composition root injects these
@@ -130,6 +131,8 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&st.flags.store, "store", "", "path to the store directory (overrides ATM_HOME)")
 	root.PersistentFlags().StringVar(&st.flags.output, "output", "", "output format: json|text (default text)")
+	root.SetOut(st.stdout())
+	root.SetErr(st.stderr())
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
 	root.Flags().StringVar(&opts.Persona, "persona", "", "launch as a persona: admin (default, opens the TUI) or an agent persona like developer, manager, concierge (see `atm persona list`)")
 	root.Flags().StringVar(&opts.Project, "project", "", "ATM project the session works on")
@@ -154,6 +157,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newSessionContextCmd(st))
 	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))
+	root.AddCommand(newUpdateCmd(st))
 
 	root.AddCommand(newCapabilityCmd(st))
 

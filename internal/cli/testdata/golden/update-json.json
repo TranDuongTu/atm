@@ -1,0 +1,8 @@
+{
+  "update": {
+    "new_version": "v1.2.3",
+    "old_version": "v1.2.2",
+    "target_path": "/tmp/atm",
+    "updated": true
+  }
+}
