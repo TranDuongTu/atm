@@ -48,6 +48,18 @@ type projectsModel struct {
 	personaDrilled      bool
 	personaGroups       []activity.Group
 	personaDetailOffset int
+
+	// Render snapshot for the summary pane and events feed, rebuilt by
+	// refreshSummary (refreshAll and the project select/deselect handlers).
+	// View reads ONLY these — the old per-frame GetProject + ListTasks +
+	// ReadLogCached reads ran a freshness probe per call and made every
+	// keystroke O(store) (ATM-4c476c). External appends surface when the
+	// 10s refresh tick rebuilds the snapshot, same as every other pane.
+	summaryProject *core.Project
+	summaryTasks   []*core.Task
+	summaryEntries []core.LogEntry
+	summaryOK      bool
+	feedOK         bool
 }
 
 type pView int
@@ -211,6 +223,7 @@ func (p *projectsModel) refresh() {
 	if p.cursor < 0 {
 		p.cursor = 0
 	}
+	p.refreshSummary()
 }
 
 func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
@@ -424,9 +437,11 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			// an unfiltered task sweep at idle (capability-view spec §4).
 			p.m.tasks.refresh()
 			p.m.boards.loadPins()
-			// Status-bar counts are project-scoped, so they must follow the
-			// switch here — this handler never runs a full refreshAll.
+			// Status-bar counts and the summary/feed snapshot are
+			// project-scoped, so they must follow the switch here — this
+			// handler never runs a full refreshAll.
 			p.m.refreshStoreStats()
+			p.refreshSummary()
 			return cmd
 		}
 	case "a":
@@ -1257,21 +1272,44 @@ func meterBar(percent int, width int) string {
 	return repeat("█", filled) + repeat("░", width-filled)
 }
 
-func (p *projectsModel) projectSummaryData() (*core.Project, []*core.Task, []core.LogEntry, bool) {
+// refreshSummary rebuilds the render snapshot behind projectSummaryData and
+// readEventLog. Called wherever the summary's inputs change: refresh (the
+// refreshAll path) and the select/deselect handlers, which bypass refreshAll.
+func (p *projectsModel) refreshSummary() {
+	p.summaryProject = nil
+	p.summaryTasks = nil
+	p.summaryEntries = nil
+	p.summaryOK = false
+	p.feedOK = false
 	code := p.m.projectScope
 	if code == "" {
-		return nil, nil, nil, false
+		return
 	}
-	project, err := p.m.store.GetProject(code)
-	if err != nil {
-		return nil, nil, nil, false
-	}
-	tasks := p.m.store.ListTasks(core.QueryFilters{Project: code})
+	// Feed policy (former readEventLog): a v2 integrity failure still hands
+	// back the recoverable prefix, any other read error rejects the feed.
 	entries, err := p.m.store.ReadLogCached(code)
-	if err != nil && !core.IsIntegrity(err) {
+	if err == nil || core.IsIntegrity(err) {
+		p.summaryEntries = entries
+		p.feedOK = true
+	}
+	// Summary policy (former projectSummaryData): needs the project row, the
+	// task list and a tolerable log read.
+	project, perr := p.m.store.GetProject(code)
+	if perr != nil || !p.feedOK {
+		return
+	}
+	p.summaryProject = project
+	p.summaryTasks = p.m.store.ListTasks(core.QueryFilters{Project: code})
+	p.summaryOK = true
+}
+
+// projectSummaryData hands back the refresh-time snapshot; View must not
+// touch the store (see refreshSummary).
+func (p *projectsModel) projectSummaryData() (*core.Project, []*core.Task, []core.LogEntry, bool) {
+	if !p.summaryOK {
 		return nil, nil, nil, false
 	}
-	return project, tasks, entries, true
+	return p.summaryProject, p.summaryTasks, p.summaryEntries, true
 }
 
 // renderEmpty renders the empty-store landing (mockup Screen 1): a heading

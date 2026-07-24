@@ -468,19 +468,16 @@ func newestFeedEntries(entries []core.LogEntry) []core.LogEntry {
 	return feed
 }
 
-// readEventLog reads the selected project's event log and applies the
-// tolerance policy shared by renderEventsFeed and feedLen: a v2 integrity
-// failure still hands back the recoverable prefix alongside the error (see
-// ReadLogCached), so it is tolerated; any other read error is rejected. Both
-// callers fold through this one call so the policy lives in exactly one
-// place. Callers own the p.m.projectScope == "" short-circuit themselves,
-// since they render different placeholders (or return 0) for it.
+// readEventLog hands back the refresh-time event-log snapshot shared by
+// renderEventsFeed and feedLen (View must not read the store — ATM-4c476c;
+// the tolerance policy now lives in refreshSummary). Callers own the
+// p.m.projectScope == "" short-circuit themselves, since they render
+// different placeholders (or return 0) for it.
 func (p *projectsModel) readEventLog() (entries []core.LogEntry, ok bool) {
-	entries, err := p.m.store.ReadLogCached(p.m.projectScope)
-	if err != nil && !core.IsIntegrity(err) {
+	if !p.feedOK {
 		return nil, false
 	}
-	return entries, true
+	return p.summaryEntries, true
 }
 
 // eventsFeedTitle is the box title: the key hint appended the same shape as
