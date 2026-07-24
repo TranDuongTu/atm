@@ -86,8 +86,8 @@ type CommentWriter interface {
 type LabelWriter interface {
 	// UpsertLabel asserts exactly the non-nil fields.
 	UpsertLabel(name string, f LabelFields, actor string) error
-	// SeedLabel upserts description/expr unless the label is already live
-	// (idempotent vocabulary seeding; never overwrites a curated entry).
+	// SeedLabel converges capability vocabulary: create absent labels, refresh
+	// changed non-empty descriptions, and keep existing expressions create-only.
 	SeedLabel(name, description, expr, actor string) error
 	// EnsureLabels registers any of the names not already live, asserting no
 	// fields (auto-registration at assign time).

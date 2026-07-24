@@ -114,16 +114,47 @@ func TestLabelSeedSetsDescriptionOnCreate(t *testing.T) {
 	}
 }
 
-func TestLabelSeedPreservesExistingDescription(t *testing.T) {
+func TestLabelSeedOverwritesExistingDescription(t *testing.T) {
 	s := newTestStore(t)
 	_, _ = s.CreateProject("ATM", "x", testActor)
-	_ = s.LabelAdd("ATM:type:bug", "human edited", "", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "old wording", "", testActor)
 	if err := s.LabelSeed("ATM:type:bug", "seed default", "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	l, _ := s.LabelShow("ATM:type:bug")
-	if l.Description != "human edited" {
-		t.Fatalf("LabelSeed overwrote description: got %q want \"human edited\"", l.Description)
+	if l.Description != "seed default" {
+		t.Fatalf("description = %q want %q", l.Description, "seed default")
+	}
+}
+
+func TestLabelSeedFillsExistingEmptyDescription(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	_ = s.LabelAdd("ATM:type:bug", "", "", testActor)
+	if err := s.LabelSeed("ATM:type:bug", "seed default", "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:type:bug")
+	if l.Description != "seed default" {
+		t.Fatalf("description = %q want %q", l.Description, "seed default")
+	}
+}
+
+func TestLabelSeedDoesNotOverwriteExistingExpr(t *testing.T) {
+	s := newTestStore(t)
+	_, _ = s.CreateProject("ATM", "x", testActor)
+	if err := s.LabelAdd("ATM:work-board", "old desc", "status:open", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LabelSeed("ATM:work-board", "seed desc", "status:done", testActor); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := s.LabelShow("ATM:work-board")
+	if l.Description != "seed desc" {
+		t.Fatalf("description = %q want %q", l.Description, "seed desc")
+	}
+	if l.Expr != "status:open" {
+		t.Fatalf("expr = %q want %q", l.Expr, "status:open")
 	}
 }
 

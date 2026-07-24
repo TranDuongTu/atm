@@ -28,29 +28,29 @@ func TestNoopLabelSeedSkipsReprojection(t *testing.T) {
 		t.Fatalf("plant canary: %v", err)
 	}
 
-	// No-op seed: the label is live, so the txn is clean and the canary
-	// must survive (no cache rewrite).
-	if err := s.LabelSeed("ATM:open-tasks", "different desc", "", testActor); err != nil {
-		t.Fatalf("no-op LabelSeed: %v", err)
+	// Unchanged seed: the label already has this description, so the txn is
+	// clean and the canary must survive (no cache rewrite).
+	if err := s.LabelSeed("ATM:open-tasks", "open work", "", testActor); err != nil {
+		t.Fatalf("unchanged LabelSeed: %v", err)
 	}
 	got, ok, err := cacheGetTask(db, task.ID)
 	if err != nil || !ok {
-		t.Fatalf("cacheGetTask after no-op seed: ok=%v err=%v", ok, err)
+		t.Fatalf("cacheGetTask after unchanged seed: ok=%v err=%v", ok, err)
 	}
 	if got.Title != "CANARY" {
-		t.Fatalf("no-op LabelSeed rewrote the cache (title %q, want CANARY)", got.Title)
+		t.Fatalf("unchanged LabelSeed rewrote the cache (title %q, want CANARY)", got.Title)
 	}
 
-	// Dirty seed: a NEW label appends, so reprojection must run and restore
-	// the canary row from the fold.
-	if err := s.LabelSeed("ATM:in-progress-tasks", "wip", "status:in-progress", testActor); err != nil {
-		t.Fatalf("dirty LabelSeed: %v", err)
+	// Changed-description seed: the label is live, but the vocabulary
+	// description changed, so reprojection must run and restore the canary row.
+	if err := s.LabelSeed("ATM:open-tasks", "updated open work", "", testActor); err != nil {
+		t.Fatalf("changed-description LabelSeed: %v", err)
 	}
 	got, ok, err = cacheGetTask(db, task.ID)
 	if err != nil || !ok {
-		t.Fatalf("cacheGetTask after dirty seed: ok=%v err=%v", ok, err)
+		t.Fatalf("cacheGetTask after changed-description seed: ok=%v err=%v", ok, err)
 	}
 	if got.Title != "real title" {
-		t.Fatalf("dirty LabelSeed did not reproject (title %q, want %q)", got.Title, "real title")
+		t.Fatalf("changed-description LabelSeed did not reproject (title %q, want %q)", got.Title, "real title")
 	}
 }

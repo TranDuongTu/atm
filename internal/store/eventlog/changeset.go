@@ -301,18 +301,23 @@ func (cs *changeSet) UpsertLabel(name string, f core.LabelFields, actor string) 
 	return err
 }
 
-// SeedLabel is a no-op when the label is already live in the fold (the fold,
-// not cache.db, is the authority for a v2 project); otherwise it upserts
-// description-always and expr-if-nonempty. Only the append branch marks the
-// transaction dirty — the no-op path leaves it clean so the facade can skip
-// projection (ATM-d402aa).
+// SeedLabel converges capability vocabulary. The fold, not cache.db, is the
+// authority for a v2 project: absent labels are created with description-always
+// and expr-if-nonempty; live labels get a description-only upsert when the
+// supplied non-empty description differs. Existing expressions are create-only
+// through seed. Only append branches mark the transaction dirty, so unchanged
+// live labels still let the facade skip projection (ATM-d402aa).
 func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
 	ctx, err := cs.e.beginAuthorLocked(cs.code)
 	if err != nil {
 		return err
 	}
 	if l, ok := ctx.state.Labels[name]; ok && !l.Tombstoned {
-		return nil
+		if description == "" || l.Description == description {
+			return nil
+		}
+		fields := core.LabelFields{Description: &description}
+		return cs.UpsertLabel(name, fields, actor)
 	}
 	payload := map[string]any{"description": description}
 	if expr != "" {
