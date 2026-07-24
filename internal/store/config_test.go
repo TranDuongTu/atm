@@ -305,48 +305,48 @@ func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
 	}
 }
 
-func TestSetProjectArtTheme(t *testing.T) {
+func TestSetProjectArtOn(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
 
 	// Set a pin.
-	if err := s.SetProjectArtTheme("ATM", "circuit", testActor); err != nil {
+	if err := s.SetProjectArtOn("ATM", true, testActor); err != nil {
 		t.Fatal(err)
 	}
 	c, err := s.GetProjectConfig("ATM")
 	if err != nil || c == nil {
 		t.Fatalf("config = %v, %v", c, err)
 	}
-	if c.ArtTheme != "circuit" {
-		t.Fatalf("ArtTheme = %q, want circuit", c.ArtTheme)
+	if !c.ArtOn {
+		t.Fatalf("ArtOn = false, want true")
 	}
 	if c.UpdatedBy != testActor {
 		t.Fatalf("UpdatedBy = %q", c.UpdatedBy)
 	}
 
-	// Clearing with empty string removes the pin but keeps the config file
+	// Clearing with false removes the pin but keeps the config file
 	// readable.
-	if err := s.SetProjectArtTheme("ATM", "", testActor); err != nil {
+	if err := s.SetProjectArtOn("ATM", false, testActor); err != nil {
 		t.Fatal(err)
 	}
 	c, err = s.GetProjectConfig("ATM")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c != nil && c.ArtTheme != "" {
-		t.Fatalf("ArtTheme not cleared: %q", c.ArtTheme)
+	if c != nil && c.ArtOn {
+		t.Fatalf("ArtOn still true after clear")
 	}
 
-	// A config holding ONLY art_theme must not read back as nil (regression
+	// A config holding ONLY art_on must not read back as nil (regression
 	// guard for GetProjectConfig's emptiness check). Written as a raw JSON
-	// fixture straight to config.json, NOT via SetProjectArtTheme: the setter
+	// fixture straight to config.json, NOT via SetProjectArtOn: the setter
 	// always stamps UpdatedAt, so routing through it would make
 	// GetProjectConfig non-nil via the UpdatedAt clause and never actually
-	// exercise the ArtTheme clause under test. With every other field left
+	// exercise the ArtOn clause under test. With every other field left
 	// empty, this fixture isolates that one clause -- the assertion below
-	// fails if the `&& c.ArtTheme == ""` conjunct is removed from
+	// fails if the `&& !c.ArtOn` conjunct is removed from
 	// GetProjectConfig. Use a bare second project so nothing else on disk
 	// (e.g. ATM's updated_at/updated_by stamps from the writes above) could
 	// keep the config non-nil for an unrelated reason.
@@ -354,19 +354,19 @@ func TestSetProjectArtTheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	rawConfigPath := filepath.Join(s.StorePath(), "projects", "XYZ", "config.json")
-	if err := os.WriteFile(rawConfigPath, []byte(`{"art_theme":"waves"}`), 0o644); err != nil {
+	if err := os.WriteFile(rawConfigPath, []byte(`{"art_on":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err = s.GetProjectConfig("XYZ")
 	if err != nil || c == nil {
-		t.Fatalf("art-theme-only config must be readable, got %v, %v", c, err)
+		t.Fatalf("art-on-only config must be readable, got %v, %v", c, err)
 	}
-	if c.ArtTheme != "waves" {
-		t.Fatalf("ArtTheme = %q, want waves", c.ArtTheme)
+	if !c.ArtOn {
+		t.Fatalf("ArtOn = false, want true")
 	}
 
 	// Invalid actor is rejected.
-	if err := s.SetProjectArtTheme("ATM", "waves", "not-an-actor"); err == nil {
+	if err := s.SetProjectArtOn("ATM", true, "not-an-actor"); err == nil {
 		t.Fatal("invalid actor must be rejected")
 	}
 }

@@ -15,7 +15,7 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 		}
 		return nil, err
 	}
-	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && c.ArtTheme == "" {
+	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && !c.ArtOn {
 		return nil, nil
 	}
 	return &c, nil
@@ -174,13 +174,10 @@ func (s *Store) SetProjectBoards(code string, b *core.BoardsConfig, actor string
 	})
 }
 
-// SetProjectArtTheme writes the project's TUI art-theme pin under the
-// project lock, read-modify-write like SetProjectBoards. An empty theme
-// clears the pin (auto-assignment applies). Theme names are not validated
-// here — readers fall back to auto-assignment on unknown names, the same
-// defensive posture as BoardsConfig entries. No store event: display
-// preference, not substrate state.
-func (s *Store) SetProjectArtTheme(code, theme, actor string) error {
+// SetProjectArtOn writes the project's TUI art on/off flag under the
+// project lock, read-modify-write like SetProjectBoards. No store event:
+// display preference, not substrate state.
+func (s *Store) SetProjectArtOn(code string, on bool, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
@@ -193,7 +190,7 @@ func (s *Store) SetProjectArtTheme(code, theme, actor string) error {
 		if existing != nil {
 			merged = existing
 		}
-		merged.ArtTheme = theme
+		merged.ArtOn = on
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)

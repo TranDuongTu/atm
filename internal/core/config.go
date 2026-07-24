@@ -34,10 +34,9 @@ type ProjectConfig struct {
 	Embedding *EmbeddingConfig  `json:"embedding,omitempty"`
 	Remotes   map[string]string `json:"remotes,omitempty"`
 	Boards    *BoardsConfig     `json:"boards,omitempty"`
-	// ArtTheme pins the TUI background art theme. Display preference, not
-	// substrate state: no event-log entry, and a value naming no registered
-	// theme is ignored by readers (auto-assignment applies).
-	ArtTheme string `json:"art_theme,omitempty"`
+	// ArtOn toggles the TUI background art on or off. Display preference,
+	// not substrate state: no event-log entry, and the default is off.
+	ArtOn bool `json:"art_on,omitempty"`
 }
 
 // AgentsConfig is the global (store-root) record of the user's host-agent
