@@ -78,15 +78,50 @@ func v2SubjectDisplay(st *eventsource.State, ev *eventsource.Event) string {
 // the number of newline-terminated lines, counted without parsing (the commit
 // point is a complete line — L3-7 — so any unterminated tail is uncommitted and
 // correctly excluded). A missing file counts as zero.
+//
+// The count is memoized against the file's stat identity (size + mtime), so
+// the steady-state probe — the TUI calls this per freshness check, many times
+// per refresh — is one os.Stat, not a full-file read. Appends always grow the
+// file, so a stale hit would need a same-size rewrite inside the filesystem's
+// mtime granularity; the event media is append-only (rewrites happen only via
+// prune/upgrade, which replace the file wholesale), so that identity is safe.
 func (e *Engine) ChangeCount(code string) (int, error) {
-	raw, err := os.ReadFile(e.EventsV2Path(code))
+	path := e.EventsV2Path(code)
+	st, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		e.countMu.Lock()
+		delete(e.counts, code)
+		e.countMu.Unlock()
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	e.countMu.Lock()
+	memo, ok := e.counts[code]
+	e.countMu.Unlock()
+	if ok && memo.size == st.Size() && memo.mtime.Equal(st.ModTime()) {
+		return memo.count, nil
+	}
+	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	return bytes.Count(raw, []byte("\n")), nil
+	n := bytes.Count(raw, []byte("\n"))
+	e.countMu.Lock()
+	if e.counts == nil {
+		e.counts = map[string]countMemo{}
+	}
+	// Key the memo by the PRE-read stat: if the file changed between Stat and
+	// ReadFile, the stored identity no longer matches the file, so the next
+	// probe misses the memo and re-reads. The failure mode is one wasted
+	// read, never a stale count served as fresh.
+	e.counts[code] = countMemo{size: st.Size(), mtime: st.ModTime(), count: n}
+	e.countMu.Unlock()
+	return n, nil
 }
 
 // LogEntries renders the v2 event file as compatibility []core.LogEntry:

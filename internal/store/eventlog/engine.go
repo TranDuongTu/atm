@@ -9,6 +9,7 @@ package eventlog
 import (
 	"io"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"atm/internal/core"
@@ -41,6 +42,20 @@ var _ core.Journal = (*Engine)(nil)
 type Engine struct {
 	root string
 	opts Options
+
+	// countMu/counts memoize ChangeCount per project, keyed by the event
+	// file's stat identity (size + mtime). The event file is append-only, so
+	// any committed change moves the size; the memo turns the freshness
+	// probes that back v2CacheFresh/LastLogSeq from O(file) reads into
+	// O(stat) calls (ATM-4c476c).
+	countMu sync.Mutex
+	counts  map[string]countMemo
+}
+
+type countMemo struct {
+	size  int64
+	mtime time.Time
+	count int
 }
 
 func New(root string, o Options) *Engine { return &Engine{root: root, opts: o} }
