@@ -63,12 +63,15 @@ func Exposed(code string) []core.Label {
 // This is what makes the capability self-bootstrapping: it works in any
 // project. It returns the board labels (Expr != "") it owns — exactly the
 // context-current board.
+// Seeding happens in one LabelSeedBatch transaction — one event-log fold when
+// already converged (ATM-40faff).
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
+	vocab := vocabulary(code)
+	if err := s.LabelSeedBatch(vocab, actor); err != nil {
+		return nil, err
+	}
 	var boards []core.Label
-	for _, l := range vocabulary(code) {
-		if err := s.LabelSeed(l.Name, l.Description, l.Expr, actor); err != nil {
-			return nil, err
-		}
+	for _, l := range vocab {
 		if l.Expr != "" {
 			boards = append(boards, l)
 		}

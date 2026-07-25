@@ -81,12 +81,15 @@ func Exposed(code string) []core.Label {
 // expressions create-only. Old boards from the prior vocabulary (new-tasks,
 // brainstormed-tasks, planned-tasks) are removed so a reseed over an existing
 // project converges to the new board set.
+// Seeding happens in one LabelSeedBatch transaction — one event-log fold when
+// already converged (ATM-40faff).
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
+	vocab := vocabulary(code)
+	if err := s.LabelSeedBatch(vocab, actor); err != nil {
+		return nil, err
+	}
 	var boards []core.Label
-	for _, l := range vocabulary(code) {
-		if err := s.LabelSeed(l.Name, l.Description, l.Expr, actor); err != nil {
-			return nil, err
-		}
+	for _, l := range vocab {
 		if l.Expr != "" {
 			boards = append(boards, l)
 		}

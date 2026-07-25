@@ -422,3 +422,32 @@ func TestEnsureVocabularyOverwritesAllTasksDescription(t *testing.T) {
 		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
 	}
 }
+
+// batchCountingService proves EnsureVocabulary issues ONE batch call and
+// zero per-label calls (ATM-40faff: one fold per ensure).
+type batchCountingService struct {
+	core.LabelService
+	batches int
+	singles int
+}
+
+func (b *batchCountingService) LabelSeed(name, description, expr, actor string) error {
+	b.singles++
+	return b.LabelService.LabelSeed(name, description, expr, actor)
+}
+
+func (b *batchCountingService) LabelSeedBatch(labels []core.Label, actor string) error {
+	b.batches++
+	return b.LabelService.LabelSeedBatch(labels, actor)
+}
+
+func TestEnsureVocabularySeedsInOneBatch(t *testing.T) {
+	s := newTestStore(t)
+	svc := &batchCountingService{LabelService: s}
+	if _, err := EnsureVocabulary(svc, "ATM", "admin@cli:unset"); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if svc.batches != 1 || svc.singles != 0 {
+		t.Errorf("EnsureVocabulary made %d batch / %d single seed calls, want 1 / 0", svc.batches, svc.singles)
+	}
+}
