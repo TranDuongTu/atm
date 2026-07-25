@@ -97,7 +97,7 @@ func EnsureVocabulary(s *store.Store, code, actor string) error {
 }
 ```
 
-`LabelSeed` upserts only when absent — a human's curated description is never overwritten, matching the existing contract.
+Current `LabelSeed` behavior (updated by ATM-0116 on 2026-07-24) creates absent labels and refreshes capability-owned descriptions when vocabulary text changes; existing expressions remain create-only through seed.
 
 ### Status constants (private to the capability)
 
@@ -193,7 +193,7 @@ Three test layers, mirroring `internal/contextmap` and the existing conventions 
 
 ### `internal/workflow`
 
-- `EnsureVocabulary` is idempotent; creates all three boards with the right expr/desc in a fresh project; does not overwrite a human-curated description; works without `atm label seed` (self-bootstrapping).
+- `EnsureVocabulary` is idempotent; creates all three boards with the right expr/desc in a fresh project; refreshes capability-owned descriptions while preserving existing expressions; works without the removed global `atm label seed` path (self-bootstrapping).
 - `Recorder.SetStatus`:
   - Swaps an existing status to a new one (prior returned, exactly one `status:*` label after).
   - No-op when already at the target (prior == target, no mutation, no log entry).

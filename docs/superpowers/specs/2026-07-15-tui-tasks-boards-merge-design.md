@@ -82,9 +82,10 @@ import "atm/internal/store"
 func BoardOpenTasks(code string) string { return code + ":open-tasks" }
 func openTasksExpr() string             { return "status:open" }
 
-// EnsureVocabulary creates the Open Tasks board with a description, if absent.
-// Idempotent; never overwrites a human's curated description (LabelSeed upserts
-// only when the label is absent). Self-bootstrapping: works without `atm label seed`.
+// EnsureVocabulary creates or refreshes the Open Tasks board with a
+// capability-owned description. Idempotent; existing expressions stay
+// create-only through seed. Self-bootstrapping: works without the removed
+// global `atm label seed` path.
 func EnsureVocabulary(s *store.Store, code, actor string) error {
     return s.LabelSeed(BoardOpenTasks(code),
         "every open task: the project's active work. Default board in the TUI.",
@@ -92,8 +93,8 @@ func EnsureVocabulary(s *store.Store, code, actor string) error {
 }
 ```
 
-- `LabelSeed` is the existing idempotent ensure primitive that `contextmap.EnsureVocabulary` uses. It never overwrites a human's curated description.
-- The TUI calls `workflow.EnsureVocabulary` on project select, before rebuilding the board ring, so the default exists. The CLI has no project-select path (verified: `atm project` offers only create/list/show/set-name/remove/set-embedding, and there is no current-project concept), so the CLI-side ensure runs where projects are born and re-seeded instead: `atm project create` (right after `CreateProject`) and `atm label seed --project` (alongside the default seed labels). A pre-existing project gains the board on its first TUI select or `label seed`.
+- `LabelSeed` is the existing idempotent ensure primitive that `contextmap.EnsureVocabulary` uses. It refreshes capability-owned descriptions while preserving existing expressions.
+- The TUI calls `workflow.EnsureVocabulary` on project select, before rebuilding the board ring, so the default exists. The CLI has no project-select path (verified: `atm project` offers only create/list/show/set-name/remove/set-embedding, and there is no current-project concept), so the CLI-side ensure runs where projects are born and when capabilities are enabled. A pre-existing project gains the board on its first TUI select, Boards re-ensure, or capability seed.
 - **No privileged label.** A human can edit or delete `ATM:open-tasks` like any board (capability = paved road, not a fence). If deleted, the next project-select re-ensures it. The TUI selects by the well-known name `BoardOpenTasks(code)`; if absent after ensure, it falls back to `ring[0]`.
 - The TUI render path never references `status:open`. It only knows the board's well-known name; the expression lives in the capability.
 
@@ -248,7 +249,7 @@ Rendering must not panic on narrow or short terminals. If the strip height clamp
 
 ## Testing
 
-- `internal/workflow`: `EnsureVocabulary` is idempotent; creates `open-tasks` with the right expr/desc in a fresh project; does not overwrite a human-curated description; works without `atm label seed`.
+- `internal/workflow`: `EnsureVocabulary` is idempotent; creates `open-tasks` with the right expr/desc in a fresh project; refreshes capability-owned descriptions while preserving existing expressions; works without the removed global `atm label seed` path.
 - `internal/store`: `GetPins` / `WritePins` round-trip; missing file -> empty; prune of stale board pins on load.
 - `internal/cli`: `atm project create` leaves the new project with an `open-tasks` board; `atm label seed` ensures it on an existing project; conventions text + JSON reference `open-tasks` with the `status:open` fallback.
 - `internal/tui`:

@@ -23,7 +23,8 @@ var (
 // appends a label.upserted event to the project's log, then write-throughs
 // the cache row. If `description` is empty, the existing description on the
 // live row (if any) is preserved; a non-empty description overwrites it.
-// Contrast with LabelSeed, which is a no-op when the label already exists.
+// Contrast with LabelSeed, which only converges capability-owned descriptions
+// and never rewrites an existing expression.
 func (s *Store) LabelAdd(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
@@ -111,8 +112,10 @@ func (s *Store) validateExpr(name, expr string) error {
 	return walk(name, n)
 }
 
-// LabelSeed upserts a label but only sets the description when the label is
-// newly created. Existing labels keep their descriptions.
+// LabelSeed converges capability vocabulary: it creates missing labels, updates
+// existing labels when the supplied non-empty description differs, and keeps
+// existing expressions create-only. Use LabelAdd for explicit expression
+// changes.
 func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	if err := ValidateLabelName(name); err != nil {
 		return err
@@ -157,13 +160,11 @@ func (s *Store) labelUpsertV2(code, name, actor string, f core.LabelFields) erro
 	})
 }
 
-// labelSeedV2 is LabelSeed's v2 body. cs.SeedLabel is itself the no-op guard:
-// it folds under the lock and appends nothing when the label is already live,
-// so it carries the exact begin/observe sequence (and therefore the exact HLC
-// trajectory) the pre-carve labelSeedV2 had. When it appends nothing the txn
-// stays clean and reprojectTxn skips entirely — the pre-carve early-return
-// semantics (ATM-d402aa restored them after the carve briefly reprojected
-// unconditionally, freezing the TUI on every project select).
+// labelSeedV2 is LabelSeed's v2 body. cs.SeedLabel is itself the convergence
+// guard: it folds under the lock and appends nothing when the label is absent
+// from the change set's concern (already live with the requested description or
+// no seed description), so unchanged ensures keep the txn clean and reprojectTxn
+// skips entirely. A changed description is a real append and reprojects.
 func (s *Store) labelSeedV2(code, name, description, expr, actor string) error {
 	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
 		if err := cs.SeedLabel(name, description, expr, actor); err != nil {

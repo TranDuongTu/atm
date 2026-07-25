@@ -43,14 +43,29 @@ func TestChangeSetDirty(t *testing.T) {
 		t.Fatalf("seed txn: %v", err)
 	}
 
-	// The regression case: no-op paths must stay clean.
+	// Unchanged seed stays clean; changed description is a real convergence
+	// write. EnsureLabels no-op paths still stay clean until a new label is
+	// registered.
 	if err := e.WithProjectWrite("ATM", func(cs core.ChangeSet) error {
-		if err := cs.SeedLabel("ATM:open-tasks", "different desc", "", "developer@claude:test"); err != nil {
+		if err := cs.SeedLabel("ATM:open-tasks", "open work", "", "developer@claude:test"); err != nil {
 			return err
 		}
 		if cs.Dirty() {
-			t.Error("SeedLabel of a live label is a no-op but Dirty() is true")
+			t.Error("SeedLabel of an unchanged live label is a no-op but Dirty() is true")
 		}
+		if err := cs.SeedLabel("ATM:open-tasks", "updated open work", "", "developer@claude:test"); err != nil {
+			return err
+		}
+		if !cs.Dirty() {
+			t.Error("SeedLabel of a changed description appended but Dirty() is false")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed convergence txn: %v", err)
+	}
+
+	// EnsureLabels no-op paths stay clean.
+	if err := e.WithProjectWrite("ATM", func(cs core.ChangeSet) error {
 		if err := cs.EnsureLabels([]string{"ATM:open-tasks"}, "developer@claude:test"); err != nil {
 			return err
 		}
@@ -65,7 +80,7 @@ func TestChangeSetDirty(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("no-op txn: %v", err)
+		t.Fatalf("ensure-labels txn: %v", err)
 	}
 
 	// A dirty flag never leaks across transactions.

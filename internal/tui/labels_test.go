@@ -683,9 +683,9 @@ type undescribedCap struct {
 	code string
 }
 
-func (u *undescribedCap) Name() string      { return "undescribed-test" }
-func (u *undescribedCap) Summary() string    { return "synthetic test capability" }
-func (u *undescribedCap) Guide() string     { return "" }
+func (u *undescribedCap) Name() string    { return "undescribed-test" }
+func (u *undescribedCap) Summary() string { return "synthetic test capability" }
+func (u *undescribedCap) Guide() string   { return "" }
 func (u *undescribedCap) Command(_ capability.Env) *cobra.Command {
 	return &cobra.Command{Use: u.Name()}
 }
@@ -1295,7 +1295,7 @@ func TestBoardsDetailIsCompactAtDefaultAndSmallTerminals(t *testing.T) {
 			view := m.boards.View()
 			mustContain(t, view, "name        ATM:status:open")
 			mustContain(t, view, "usage       1 use")
-			mustContain(t, view, "description selected status description")
+			mustContain(t, view, "description workflow state: open; task is not started or is being considered")
 		})
 	}
 }
@@ -1776,8 +1776,8 @@ func TestRenderDetailWrapsLongDescription(t *testing.T) {
 	if descLines < 2 {
 		t.Errorf("description rendered in %d line(s), want wrapped across >= 2 at width 40:\n%s", descLines, view)
 	}
-	mustContain(t, view, "intentionally long")
-	mustContain(t, view, "wrap across")
+	mustContain(t, view, "workflow state: open; task")
+	mustContain(t, view, "is not started or is being")
 }
 
 // TestRenderChartShowsNamespaceDescriptorDescription verifies renderChart
@@ -1797,7 +1797,7 @@ func TestRenderChartShowsNamespaceDescriptorDescription(t *testing.T) {
 	m.boards.handleKey(keyMsg("enter"))
 
 	view := m.boards.View()
-	mustContain(t, view, "the lifecycle stage of a task")
+	mustContain(t, view, "lifecycle state of a task; exactly one status label should be present")
 }
 
 // TestRenderChartOmitsHintLine and TestRenderDetailOmitsBackToChartHint verify
@@ -1921,8 +1921,9 @@ func TestHiddenAndOrderApply(t *testing.T) {
 	}
 }
 
-// TestStoredDescriptionWinsOverExposedLiteral: a human-curated label
-// description beats the capability's baked-in text.
+// TestStoredDescriptionWinsOverExposedLiteral guards board rendering: once a
+// label row exists, the TUI displays the stored description rather than the
+// capability's baked-in Exposed literal.
 func TestStoredDescriptionWinsOverExposedLiteral(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
