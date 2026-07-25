@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"atm/internal/core"
@@ -50,6 +51,11 @@ type Engine struct {
 	// O(stat) calls (ATM-4c476c).
 	countMu sync.Mutex
 	counts  map[string]countMemo
+
+	// beginFolds counts beginAuthorLocked calls — i.e. full strict
+	// read+fold passes over the event file. Test instrumentation for the
+	// changeSet fold memo (ATM-40faff); not part of any contract.
+	beginFolds atomic.Int64
 }
 
 type countMemo struct {

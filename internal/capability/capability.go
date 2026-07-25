@@ -98,7 +98,9 @@ type Capability interface {
 	// boards) for a project and returns the BOARD labels (Expr != "") the
 	// capability owns. Seeded descriptions are authoritative; expressions are
 	// create-only through seed. One call leaves the project converged for this
-	// capability.
+	// capability. The Registry batches vocabularies across capabilities itself
+	// and does not call this method; it remains the standalone
+	// single-capability converge entry.
 	EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error)
 	// Command returns the capability's cobra verb tree, built over env.
 	Command(env Env) *cobra.Command
@@ -172,20 +174,32 @@ func newGuideCmd(c Capability, env Env) *cobra.Command {
 	}
 }
 
-// EnsureVocabulary seeds every capability's vocabulary for the project,
-// stopping at the first error, and returns the union of the boards the
-// capabilities own, in registration order.
+// EnsureVocabulary converges every registered capability's vocabulary for
+// the project in ONE LabelSeedBatch transaction (one event-log fold per
+// select — ATM-40faff), and returns the union of the board labels
+// (Expr != "") in registration order, vocabulary order within a
+// capability. It relies on the Capability contract that Vocabulary
+// declares exactly the set EnsureVocabulary seeds; per-capability
+// EnsureVocabulary remains the standalone single-capability converge.
 func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	if r == nil {
 		return nil, nil
 	}
-	var boards []core.Label
+	var all []core.Label
 	for _, c := range r.caps {
-		bs, err := c.EnsureVocabulary(svc, code, actor)
-		if err != nil {
-			return nil, err
+		all = append(all, c.Vocabulary(code)...)
+	}
+	if len(all) == 0 {
+		return nil, nil
+	}
+	if err := svc.LabelSeedBatch(all, actor); err != nil {
+		return nil, err
+	}
+	var boards []core.Label
+	for _, l := range all {
+		if l.Expr != "" {
+			boards = append(boards, l)
 		}
-		boards = append(boards, bs...)
 	}
 	return boards, nil
 }

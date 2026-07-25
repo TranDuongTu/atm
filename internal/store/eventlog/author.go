@@ -55,6 +55,7 @@ type authorCtx struct {
 }
 
 func (e *Engine) beginAuthorLocked(code string) (*authorCtx, error) {
+	e.beginFolds.Add(1)
 	snap, err := e.ReadV2File(code, true)
 	if err != nil {
 		return nil, err

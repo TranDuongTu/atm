@@ -12,9 +12,42 @@ type changeSet struct {
 	code          string
 	rootCommitted bool
 	dirty         bool
+	// ctx memoizes beginAuthorLocked's fold for the life of this
+	// transaction (ATM-40faff). Safe because the changeSet holds the
+	// project lock: the event file cannot change except through this
+	// transaction's own appends, and every append path invalidates.
+	ctx *authorCtx
 }
 
 var _ core.ChangeSet = (*changeSet)(nil)
+
+// begin returns the memoized authorCtx, folding at most once per
+// transaction until an append invalidates.
+func (cs *changeSet) begin() (*authorCtx, error) {
+	if cs.ctx != nil {
+		return cs.ctx, nil
+	}
+	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	if err != nil {
+		return nil, err
+	}
+	cs.ctx = ctx
+	return ctx, nil
+}
+
+// invalidate drops the memoized fold. Called after EVERY path that may
+// have appended to the event file, success or error — refolding is always
+// safe, serving a stale fold never is.
+func (cs *changeSet) invalidate() { cs.ctx = nil }
+
+// append routes a changeSet append through the engine and drops the memo.
+// appendLocked still performs its own beginAuthorLocked (an extra fold on
+// dirty operations — unchanged from before the memo); the memo's win is
+// the no-op path, which never reaches here.
+func (cs *changeSet) append(d draft) (*eventsource.Event, error) {
+	defer cs.invalidate()
+	return cs.e.appendLocked(cs.code, d)
+}
 
 // WithProjectWrite is the format-gated write transaction every live mutator
 // runs in: project lock + under-lock v2 re-check (the old
@@ -81,7 +114,7 @@ func (e *Engine) WithProjectBirth(code string, preflight func() error, fn func(c
 // once the event is durable, which is what tells WithProjectBirth to stop
 // rolling the format entry back.
 func (cs *changeSet) CreateProject(name, actor string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -91,7 +124,9 @@ func (cs *changeSet) CreateProject(name, actor string) error {
 	if err != nil {
 		return err
 	}
-	if err := cs.e.commitAuthorLocked(cs.code, ev); err != nil {
+	err = cs.e.commitAuthorLocked(cs.code, ev)
+	cs.invalidate()
+	if err != nil {
 		return err
 	}
 	cs.rootCommitted = true
@@ -102,7 +137,7 @@ func (cs *changeSet) CreateProject(name, actor string) error {
 // SetProjectName emits project.name-changed against the project's identity
 // (never its code: the fold keys slot writes off subject.id).
 func (cs *changeSet) SetProjectName(name, actor string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -110,7 +145,7 @@ func (cs *changeSet) SetProjectName(name, actor string) error {
 	if err != nil {
 		return err
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  actionProjectNameChanged,
 		Subject: eventsource.Subject{Kind: "project", ID: ref, Code: cs.code},
@@ -135,7 +170,7 @@ func (cs *changeSet) DisableCapability(name, actor string) error {
 }
 
 func (cs *changeSet) capabilityEvent(action, name, actor string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -143,7 +178,7 @@ func (cs *changeSet) capabilityEvent(action, name, actor string) error {
 	if err != nil {
 		return err
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  action,
 		Subject: eventsource.Subject{Kind: "project", ID: ref, Code: cs.code},
@@ -162,6 +197,7 @@ func (cs *changeSet) ForgetProject() error {
 // ---- TaskWriter ----
 
 func (cs *changeSet) CreateTask(d core.TaskDraft, actor string) (string, error) {
+	defer cs.invalidate()
 	_, alias, err := cs.e.appendTaskCreatedLocked(cs.code, d.Title, d.Description, d.Labels, actor)
 	if err == nil {
 		cs.dirty = true
@@ -206,7 +242,7 @@ func (cs *changeSet) SetTaskCapabilityMeta(id, capability, payload, actor string
 // authorCtx to resolve the alias, then appendLocked begins another — exactly
 // the two-begin shape mutateTaskV2 had per call.
 func (cs *changeSet) mutateTask(id, action, actor string, payload map[string]any) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -214,7 +250,7 @@ func (cs *changeSet) mutateTask(id, action, actor string, payload map[string]any
 	if err != nil {
 		return err
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  action,
 		Subject: eventsource.Subject{Kind: "task", ID: ref},
@@ -229,6 +265,7 @@ func (cs *changeSet) mutateTask(id, action, actor string, payload map[string]any
 // ---- CommentWriter ----
 
 func (cs *changeSet) CreateComment(d core.CommentDraft, actor string) (string, error) {
+	defer cs.invalidate()
 	_, alias, err := cs.e.appendCommentCreatedLocked(cs.code, d.TaskID, d.Body, d.Labels, d.ReplyTo, actor)
 	if err == nil {
 		cs.dirty = true
@@ -255,7 +292,7 @@ func (cs *changeSet) RemoveComment(id, actor string) error {
 // mutateComment appends one v2 comment event against the comment's IDENTITY
 // and reprojects facade-side (mutateCommentV2's inner body).
 func (cs *changeSet) mutateComment(id, action, actor string, payload map[string]any) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -263,7 +300,7 @@ func (cs *changeSet) mutateComment(id, action, actor string, payload map[string]
 	if err != nil {
 		return err
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  action,
 		Subject: eventsource.Subject{Kind: "comment", ID: ref},
@@ -289,7 +326,7 @@ func (cs *changeSet) UpsertLabel(name string, f core.LabelFields, actor string) 
 	if f.Expr != nil {
 		payload["expr"] = *f.Expr
 	}
-	_, err := cs.e.appendLocked(cs.code, draft{
+	_, err := cs.append(draft{
 		Actor:   actor,
 		Action:  actionLabelUpserted,
 		Subject: eventsource.Subject{Kind: "label", Name: name},
@@ -308,7 +345,7 @@ func (cs *changeSet) UpsertLabel(name string, f core.LabelFields, actor string) 
 // through seed. Only append branches mark the transaction dirty, so unchanged
 // live labels still let the facade skip projection (ATM-d402aa).
 func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -323,7 +360,7 @@ func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
 	if expr != "" {
 		payload["expr"] = expr
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  actionLabelUpserted,
 		Subject: eventsource.Subject{Kind: "label", Name: name},
@@ -336,6 +373,7 @@ func (cs *changeSet) SeedLabel(name, description, expr, actor string) error {
 }
 
 func (cs *changeSet) EnsureLabels(names []string, actor string) error {
+	defer cs.invalidate()
 	appended, err := cs.e.appendLabelUpsertsLocked(cs.code, names, actor)
 	// appended > 0 even when err != nil: a partial multi-label registration
 	// did append events, and the flag must never under-report.
@@ -348,14 +386,14 @@ func (cs *changeSet) EnsureLabels(names []string, actor string) error {
 // RemoveLabel emits label.removed; ErrNotFound when the fold does not hold the
 // name live. The facade counts retained usage after the txn.
 func (cs *changeSet) RemoveLabel(name, actor string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
 	if l, ok := ctx.state.Labels[name]; !ok || l.Tombstoned {
 		return fmt.Errorf("%w: label %q", core.ErrNotFound, name)
 	}
-	_, err = cs.e.appendLocked(cs.code, draft{
+	_, err = cs.append(draft{
 		Actor:   actor,
 		Action:  actionLabelRemoved,
 		Subject: eventsource.Subject{Kind: "label", Name: name},
@@ -369,7 +407,7 @@ func (cs *changeSet) RemoveLabel(name, actor string) error {
 // ---- guards / resolves ----
 
 func (cs *changeSet) RequireProject() error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -378,7 +416,7 @@ func (cs *changeSet) RequireProject() error {
 }
 
 func (cs *changeSet) ResolveTask(id string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -387,7 +425,7 @@ func (cs *changeSet) ResolveTask(id string) error {
 }
 
 func (cs *changeSet) ResolveComment(id string) error {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return err
 	}
@@ -396,7 +434,7 @@ func (cs *changeSet) ResolveComment(id string) error {
 }
 
 func (cs *changeSet) TaskHasLabel(id, label string) (bool, error) {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return false, err
 	}
@@ -415,7 +453,7 @@ func (cs *changeSet) TaskHasLabel(id, label string) (bool, error) {
 }
 
 func (cs *changeSet) CommentHasLabel(id, label string) (bool, error) {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return false, err
 	}
@@ -436,7 +474,7 @@ func (cs *changeSet) CommentHasLabel(id, label string) (bool, error) {
 // HasLiveTasks answers RemoveProject's "is this project empty?" guard from the
 // FOLD, not from cache rows (v2HasTasksGuardLocked's scan).
 func (cs *changeSet) HasLiveTasks() (bool, error) {
-	ctx, err := cs.e.beginAuthorLocked(cs.code)
+	ctx, err := cs.begin()
 	if err != nil {
 		return false, err
 	}

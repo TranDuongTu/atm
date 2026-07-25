@@ -30,6 +30,13 @@ func (r *recordingLabelService) LabelSeed(name, description, expr, actor string)
 	return r.LabelService.LabelSeed(name, description, expr, actor)
 }
 
+func (r *recordingLabelService) LabelSeedBatch(labels []core.Label, actor string) error {
+	for _, l := range labels {
+		r.seedCalls = append(r.seedCalls, labelSeedCall{l.Name, l.Description, l.Expr, actor})
+	}
+	return r.LabelService.LabelSeedBatch(labels, actor)
+}
+
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
@@ -315,6 +322,12 @@ func (r *seedRecorder) LabelSeed(name, description, expr, actor string) error {
 	r.seeded = append(r.seeded, name)
 	return nil
 }
+func (r *seedRecorder) LabelSeedBatch(labels []core.Label, actor string) error {
+	for _, l := range labels {
+		r.seeded = append(r.seeded, l.Name)
+	}
+	return nil
+}
 func (r *seedRecorder) LabelAdd(name, description, expr, actor string) error { return nil }
 func (r *seedRecorder) LabelList(project, namespace string) []core.Label     { return nil }
 func (r *seedRecorder) LabelShow(name string) (core.Label, error)            { return core.Label{}, nil }
@@ -407,5 +420,34 @@ func TestEnsureVocabularyOverwritesAllTasksDescription(t *testing.T) {
 	}
 	if l.Expr != "*" {
 		t.Errorf("expr = %q, want existing expression preserved", l.Expr)
+	}
+}
+
+// batchCountingService proves EnsureVocabulary issues ONE batch call and
+// zero per-label calls (ATM-40faff: one fold per ensure).
+type batchCountingService struct {
+	core.LabelService
+	batches int
+	singles int
+}
+
+func (b *batchCountingService) LabelSeed(name, description, expr, actor string) error {
+	b.singles++
+	return b.LabelService.LabelSeed(name, description, expr, actor)
+}
+
+func (b *batchCountingService) LabelSeedBatch(labels []core.Label, actor string) error {
+	b.batches++
+	return b.LabelService.LabelSeedBatch(labels, actor)
+}
+
+func TestEnsureVocabularySeedsInOneBatch(t *testing.T) {
+	s := newTestStore(t)
+	svc := &batchCountingService{LabelService: s}
+	if _, err := EnsureVocabulary(svc, "ATM", "admin@cli:unset"); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if svc.batches != 1 || svc.singles != 0 {
+		t.Errorf("EnsureVocabulary made %d batch / %d single seed calls, want 1 / 0", svc.batches, svc.singles)
 	}
 }
