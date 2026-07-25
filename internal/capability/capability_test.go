@@ -60,66 +60,89 @@ func TestCommandsPreserveRegistrationOrder(t *testing.T) {
 	}
 }
 
-func TestEnsureVocabularyLoopsAllInOrder(t *testing.T) {
-	var calls []string
-	reg := NewRegistry(
-		&fakeCap{name: "workflow", calls: &calls},
-		&fakeCap{name: "contextmap", calls: &calls},
-	)
-	if _, err := reg.EnsureVocabulary(nil, "ATM", "tester"); err != nil {
-		t.Fatalf("EnsureVocabulary: %v", err)
-	}
-	if len(calls) != 2 || calls[0] != "workflow/ATM/tester" || calls[1] != "contextmap/ATM/tester" {
-		t.Fatalf("calls = %v", calls)
-	}
+// fakeSeedService records LabelSeedBatch calls. Only the batch method is
+// ever invoked by the registry; the embedded nil LabelService panics on
+// anything else, which is exactly the pin we want.
+type fakeSeedService struct {
+	core.LabelService
+	batches [][]core.Label
+	actors  []string
+	err     error
 }
 
-func TestEnsureVocabularyStopsAtFirstError(t *testing.T) {
-	var calls []string
-	boom := errors.New("boom")
-	reg := NewRegistry(
-		&fakeCap{name: "workflow", ensure: boom, calls: &calls},
-		&fakeCap{name: "contextmap", calls: &calls},
-	)
-	if _, err := reg.EnsureVocabulary(nil, "ATM", "tester"); !errors.Is(err, boom) {
-		t.Fatalf("err = %v, want boom", err)
-	}
-	if len(calls) != 1 {
-		t.Fatalf("calls = %v, want only workflow", calls)
-	}
+func (f *fakeSeedService) LabelSeedBatch(labels []core.Label, actor string) error {
+	f.batches = append(f.batches, append([]core.Label(nil), labels...))
+	f.actors = append(f.actors, actor)
+	return f.err
 }
 
-// TestEnsureVocabularyAggregatesBoardsInRegistrationOrder asserts the
-// registry unions each capability's returned boards in registration order.
-func TestEnsureVocabularyAggregatesBoardsInRegistrationOrder(t *testing.T) {
+// TestEnsureVocabularyBatchesAcrossCapabilities: the registry concatenates
+// every capability's Vocabulary in registration order into ONE batch call
+// (one event-log fold per select — ATM-40faff).
+func TestEnsureVocabularyBatchesAcrossCapabilities(t *testing.T) {
 	var calls []string
+	svc := &fakeSeedService{}
 	reg := NewRegistry(
-		&fakeCap{
-			name:   "workflow",
-			calls:  &calls,
-			boards: []core.Label{{Name: "ATM:open-tasks", Expr: "status:open"}},
-		},
-		&fakeCap{
-			name:   "contextmap",
-			calls:  &calls,
-			boards: []core.Label{{Name: "ATM:context-current", Expr: "context:*"}},
-		},
+		&fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{
+			{Name: "ATM:status:open", Description: "open"},
+			{Name: "ATM:open-tasks", Description: "board", Expr: "status:open"},
+		}},
+		&fakeCap{name: "contextmap", calls: &calls, vocab: []core.Label{
+			{Name: "ATM:context-current", Description: "board", Expr: "context:*"},
+		}},
 	)
-	boards, err := reg.EnsureVocabulary(nil, "ATM", "tester")
+	boards, err := reg.EnsureVocabulary(svc, "ATM", "tester")
 	if err != nil {
 		t.Fatalf("EnsureVocabulary: %v", err)
 	}
+	if len(svc.batches) != 1 {
+		t.Fatalf("batches = %d, want exactly 1", len(svc.batches))
+	}
+	if len(svc.batches[0]) != 3 || svc.batches[0][0].Name != "ATM:status:open" || svc.batches[0][2].Name != "ATM:context-current" {
+		t.Errorf("batch = %+v, want the 3 labels in registration+vocabulary order", svc.batches[0])
+	}
+	if len(svc.actors) != 1 || svc.actors[0] != "tester" {
+		t.Errorf("actors = %v, want [tester]", svc.actors)
+	}
+	if len(calls) != 0 {
+		t.Errorf("registry called per-capability EnsureVocabulary %v; it must batch via Vocabulary instead", calls)
+	}
 	want := []core.Label{
-		{Name: "ATM:open-tasks", Expr: "status:open"},
-		{Name: "ATM:context-current", Expr: "context:*"},
+		{Name: "ATM:open-tasks", Description: "board", Expr: "status:open"},
+		{Name: "ATM:context-current", Description: "board", Expr: "context:*"},
 	}
 	if len(boards) != len(want) {
-		t.Fatalf("boards = %v, want %v", boards, want)
+		t.Fatalf("boards = %+v, want %+v", boards, want)
 	}
 	for i, b := range boards {
 		if b != want[i] {
 			t.Errorf("boards[%d] = %+v, want %+v", i, b, want[i])
 		}
+	}
+}
+
+// TestEnsureVocabularyStopsAtFirstError: a batch error surfaces and no
+// boards are returned.
+func TestEnsureVocabularyStopsAtFirstError(t *testing.T) {
+	boom := errors.New("boom")
+	svc := &fakeSeedService{err: boom}
+	var calls []string
+	reg := NewRegistry(&fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{{Name: "ATM:x", Description: "d"}}})
+	if boards, err := reg.EnsureVocabulary(svc, "ATM", "tester"); !errors.Is(err, boom) || boards != nil {
+		t.Fatalf("EnsureVocabulary = (%v, %v), want (nil, boom)", boards, err)
+	}
+}
+
+// TestEnsureVocabularyEmptyRegistryTouchesNothing: no capabilities → no
+// service call at all (also covers the nil-svc callers in older tests).
+func TestEnsureVocabularyEmptyRegistryTouchesNothing(t *testing.T) {
+	svc := &fakeSeedService{}
+	boards, err := NewRegistry().EnsureVocabulary(svc, "ATM", "tester")
+	if err != nil || boards != nil {
+		t.Fatalf("EnsureVocabulary = (%v, %v), want (nil, nil)", boards, err)
+	}
+	if len(svc.batches) != 0 {
+		t.Errorf("empty registry issued %d batch calls, want 0", len(svc.batches))
 	}
 }
 
