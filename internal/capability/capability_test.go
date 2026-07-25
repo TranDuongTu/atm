@@ -139,6 +139,7 @@ type listOnlyService struct{ labels []core.Label }
 func (s *listOnlyService) LabelList(project, namespace string) []core.Label      { return s.labels }
 func (s *listOnlyService) LabelAdd(name, description, expr, actor string) error  { return nil }
 func (s *listOnlyService) LabelSeed(name, description, expr, actor string) error { return nil }
+func (s *listOnlyService) LabelSeedBatch(labels []core.Label, actor string) error { return nil }
 func (s *listOnlyService) LabelShow(name string) (core.Label, error)             { return core.Label{}, nil }
 func (s *listOnlyService) LabelRemove(name, actor string) (*core.LabelRemoveResult, error) {
 	return nil, nil

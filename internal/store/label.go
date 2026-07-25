@@ -133,6 +133,47 @@ func (s *Store) LabelSeed(name, description, expr, actor string) error {
 	return s.labelSeedV2(code, name, description, expr, actor)
 }
 
+// LabelSeedBatch is LabelSeed over a whole vocabulary in one transaction:
+// same guards, same per-label convergence semantics, one fold for a
+// converged batch and one gated reprojection at the end. The reprojection
+// also runs on the mid-batch error path — earlier appends are durable and
+// the cache must not lag the log.
+func (s *Store) LabelSeedBatch(labels []core.Label, actor string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	code := labelProject(labels[0].Name)
+	for _, l := range labels {
+		if err := ValidateLabelName(l.Name); err != nil {
+			return err
+		}
+		if lc := labelProject(l.Name); lc != code {
+			return fmt.Errorf("%w: label batch spans projects %q and %q", core.ErrUsage, code, lc)
+		}
+	}
+	if err := s.labelProjectExists(labels[0].Name); err != nil {
+		return err
+	}
+	if _, err := s.eng.DispatchFormat(code); err != nil {
+		return err
+	}
+	return s.eng.WithProjectWrite(code, func(cs core.ChangeSet) error {
+		var seedErr error
+		for _, l := range labels {
+			if seedErr = cs.SeedLabel(l.Name, l.Description, l.Expr, actor); seedErr != nil {
+				break
+			}
+		}
+		if err := s.reprojectTxn(code, cs); err != nil && seedErr == nil {
+			return err
+		}
+		return seedErr
+	})
+}
+
 func (s *Store) LabelRemove(name, actor string) (*LabelRemoveResult, error) {
 	if err := ValidateLabelName(name); err != nil {
 		return nil, err

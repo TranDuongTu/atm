@@ -30,6 +30,13 @@ func (r *recordingLabelService) LabelSeed(name, description, expr, actor string)
 	return r.LabelService.LabelSeed(name, description, expr, actor)
 }
 
+func (r *recordingLabelService) LabelSeedBatch(labels []core.Label, actor string) error {
+	for _, l := range labels {
+		r.seedCalls = append(r.seedCalls, labelSeedCall{l.Name, l.Description, l.Expr, actor})
+	}
+	return r.LabelService.LabelSeedBatch(labels, actor)
+}
+
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
@@ -313,6 +320,12 @@ type seedRecorder struct{ seeded []string }
 
 func (r *seedRecorder) LabelSeed(name, description, expr, actor string) error {
 	r.seeded = append(r.seeded, name)
+	return nil
+}
+func (r *seedRecorder) LabelSeedBatch(labels []core.Label, actor string) error {
+	for _, l := range labels {
+		r.seeded = append(r.seeded, l.Name)
+	}
 	return nil
 }
 func (r *seedRecorder) LabelAdd(name, description, expr, actor string) error { return nil }

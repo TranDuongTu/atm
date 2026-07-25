@@ -51,6 +51,11 @@ type ProjectService interface {
 type LabelService interface {
 	LabelAdd(name, description, expr, actor string) error
 	LabelSeed(name, description, expr, actor string) error
+	// LabelSeedBatch converges a whole vocabulary in ONE write transaction
+	// (one event-log fold for a converged batch — ATM-40faff), with
+	// LabelSeed's exact per-label semantics. All labels must belong to one
+	// project (ErrUsage otherwise); an empty batch is a no-op.
+	LabelSeedBatch(labels []Label, actor string) error
 	LabelList(project, namespace string) []Label
 	LabelShow(name string) (Label, error)
 	LabelRemove(name, actor string) (*LabelRemoveResult, error)
