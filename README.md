@@ -2,6 +2,19 @@
 
 ATM is a fast, scalable, distributed task ledger — git-like in how it stores truth, Jira-like in how it tells the story — built as the main interface through which coding agents keep a software organization's knowledge base.
 
+## Why I Build This
+
+These days I spend most of my time in terminals navigating AI agents. I write less code and spend more time managing and sharing my ideas and intentions. As a long-time lover of tools like nvim, tmux, and lazygit, I built a TUI that acts as a command center: I drop in my ideas, and a team of agents helps me organize, brainstorm, challenge, and dispatch to get the jobs done for me:
+
+- I can switch between projects and repositories in seconds and dispatch a manager agent to brief me on where things stand and what comes next.
+- I can share one coding agent's progress and context with others — challenge one agent's output with another, hand off mid-conversation, or route each task to the agent that fits it best (Claude is slow on most tasks but very good at planning, for example).
+- I can work with different types of agents — `claude`, `codex`, `opencode`, or ollama-driven variants running local models — all launched the same way, picked per dispatch: plan with one, implement with another, keep cheap local models on the grunt work. The ledger, not the agent, holds the context, so switching costs nothing.
+- I can dispatch a coding agent onto a selected task without explaining the context again. The agents are also instrumental in keeping the discipline: journal as you code, and orient on the latest state of the world before generating anything.
+- I can dispatch a manager agent to proactively organize the knowledge tracked in the ledger and keep it consistent, so that over time my agents and I stay synced on the same brain.
+- I can (creatively) add personas or capabilities to harness my process further, because the system at its core is just a single log datastore and two entities — a record and its labels. Every other logic is governed by prompts and carried entirely by agent intelligence.
+
+As for the logs, think of ATM as a git-like tool: you own your logs locally and sync them to a remote host (GitHub, GitLab, ...). Your knowledge stays fully yours, yet you can still learn from (merge) others' and share your own. Where it is unlike git: ATM also tracks your future directions, not just what has already happened in your codebase.
+
 ## 30-Second Start
 
 **1. Install** the `atm` binary:
@@ -16,65 +29,42 @@ Later, upgrade the installed binary in place:
 atm update
 ```
 
-**2. Initialize** the store, install the agent plugins, and record your default agent and args:
+**2. Initialize** once — this creates the store, installs the agent plugins, and checks which host agents (claude, codex, ...) are ready, recording your default agent and args:
 
 ```sh
 atm init                                 # once: store, agent plugins, default agent + args
 ```
 
-**3. Onboard with the concierge.** Run the concierge to set up your first project — it walks you through what ATM can do, learns how you work, and recommends the capabilities that fit:
+**3. Start the TUI** — everything else happens inside it:
 
 ```sh
-atm --persona concierge                  # plain-language onboarding (no project needed)
+atm
 ```
 
-The concierge creates your project, enables the right capabilities, and seeds their vocabulary.
+The whole loop is select-and-dispatch — you pick a row, press `D`, and an agent session does the work:
 
-**4. Daily work.** Open the dashboard to see everything, start dev sessions in repo directories, and run the manager to keep the ledger converged:
-
-```sh
-atm                                       # dashboard: tasks, projects, labels, activity
-
-atm --persona developer --project ATM      # developer session (run inside the working repo)
-atm --persona developer --project ATM --agent claude
-
-atm --persona manager --project ATM        # converge all enabled capabilities across the backlog
-```
-
-## The Story
-
-### What You Can Try Today
-
-- Work across multiple projects at once, including projects that span several repositories.
-- Switch coding agents freely to manage cost, context, and tokens — the ledger, not the agent, holds the state.
-- Resume or hand off work between agents with minimal re-briefing.
-- Move between machines: the store is an append-only ledger that is portable and shareable by copy.
-- Skip ticket UIs built for human browsing — ask your agents, and they work from the ledger.
-- Keep ideas flowing into the backlog anytime, anywhere, and let the manager groom and plan them later.
-
-### The Grand Vision
-
-Whether the future belongs to AI or to humans, software has to remain soft to stay useful — and it stays soft only while the intent behind it stays legible. Software has always been where an organization accumulates its lessons and scales them, and for decades human engineers kept that knowledge base alive with more than languages and IDEs: git preserved every decision as history, while Jira boards and a sprawl of docs carried the narrative of where the system goes next. A senior engineer often works those tools more than they write code.
-
-Agentic coding has changed the interface between the developer and the software. You rarely write your own PRs or commits, you no longer read the tracker line by line, and you juggle more worktrees than you ever imagined — you manage intentions more than you manage code. Git honestly tells you the current truth and the whole history behind it, but not the road ahead. The road ahead lives in Jira, Notion, Quip, Google Docs — mutable surfaces where every edit overwrites the last, keeping the current plan but losing the growth, the decisions, and the awareness that produced it. Putting an MCP server in front of them gives agents access, not a fit.
-
-As the world turns agentic, your main working interface becomes a single terminal where you talk to your own agents — and agents forget. Sessions end, context windows die, models get swapped for cost; the knowledge has to survive all of it. So ATM gives your intentions the storage discipline git gave your code: an append-only, plain-file, mergeable ledger that agents journal into as they work, recall from when they return, and hand off through when they change — and the one window through which you stay oriented while they do the writing.
-
-ATM replaces none of those tools — it is the hub beneath them. The same append-only design that lets replicas of the ledger converge through a shared folder or a git remote lets adapters mirror it out to a Jira board, a Notion page, a doc your manager actually reads — and contribute knowledge back in to enrich them. Those surfaces stay what they are good at: views for humans. The ledger stays what they never were: the memory.
+- **Onboard**: drill into the persona chart (`Ctrl+↑/↓` to select, `Ctrl+→` to drill) and press `D` on **concierge** — a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
+- **Autopilot**: from time to time, press `D` in the projects pane to dispatch a **manager** session on the selected project — it grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
+- **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
+- **Explore**: `V` browses personas, `?` lists every keybinding.
 
 ## Screenshots
 
-![ATM dashboard showing projects, tasks, labels, activity, and vocabulary](docs/assets/screenshots/atm-dashboard.png)
+![ATM dashboard showing projects, capability-grouped tasks, boards, recent events, and persona activity](docs/assets/screenshots/atm-dashboard.png)
 
-Dashboard view with project-level activity, task lists, label vocabulary, and recent work density.
+Dashboard view: projects with recent events and persona activity on the left, tasks grouped by the active capability on the right, and the pinned-board strip below.
 
-![ATM persona activity overview](docs/assets/screenshots/atm-persona-activity.png)
+![Developer dispatch dialog with task, repo, agent, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 
-Persona activity overview for seeing how developer, manager, and admin work is distributed.
+Dispatching a developer session bound to the selected task: cycle the host agent, the repo, and the spawn target, then `Enter` launches it.
 
-![ATM persona activity drilldown](docs/assets/screenshots/atm-persona-drilldown.png)
+![Manager dispatch dialog with agent and spawn target](docs/assets/screenshots/atm-dispatch-manager.png)
 
-Persona drilldown with agent, model, and action breakdowns.
+Dispatching a manager session for the selected project.
+
+![ATM persona drilldown showing agent and model breakdowns](docs/assets/screenshots/atm-persona-drilldown.png)
+
+Persona drilldown (here: concierge) with agent, model, and action breakdowns — `D` dispatches a session for the drilled persona.
 
 ## Store
 
@@ -248,18 +238,7 @@ atm --persona developer --project ATM --agent codex -- --yolo
 
 ### Dispatching Sessions From The TUI
 
-The TUI can spawn manager and developer sessions into a separate terminal
-surface (herdr pane → tmux window → new terminal tab, auto-detected in that
-order). From the projects pane, `D` dispatches a **manager** session for the
-selected project; from the tasks pane, `D` dispatches a **developer** session
-bound to the selected task row. The host agent is the interactive field in
-both dialogs (cycle with `←/→`, dispatch with `Enter`); an unready agent is
-refused with its missing-bin hint. The developer dialog adds a second field —
-the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's
-recorded repo dispatch targets (see below); when none are recorded it falls
-back to the TUI's current directory. `V` opens a read-only **personas**
-browser (list built-ins and customs, `Enter` views a persona's effective
-prompt, `Esc` backs out).
+The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project — or, when the persona chart is drilled in, a session for the drilled persona (concierge and admin launch without a project). From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's recorded repo dispatch targets (see below); when none are recorded it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out).
 
 A developer session can equally be handed a task from the shell with the new
 `--task <id>` flag — it is validated against `--project`'s store, exported to
