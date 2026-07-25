@@ -1375,6 +1375,7 @@ func (p *projectsModel) openCreateForm() {
 		{Label: "name", Required: true, Hint: "project display name"},
 	}
 	f := NewForm("New project", fields)
+	f.SetWidth(FormWidth(p.m.width))
 	p.m.form = f
 	p.m.formKind = formProjectCreate
 }
@@ -1388,6 +1389,7 @@ func (p *projectsModel) openSetNameForm() {
 		{Label: "name", Required: true, Value: pr.Name, Hint: "new project display name"},
 	}
 	f := NewForm("Set project name", fields)
+	f.SetWidth(FormWidth(p.m.width))
 	p.m.form = f
 	p.m.formKind = formProjectSetName
 	p.m.formPayload = pr.Code

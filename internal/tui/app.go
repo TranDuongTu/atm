@@ -886,6 +886,7 @@ func (m *Model) openPersonaCreateForm() tea.Cmd {
 		{Label: "description", Hint: "one-line summary (optional)"},
 	}
 	f := NewForm("New persona", fields)
+	f.SetWidth(FormWidth(m.width))
 	m.form = f
 	m.formKind = formPersonaCreate
 	return nil

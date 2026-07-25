@@ -124,6 +124,7 @@ func (m *Model) openBoardEditorForm(code, existing string) {
 	}
 	f := NewForm(fmt.Sprintf("Board  %s:", code), fields)
 	f.Title = fmt.Sprintf("Board  %s:", code)
+	f.SetWidth(FormWidth(m.width))
 	m.form = f
 	m.formKind = formBoardEditor
 	m.formPayload = code

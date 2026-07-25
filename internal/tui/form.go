@@ -18,6 +18,7 @@ type formField struct {
 	// (in a success style) when the field's value is valid and non-empty.
 	// Used by the board editor to show the live match count.
 	Note func(field, value string) string
+	pos int
 }
 
 type formFocus int
@@ -41,12 +42,32 @@ type Form struct {
 }
 
 func NewForm(title string, fields []formField) *Form {
+	for i := range fields {
+		fields[i].pos = len(fields[i].Value)
+	}
 	return &Form{Title: title, Fields: fields, Active: true, width: 48, zone: focusFields}
 }
 
-// SetWidth is kept for backwards compatibility but the form uses a fixed
-// compact width so it never spans the full screen.
-func (f *Form) SetWidth(w int) {}
+func (f *Form) SetWidth(w int) {
+	if w < 48 {
+		w = 48
+	}
+	if w > 120 {
+		w = 120
+	}
+	f.width = w
+}
+
+func FormWidth(termWidth int) int {
+	w := termWidth - 8
+	if w < 48 {
+		w = 48
+	}
+	if w > 90 {
+		w = 90
+	}
+	return w
+}
 
 func (f *Form) Values() map[string]string {
 	out := map[string]string{}
@@ -56,10 +77,23 @@ func (f *Form) Values() map[string]string {
 	return out
 }
 
+func (f *Form) field() *formField { return &f.Fields[f.cursor] }
+
+func (f *Form) norm() {
+	if f.zone != focusFields {
+		return
+	}
+	fld := f.field()
+	if fld.pos > len(fld.Value) {
+		fld.pos = len(fld.Value)
+	}
+}
+
 func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 	if !f.Active {
 		return f, nil
 	}
+	f.norm()
 	m, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return f, nil
@@ -82,13 +116,41 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 		f.next()
 		return f, nil
 	case "left":
-		if f.zone == focusButtons && f.btnIdx == 1 {
-			f.btnIdx = 0
+		if f.zone == focusButtons {
+			if f.btnIdx == 1 {
+				f.btnIdx = 0
+			}
+			return f, nil
+		}
+		if f.zone == focusFields {
+			fld := &f.Fields[f.cursor]
+			if fld.pos > 0 {
+				fld.pos--
+			}
 		}
 		return f, nil
 	case "right":
-		if f.zone == focusButtons && f.btnIdx == 0 {
-			f.btnIdx = 1
+		if f.zone == focusButtons {
+			if f.btnIdx == 0 {
+				f.btnIdx = 1
+			}
+			return f, nil
+		}
+		if f.zone == focusFields {
+			fld := &f.Fields[f.cursor]
+			if fld.pos < len(fld.Value) {
+				fld.pos++
+			}
+		}
+		return f, nil
+	case "home", "ctrl+a":
+		if f.zone == focusFields {
+			f.Fields[f.cursor].pos = 0
+		}
+		return f, nil
+	case "end", "ctrl+e":
+		if f.zone == focusFields {
+			f.Fields[f.cursor].pos = len(f.Fields[f.cursor].Value)
 		}
 		return f, nil
 	case "enter":
@@ -106,7 +168,6 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 			}
 			return f, nil
 		}
-		// Enter on the last field submits directly.
 		if f.cursor == len(f.Fields)-1 {
 			if err := f.validate(); err != "" {
 				f.Err = err
@@ -121,21 +182,35 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 	case "backspace":
 		if f.zone == focusFields {
 			fld := &f.Fields[f.cursor]
-			if len(fld.Value) > 0 {
-				fld.Value = fld.Value[:len(fld.Value)-1]
+			if fld.pos > 0 {
+				fld.Value = fld.Value[:fld.pos-1] + fld.Value[fld.pos:]
+				fld.pos--
+			}
+			f.Err = ""
+		}
+		return f, nil
+	case "delete", "ctrl+d":
+		if f.zone == focusFields {
+			fld := &f.Fields[f.cursor]
+			if fld.pos < len(fld.Value) {
+				fld.Value = fld.Value[:fld.pos] + fld.Value[fld.pos+1:]
 			}
 			f.Err = ""
 		}
 		return f, nil
 	case " ": // tea delivers space as KeySpace, not KeyRunes
 		if f.zone == focusFields {
-			f.Fields[f.cursor].Value += " "
+			fld := &f.Fields[f.cursor]
+			fld.Value = fld.Value[:fld.pos] + " " + fld.Value[fld.pos:]
+			fld.pos++
 			f.Err = ""
 		}
 		return f, nil
 	default:
 		if f.zone == focusFields && m.Type == tea.KeyRunes {
-			f.Fields[f.cursor].Value += string(m.Runes)
+			fld := &f.Fields[f.cursor]
+			fld.Value = fld.Value[:fld.pos] + string(m.Runes) + fld.Value[fld.pos:]
+			fld.pos += len(m.Runes)
 			f.Err = ""
 		}
 		return f, nil
@@ -144,6 +219,11 @@ func (f *Form) Update(msg tea.Msg) (*Form, tea.Cmd) {
 
 func (f *Form) next() {
 	if f.zone == focusFields {
+		// Clamp pos before leaving this field so it's valid.
+		fld := &f.Fields[f.cursor]
+		if fld.pos > len(fld.Value) {
+			fld.pos = len(fld.Value)
+		}
 		if f.cursor < len(f.Fields)-1 {
 			f.cursor++
 		} else {
@@ -152,7 +232,6 @@ func (f *Form) next() {
 		}
 		return
 	}
-	// In buttons, wrap to first field.
 	f.zone = focusFields
 	f.cursor = 0
 }
@@ -162,6 +241,11 @@ func (f *Form) prev() {
 		f.zone = focusFields
 		f.cursor = len(f.Fields) - 1
 		return
+	}
+	// Clamp pos before leaving this field so it's valid.
+	fld := &f.Fields[f.cursor]
+	if fld.pos > len(fld.Value) {
+		fld.pos = len(fld.Value)
 	}
 	if f.cursor > 0 {
 		f.cursor--
@@ -223,16 +307,6 @@ func (f *Form) View(styles Styles) string {
 	for i, fld := range f.Fields {
 		active := f.zone == focusFields && i == f.cursor
 		label := styles.FieldLabel.Render(fld.Label + ":")
-		// Render the typed value plain, and only the trailing cursor cell with
-		// an underline so the input text itself is not underlined. The value
-		// is truncated to the form's inner width (less label, separator, and
-		// the active cursor cell) so a long prefilled value cannot grow the
-		// Dialog-bordered modal past its declared width (ATM-0091). The
-		// active field shows the TAIL of the value (fitLineFrom from the end)
-		// so the trailing cursor cell and the most recently typed runes stay
-		// visible; the form's input model only appends runes, so the cursor
-		// is always at the end of fld.Value. Inactive fields show the head
-		// (fitLine) since there is no cursor to keep on-screen.
 		labelW := lipgloss.Width(label)
 		cursorW := 0
 		if active {
@@ -240,19 +314,33 @@ func (f *Form) View(styles Styles) string {
 		}
 		valueW := innerW - labelW - 1 /*sep*/ - cursorW
 		var shown string
+		var cursorCol int
 		if active {
-			totalW := lipgloss.Width(fld.Value)
 			start := 0
-			if totalW > valueW {
-				start = totalW - valueW
+			if fld.pos > valueW {
+				start = fld.pos - valueW
 			}
-			shown = fitLineFrom(fld.Value, start, valueW)
+			if start > 0 {
+				shown = fitLineFrom(fld.Value, start, valueW)
+			} else {
+				shown = fitLine(fld.Value, valueW)
+			}
+			cursorCol = fld.pos - start
 		} else {
 			shown = fitLine(fld.Value, valueW)
 		}
 		val := styles.FieldValue.Render(shown)
 		if active {
-			val += styles.FieldValue.Underline(true).Render(" ")
+			runes := []rune(shown)
+			if cursorCol < len(runes) {
+				val = styles.FieldValue.Render(string(runes[:cursorCol]))
+				val += styles.FieldValue.Underline(true).Render(string(runes[cursorCol]))
+				if cursorCol+1 < len(runes) {
+					val += styles.FieldValue.Render(string(runes[cursorCol+1:]))
+				}
+			} else {
+				val += styles.FieldValue.Underline(true).Render(" ")
+			}
 		}
 		row := fmt.Sprintf("%s %s", label, val)
 		b.WriteString(row)

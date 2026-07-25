@@ -26,6 +26,7 @@ func (t *tasksModel) openCreateForm() {
 	}
 	f := NewForm("New task  "+t.m.projectScope+":", fields)
 	f.Title = "New task  " + t.m.projectScope + ":"
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formTaskCreate
 }
@@ -39,6 +40,7 @@ func (t *tasksModel) openTitleForm() {
 		{Label: "title", Required: true, Value: tk.Title, Hint: "new task title"},
 	}
 	f := NewForm("Edit title", fields)
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formTaskSetTitle
 }
@@ -52,6 +54,7 @@ func (t *tasksModel) openDescriptionForm() {
 		{Label: "description", Required: false, Value: tk.Description, Hint: "new description (empty clears)"},
 	}
 	f := NewForm("Edit description", fields)
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formTaskSetDescription
 }
@@ -75,6 +78,7 @@ func (t *tasksModel) openLabelAddForm() {
 	}
 	f := NewForm("Add label  "+t.m.projectScope+":", fields)
 	f.Title = "Add label  " + t.m.projectScope + ":"
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formTaskLabelAdd
 }
@@ -98,6 +102,7 @@ func (t *tasksModel) openLabelRemoveForm() {
 	}
 	f := NewForm("Remove label  "+t.m.projectScope+":", fields)
 	f.Title = "Remove label  " + t.m.projectScope + ":"
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formTaskLabelRemove
 }
@@ -132,6 +137,7 @@ func (t *tasksModel) openCommentAddForm() {
 	}
 	f := NewForm("New comment  "+tk.ID+":", fields)
 	f.Title = "New comment  " + tk.ID + ":"
+	f.SetWidth(FormWidth(t.m.width))
 	t.m.form = f
 	t.m.formKind = formCommentAdd
 }

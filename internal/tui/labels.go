@@ -52,6 +52,7 @@ func (m *Model) openLabelAddForm(code string) {
 	}
 	f := NewForm(fmt.Sprintf("Add label  %s:", code), fields)
 	f.Title = fmt.Sprintf("Add label  %s:", code)
+	f.SetWidth(FormWidth(m.width))
 	m.form = f
 	m.formKind = formLabelAdd
 	m.formPayload = code
@@ -79,6 +80,7 @@ func (m *Model) openLabelRemoveFormFor(code, suffix string) {
 	}
 	f := NewForm(fmt.Sprintf("Remove label  %s:", code), fields)
 	f.Title = fmt.Sprintf("Remove label  %s:", code)
+	f.SetWidth(FormWidth(m.width))
 	m.form = f
 	m.formKind = formLabelRemove
 	m.formPayload = code
@@ -1749,6 +1751,7 @@ func (m *Model) newLabelDescribeForm(suffix, desc string) *Form {
 	}
 	f := NewForm(fmt.Sprintf("Describe label  %s:", m.projectScope), fields)
 	f.Title = fmt.Sprintf("Describe label  %s:", m.projectScope)
+	f.SetWidth(FormWidth(m.width))
 	return f
 }
 
@@ -1781,6 +1784,7 @@ func (m *Model) openNamespaceDescribeForm(code, ns, currentDesc string) {
 	}
 	f := NewForm(fmt.Sprintf("Describe namespace  %s:%s:*", code, ns), fields)
 	f.Title = fmt.Sprintf("Describe namespace  %s:%s:*", code, ns)
+	f.SetWidth(FormWidth(m.width))
 	m.form = f
 	m.formKind = formNamespaceDescribe
 	// Stash the code + ns so the submit handler can rebuild the descriptor

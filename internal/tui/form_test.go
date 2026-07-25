@@ -4,8 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// keyFmt builds a tea.KeyMsg for easy test typing.
+func keyFmt(s string) tea.KeyMsg { return keyMsg(s) }
 
 // modalBorderedWidth returns the outer (border-inclusive) width of a rendered
 // form view. The Dialog style has a rounded border (1 column each side) and
@@ -170,5 +174,219 @@ func TestFormInactiveFieldShowsValueHeadForLongValue(t *testing.T) {
 	view := f.View(styles)
 	if !strings.Contains(view, "H") {
 		t.Fatalf("head of long value not visible on inactive field; expected to see 'H'\n--- view ---\n%s", view)
+	}
+}
+
+func TestFormSetWidth(t *testing.T) {
+	f := NewForm("Test", nil)
+	if f.width != 48 {
+		t.Fatalf("default f.width = %d, want 48", f.width)
+	}
+	f.SetWidth(64)
+	if f.width != 64 {
+		t.Fatalf("f.width after SetWidth(64) = %d, want 64", f.width)
+	}
+	f.SetWidth(30)
+	if f.width != 48 {
+		t.Fatalf("f.width after SetWidth(30) = %d, want 48 (clamped min)", f.width)
+	}
+	f.SetWidth(200)
+	if f.width != 120 {
+		t.Fatalf("f.width after SetWidth(200) = %d, want 120 (clamped max)", f.width)
+	}
+}
+
+func TestFormWidth(t *testing.T) {
+	if w := FormWidth(40); w != 48 {
+		t.Errorf("FormWidth(40) = %d, want 48", w)
+	}
+	if w := FormWidth(80); w != 72 {
+		t.Errorf("FormWidth(80) = %d, want 72", w)
+	}
+	if w := FormWidth(120); w != 90 {
+		t.Errorf("FormWidth(120) = %d, want 90", w)
+	}
+	if w := FormWidth(100); w != 90 {
+		t.Errorf("FormWidth(100) = %d, want 90", w)
+	}
+}
+
+func TestFormCursorLeftRight(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 5
+
+	f.Update(keyFmt("left"))
+	if f.Fields[0].pos != 4 {
+		t.Fatalf("pos after left = %d, want 4", f.Fields[0].pos)
+	}
+	f.Update(keyFmt("left"))
+	f.Update(keyFmt("left"))
+	f.Update(keyFmt("left"))
+	f.Update(keyFmt("left"))
+	if f.Fields[0].pos != 0 {
+		t.Fatalf("pos after 5× left = %d, want 0 (clamped at start)", f.Fields[0].pos)
+	}
+	f.Update(keyFmt("right"))
+	f.Update(keyFmt("right"))
+	if f.Fields[0].pos != 2 {
+		t.Fatalf("pos after 2× right from 0 = %d, want 2", f.Fields[0].pos)
+	}
+	f.Update(keyFmt("right"))
+	f.Update(keyFmt("right"))
+	f.Update(keyFmt("right"))
+	f.Update(keyFmt("right"))
+	if f.Fields[0].pos != 5 {
+		t.Fatalf("pos after 6× right from 0 = %d, want 5 (clamped at end)", f.Fields[0].pos)
+	}
+}
+
+func TestFormCursorHomeEnd(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello world"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 6
+
+	f.Update(keyFmt("home"))
+	if f.Fields[0].pos != 0 {
+		t.Fatalf("pos after home = %d, want 0", f.Fields[0].pos)
+	}
+	f.Update(keyFmt("end"))
+	if f.Fields[0].pos != len(f.Fields[0].Value) {
+		t.Fatalf("pos after end = %d, want %d", f.Fields[0].pos, len(f.Fields[0].Value))
+	}
+	f.Update(keyFmt("ctrl+a"))
+	if f.Fields[0].pos != 0 {
+		t.Fatalf("pos after ctrl+a = %d, want 0", f.Fields[0].pos)
+	}
+	f.Update(keyFmt("ctrl+e"))
+	if f.Fields[0].pos != len(f.Fields[0].Value) {
+		t.Fatalf("pos after ctrl+e = %d, want %d", f.Fields[0].pos, len(f.Fields[0].Value))
+	}
+}
+
+func TestFormBackspaceAtCursor(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello world"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 6
+
+	f.Update(keyFmt("backspace"))
+	if f.Fields[0].Value != "helloworld" {
+		t.Fatalf("backspace at pos 6: value = %q, want %q", f.Fields[0].Value, "helloworld")
+	}
+	if f.Fields[0].pos != 5 {
+		t.Fatalf("pos after backspace = %d, want 5", f.Fields[0].pos)
+	}
+	f.Fields[0].pos = 0
+	f.Update(keyFmt("backspace"))
+	if f.Fields[0].Value != "helloworld" {
+		t.Fatalf("backspace at pos 0: value = %q, want unchanged", f.Fields[0].Value)
+	}
+}
+
+func TestFormInsertAtCursor(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello world"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 5
+
+	f.Update(keyFmt("!"))
+	if f.Fields[0].Value != "hello! world" {
+		t.Fatalf("insert '!' at pos 5: value = %q, want %q", f.Fields[0].Value, "hello! world")
+	}
+	if f.Fields[0].pos != 6 {
+		t.Fatalf("pos after insert = %d, want 6", f.Fields[0].pos)
+	}
+	f.Fields[0].pos = 0
+	f.Update(keyFmt("?"))
+	if f.Fields[0].Value != "?hello! world" {
+		t.Fatalf("insert '?' at pos 0: value = %q, want %q", f.Fields[0].Value, "?hello! world")
+	}
+	f.Fields[0].pos = len(f.Fields[0].Value)
+	f.Update(keyFmt("!"))
+	if f.Fields[0].Value != "?hello! world!" {
+		t.Fatalf("append '!' at end: value = %q, want %q", f.Fields[0].Value, "?hello! world!")
+	}
+}
+
+func TestFormSpaceAtCursor(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 5
+
+	f.Update(keyFmt(" "))
+	if f.Fields[0].Value != "hello " {
+		t.Fatalf("space at pos 5: value = %q, want %q", f.Fields[0].Value, "hello ")
+	}
+	f.Fields[0].pos = 0
+	f.Update(keyFmt(" "))
+	if f.Fields[0].Value != " hello " {
+		t.Fatalf("space at pos 0: value = %q, want %q", f.Fields[0].Value, " hello ")
+	}
+}
+
+func TestFormDeleteAtCursor(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello world"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 5
+
+	f.Update(keyFmt("delete"))
+	if f.Fields[0].Value != "helloworld" {
+		t.Fatalf("delete at pos 5: value = %q, want %q", f.Fields[0].Value, "helloworld")
+	}
+	if f.Fields[0].pos != 5 {
+		t.Fatalf("pos after delete should stay at 5, got %d", f.Fields[0].pos)
+	}
+	f.Fields[0].pos = len(f.Fields[0].Value)
+	f.Update(keyFmt("delete"))
+	if f.Fields[0].Value != "helloworld" {
+		t.Fatalf("delete at end: value = %q, want unchanged", f.Fields[0].Value)
+	}
+}
+
+func TestFormCursorVisibleInWideForm(t *testing.T) {
+	styles := buildStyles(themeGraphite)
+	fields := []formField{
+		{Label: "title", Value: "The quick brown fox jumps over the lazy dog"},
+	}
+	f := NewForm("Wide", fields)
+	f.SetWidth(72)
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 5
+
+	view := f.View(styles)
+	if !strings.Contains(view, "q") {
+		t.Fatalf("cursor at pos 5 should show 'q' visible in wide form\n--- view ---\n%s", view)
+	}
+}
+
+func TestFormCursorPosClampedOnExternalValueChange(t *testing.T) {
+	f := NewForm("Test", []formField{
+		{Label: "title", Value: "hello world"},
+	})
+	f.zone = focusFields
+	f.cursor = 0
+	f.Fields[0].pos = 20
+
+	f.Update(keyFmt("left"))
+	if f.Fields[0].pos != 10 {
+		t.Fatalf("pos should have been clamped to 11 then decremented, got %d", f.Fields[0].pos)
 	}
 }
