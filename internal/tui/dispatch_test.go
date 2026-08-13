@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/dispatch"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -401,6 +402,83 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	}
 	if fd.spawned[0].Dir != d1 {
 		t.Errorf("Spec.Dir = %q, want first repo %q", fd.spawned[0].Dir, d1)
+	}
+}
+
+// TestDispatchReadsRepoChannels pins the new source: with a repo channel
+// wired on this machine, the dialog's Repo picker is built from
+// RepoChannelTargets, not the legacy ProjectRepos list.
+func TestDispatchReadsRepoChannels(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	dir := t.TempDir()
+	if _, err := m.store.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Name != "code" || m.dispatchDlg.repos[0].Path != dir {
+		t.Fatalf("repos = %+v, want one code -> %s", m.dispatchDlg.repos, dir)
+	}
+}
+
+// TestDispatchLegacyRepoFallback: a store that never ran migrate-repos (only
+// legacy SetProjectRepo entries, no channels) must still populate d.repos —
+// the deprecation window the brief describes.
+func TestDispatchLegacyRepoFallback(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	dir := t.TempDir()
+	if err := m.store.SetProjectRepo("ATM", "main", dir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Name != "main" || m.dispatchDlg.repos[0].Path != dir {
+		t.Fatalf("repos = %+v, want legacy fallback one main -> %s", m.dispatchDlg.repos, dir)
+	}
+}
+
+// TestDispatchDoesNotProbe pins the performance property the RepoChannelTargets
+// split exists for: a repo channel wired to a plain, never-git-initialized
+// directory must still surface as a dispatch target. If open() read
+// ProjectChannels instead, this path would be probed with `git status`/
+// `rev-list`; RepoChannelTargets never touches git, so a non-git (or slow)
+// path costs nothing on the keypress. The package has no store spy for
+// core.Service, so the pin is behavioral: the non-git path appears as a
+// target and the dialog opens without the probe machinery ever running.
+func TestDispatchDoesNotProbe(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	dir := t.TempDir() // deliberately never `git init`-ed
+	if _, err := m.store.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Path != dir {
+		t.Fatalf("repos = %+v, want the non-git wired path %s to appear untouched", m.dispatchDlg.repos, dir)
 	}
 }
 
