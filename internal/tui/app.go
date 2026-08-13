@@ -396,7 +396,7 @@ func (m *Model) workspaceIdle() bool {
 		m.confirm == confirmNone &&
 		m.pluginOverlay == -1 &&
 		!m.capability.open &&
-		m.dispatchDlg.kind == dispatchNone &&
+		!m.dispatchDlg.active &&
 		!m.personasOv.open
 }
 
@@ -557,7 +557,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// Dispatch dialog consumes keys until closed (Esc). Checked before the
 	// actors overlay because dispatch can be opened from within the actors
 	// detail view and must take over key routing immediately.
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		return m.dispatchDlg.handleKey(k)
 	}
 
@@ -647,16 +647,14 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpConventions)
 		return nil
 	case "D":
-		// When the persona chart is drilled into a persona, D dispatches
-		// that persona (takes precedence over the project-row manager
-		// dispatch). The projects pane's handlePersonaChartKey also handles
-		// ctrl+shift+right for terminals that emit it distinctly.
-		if m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
-			return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
-		}
+		// Drilled persona chart takes precedence; otherwise a project row
+		// dispatches manager and a task row dispatches developer-on-task.
 		if m.focused == paneProjects {
+			if m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
+				return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
+			}
 			if row, ok := m.projects.selected(); ok {
-				m.dispatchDlg.open(dispatchManager, row.code, "", "")
+				m.dispatchDlg.open("manager", row.code, "", "")
 			}
 			return nil
 		}
@@ -670,7 +668,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 					m.showToast("error: no project scope for dispatch")
 					return nil
 				}
-				m.dispatchDlg.open(dispatchDeveloper, project, r.id, r.title)
+				m.dispatchDlg.open("developer", project, r.id, r.title)
 			}
 			return nil
 		}
@@ -930,7 +928,7 @@ func (m *Model) View() string {
 	if m.capability.open {
 		out = m.placeOverlay(out, m.capability.renderOverlay())
 	}
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		out = m.placeOverlay(out, m.dispatchDlg.renderOverlay())
 	}
 	if m.personasOv.open {

@@ -62,11 +62,14 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatal("D on projects pane must open the manager dialog")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on projects pane must open the dialog")
+	}
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q, want manager", m.dispatchDlg.persona())
 	}
 	view := m.dispatchDlg.renderOverlay()
-	for _, want := range []string{"Dispatch manager", "claude", "tmux · new window"} {
+	for _, want := range []string{"Persona:", "manager", "claude", "tmux · new window"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overlay missing %q:\n%s", want, view)
 		}
@@ -84,7 +87,7 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	if got.Title != "ATM · manager" {
 		t.Errorf("title = %q, want ATM · manager", got.Title)
 	}
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		t.Error("dialog must close after dispatch")
 	}
 }
@@ -93,14 +96,11 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	// Seed a task and refresh so the tasks pane has a row under the cursor.
 	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.refreshAll()
-	// Default tasks focus is focusOff with an empty filter -> a flat row list.
-	// Cursor sits on row 0 after refresh.
 	m.focused = paneTasks
 	sizeDispatchModel(m)
 
@@ -109,8 +109,11 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on tasks pane must open the dialog")
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
 	}
 	if m.dispatchDlg.taskID != task.ID {
 		t.Fatalf("task = %q, want %q", m.dispatchDlg.taskID, task.ID)
@@ -148,7 +151,7 @@ func TestDispatchUnreadyAgentRefused(t *testing.T) {
 	if !strings.Contains(m.toastMsg, "not ready") {
 		t.Errorf("toast = %q, want not-ready error", m.toastMsg)
 	}
-	if m.dispatchDlg.kind == dispatchNone {
+	if !m.dispatchDlg.active {
 		t.Error("dialog must stay open after refusal")
 	}
 }
@@ -195,8 +198,8 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatal("D on tasks pane must default to developer")
 	}
 	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Path != repoDir {
 		t.Fatalf("repos = %+v, want one main -> %s", m.dispatchDlg.repos, repoDir)
@@ -238,8 +241,8 @@ func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	}
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatal("D on tasks pane must default to developer")
 	}
 	if len(m.dispatchDlg.repos) != 0 {
 		t.Fatalf("repos = %+v, want empty", m.dispatchDlg.repos)
@@ -296,8 +299,6 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 		t.Fatalf("repoCursor = %d, want 1 after down", m.dispatchDlg.repoCursor)
 	}
 	view := m.dispatchDlg.renderOverlay()
-	// The selected repo's name renders in the Repo: line; the path may be
-	// truncated by fitLine for long temp dirs, so assert on the name.
 	if !strings.Contains(view, "docs") {
 		t.Errorf("overlay must show second repo name after down:\n%s", view)
 	}
@@ -316,9 +317,10 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	_ = task
 }
 
-// TestDispatchManagerUnchangedByRepoPicker is a regression guard: the
-// manager dialog has no Repo: line and still dispatches into cwd.
-func TestDispatchManagerUnchangedByRepoPicker(t *testing.T) {
+// TestDispatchManagerShowsRepoWhenProjectPresent replaces the old
+// "manager must not show a Repo line" guard: with the universal dialog the
+// Repo picker appears for any persona whenever a project is present.
+func TestDispatchManagerShowsRepoWhenProjectPresent(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -333,24 +335,170 @@ func TestDispatchManagerUnchangedByRepoPicker(t *testing.T) {
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatal("D on projects pane must open the manager dialog")
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
 	}
 	view := m.dispatchDlg.renderOverlay()
-	if strings.Contains(view, "Repo:") {
-		t.Errorf("manager dialog must not show a Repo line:\n%s", view)
+	if !strings.Contains(view, "Repo:") || !strings.Contains(view, "main") {
+		t.Errorf("manager dialog must show Repo line when a project is present:\n%s", view)
 	}
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("must spawn")
 	}
-	if fd.spawned[0].Dir != cwd {
-		t.Errorf("manager Spec.Dir = %q, want cwd %q (unchanged)", fd.spawned[0].Dir, cwd)
+	if fd.spawned[0].Dir != repoDir {
+		t.Errorf("Spec.Dir = %q, want repo %q", fd.spawned[0].Dir, repoDir)
+	}
+}
+
+func TestDispatchPersonaCycle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	first := m.dispatchDlg.persona()
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	if m.dispatchDlg.persona() == first {
+		t.Fatal("p must change the persona")
+	}
+}
+
+func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("manager", "", "", "")
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "requires a project scope") {
+		t.Errorf("overlay must show the no-scope warning:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 0 {
+		t.Fatal("must not spawn without a project")
+	}
+	if !strings.Contains(m.toastMsg, "requires a project scope") {
+		t.Errorf("toast = %q, want project-scope error", m.toastMsg)
+	}
+	if !m.dispatchDlg.active {
+		t.Error("dialog must stay open")
+	}
+}
+
+func TestDispatchUnknownDefaultFallsBackToConcierge(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("ghost", "", "", "")
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	}
+}
+
+func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	sizeDispatchModel(m)
+	fd := &fakeDispatcher{preview: "herdr"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q want developer", m.dispatchDlg.persona())
+	}
+	for i := 0; i < len(m.dispatchDlg.personas); i++ {
+		m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer after full cycle", m.dispatchDlg.persona())
+	}
+	if m.dispatchDlg.taskID != task.ID {
+		t.Fatalf("task = %q, want %q after persona cycle", m.dispatchDlg.taskID, task.ID)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.Contains(argv, "--persona developer") || !strings.Contains(argv, "--task "+task.ID) {
+		t.Errorf("argv = %s", argv)
+	}
+}
+
+func TestDispatchConciergeOmitsProject(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("concierge", "", "", "")
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("concierge should spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if strings.Contains(argv, "--project") {
+		t.Errorf("concierge argv must omit --project: %s", argv)
+	}
+	if !strings.Contains(argv, "--persona concierge") {
+		t.Errorf("concierge argv must set --persona concierge: %s", argv)
+	}
+}
+
+func TestDispatchAdminOpensTUI(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("admin", "ATM", "", "")
+	if m.dispatchDlg.persona() != "admin" {
+		t.Fatalf("persona = %q want admin", m.dispatchDlg.persona())
+	}
+	// admin is not gated on agent readiness: move to the unready codex and
+	// dispatch anyway.
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("admin should spawn even with an unready agent")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.Contains(argv, "--persona admin") {
+		t.Errorf("admin argv must set --persona admin: %s", argv)
+	}
+	if strings.Contains(argv, "--project") || strings.Contains(argv, "--task") {
+		t.Errorf("admin argv must omit --project/--task: %s", argv)
 	}
 }

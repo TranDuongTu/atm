@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -132,8 +131,11 @@ func TestPersonaChartDDispatchesWhenDrilled(t *testing.T) {
 		t.Fatal("ctrl+right should drill in")
 	}
 	update(t, m, "d")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatalf("D should dispatch drilled persona (manager fallback), got kind=%v", m.dispatchDlg.kind)
+	if !m.dispatchDlg.active {
+		t.Fatal("D should open the dispatch dialog")
+	}
+	if got := m.dispatchDlg.persona(); got != "staff" {
+		t.Fatalf("D should preselect the drilled persona (staff), got %q", got)
 	}
 }
 
@@ -174,34 +176,6 @@ func TestProjectsStatusHintMentionsPersonaKeys(t *testing.T) {
 	}
 	if strings.Contains(hint, "[p]") {
 		t.Fatalf("status hint should not mention [p]: %q", hint)
-	}
-}
-
-// TestDispatchConciergeOmitsProject verifies the concierge dispatch kind
-// builds an argv without --project (concierge is project-optional).
-func TestDispatchConciergeOmitsProject(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.SetSize(100, 30)
-	fd := &fakeDispatcher{preview: "tmux · new window"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-
-	m.dispatchDlg.m = m
-	m.dispatchDlg.open(dispatchConcierge, "", "", "")
-	if m.dispatchDlg.persona() != "concierge" {
-		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
-	}
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(fd.spawned) != 1 {
-		t.Fatal("concierge should spawn")
-	}
-	argv := strings.Join(fd.spawned[0].Argv, " ")
-	if strings.Contains(argv, "--project") {
-		t.Errorf("concierge argv must omit --project: %s", argv)
-	}
-	if !strings.Contains(argv, "--persona concierge") {
-		t.Errorf("concierge argv must set --persona concierge: %s", argv)
 	}
 }
 
