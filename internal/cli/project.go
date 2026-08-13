@@ -601,45 +601,36 @@ func indexOf(list []string, s string) int {
 	return -1
 }
 
-// newProjectRepoCmd returns the `atm project repo` subgroup managing a
-// project's machine-local repo dispatch targets (config, not substrate).
+// errRepoVerbRetired is returned by every `atm project repo` verb: repo
+// dispatch targets moved to `atm channel`. The verbs stay mounted (rather
+// than being deleted) so old muscle memory gets a direction instead of a
+// cobra unknown-command error.
+var errRepoVerbRetired = fmt.Errorf("%w: repo dispatch targets moved to channels: use 'atm channel add/wire' (one-shot migration: atm channel migrate-repos --project <CODE>)", core.ErrUsage)
+
+// newProjectRepoCmd returns the retired `atm project repo` subgroup. Every
+// verb here now fails with errRepoVerbRetired; the store-level
+// SetProjectRepo/ProjectRepos/RemoveProjectRepo methods it used to call
+// still exist (migrate-repos uses them internally) — only these CLI verbs
+// are gone.
 func newProjectRepoCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repo",
-		Short: "Manage a project's repo dispatch targets (local paths to spawn agent sessions into)",
-		Long: "A repo dispatch target is a machine-local path to spawn agent " +
-			"sessions into, plus an optional remote link. Repos are config, not " +
-			"substrate state: they are not written to the event log and are not " +
-			"synced, so a fresh machine has no repos until a concierge session " +
-			"records them there. A project is not 1:1 with a repo — record as " +
-			"many as the project spans.",
+		Short: "Retired: repo dispatch targets moved to `atm channel`",
+		Long: "Retired. A repo dispatch target used to be a machine-local path " +
+			"recorded here for spawning agent sessions into; that responsibility " +
+			"moved to `atm channel` (add/wire records identity and this " +
+			"machine's local path; `atm channel migrate-repos` lifts whatever " +
+			"is still recorded here in one shot). These verbs stay mounted only " +
+			"so old muscle memory gets pointed at the replacement.",
 	}
 	bindActorFlag(cmd, st)
 
 	repoAddCmd := &cobra.Command{
 		Use:   "add <name> <path>",
-		Short: "Add or update a project's repo dispatch target (upsert)",
+		Short: "Retired: use `atm channel add`/`atm channel wire`",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project, _ := cmd.Flags().GetString("project")
-			if project == "" {
-				return fmt.Errorf("%w: --project is required", core.ErrUsage)
-			}
-			url, _ := cmd.Flags().GetString("url")
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			if err := s.SetProjectRepo(project, args[0], args[1], url, actor); err != nil {
-				return err
-			}
-			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0], "path": args[1], "url": url}, func() {
-				fmt.Fprintf(st.stdout(), "added repo %s -> %s (project %s)\n", args[0], args[1], project)
-			})
+			return errRepoVerbRetired
 		},
 	}
 	repoAddCmd.Flags().String("project", "", "project code")
@@ -648,32 +639,10 @@ func newProjectRepoCmd(st *cliState) *cobra.Command {
 
 	repoListCmd := &cobra.Command{
 		Use:   "list",
-		Short: "List a project's repo dispatch targets",
+		Short: "Retired: use `atm channel list`",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project, _ := cmd.Flags().GetString("project")
-			if project == "" {
-				return fmt.Errorf("%w: --project is required", core.ErrUsage)
-			}
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			repos, err := s.ProjectRepos(project)
-			if err != nil {
-				return err
-			}
-			if st.isJSON() {
-				return writeJSON(st.stdout(), repos)
-			}
-			for _, r := range repos {
-				if r.URL != "" {
-					fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", r.Name, r.Path, r.URL)
-				} else {
-					fmt.Fprintf(st.stdout(), "%s\t%s\n", r.Name, r.Path)
-				}
-			}
-			return nil
+			return errRepoVerbRetired
 		},
 	}
 	repoListCmd.Flags().String("project", "", "project code")
@@ -681,27 +650,10 @@ func newProjectRepoCmd(st *cliState) *cobra.Command {
 
 	repoRemoveCmd := &cobra.Command{
 		Use:   "remove <name>",
-		Short: "Remove a project's repo dispatch target",
+		Short: "Retired: use `atm channel remove`",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project, _ := cmd.Flags().GetString("project")
-			if project == "" {
-				return fmt.Errorf("%w: --project is required", core.ErrUsage)
-			}
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			if err := s.RemoveProjectRepo(project, args[0], actor); err != nil {
-				return err
-			}
-			return st.emit(st.stdout(), map[string]any{"project": project, "name": args[0]}, func() {
-				fmt.Fprintf(st.stdout(), "removed repo %s (project %s)\n", args[0], project)
-			})
+			return errRepoVerbRetired
 		},
 	}
 	repoRemoveCmd.Flags().String("project", "", "project code")

@@ -163,3 +163,117 @@ func TestChannelRemove(t *testing.T) {
 		t.Fatalf("expected empty channel list after remove, got %q", out)
 	}
 }
+
+// TestChannelWireStampAndShowStatus is the tier-2 round trip: wire records
+// this machine's local path, stamp records a verification note, and show
+// --output json surfaces both plus the local probe (the directory exists).
+func TestChannelWireStampAndShowStatus(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "code", "--type", "repo",
+		"--url", "git@x:y.git", "--actor", "developer@test:unit")
+
+	dir := t.TempDir()
+	out := runArgsOut(t, st, "channel", "wire", "--project", "ATM", "--name", "code", "--path", dir, "--actor", "developer@test:unit")
+	mustContain(t, out, "code")
+
+	out = runArgsOut(t, st, "channel", "stamp", "--project", "ATM", "--name", "code", "--note", "cloned and verified", "--actor", "developer@test:unit")
+	mustContain(t, out, "code")
+
+	st.output = outputJSON
+	out = runArgsOut(t, st, "channel", "show", "--project", "ATM", "--name", "code")
+	mustContain(t, out, `"path": "`+dir+`"`)
+	mustContain(t, out, `"note": "cloned and verified"`)
+	mustContain(t, out, `"path_exists": true`)
+}
+
+// TestChannelWireRequiresPathOrMCPServer proves wire rejects a call with
+// neither --path nor --mcp-server: recording an empty wiring is pointless.
+func TestChannelWireRequiresPathOrMCPServer(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "code", "--type", "repo",
+		"--url", "git@x:y.git", "--actor", "developer@test:unit")
+
+	_, code := runChannelErrText(t, st, "channel", "wire", "--project", "ATM", "--name", "code", "--actor", "developer@test:unit")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage when neither --path nor --mcp-server is given, got %d", code)
+	}
+}
+
+// TestChannelStampRequiresNote proves stamp rejects a call without --note.
+func TestChannelStampRequiresNote(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "code", "--type", "repo",
+		"--url", "git@x:y.git", "--actor", "developer@test:unit")
+
+	_, code := runChannelErrText(t, st, "channel", "stamp", "--project", "ATM", "--name", "code", "--actor", "developer@test:unit")
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage without --note, got %d", code)
+	}
+}
+
+// TestChannelMigrateRepos seeds a legacy repo through the store (the CLI verb
+// that used to write it is retired) and proves migrate-repos lifts it into a
+// wired repo channel, reporting the migrated count.
+func TestChannelMigrateRepos(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	dir := t.TempDir()
+	if err := st.store.SetProjectRepo("ATM", "atm", dir, "git@x:atm.git", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed legacy repo: %v", err)
+	}
+
+	out := runArgsOut(t, st, "channel", "migrate-repos", "--project", "ATM", "--actor", "developer@test:unit")
+	mustContain(t, out, "migrated 1")
+
+	st.output = outputJSON
+	out = runArgsOut(t, st, "channel", "list", "--project", "ATM")
+	mustContain(t, out, `"name": "atm"`)
+	mustContain(t, out, `"type": "repo"`)
+	mustContain(t, out, `"path": "`+dir+`"`)
+}
+
+// TestChannelMigrateReposSkipsTypeCollision proves a legacy repo whose name
+// collides with an existing, differently-typed channel is left untouched in
+// config.json and reported in `skipped`, not silently discarded.
+func TestChannelMigrateReposSkipsTypeCollision(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "docs", "--type", "notion",
+		"--purpose", "specs", "--actor", "developer@test:unit")
+	dir := t.TempDir()
+	if err := st.store.SetProjectRepo("ATM", "docs", dir, "git@x:docs.git", "admin@cli:unset"); err != nil {
+		t.Fatalf("seed legacy repo: %v", err)
+	}
+
+	out := runArgsOut(t, st, "channel", "migrate-repos", "--project", "ATM", "--actor", "developer@test:unit")
+	mustContain(t, out, "migrated 0")
+	mustContain(t, out, "docs")
+
+	st.output = outputJSON
+	out = runArgsOut(t, st, "channel", "migrate-repos", "--project", "ATM", "--actor", "developer@test:unit")
+	mustContain(t, out, `"skipped"`)
+	mustContain(t, out, `"docs"`)
+
+	repos, err := st.store.ProjectRepos("ATM")
+	if err != nil || len(repos) != 1 || repos[0].Name != "docs" || repos[0].Path != dir {
+		t.Fatalf("legacy repo must survive the collision: %v %v", repos, err)
+	}
+}
+
+// TestProjectRepoVerbsPointToChannels proves the retired `atm project repo`
+// verbs return a pointer error naming the replacement commands instead of a
+// cobra unknown-command error.
+func TestProjectRepoVerbsPointToChannels(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+
+	errText, code := runChannelErrText(t, st, "project", "repo", "list", "--project", "ATM")
+	if code == ExitSuccess {
+		t.Fatalf("expected the retired verb to fail, got success")
+	}
+	mustContain(t, errText, "atm channel")
+	mustContain(t, errText, "migrate-repos")
+}

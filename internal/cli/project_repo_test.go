@@ -1,86 +1,54 @@
 package cli
 
-import (
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
-func TestProjectRepoAddListRemoveRoundTrip(t *testing.T) {
+// `atm project repo add|list|remove` are retired: repo dispatch targets
+// moved to `atm channel` (add/wire, or migrate-repos for a one-shot lift of
+// what's already recorded). The verbs stay mounted — so old muscle memory
+// gets a pointer, not a cobra unknown-command error — but every call fails
+// unconditionally. The behavior these tests used to exercise (round trip,
+// URL, JSON, --project validation, not-found, nonexistent-path rejection)
+// still lives at the store level (internal/store/config_test.go, via
+// SetProjectRepo/ProjectRepos/RemoveProjectRepo, which migrate-repos still
+// calls) and at the CLI level through the new channel verbs
+// (TestChannelWireStampAndShowStatus, TestChannelMigrateRepos* in
+// channel_test.go). What remains here is the retirement contract itself:
+// each verb must return the pointer error, unconditionally, regardless of
+// its arguments.
+
+func TestProjectRepoAddIsRetired(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	dir := t.TempDir()
-	out := runArgsOut(t, st, "project", "repo", "add", "main", dir, "--project", "ATM", "--actor", "admin@cli:unset")
-	mustContain(t, out, "main")
-	mustContain(t, out, dir)
 
-	out = runArgsOut(t, st, "project", "repo", "list", "--project", "ATM")
-	if out != "main\t"+dir+"\n" {
-		t.Fatalf("unexpected list output: %q", out)
+	errText, code := runChannelErrText(t, st, "project", "repo", "add", "main", dir, "--project", "ATM", "--actor", "admin@cli:unset")
+	if code == ExitSuccess {
+		t.Fatalf("expected the retired verb to fail, got success")
 	}
-
-	out = runArgsOut(t, st, "project", "repo", "remove", "main", "--project", "ATM", "--actor", "admin@cli:unset")
-	mustContain(t, out, "main")
-
-	out = runArgsOut(t, st, "project", "repo", "list", "--project", "ATM")
-	if out != "" {
-		t.Fatalf("expected empty list after remove, got %q", out)
-	}
+	mustContain(t, errText, "atm channel")
+	mustContain(t, errText, "migrate-repos")
 }
 
-func TestProjectRepoAddWithURL(t *testing.T) {
+func TestProjectRepoListIsRetired(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	dir := t.TempDir()
-	out := runArgsOut(t, st, "project", "repo", "add", "main", dir, "--url", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
-	mustContain(t, out, "main")
-	out = runArgsOut(t, st, "project", "repo", "list", "--project", "ATM")
-	mustContain(t, out, "https://example.com/atm.git")
-}
 
-func TestProjectRepoListJSON(t *testing.T) {
-	st := newTestCLI(t)
-	st.output = outputJSON
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	dir := t.TempDir()
-	_, _, _ = runArgs(st, "project", "repo", "add", "main", dir, "--url", "https://example.com/atm.git", "--project", "ATM", "--actor", "admin@cli:unset")
-	out := runArgsOut(t, st, "project", "repo", "list", "--project", "ATM")
-	mustContain(t, out, `"name": "main"`)
-	mustContain(t, out, `"path": "`+dir+`"`)
-	mustContain(t, out, `"url": "https://example.com/atm.git"`)
-}
-
-func TestProjectRepoAddRequiresProject(t *testing.T) {
-	st := newTestCLI(t)
-	dir := t.TempDir()
-	_, _, code := runArgs(st, "project", "repo", "add", "main", dir, "--actor", "admin@cli:unset")
-	if code != ExitUsage {
-		t.Fatalf("expected ExitUsage without --project, got %d", code)
+	errText, code := runChannelErrText(t, st, "project", "repo", "list", "--project", "ATM")
+	if code == ExitSuccess {
+		t.Fatalf("expected the retired verb to fail, got success")
 	}
+	mustContain(t, errText, "atm channel")
+	mustContain(t, errText, "migrate-repos")
 }
 
-func TestProjectRepoRemoveRequiresProject(t *testing.T) {
-	st := newTestCLI(t)
-	_, _, code := runArgs(st, "project", "repo", "remove", "main", "--actor", "admin@cli:unset")
-	if code != ExitUsage {
-		t.Fatalf("expected ExitUsage without --project, got %d", code)
-	}
-}
-
-func TestProjectRepoRemoveUnknownNotFound(t *testing.T) {
+func TestProjectRepoRemoveIsRetired(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	_, _, code := runArgs(st, "project", "repo", "remove", "nope", "--project", "ATM", "--actor", "admin@cli:unset")
-	if code != ExitNotFound {
-		t.Fatalf("expected ExitNotFound removing unknown repo, got %d", code)
-	}
-}
 
-func TestProjectRepoAddRejectsNonexistentPath(t *testing.T) {
-	st := newTestCLI(t)
-	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	_, _, code := runArgs(st, "project", "repo", "add", "main", missing, "--project", "ATM", "--actor", "admin@cli:unset")
-	if code != ExitUsage {
-		t.Fatalf("expected ExitUsage for non-existent path, got %d", code)
+	errText, code := runChannelErrText(t, st, "project", "repo", "remove", "main", "--project", "ATM", "--actor", "admin@cli:unset")
+	if code == ExitSuccess {
+		t.Fatalf("expected the retired verb to fail, got success")
 	}
+	mustContain(t, errText, "atm channel")
+	mustContain(t, errText, "migrate-repos")
 }

@@ -4,6 +4,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"atm/internal/core"
 
@@ -29,6 +30,9 @@ func newChannelCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newChannelShowCmd(st))
 	cmd.AddCommand(newChannelEditCmd(st))
 	cmd.AddCommand(newChannelRemoveCmd(st))
+	cmd.AddCommand(newChannelWireCmd(st))
+	cmd.AddCommand(newChannelStampCmd(st))
+	cmd.AddCommand(newChannelMigrateCmd(st))
 	return cmd
 }
 
@@ -276,6 +280,149 @@ func newChannelRemoveCmd(st *cliState) *cobra.Command {
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().StringVar(&name, "name", "", "channel handle")
 	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// newChannelWireCmd records how THIS machine reaches a channel (tier 2):
+// a local path, an MCP server name, or both — never a secret. At least one
+// of the two is required, since wiring nothing is a no-op that looks like
+// success.
+func newChannelWireCmd(st *cliState) *cobra.Command {
+	var name, path, mcpServer string
+	cmd := &cobra.Command{
+		Use:   "wire",
+		Short: "Record this machine's local path and/or MCP server for a channel (never a secret)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if path == "" && mcpServer == "" {
+				return fmt.Errorf("%w: at least one of --path or --mcp-server is required", core.ErrUsage)
+			}
+			project, err := channelProject(cmd)
+			if err != nil {
+				return err
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := requireChannelCapability(s, project); err != nil {
+				return err
+			}
+			if err := s.SetChannelWiring(project, name, path, mcpServer, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "path": path, "mcp_server": mcpServer}, func() {
+				fmt.Fprintf(st.stdout(), "wired channel %s\n", name)
+			})
+		},
+	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
+	cmd.Flags().StringVar(&name, "name", "", "channel handle")
+	cmd.Flags().StringVar(&path, "path", "", "local path (repo channels)")
+	cmd.Flags().StringVar(&mcpServer, "mcp-server", "", "MCP server name (notion channels)")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// newChannelStampCmd records a verification stamp: an actor touched the
+// channel's wiring and vouches for it. --note is required — an unexplained
+// stamp is not worth much to the next reader.
+func newChannelStampCmd(st *cliState) *cobra.Command {
+	var name, note string
+	cmd := &cobra.Command{
+		Use:   "stamp",
+		Short: "Record a verification stamp: this actor touched the channel and vouches for its wiring",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if note == "" {
+				return fmt.Errorf("%w: --note is required", core.ErrUsage)
+			}
+			project, err := channelProject(cmd)
+			if err != nil {
+				return err
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := requireChannelCapability(s, project); err != nil {
+				return err
+			}
+			if err := s.AddChannelStamp(project, name, note, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "note": note}, func() {
+				fmt.Fprintf(st.stdout(), "stamped channel %s\n", name)
+			})
+		},
+	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
+	cmd.Flags().StringVar(&name, "name", "", "channel handle")
+	cmd.Flags().StringVar(&note, "note", "", "verification note")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// newChannelMigrateCmd lifts every legacy repo dispatch target (config.json's
+// `repos` list, written by the now-retired `atm project repo add`) into a
+// repo channel: idempotent, since a prior run's channels are recognized and
+// left alone. Three outcomes are reported: migrated handles got both a
+// ledger record and this machine's wiring; unwired handles got a ledger
+// record but their legacy path no longer exists on disk, so wiring is left
+// to a concierge; skipped handles were left untouched in the legacy config
+// because their name already belongs to a different-typed channel — nothing
+// is lost, but nothing is migrated either.
+func newChannelMigrateCmd(st *cliState) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate-repos",
+		Short: "Lift legacy repo dispatch targets into repo channels (idempotent; concierge confirms purpose later)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, err := channelProject(cmd)
+			if err != nil {
+				return err
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := requireChannelCapability(s, project); err != nil {
+				return err
+			}
+			migrated, unwired, skipped, err := s.MigrateReposToChannels(project, actor)
+			if err != nil {
+				return err
+			}
+			payload := map[string]any{
+				"project":  project,
+				"migrated": migrated,
+				"unwired":  normalizeStrSlice(unwired),
+				"skipped":  normalizeStrSlice(skipped),
+			}
+			return st.emit(st.stdout(), payload, func() {
+				fmt.Fprintf(st.stdout(), "migrated %d repo(s) into channels; author each channel's purpose with `atm channel edit`\n", migrated)
+				if len(unwired) > 0 {
+					fmt.Fprintf(st.stdout(), "no longer on disk, so recorded WITHOUT local wiring: %s — re-wire with `atm channel wire`\n", strings.Join(unwired, ", "))
+				}
+				if len(skipped) > 0 {
+					fmt.Fprintf(st.stdout(), "left untouched in the legacy config (name already used by a different channel type, nothing lost): %s\n", strings.Join(skipped, ", "))
+				}
+			})
+		},
+	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	return cmd
 }
 
