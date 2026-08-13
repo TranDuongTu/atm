@@ -144,6 +144,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newStoreCmd(st))
 	root.AddCommand(newConventionsCmd(st))
 	root.AddCommand(newProjectCmd(st))
+	root.AddCommand(newChannelCmd(st))
 	root.AddCommand(newLabelCmd(st))
 	root.AddCommand(newPersonaCmd(st))
 	root.AddCommand(newActivityCmd(st))
