@@ -92,6 +92,96 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	}
 }
 
+// TestDispatchDOnTaskRowNoProjectRefusesInline drives the real D handler on a
+// task row whose project resolves empty: the dialog must OPEN (developer
+// preselected, no early "no project scope" toast) and Enter must refuse inline
+// without spawning. A store task always carries a non-empty ProjectCode, so the
+// empty state is arranged by clearing the scoped project and the selected
+// row's project code after refresh; openDispatch then falls back to the empty
+// m.projectScope.
+func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	m.projectScope = ""
+	m.tasks.rows[0].task.ProjectCode = ""
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "herdr · new pane"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on a task row with no project scope must open the dialog, not refuse")
+	}
+	if m.toastMsg != "" {
+		t.Fatalf("opening the dialog must not toast, got %q", m.toastMsg)
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
+	}
+	if m.dispatchDlg.project != "" {
+		t.Fatalf("project = %q, want empty", m.dispatchDlg.project)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 0 {
+		t.Fatal("enter with no project scope must not spawn")
+	}
+	if !strings.Contains(m.toastMsg, "requires a project scope") {
+		t.Errorf("toast = %q, want project-scope error", m.toastMsg)
+	}
+	if !m.dispatchDlg.active {
+		t.Error("dialog must stay open after refusal")
+	}
+}
+
+func TestDispatchEscCloses(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog")
+	}
+	dispatchKey(m, "esc")
+	if m.dispatchDlg.active {
+		t.Error("esc must close the dialog")
+	}
+}
+
+func TestDispatchTargetCycle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	before := m.dispatchDlg.targetCursor
+	dispatchKey(m, "t")
+	want := (before + 1) % len(m.dispatchDlg.targets)
+	if m.dispatchDlg.targetCursor != want {
+		t.Fatalf("targetCursor = %d, want %d after t", m.dispatchDlg.targetCursor, want)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, m.dispatchDlg.targets[m.dispatchDlg.targetCursor]) {
+		t.Errorf("overlay must show the cycled target:\n%s", view)
+	}
+}
+
 func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -185,7 +275,7 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "https://example.com/atm.git", testActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,14 +306,13 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	if fd.spawned[0].Dir != repoDir {
 		t.Errorf("Spec.Dir = %q, want repo path %q", fd.spawned[0].Dir, repoDir)
 	}
-	_ = task
 }
 
 func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +353,6 @@ func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	if fd.spawned[0].Dir != cwd {
 		t.Errorf("Spec.Dir = %q, want cwd %q", fd.spawned[0].Dir, cwd)
 	}
-	_ = task
 }
 
 func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
@@ -278,7 +366,7 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	if err := m.store.SetProjectRepo("ATM", "docs", d2, "", testActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +402,6 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	if fd.spawned[0].Dir != d1 {
 		t.Errorf("Spec.Dir = %q, want first repo %q", fd.spawned[0].Dir, d1)
 	}
-	_ = task
 }
 
 // TestDispatchManagerShowsRepoWhenProjectPresent replaces the old
@@ -501,6 +588,9 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 	if strings.Contains(argv, "--project") || strings.Contains(argv, "--task") {
 		t.Errorf("admin argv must omit --project/--task: %s", argv)
 	}
+	if fd.spawned[0].Title != "admin" {
+		t.Errorf("title = %q, want just admin (no project prefix)", fd.spawned[0].Title)
+	}
 }
 
 func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
@@ -523,6 +613,7 @@ func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
 
 func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
 	m := newTestModel(t)
+	m.focused = paneProjects // explicit: D works from any pane's default focus
 	sizeDispatchModel(m)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents

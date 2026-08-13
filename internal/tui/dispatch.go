@@ -97,6 +97,11 @@ func (d *dispatchModel) target() string {
 }
 
 func (d *dispatchModel) title() string {
+	// admin routes to a fresh TUI that ignores --project, so its title never
+	// carries a project scope (mirrors projectRequired's admin special-case).
+	if d.persona() == "admin" {
+		return "admin"
+	}
 	if d.taskID != "" {
 		return d.taskID
 	}

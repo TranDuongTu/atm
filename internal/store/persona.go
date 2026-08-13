@@ -43,6 +43,9 @@ func composePersonaDoc(p *core.Persona) string {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "name: %s\n", p.Name)
 	fmt.Fprintf(&b, "description: %s\n", sanitizeFrontmatterValue(p.Description))
+	if p.ProjectOptional {
+		b.WriteString("project_optional: true\n")
+	}
 	fmt.Fprintf(&b, "created_at: %s\n", p.CreatedAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "created_by: %s\n", p.CreatedBy)
 	fmt.Fprintf(&b, "updated_at: %s\n", p.UpdatedAt.UTC().Format(time.RFC3339))
