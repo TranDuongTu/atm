@@ -68,7 +68,14 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			c.cursor--
 		}
 	case "g":
-		c.offset, c.cursor = 0, 0
+		// Top of the current view. In detail mode that means the top of THIS
+		// channel's body — resetting the cursor there would swap the pane to
+		// another channel's detail, since renderDetail reads entries[cursor]
+		// live rather than from a snapshot taken on Enter.
+		c.offset = 0
+		if !c.detail {
+			c.cursor = 0
+		}
 	case "enter":
 		if !c.detail && len(c.entries) > 0 {
 			c.detail, c.offset = true, 0

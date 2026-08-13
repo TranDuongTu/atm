@@ -121,6 +121,80 @@ func TestChannelsOverlayDetailShowsWiringAndStamps(t *testing.T) {
 	}
 }
 
+// TestChannelsOverlayTopKeepsDetailChannel: `g` is "top of what you are
+// reading". In detail mode it must scroll this channel's body back to the top,
+// not swap the pane to the first channel's detail (renderDetail reads
+// entries[cursor] live, so a cursor reset would be a silent content swap).
+func TestChannelsOverlayTopKeepsDetailChannel(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedChannels(t, m)
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+
+	detail := m.channelsOv.renderOverlay()
+	if !m.channelsOv.detail {
+		t.Fatal("g must not leave the detail view")
+	}
+	for _, want := range []string{"Channel: specs", "spec database", "acme-hq"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("g must keep the second channel's detail; missing %q:\n%s", want, detail)
+		}
+	}
+	if strings.Contains(detail, "product source") {
+		t.Errorf("g must not swap the pane to the first channel's detail:\n%s", detail)
+	}
+	if m.channelsOv.offset != 0 {
+		t.Errorf("offset = %d, want 0 after g", m.channelsOv.offset)
+	}
+}
+
+// TestChannelsOverlayUsesProjectsPaneRow: in the Projects pane, E resolves the
+// project the same way D does — the highlighted row — so the two bindings
+// cannot point at different projects while the user looks at one row.
+func TestChannelsOverlayUsesProjectsPaneRow(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedChannels(t, m) // project ATM, scope ATM
+	seedProject(t, m, "OTH", "Other")
+	if _, err := m.store.CreateChannel("OTH", core.ChannelRecord{Name: "handbook", Type: core.ChannelTypeNotion}, testActor); err != nil {
+		t.Fatalf("CreateChannel handbook: %v", err)
+	}
+	m.refreshAll()
+
+	m.focused = paneProjects
+	found := false
+	for i, row := range m.projects.list {
+		if row.code == "OTH" {
+			m.projects.cursor, found = i, true
+		}
+	}
+	if !found {
+		t.Fatal("OTH must be in the projects list")
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if m.channelsOv.project != "OTH" {
+		t.Fatalf("overlay project = %q, want the highlighted row OTH", m.channelsOv.project)
+	}
+	view := m.channelsOv.renderOverlay()
+	if !strings.Contains(view, "handbook") || strings.Contains(view, "specs") {
+		t.Errorf("overlay must list OTH's channels, not the scoped project's:\n%s", view)
+	}
+
+	// Outside the Projects pane the overlay stays on the scoped project.
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m.focused = paneTasks
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if m.channelsOv.project != "ATM" {
+		t.Fatalf("overlay project = %q, want the scope ATM outside the Projects pane", m.channelsOv.project)
+	}
+}
+
 func TestChannelsOverlayStatusGlyphs(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	stamp := func(daysAgo int) []core.VerificationStamp {

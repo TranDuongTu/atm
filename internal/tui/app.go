@@ -663,9 +663,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.personasOv.openOverlay()
 		return nil
 	case "E":
-		// Read-only channel status for the selected project — the same
-		// project the D binding defaults to (see openDispatch).
-		m.channelsOv.openOverlay(m.projectScope)
+		// Read-only channel status. In the Projects pane this resolves to the
+		// highlighted row, exactly as D does (see openDispatch), so the two
+		// bindings never disagree about the project the user is looking at —
+		// `c` inside the overlay hands that same project to the dispatch
+		// dialog. Elsewhere it stays on m.projectScope: the overlay is a
+		// project-wide status view and must not chase the task cursor.
+		m.channelsOv.openOverlay(m.overlayProject())
 		return nil
 	case "T":
 		m.cycleTheme()
@@ -709,6 +713,20 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	}
 	return nil
+}
+
+// overlayProject is the project a project-wide overlay should open on. It
+// mirrors the project openDispatch resolves — the highlighted Projects row
+// when that pane is focused and not drilled into the persona chart (the
+// drill-in has no row of its own, so dispatch keeps the scope there too) —
+// and falls back to the current scope everywhere else.
+func (m *Model) overlayProject() string {
+	if m.focused == paneProjects && !(m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups)) {
+		if row, ok := m.projects.selected(); ok {
+			return row.code
+		}
+	}
+	return m.projectScope
 }
 
 // openDispatch opens the universal dispatch dialog, resolving the current
