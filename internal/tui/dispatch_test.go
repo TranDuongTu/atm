@@ -6,8 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
+	"atm/internal/capability/workflow"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	"atm/internal/store"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -452,23 +456,55 @@ func TestDispatchLegacyRepoFallback(t *testing.T) {
 	}
 }
 
+// repoReadSpy wraps the real store and records which of the two repo-read
+// methods the dialog calls. It embeds core.Service (pattern shared with
+// readCountingService in view_purity_test.go and countingService in
+// tasks_refresh_calls_test.go) so it only needs to override the two methods
+// under test.
+type repoReadSpy struct {
+	core.Service
+	repoChannelTargetsCalls int
+	projectChannelsCalls    int
+}
+
+func (s *repoReadSpy) RepoChannelTargets(code string) ([]core.RepoConfig, error) {
+	s.repoChannelTargetsCalls++
+	return s.Service.RepoChannelTargets(code)
+}
+
+func (s *repoReadSpy) ProjectChannels(code string) ([]core.ChannelView, error) {
+	s.projectChannelsCalls++
+	return s.Service.ProjectChannels(code)
+}
+
 // TestDispatchDoesNotProbe pins the performance property the RepoChannelTargets
-// split exists for: a repo channel wired to a plain, never-git-initialized
-// directory must still surface as a dispatch target. If open() read
-// ProjectChannels instead, this path would be probed with `git status`/
-// `rev-list`; RepoChannelTargets never touches git, so a non-git (or slow)
-// path costs nothing on the keypress. The package has no store spy for
-// core.Service, so the pin is behavioral: the non-git path appears as a
-// target and the dialog opens without the probe machinery ever running.
+// split exists for: opening the dialog on a repo-channel-backed project must
+// call RepoChannelTargets and must NEVER call ProjectChannels, the read that
+// probes each wired repo with `git status`/`rev-list`. This is a real
+// regression guard — swapping the call in open() back to ProjectChannels
+// fails it loudly, unlike a presence assertion on d.repos alone (which
+// TestDispatchReadsRepoChannels already covers and cannot distinguish which
+// method produced the result).
 func TestDispatchDoesNotProbe(t *testing.T) {
-	m := newTestModel(t)
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	spy := &repoReadSpy{Service: s}
+	m, err := NewModel(NewModelOpts{Service: spy, Actor: testActor, Registry: capability.NewRegistry(workflow.New())})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	dir := t.TempDir() // deliberately never `git init`-ed
-	if _, err := m.store.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.store.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	m.focused = paneProjects
@@ -477,8 +513,14 @@ func TestDispatchDoesNotProbe(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Path != dir {
-		t.Fatalf("repos = %+v, want the non-git wired path %s to appear untouched", m.dispatchDlg.repos, dir)
+	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Name != "code" || m.dispatchDlg.repos[0].Path != dir {
+		t.Fatalf("repos = %+v, want one code -> %s", m.dispatchDlg.repos, dir)
+	}
+	if spy.repoChannelTargetsCalls == 0 {
+		t.Error("open() must call RepoChannelTargets")
+	}
+	if spy.projectChannelsCalls != 0 {
+		t.Errorf("open() must never call ProjectChannels (probes git); called %d times", spy.projectChannelsCalls)
 	}
 }
 
