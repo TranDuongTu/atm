@@ -1,6 +1,13 @@
 ## Unreleased
 
 ### feat
+- ATM-29f8b0: the TUI dispatch dialog is now universal. `D` opens it from any
+  pane (even an empty workspace); the persona is a selectable field (`p`) over
+  every store persona instead of being fixed by the opening context. Context
+  only preselects the persona, project, and task. A persona that requires a
+  project shows an inline warning and refuses to dispatch when no project is in
+  scope. Concierge (and other project-optional personas) are now reachable from
+  the TUI on a fresh project with no activity.
 - ATM-0119: `atm update` self-updates the running binary from GitHub releases,
   verifies `SHA256SUMS`, and atomically replaces `os.Executable()`; use
   `--version <tag>` to pin a release.

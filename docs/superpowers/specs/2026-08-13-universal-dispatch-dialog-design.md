@@ -130,7 +130,8 @@ Behavior:
     `project`;
   - builds `atm --persona <p> [--project <code>] --agent <name> [--task <id>]`;
     `--project` only when `projectRequired()`, `--task` only when a task is
-    bound and a project is present;
+    bound AND the dispatch includes `--project` (the CLI launcher rejects
+    `--task` without `--project`);
   - admin: `atm --persona admin`, no project, no task, no agent-ready gate
     (agent picker still renders; admin ignores it).
 - `renderOverlay()`:

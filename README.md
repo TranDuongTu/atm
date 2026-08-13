@@ -43,9 +43,9 @@ atm
 
 The whole loop is select-and-dispatch — you pick a row, press `D`, and an agent session does the work:
 
-- **Onboard**: drill into the persona chart (`Ctrl+↑/↓` to select, `Ctrl+→` to drill) and press `D` on **concierge** — a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
-- **Autopilot**: from time to time, press `D` in the projects pane to dispatch a **manager** session on the selected project — it grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
-- **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
+- **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
+- **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
+- **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
 - **Explore**: `V` browses personas, `?` lists every keybinding.
 
 ## Screenshots
@@ -54,9 +54,9 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 
 Dashboard view: projects with recent events and persona activity on the left, tasks grouped by the active capability on the right, and the pinned-board strip below.
 
-![Developer dispatch dialog with task, repo, agent, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
+![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 
-Dispatching a developer session bound to the selected task: cycle the host agent, the repo, and the spawn target, then `Enter` launches it.
+The universal dispatch dialog: pick a persona with `p`, an agent with `←/→`, a repo with `↑/↓` (when a project is in scope), a spawn target with `t`, then `Enter` launches it.
 
 ![Manager dispatch dialog with agent and spawn target](docs/assets/screenshots/atm-dispatch-manager.png)
 

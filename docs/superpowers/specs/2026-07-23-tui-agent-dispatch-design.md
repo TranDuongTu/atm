@@ -56,6 +56,10 @@ can only be inspected via the CLI.
 - The spawned command is always the existing launcher invocation
   (`atm --persona … --agent … [--task …]`); the dispatch package composes
   argv and target only, never duplicating render/env logic.
+- **Superseded (2026-08-13):** the "Persona is fixed per trigger" decision and
+  the rejected "one generic dispatch form with a persona picker" are replaced
+  by the universal dispatch dialog — see
+  `2026-08-13-universal-dispatch-dialog-design.md`.
 
 ## Design
 
