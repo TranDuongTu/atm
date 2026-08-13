@@ -3,6 +3,7 @@ package store
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"atm/internal/core"
@@ -170,4 +171,110 @@ func mustTask(t *testing.T, s *Store, id string) *core.Task {
 		t.Fatal(err)
 	}
 	return tk
+}
+
+func TestProjectChannelsJoinsWiringAndProbe(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+		t.Fatal(err)
+	}
+	views, err := s.ProjectChannels("ATM")
+	if err != nil || len(views) != 2 {
+		t.Fatalf("views: %v %v", views, err)
+	}
+	// sorted by name: code, specs
+	if views[0].Name != "code" || views[0].Wiring == nil || views[0].Probe == nil || !views[0].Probe.PathExists {
+		t.Fatalf("repo view: %+v", views[0])
+	}
+	if views[1].Name != "specs" || views[1].Wiring != nil || views[1].Probe != nil {
+		t.Fatalf("notion view without wiring: %+v", views[1])
+	}
+	v, err := s.GetChannelByName("ATM", "code")
+	if err != nil || v.Probe == nil {
+		t.Fatalf("by name: %v %v", v, err)
+	}
+}
+
+func TestMigrateReposToChannels(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "atm", dir, "git@github.com:TranDuongTu/atm.git", chActor); err != nil {
+		t.Fatal(err)
+	}
+	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 0 {
+		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
+	}
+	v, err := s.GetChannelByName("ATM", "atm")
+	if err != nil || v.Type != core.ChannelTypeRepo || v.Address.URL != "git@github.com:TranDuongTu/atm.git" || v.Wiring == nil || v.Wiring.Path != dir {
+		t.Fatalf("migrated channel: %+v err %v", v, err)
+	}
+	if repos, _ := s.ProjectRepos("ATM"); len(repos) != 0 {
+		t.Fatalf("legacy repos not cleared: %v", repos)
+	}
+	// idempotent: second run migrates nothing and does not error on the existing handle
+	if n, _, err := s.MigrateReposToChannels("ATM", chActor); err != nil || n != 0 {
+		t.Fatalf("re-run: %d %v", n, err)
+	}
+}
+
+// A legacy repo whose folder moved away must still reach the ledger: the
+// record migrates, the wiring is reported missing, and the run completes.
+func TestMigrateReposToChannelsSurvivesMissingPath(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	gone := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "moved", gone, "git@x:moved.git", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 1 || unwired[0] != "moved" {
+		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
+	}
+	v, err := s.GetChannelByName("ATM", "moved")
+	if err != nil || v.Address.URL != "git@x:moved.git" || v.Wiring != nil {
+		t.Fatalf("record must exist unwired: %+v %v", v, err)
+	}
+	if repos, _ := s.ProjectRepos("ATM"); len(repos) != 0 {
+		t.Fatalf("legacy repos not cleared: %v", repos)
+	}
+}
+
+func TestRepoChannelTargetsSkipsProbes(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: "git@x:y.git"}}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RepoChannelTargets("ATM")
+	if err != nil || len(got) != 1 || got[0].Name != "code" || got[0].Path != dir || got[0].URL != "git@x:y.git" {
+		t.Fatalf("targets: %+v %v", got, err)
+	}
 }

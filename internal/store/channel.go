@@ -2,9 +2,11 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"atm/internal/core"
 )
@@ -253,4 +255,141 @@ func (s *Store) dropChannelWiring(code, name, actor string) error {
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)
 	})
+}
+
+// ProjectChannels is the joined read every surface consumes: tier-1 records
+// + this machine's tier-2 wiring + local probes, sorted by handle. Probes run
+// only where there is something local to probe (a repo channel with a path).
+func (s *Store) ProjectChannels(code string) ([]core.ChannelView, error) {
+	recs, err := s.ChannelRecords(code)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.GetProjectConfig(code)
+	if err != nil {
+		return nil, err
+	}
+	var wirings map[string]core.ChannelWiring
+	if cfg != nil {
+		wirings = cfg.Channels
+	}
+	out := make([]core.ChannelView, 0, len(recs))
+	for _, rec := range recs {
+		v := core.ChannelView{ChannelRecord: rec}
+		if w, ok := wirings[rec.Name]; ok {
+			wc := w
+			v.Wiring = &wc
+		}
+		if rec.Type == core.ChannelTypeRepo && v.Wiring != nil && v.Wiring.Path != "" {
+			v.Probe = probeRepoPath(v.Wiring.Path)
+		}
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// GetChannelByName is ProjectChannels narrowed to one handle — the CLI's
+// `atm channel show` read and the agent endpoint's shape.
+func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
+	views, err := s.ProjectChannels(code)
+	if err != nil {
+		return nil, err
+	}
+	for i := range views {
+		if views[i].Name == name {
+			return &views[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: channel %q", core.ErrNotFound, name)
+}
+
+// MigrateReposToChannels lifts every legacy RepoConfig into a repo channel:
+// tier-1 record (handle, URL; purpose left for the concierge to author) plus
+// tier-2 wiring (path), then clears the legacy repos list. Handles that
+// already exist as channels are skipped, so a re-run is safe. Returns the
+// number migrated plus the handles whose PATH could not be wired.
+//
+// A legacy path that no longer exists (the folder moved since it was
+// recorded) must not abort the migration: SetChannelWiring rejects a missing
+// directory, and failing there would leave the tier-1 record created, `repos`
+// uncleared, and every re-run stuck on the same entry forever. The ledger
+// record is the part worth keeping — it is what lets a concierge re-wire the
+// channel — so a missing path is reported, not fatal.
+func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, error) {
+	repos, err := s.ProjectRepos(code)
+	if err != nil {
+		return 0, nil, err
+	}
+	existing, err := s.ChannelRecords(code)
+	if err != nil {
+		return 0, nil, err
+	}
+	taken := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		taken[e.Name] = true
+	}
+	n := 0
+	var unwired []string
+	for _, r := range repos {
+		if taken[r.Name] {
+			continue
+		}
+		if _, err := s.CreateChannel(code, core.ChannelRecord{Name: r.Name, Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: r.URL}}, actor); err != nil {
+			return n, unwired, err
+		}
+		if err := s.SetChannelWiring(code, r.Name, r.Path, "", actor); err != nil {
+			if !errors.Is(err, core.ErrUsage) {
+				return n, unwired, err
+			}
+			unwired = append(unwired, r.Name) // path gone: record kept, wiring left to concierge
+		}
+		n++
+	}
+	if len(repos) > 0 {
+		if err := s.WithLock(code, func() error {
+			merged, err := s.lockedProjectConfig(code)
+			if err != nil {
+				return err
+			}
+			merged.Repos = nil
+			merged.UpdatedAt = core.RFC3339UTC(core.Now())
+			merged.UpdatedBy = actor
+			return WriteFileAtomic(s.configPath(code), merged)
+		}); err != nil {
+			return n, unwired, err
+		}
+	}
+	return n, unwired, nil
+}
+
+// RepoChannelTargets is the dispatch read: repo channels wired on THIS
+// machine, as the dispatch targets the dialog already understands. Separate
+// from ProjectChannels on purpose — dispatch opens on a keypress and must not
+// shell out to `git status`/`rev-list` once per repo to draw a picker. Probes
+// belong to the surfaces that display status, not to the ones that navigate.
+func (s *Store) RepoChannelTargets(code string) ([]core.RepoConfig, error) {
+	recs, err := s.ChannelRecords(code)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.GetProjectConfig(code)
+	if err != nil {
+		return nil, err
+	}
+	var wirings map[string]core.ChannelWiring
+	if cfg != nil {
+		wirings = cfg.Channels
+	}
+	var out []core.RepoConfig
+	for _, rec := range recs {
+		if rec.Type != core.ChannelTypeRepo {
+			continue
+		}
+		if w, ok := wirings[rec.Name]; ok && w.Path != "" {
+			out = append(out, core.RepoConfig{Name: rec.Name, Path: w.Path, URL: rec.Address.URL})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }

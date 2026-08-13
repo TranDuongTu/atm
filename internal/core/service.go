@@ -48,6 +48,19 @@ type ProjectService interface {
 	RemoveProjectRepo(code, name, actor string) error
 }
 
+type ChannelService interface {
+	CreateChannel(code string, rec ChannelRecord, actor string) (*Task, error)
+	EditChannel(code, name string, purpose *string, addr *ChannelAddress, actor string) error
+	RemoveChannel(code, name, actor string) error
+	ChannelRecords(code string) ([]ChannelRecord, error)
+	ProjectChannels(code string) ([]ChannelView, error)
+	GetChannelByName(code, name string) (*ChannelView, error)
+	RepoChannelTargets(code string) ([]RepoConfig, error)
+	SetChannelWiring(code, name, path, mcpServer, actor string) error
+	AddChannelStamp(code, name, note, actor string) error
+	MigrateReposToChannels(code, actor string) (int, []string, error)
+}
+
 type LabelService interface {
 	LabelAdd(name, description, expr, actor string) error
 	LabelSeed(name, description, expr, actor string) error
@@ -140,6 +153,7 @@ type MaintenanceService interface {
 type Service interface {
 	TaskService
 	ProjectService
+	ChannelService
 	LabelService
 	CommentService
 	PersonaService
