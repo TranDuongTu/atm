@@ -1639,7 +1639,7 @@ git commit -m "feat(ATM-097849): channel wire/stamp/migrate-repos; retire atm pr
 ### Task 8: TUI — dispatch dialog reads repo channels
 
 **Files:**
-- Modify: `internal/tui/dispatch.go:145-150` (the `open()` repo load)
+- Modify: `internal/tui/dispatch.go` — the `open()` repo load (post-ATM-29f8b0 the dialog is the universal persona-picker version: `open(defaultPersona, project, taskID, taskTitle string)`, active flag `d.active`, and repos load for ANY non-empty project — grep `ProjectRepos` inside `open()` for the exact block)
 - Test: `internal/tui/dispatch_test.go` (adjust/append)
 
 **Interfaces:**
@@ -1671,10 +1671,10 @@ Expected: the new tests FAIL (existing ones still pass)
 
 - [ ] **Step 3: Implement**
 
-Replace the repo load in `open()` (`internal/tui/dispatch.go:146-150`):
+Replace the repo load in `open()` (the `if project != "" { ... ProjectRepos ... }` block):
 
 ```go
-	if kind == dispatchDeveloper && project != "" {
+	if project != "" {
 		if views, err := d.m.store.ProjectChannels(project); err == nil {
 			for _, v := range views {
 				if v.Type == core.ChannelTypeRepo && v.Wiring != nil && v.Wiring.Path != "" {
@@ -1709,11 +1709,11 @@ git commit -m "feat(ATM-097849): dispatch dialog reads repo channels, legacy fal
 **Files:**
 - Create: `internal/tui/channels.go`
 - Create: `internal/tui/channels_test.go`
-- Modify: `internal/tui/app.go` — Model field + wiring (pattern anchors: `personasOv` at `app.go:104`, `:197`, `:400`, `:593`, `:678`, `:936`), and the KEEP-IN-SYNC comment's overlay count
+- Modify: `internal/tui/app.go` — Model field + wiring (pattern anchors: grep `personasOv` — field declaration, `m.personasOv.m = m`, `workspaceIdle`, key routing, the `"V"` open case, and the `View` overlay layer), and the KEEP-IN-SYNC comment's overlay count
 - Modify: `internal/tui/keymap.go` (add row)
 
 **Interfaces:**
-- Consumes: `core.ChannelService.ProjectChannels`; `dispatchModel.open(dispatchConcierge, project, "", "")`; helpers `titledBoxHeight`, `fitLine`, `styles.DialogBody`, `styles.KeyMenuDim`, `styles.RowCursor` (all as used in `personas.go`).
+- Consumes: `core.ChannelService.ProjectChannels`; `dispatchModel.open("concierge", project, "", "")` (post-ATM-29f8b0 signature: persona name string, and `d.active` is the open flag); helpers `titledBoxHeight`, `fitLine`, `styles.DialogBody`, `styles.KeyMenuDim`, `styles.RowCursor` (all as used in `personas.go`).
 - Produces: `channelsModel` with `open bool`, `openOverlay()`, `handleKey(tea.KeyMsg) tea.Cmd`, `renderOverlay() string`; global key `E` opens it; inside: `j/k` move, `Enter` detail, `c` dispatches concierge, `Esc` closes/backs. Status glyph rule (single-sourced in `channelStatusGlyph`): `●` ok, `◐` attention, `○` missing/stale.
 
 - [ ] **Step 1: Write the failing test**
@@ -1737,7 +1737,7 @@ func TestChannelsOverlayStatusGlyphs(t *testing.T) {
 }
 
 func TestChannelsOverlayDispatchConcierge(t *testing.T) {
-	// press "E" then "c": channels overlay closed, dispatch dialog open with kind dispatchConcierge
+	// press "E" then "c": channels overlay closed, dispatch dialog active (d.active) with persona() == "concierge"
 }
 ```
 
@@ -1821,7 +1821,7 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "c":
 		c.open = false
-		c.m.dispatchDlg.open(dispatchConcierge, c.project, "", "")
+		c.m.dispatchDlg.open("concierge", c.project, "", "")
 	}
 	return nil
 }
@@ -1875,7 +1875,7 @@ func channelStatusGlyph(v core.ChannelView, now time.Time) (string, string) {
 
 `renderOverlay` mirrors `personasModel.renderOverlay`'s box math exactly (`bw := m.width*60/100`, min 64, max `width-4`; `titledBoxHeight(styles.DialogBody, bw, title, body, h)`): list rows `fmt.Sprintf("%s %-*s %-7s %s", glyph, nameW, v.Name, v.Type, note)` with `RowCursor` on the cursor row, footer `[↑/↓]move [Enter]detail [c]dispatch concierge [Esc]close`, and the `loadErr` rendered as the body when non-empty. Detail mode renders purpose, each non-empty address field (`URL/Workspace/Database/Page`), wiring path / MCP server, every stamp (`at · by · note`), and probe fields, scrolled by `offset` like the personas detail.
 
-Wire into `app.go` mirroring `personasOv` at each anchor: field `channelsOv channelsModel` (`:104`), `m.channelsOv.m = m` (`:197`), `!m.channelsOv.open` in `workspaceIdle` (`:400`), routing `if m.channelsOv.open { return m.channelsOv.handleKey(k) }` next to the personas routing (`:593`), opening on `"E"` next to the `"V"` case (`:678`) — pass the same project value the `D` binding passes to `dispatchDlg.open` in that pane's handler (grep `dispatchDlg.open(` call sites and reuse the pane's project source) — and the render layer `if m.channelsOv.open { out = m.placeOverlay(out, m.channelsOv.renderOverlay()) }` in `View` (`:936`), updating the KEEP-IN-SYNC comment's count. Add the keymap row after `V`: `{"E", "channels overlay", "channels overlay", "-", "-"}`.
+Wire into `app.go` mirroring `personasOv` at each anchor (grep `personasOv` for the current lines): field `channelsOv channelsModel`, `m.channelsOv.m = m`, `!m.channelsOv.open` in `workspaceIdle`, routing `if m.channelsOv.open { return m.channelsOv.handleKey(k) }` next to the personas routing, opening on `"E"` next to the `"V"` case — pass the same project value the `D` binding passes to `dispatchDlg.open` (grep `dispatchDlg.open(` call sites, e.g. `projects.go` passes `p.m.projectScope`, and reuse the pane's project source) — and the render layer `if m.channelsOv.open { out = m.placeOverlay(out, m.channelsOv.renderOverlay()) }` in `View`, updating the KEEP-IN-SYNC comment's count. Add the keymap row after `V`: `{"E", "channels overlay", "channels overlay", "-", "-"}`.
 
 - [ ] **Step 4: Run tests**
 
