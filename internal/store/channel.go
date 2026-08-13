@@ -3,6 +3,8 @@ package store
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"atm/internal/core"
 )
@@ -152,5 +154,103 @@ func (s *Store) RemoveChannel(code, name, actor string) error {
 	return s.dropChannelWiring(code, name, actor)
 }
 
-// replaced in the wiring change
-func (s *Store) dropChannelWiring(code, name, actor string) error { return nil }
+// SetChannelWiring records how THIS machine reaches the channel — tier 2:
+// config, not substrate, no event, no secrets. Merge semantics: a non-empty
+// path or mcpServer overwrites that field, an empty one keeps the existing
+// value, and stamps always survive. The channel must exist in the ledger.
+func (s *Store) SetChannelWiring(code, name, path, mcpServer, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if _, err := s.channelByName(code, name); err != nil {
+		return err
+	}
+	abs := ""
+	if path != "" {
+		var err error
+		abs, err = filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("resolve channel path: %w", err)
+		}
+		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+			return fmt.Errorf("%w: channel path does not exist or is not a directory: %s", core.ErrUsage, abs)
+		}
+	}
+	return s.WithLock(code, func() error {
+		merged, err := s.lockedProjectConfig(code)
+		if err != nil {
+			return err
+		}
+		if merged.Channels == nil {
+			merged.Channels = map[string]core.ChannelWiring{}
+		}
+		w := merged.Channels[name]
+		if abs != "" {
+			w.Path = abs
+		}
+		if mcpServer != "" {
+			w.MCPServer = mcpServer
+		}
+		merged.Channels[name] = w
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
+// AddChannelStamp appends a verification stamp (actor + timestamp + note) to
+// the channel's wiring: "someone actually touched this channel and vouches".
+func (s *Store) AddChannelStamp(code, name, note, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if _, err := s.channelByName(code, name); err != nil {
+		return err
+	}
+	return s.WithLock(code, func() error {
+		merged, err := s.lockedProjectConfig(code)
+		if err != nil {
+			return err
+		}
+		if merged.Channels == nil {
+			merged.Channels = map[string]core.ChannelWiring{}
+		}
+		w := merged.Channels[name]
+		w.Stamps = append(w.Stamps, core.VerificationStamp{At: core.RFC3339UTC(core.Now()), By: actor, Note: note})
+		merged.Channels[name] = w
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
+// lockedProjectConfig is the read half of every config read-modify-write in
+// this file: current config or a fresh zero value. Call under WithLock only.
+func (s *Store) lockedProjectConfig(code string) (*ProjectConfig, error) {
+	existing, err := s.GetProjectConfig(code)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
+	}
+	return &ProjectConfig{}, nil
+}
+
+// dropChannelWiring removes the handle's wiring entry, silently succeeding
+// when there is none (RemoveChannel's local cleanup).
+func (s *Store) dropChannelWiring(code, name, actor string) error {
+	return s.WithLock(code, func() error {
+		merged, err := s.lockedProjectConfig(code)
+		if err != nil {
+			return err
+		}
+		if _, ok := merged.Channels[name]; !ok {
+			return nil
+		}
+		delete(merged.Channels, name)
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}

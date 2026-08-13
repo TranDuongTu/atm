@@ -116,6 +116,53 @@ func TestChannelCorruptRecordDoesNotPoisonNeighbours(t *testing.T) {
 	}
 }
 
+func TestChannelWiringAndStamps(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: "git@x:y.git"}}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	// wiring an unknown channel fails: the ledger record must exist first
+	if err := s.SetChannelWiring("ATM", "nope", t.TempDir(), "", chActor); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+	// a path must exist
+	if err := s.SetChannelWiring("ATM", "code", "/nonexistent/dir", "", chActor); !errors.Is(err, core.ErrUsage) {
+		t.Fatalf("missing dir: %v", err)
+	}
+	dir := t.TempDir()
+	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddChannelStamp("ATM", "code", "authorized as tu", chActor); err != nil {
+		t.Fatal(err)
+	}
+	// merge: setting only mcp_server keeps path and stamps
+	if err := s.SetChannelWiring("ATM", "code", "", "notion", chActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := s.GetProjectConfig("ATM")
+	if err != nil || cfg == nil {
+		t.Fatalf("config: %v %v", cfg, err)
+	}
+	w := cfg.Channels["code"]
+	if w.Path != dir || w.MCPServer != "notion" || len(w.Stamps) != 1 || w.Stamps[0].By != chActor || w.Stamps[0].Note != "authorized as tu" {
+		t.Fatalf("wiring: %+v", w)
+	}
+	// removing the channel drops its wiring
+	if err := s.RemoveChannel("ATM", "code", chActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = s.GetProjectConfig("ATM")
+	if cfg != nil {
+		if _, ok := cfg.Channels["code"]; ok {
+			t.Fatal("wiring survived channel removal")
+		}
+	}
+}
+
 func mustTask(t *testing.T, s *Store, id string) *core.Task {
 	t.Helper()
 	tk, err := s.GetTask(id)
