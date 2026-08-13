@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ChannelMetaKey is the Task.Meta key the channel capability owns.
@@ -62,6 +63,55 @@ type ChannelView struct {
 	ChannelRecord
 	Wiring *ChannelWiring `json:"wiring,omitempty"`
 	Probe  *ChannelProbe  `json:"probe,omitempty"`
+}
+
+// ChannelStatus is the single-sourced status rule every surface reads: ●
+// wired and verified fresh (or probe-green), ◐ wired but aging/dirty, ○
+// unwired, missing, or stale. It lives in core because the CLI and the TUI
+// must not answer differently about the same record — a probe the store
+// already paid for is part of the answer, and no surface may claim more than
+// ATM can know. now is injected for testability; the note is the text-mode
+// answer, the glyph the TUI's.
+func ChannelStatus(v ChannelView, now time.Time) (string, string) {
+	if v.Wiring == nil {
+		return "○", "unwired"
+	}
+	if v.Probe != nil {
+		if !v.Probe.PathExists {
+			return "○", "path missing"
+		}
+		if !v.Probe.IsGitRepo {
+			return "◐", "not a git repo"
+		}
+		note := "clean"
+		if v.Probe.Dirty {
+			note = "dirty"
+		}
+		if v.Probe.HasUpstream && (v.Probe.Ahead > 0 || v.Probe.Behind > 0) {
+			return "◐", fmt.Sprintf("%s · %d ahead %d behind", note, v.Probe.Ahead, v.Probe.Behind)
+		}
+		if v.Probe.Dirty {
+			return "◐", note
+		}
+		return "●", note
+	}
+	if len(v.Wiring.Stamps) == 0 {
+		return "◐", "wired, never verified"
+	}
+	last := v.Wiring.Stamps[len(v.Wiring.Stamps)-1]
+	at, err := time.Parse(time.RFC3339, last.At)
+	if err != nil {
+		return "◐", "unparseable stamp"
+	}
+	days := int(now.Sub(at).Hours() / 24)
+	switch {
+	case days <= 14:
+		return "●", fmt.Sprintf("verified %dd ago", days)
+	case days <= 45:
+		return "◐", fmt.Sprintf("verified %dd ago", days)
+	default:
+		return "○", fmt.Sprintf("stale · verified %dd ago", days)
+	}
 }
 
 // DecodeChannelPayload parses a payload string; "" is a valid empty payload.

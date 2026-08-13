@@ -87,52 +87,6 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// channelStatusGlyph is the single-sourced status rule: ● wired and verified
-// fresh (or probe-green), ◐ wired but aging/dirty, ○ unwired, missing, or
-// stale. now is injected for testability.
-func channelStatusGlyph(v core.ChannelView, now time.Time) (string, string) {
-	if v.Wiring == nil {
-		return "○", "unwired"
-	}
-	if v.Probe != nil {
-		if !v.Probe.PathExists {
-			return "○", "path missing"
-		}
-		if !v.Probe.IsGitRepo {
-			return "◐", "not a git repo"
-		}
-		note := "clean"
-		if v.Probe.Dirty {
-			note = "dirty"
-		}
-		if v.Probe.HasUpstream && (v.Probe.Ahead > 0 || v.Probe.Behind > 0) {
-			return "◐", fmt.Sprintf("%s · %d ahead %d behind", note, v.Probe.Ahead, v.Probe.Behind)
-		}
-		if v.Probe.Dirty {
-			return "◐", note
-		}
-		return "●", note
-	}
-	if len(v.Wiring.Stamps) == 0 {
-		return "◐", "wired, never verified"
-	}
-	last := v.Wiring.Stamps[len(v.Wiring.Stamps)-1]
-	at, err := time.Parse(time.RFC3339, last.At)
-	if err != nil {
-		return "◐", "unparseable stamp"
-	}
-	age := now.Sub(at)
-	days := int(age.Hours() / 24)
-	switch {
-	case days <= 14:
-		return "●", fmt.Sprintf("verified %dd ago", days)
-	case days <= 45:
-		return "◐", fmt.Sprintf("verified %dd ago", days)
-	default:
-		return "○", fmt.Sprintf("stale · verified %dd ago", days)
-	}
-}
-
 // renderOverlay draws the channel list, or the scrolled detail of the
 // selected channel. Box shape and cursor styling mirror
 // personasModel.renderOverlay.
@@ -159,7 +113,7 @@ func (c *channelsModel) renderOverlay() string {
 
 	if len(c.entries) == 0 {
 		var body strings.Builder
-		msg := "no channels yet — add one with `atm channel add <name> --type repo`"
+		msg := "no channels yet — add one with `atm channel add --project " + c.project + " --name <handle> --type repo`"
 		if c.project == "" {
 			msg = "no project selected — select one in the Projects pane first"
 		}
@@ -176,7 +130,7 @@ func (c *channelsModel) renderOverlay() string {
 	}
 	var body strings.Builder
 	for i, v := range c.entries {
-		glyph, note := channelStatusGlyph(v, c.loadedAt)
+		glyph, note := core.ChannelStatus(v, c.loadedAt)
 		line := fmt.Sprintf("%s %-*s %-7s %s", glyph, nameW, v.Name, v.Type, note)
 		line = fitLine(line, bw-4)
 		if i == c.cursor {
@@ -203,7 +157,7 @@ func (c *channelsModel) renderDetail(bw int) string {
 	styles := c.m.styles
 	v := c.entries[c.cursor]
 	var lines []string
-	for _, ln := range channelDetailLines(v, c.loadedAt) {
+	for _, ln := range channelDetailLines(v, c.project, c.loadedAt) {
 		lines = append(lines, wrapDetailLine(ln, bw-4)...)
 	}
 
@@ -251,9 +205,11 @@ func wrapDetailLine(line string, w int) []string {
 // channelDetailLines formats one channel's detail body: identity and status,
 // then the tier-1 record (purpose, address), then this machine's tier-2
 // wiring with its stamps, then the local probe. Pure formatting — the caller
-// supplies the clock.
-func channelDetailLines(v core.ChannelView, now time.Time) []string {
-	glyph, note := channelStatusGlyph(v, now)
+// supplies the clock. project is carried in only so the unwired hint can name
+// a command that actually runs: `atm channel wire` is cobra.NoArgs and needs
+// --project and --name.
+func channelDetailLines(v core.ChannelView, project string, now time.Time) []string {
+	glyph, note := core.ChannelStatus(v, now)
 	field := func(label, value string) string { return fmt.Sprintf("%-10s %s", label, value) }
 
 	lines := []string{
@@ -285,7 +241,11 @@ func channelDetailLines(v core.ChannelView, now time.Time) []string {
 
 	lines = append(lines, "")
 	if v.Wiring == nil {
-		lines = append(lines, field("wiring", "none on this machine — `atm channel wire "+v.Name+"`"))
+		how := "--path <dir>"
+		if v.Type == core.ChannelTypeNotion {
+			how = "--mcp-server <name>"
+		}
+		lines = append(lines, field("wiring", "none on this machine — `atm channel wire --project "+project+" --name "+v.Name+" "+how+"`"))
 		return lines
 	}
 	if v.Wiring.Path != "" {

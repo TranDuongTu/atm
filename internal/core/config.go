@@ -59,12 +59,12 @@ type ChannelWiring struct {
 }
 
 type ProjectConfig struct {
-	UpdatedAt string            `json:"updated_at,omitempty"`
-	UpdatedBy string            `json:"updated_by,omitempty"`
-	Embedding *EmbeddingConfig  `json:"embedding,omitempty"`
-	Remotes   map[string]string `json:"remotes,omitempty"`
-	Boards    *BoardsConfig     `json:"boards,omitempty"`
-	Repos     []RepoConfig      `json:"repos,omitempty"`
+	UpdatedAt string                   `json:"updated_at,omitempty"`
+	UpdatedBy string                   `json:"updated_by,omitempty"`
+	Embedding *EmbeddingConfig         `json:"embedding,omitempty"`
+	Remotes   map[string]string        `json:"remotes,omitempty"`
+	Boards    *BoardsConfig            `json:"boards,omitempty"`
+	Repos     []RepoConfig             `json:"repos,omitempty"`
 	Channels  map[string]ChannelWiring `json:"channels,omitempty"`
 	// ArtOn toggles the TUI background art on or off. Display preference,
 	// not substrate state: no event-log entry, and the default is off.

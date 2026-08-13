@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"atm/internal/core"
 
@@ -143,8 +144,9 @@ func newChannelListCmd(st *cliState) *cobra.Command {
 			if st.isJSON() {
 				return writeJSON(st.stdout(), views)
 			}
+			now := core.Now()
 			for _, v := range views {
-				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", v.Name, v.Type, channelStatus(v))
+				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", v.Name, v.Type, channelStatus(v, now))
 			}
 			return nil
 		},
@@ -177,7 +179,7 @@ func newChannelShowCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			return st.emit(st.stdout(), v, func() {
-				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", v.Name, v.Type, channelStatus(*v))
+				fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n", v.Name, v.Type, channelStatus(*v, core.Now()))
 				if v.Purpose != "" {
 					fmt.Fprintf(st.stdout(), "purpose: %s\n", v.Purpose)
 				}
@@ -194,8 +196,14 @@ func newChannelShowCmd(st *cliState) *cobra.Command {
 }
 
 // newChannelEditCmd updates purpose and/or address. Both are optional and
-// independent: cmd.Flags().Changed gates each so an untouched field is
-// passed as nil, not a zero value — EditChannel would otherwise clear it.
+// independent: cmd.Flags().Changed gates the purpose pointer, so an untouched
+// purpose is passed as nil rather than a zero value that would clear it.
+// Address is NOT a per-field pointer — EditChannel takes the whole struct and
+// stores exactly what it is given — so an address edit reads the current
+// record first and overlays only the flags the user actually named. Building
+// the struct from the flag variables alone would silently clear every sibling
+// field (a --database edit dropping --workspace), and the address lives
+// nowhere else.
 func newChannelEditCmd(st *cliState) *cobra.Command {
 	var name, purpose, url, workspace, database, page string
 	cmd := &cobra.Command{
@@ -224,7 +232,26 @@ func newChannelEditCmd(st *cliState) *cobra.Command {
 			}
 			var addrPtr *core.ChannelAddress
 			if cmd.Flags().Changed("url") || cmd.Flags().Changed("workspace") || cmd.Flags().Changed("database") || cmd.Flags().Changed("page") {
-				addrPtr = &core.ChannelAddress{URL: url, Workspace: workspace, Database: database, Page: page}
+				cur, err := s.GetChannelByName(project, name)
+				if err != nil {
+					return err
+				}
+				next := cur.Address
+				for _, f := range []struct {
+					flag string
+					dst  *string
+					src  string
+				}{
+					{"url", &next.URL, url},
+					{"workspace", &next.Workspace, workspace},
+					{"database", &next.Database, database},
+					{"page", &next.Page, page},
+				} {
+					if cmd.Flags().Changed(f.flag) {
+						*f.dst = f.src
+					}
+				}
+				addrPtr = &next
 			}
 			if err := s.EditChannel(project, name, purposePtr, addrPtr, actor); err != nil {
 				return err
@@ -426,19 +453,16 @@ func newChannelMigrateCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-// channelStatus is the text-mode status column: wired/unwired, plus how many
-// verification stamps this machine's wiring carries.
-func channelStatus(v core.ChannelView) string {
-	if v.Wiring == nil {
-		return "unwired"
-	}
-	if n := len(v.Wiring.Stamps); n > 0 {
-		if n == 1 {
-			return "wired (1 stamp)"
-		}
-		return fmt.Sprintf("wired (%d stamps)", n)
-	}
-	return "wired"
+// channelStatus is the text-mode status column. The rule itself lives in
+// core.ChannelStatus so this surface and the TUI cannot disagree about the
+// same record — computing it here from Wiring alone would print "wired" for a
+// repo whose directory is gone, which is more than ATM knows and the opposite
+// of what the overlay shows. Text mode takes the note and drops the glyph:
+// this column is read by scripts as much as by people, and ●/◐/○ carries
+// nothing the note does not already say.
+func channelStatus(v core.ChannelView, now time.Time) string {
+	_, note := core.ChannelStatus(v, now)
+	return note
 }
 
 // formatChannelAddress renders the non-empty address fields as key=value

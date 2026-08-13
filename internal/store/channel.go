@@ -45,9 +45,10 @@ func (s *Store) ChannelRecords(code string) ([]core.ChannelRecord, error) {
 // and a decode error ONLY when the named channel's own payload is unreadable.
 // A corrupt record must not poison lookups of its neighbours: the handle a
 // caller asked for either resolves or is absent, no matter what else is in
-// the namespace. When the payload is unreadable the handle is unknowable, so
-// the task's TITLE is the fallback identity — that is how `atm channel` can
-// still name and remove the broken record.
+// the namespace. Every verb that WRITES a payload fails loudly on the broken
+// record rather than overwriting what it cannot read; removal is the one verb
+// that needs no payload, so it resolves the handle through channelTaskIDByName
+// instead — see there for the title fallback that names the broken record.
 func (s *Store) channelByName(code, name string) (*core.ChannelRecord, error) {
 	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
 	if err != nil {
@@ -143,14 +144,48 @@ func (s *Store) EditChannel(code, name string, purpose *string, addr *core.Chann
 	return nil
 }
 
+// channelTaskIDByName resolves a handle to its TASK ID only — the weaker
+// lookup removal needs. A record whose payload is unreadable has no knowable
+// handle, so its task TITLE (written from the handle at creation) is the
+// fallback identity: without it a corrupt record would be unremovable through
+// its own noun, and the capability guide forbids repairing channel records
+// with raw task verbs. Healthy records win: the title fallback is only
+// consulted after the whole namespace failed to yield a payload match, so a
+// broken record can never shadow a live channel of the same handle.
+func (s *Store) channelTaskIDByName(code, name string) (string, error) {
+	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
+	if err != nil {
+		return "", err
+	}
+	broken := ""
+	for _, t := range tasks {
+		rec, err := core.ChannelFromTask(code, *t)
+		if err != nil {
+			if t.Title == name && broken == "" {
+				broken = t.ID
+			}
+			continue
+		}
+		if rec != nil && rec.Name == name {
+			return t.ID, nil
+		}
+	}
+	if broken != "" {
+		return broken, nil
+	}
+	return "", fmt.Errorf("%w: channel %q", core.ErrNotFound, name)
+}
+
 // RemoveChannel removes the ledger record (task tombstone) and drops this
-// machine's wiring entry for the handle, if any.
+// machine's wiring entry for the handle, if any. Unlike every other verb it
+// tolerates an unreadable payload — deleting a record does not require
+// understanding it, and refusing here would strand the broken record forever.
 func (s *Store) RemoveChannel(code, name, actor string) error {
-	rec, err := s.channelByName(code, name)
+	id, err := s.channelTaskIDByName(code, name)
 	if err != nil {
 		return err
 	}
-	if err := s.RemoveTask(rec.TaskID, actor); err != nil {
+	if err := s.RemoveTask(id, actor); err != nil {
 		return err
 	}
 	return s.dropChannelWiring(code, name, actor)

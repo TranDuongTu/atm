@@ -44,10 +44,15 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 			if _, err := svc.GetProject(project); err != nil {
 				return fmt.Errorf("project %q: %w", project, err)
 			}
-			if _, err := EnsureVocabulary(svc, project, actor); err != nil {
+			boards, err := EnsureVocabulary(svc, project, actor)
+			if err != nil {
 				return err
 			}
-			return env.Emit(map[string]any{"project": project}, func() {
+			names := make([]string, 0, len(boards))
+			for _, b := range boards {
+				names = append(names, b.Name)
+			}
+			return env.Emit(map[string]any{"project": project, "boards": names}, func() {
 				fmt.Fprintf(env.Stdout(), "ensured channel vocabulary for %s\n", project)
 			})
 		},

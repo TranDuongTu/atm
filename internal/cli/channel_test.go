@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // runChannelErrText runs args against the testCLI harness and returns the
 // resulting error's message text (empty on success) plus the exit code.
@@ -145,6 +148,44 @@ func TestChannelEditPurposeOnlyLeavesAddressUnchanged(t *testing.T) {
 	mustContain(t, out, `"purpose": "new purpose"`)
 	mustContain(t, out, `"workspace": "acme"`)
 	mustContain(t, out, `"database": "abc123"`)
+}
+
+// TestChannelEditOneAddressFlagKeepsSiblings is the untested middle between
+// the two edit tests above: naming ONE address flag must overlay that field
+// onto the stored address, not replace the whole struct. The address lives
+// nowhere else, so a dropped sibling field is unrecoverable through any verb.
+func TestChannelEditOneAddressFlagKeepsSiblings(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "specs", "--type", "notion",
+		"--purpose", "specs here", "--workspace", "acme", "--database", "abc123", "--actor", "developer@test:unit")
+
+	_, _, _ = runArgs(st, "channel", "edit", "--project", "ATM", "--name", "specs",
+		"--database", "xyz999", "--actor", "developer@test:unit")
+
+	st.output = outputJSON
+	out := runArgsOut(t, st, "channel", "show", "--project", "ATM", "--name", "specs")
+	mustContain(t, out, `"database": "xyz999"`)
+	mustContain(t, out, `"workspace": "acme"`)
+}
+
+// TestChannelListTextReportsProbe proves text mode reports the same status as
+// the TUI for the same record: a repo channel wired to a directory that has
+// since been removed is NOT plain "wired". Both surfaces read core.ChannelStatus.
+func TestChannelListTextReportsProbe(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "code", "--type", "repo",
+		"--url", "git@x:y.git", "--actor", "developer@test:unit")
+
+	dir := t.TempDir()
+	_, _, _ = runArgs(st, "channel", "wire", "--project", "ATM", "--name", "code", "--path", dir, "--actor", "developer@test:unit")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove wired dir: %v", err)
+	}
+
+	out := runArgsOut(t, st, "channel", "list", "--project", "ATM")
+	mustContain(t, out, "path missing")
 }
 
 // TestChannelRemove proves remove drops the channel from subsequent lists.

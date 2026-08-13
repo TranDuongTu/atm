@@ -117,6 +117,38 @@ func TestChannelCorruptRecordDoesNotPoisonNeighbours(t *testing.T) {
 	}
 }
 
+// A corrupt record must be removable through its own noun: removal needs no
+// payload, only the task ID, which the title fallback already yields. Without
+// this the record is unremovable — the capability guide forbids repairing
+// channel records with raw task verbs.
+func TestChannelCorruptRecordCanBeRemoved(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	bad, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "broken", Type: core.ChannelTypeRepo}, chActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskCapabilityMeta(bad.ID, core.ChannelMetaKey, "garbage", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveChannel("ATM", "broken", chActor); err != nil {
+		t.Fatalf("remove a corrupt record by handle: %v", err)
+	}
+	tasks, err := s.ListTasksErr(core.QueryFilters{Project: "ATM", Expr: "channel:*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("corrupt channel task survived removal: %+v", tasks)
+	}
+	// and an unknown handle still reports absence, not success
+	if err := s.RemoveChannel("ATM", "nope", chActor); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("unknown handle: %v", err)
+	}
+}
+
 func TestChannelWiringAndStamps(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {

@@ -113,7 +113,7 @@ func TestChannelsOverlayDetailShowsWiringAndStamps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectChannels: %v", err)
 	}
-	body := strings.Join(channelDetailLines(views[0], time.Now()), "\n")
+	body := strings.Join(channelDetailLines(views[0], "ATM", time.Now()), "\n")
 	for _, want := range []string{dir, "exists=true", "git=false"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail lines missing %q:\n%s", want, body)
@@ -192,88 +192,6 @@ func TestChannelsOverlayUsesProjectsPaneRow(t *testing.T) {
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
 	if m.channelsOv.project != "ATM" {
 		t.Fatalf("overlay project = %q, want the scope ATM outside the Projects pane", m.channelsOv.project)
-	}
-}
-
-func TestChannelsOverlayStatusGlyphs(t *testing.T) {
-	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
-	stamp := func(daysAgo int) []core.VerificationStamp {
-		return []core.VerificationStamp{{At: now.AddDate(0, 0, -daysAgo).Format(time.RFC3339), By: testActor}}
-	}
-	cases := []struct {
-		name  string
-		view  core.ChannelView
-		glyph string
-		note  string
-	}{
-		{
-			name:  "fresh stamp",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{MCPServer: "notion", Stamps: stamp(2)}},
-			glyph: "●",
-			note:  "verified 2d ago",
-		},
-		{
-			name:  "aging stamp",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{MCPServer: "notion", Stamps: stamp(20)}},
-			glyph: "◐",
-			note:  "verified 20d ago",
-		},
-		{
-			name:  "stale stamp",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{MCPServer: "notion", Stamps: stamp(60)}},
-			glyph: "○",
-			note:  "stale · verified 60d ago",
-		},
-		{
-			name:  "never verified",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{MCPServer: "notion"}},
-			glyph: "◐",
-			note:  "wired, never verified",
-		},
-		{
-			name:  "unwired",
-			view:  core.ChannelView{},
-			glyph: "○",
-			note:  "unwired",
-		},
-		{
-			name:  "probe clean",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{Path: "/x"}, Probe: &core.ChannelProbe{PathExists: true, IsGitRepo: true}},
-			glyph: "●",
-			note:  "clean",
-		},
-		{
-			name:  "probe dirty",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{Path: "/x"}, Probe: &core.ChannelProbe{PathExists: true, IsGitRepo: true, Dirty: true}},
-			glyph: "◐",
-			note:  "dirty",
-		},
-		{
-			name:  "probe diverged",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{Path: "/x"}, Probe: &core.ChannelProbe{PathExists: true, IsGitRepo: true, HasUpstream: true, Ahead: 2, Behind: 1}},
-			glyph: "◐",
-			note:  "clean · 2 ahead 1 behind",
-		},
-		{
-			name:  "probe path missing",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{Path: "/x"}, Probe: &core.ChannelProbe{}},
-			glyph: "○",
-			note:  "path missing",
-		},
-		{
-			name:  "probe not a git repo",
-			view:  core.ChannelView{Wiring: &core.ChannelWiring{Path: "/x"}, Probe: &core.ChannelProbe{PathExists: true}},
-			glyph: "◐",
-			note:  "not a git repo",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			glyph, note := channelStatusGlyph(tc.view, now)
-			if glyph != tc.glyph || note != tc.note {
-				t.Errorf("channelStatusGlyph = %q/%q, want %q/%q", glyph, note, tc.glyph, tc.note)
-			}
-		})
 	}
 }
 

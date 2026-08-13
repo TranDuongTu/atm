@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChannelPayloadRoundTrip(t *testing.T) {
@@ -67,5 +68,91 @@ func TestChannelPayloadErrors(t *testing.T) {
 	// A channel label with an unreadable payload is an error (verbs must not overwrite state they cannot read).
 	if _, err := ChannelFromTask("ATM", Task{ID: "t", Labels: []string{"ATM:channel:repo"}, Meta: map[string]string{ChannelMetaKey: "garbage"}}); err == nil {
 		t.Fatal("want error for unreadable payload")
+	}
+}
+
+// TestChannelStatus pins the one status rule both adapters read: the glyph
+// vocabulary, the notes, and the 14/45-day stamp thresholds. It moved here
+// from internal/tui when the rule did — a status the CLI and the TUI compute
+// separately is a status they will eventually disagree about.
+func TestChannelStatus(t *testing.T) {
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	stamp := func(daysAgo int) []VerificationStamp {
+		return []VerificationStamp{{At: now.AddDate(0, 0, -daysAgo).Format(time.RFC3339), By: "developer@test:unit"}}
+	}
+	cases := []struct {
+		name  string
+		view  ChannelView
+		glyph string
+		note  string
+	}{
+		{
+			name:  "fresh stamp",
+			view:  ChannelView{Wiring: &ChannelWiring{MCPServer: "notion", Stamps: stamp(2)}},
+			glyph: "●",
+			note:  "verified 2d ago",
+		},
+		{
+			name:  "aging stamp",
+			view:  ChannelView{Wiring: &ChannelWiring{MCPServer: "notion", Stamps: stamp(20)}},
+			glyph: "◐",
+			note:  "verified 20d ago",
+		},
+		{
+			name:  "stale stamp",
+			view:  ChannelView{Wiring: &ChannelWiring{MCPServer: "notion", Stamps: stamp(60)}},
+			glyph: "○",
+			note:  "stale · verified 60d ago",
+		},
+		{
+			name:  "never verified",
+			view:  ChannelView{Wiring: &ChannelWiring{MCPServer: "notion"}},
+			glyph: "◐",
+			note:  "wired, never verified",
+		},
+		{
+			name:  "unwired",
+			view:  ChannelView{},
+			glyph: "○",
+			note:  "unwired",
+		},
+		{
+			name:  "probe clean",
+			view:  ChannelView{Wiring: &ChannelWiring{Path: "/x"}, Probe: &ChannelProbe{PathExists: true, IsGitRepo: true}},
+			glyph: "●",
+			note:  "clean",
+		},
+		{
+			name:  "probe dirty",
+			view:  ChannelView{Wiring: &ChannelWiring{Path: "/x"}, Probe: &ChannelProbe{PathExists: true, IsGitRepo: true, Dirty: true}},
+			glyph: "◐",
+			note:  "dirty",
+		},
+		{
+			name:  "probe diverged",
+			view:  ChannelView{Wiring: &ChannelWiring{Path: "/x"}, Probe: &ChannelProbe{PathExists: true, IsGitRepo: true, HasUpstream: true, Ahead: 2, Behind: 1}},
+			glyph: "◐",
+			note:  "clean · 2 ahead 1 behind",
+		},
+		{
+			name:  "probe path missing",
+			view:  ChannelView{Wiring: &ChannelWiring{Path: "/x"}, Probe: &ChannelProbe{}},
+			glyph: "○",
+			note:  "path missing",
+		},
+		{
+			name:  "probe not a git repo",
+			view:  ChannelView{Wiring: &ChannelWiring{Path: "/x"}, Probe: &ChannelProbe{PathExists: true}},
+			glyph: "◐",
+			note:  "not a git repo",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			glyph, note := ChannelStatus(tc.view, now)
+			if glyph != tc.glyph || note != tc.note {
+				t.Errorf("ChannelStatus = %q/%q, want %q/%q", glyph, note, tc.glyph, tc.note)
+			}
+		})
 	}
 }
