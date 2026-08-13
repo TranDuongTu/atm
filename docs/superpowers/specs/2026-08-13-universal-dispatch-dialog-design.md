@@ -2,7 +2,7 @@
 
 - **Task:** ATM-29f8b0
 - **Date:** 2026-08-13
-- **Status:** Approved design, pre-implementation
+- **Status:** Implemented (2026-08-13, ATM-29f8b0)
 
 ## Problem
 
