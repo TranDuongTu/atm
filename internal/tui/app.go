@@ -102,6 +102,7 @@ type Model struct {
 	agentOptionsFn func() []agentOption
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
+	channelsOv     channelsModel
 
 	form *Form
 
@@ -195,6 +196,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.agentOptionsFn = agentOptions
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
+	m.channelsOv.m = m
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -387,7 +389,8 @@ func (m *Model) canMutate() bool { return true }
 
 // workspaceIdle reports whether the plain two-pane workspace is what View
 // shows — no overlay, form, confirm, plugin, capability switcher, dispatch
-// dialog, or personas overlay layered over it (see View's overlay chain).
+// dialog, personas overlay, or channels overlay layered over it (see View's
+// overlay chain).
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
@@ -397,7 +400,8 @@ func (m *Model) workspaceIdle() bool {
 		m.pluginOverlay == -1 &&
 		!m.capability.open &&
 		!m.dispatchDlg.active &&
-		!m.personasOv.open
+		!m.personasOv.open &&
+		!m.channelsOv.open
 }
 
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
@@ -594,6 +598,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.personasOv.handleKey(k)
 	}
 
+	// Channels overlay (read-only) consumes keys until closed (Esc) or until
+	// `c` hands off to the dispatch dialog.
+	if m.channelsOv.open {
+		return m.channelsOv.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -652,6 +662,15 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "V":
 		m.personasOv.openOverlay()
 		return nil
+	case "E":
+		// Read-only channel status. In the Projects pane this resolves to the
+		// highlighted row, exactly as D does (see openDispatch), so the two
+		// bindings never disagree about the project the user is looking at —
+		// `c` inside the overlay hands that same project to the dispatch
+		// dialog. Elsewhere it stays on m.projectScope: the overlay is a
+		// project-wide status view and must not chase the task cursor.
+		m.channelsOv.openOverlay(m.overlayProject())
+		return nil
 	case "T":
 		m.cycleTheme()
 		return nil
@@ -694,6 +713,20 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	}
 	return nil
+}
+
+// overlayProject is the project a project-wide overlay should open on. It
+// mirrors the project openDispatch resolves — the highlighted Projects row
+// when that pane is focused and not drilled into the persona chart (the
+// drill-in has no row of its own, so dispatch keeps the scope there too) —
+// and falls back to the current scope everywhere else.
+func (m *Model) overlayProject() string {
+	if m.focused == paneProjects && !(m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups)) {
+		if row, ok := m.projects.selected(); ok {
+			return row.code
+		}
+	}
+	return m.projectScope
 }
 
 // openDispatch opens the universal dispatch dialog, resolving the current
@@ -909,7 +942,7 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the seven gates below are exactly the
+	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below are exactly the
 	// states in which View renders something over the plain workspace, and
 	// workspaceIdle() is their negation (it gates the background-art animation
 	// tick). Adding an overlay here without adding it to workspaceIdle() would
@@ -935,6 +968,9 @@ func (m *Model) View() string {
 	}
 	if m.personasOv.open {
 		out = m.placeOverlay(out, m.personasOv.renderOverlay())
+	}
+	if m.channelsOv.open {
+		out = m.placeOverlay(out, m.channelsOv.renderOverlay())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

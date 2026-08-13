@@ -1,6 +1,10 @@
 ## Unreleased
 
 ### feat
+- Channels: repositories and Notion databases as first-class, ledger-recorded
+  communication surfaces (`atm channel`, channels TUI overlay, `E`); `atm
+  project repo` verbs retired (`atm channel migrate-repos` lifts existing
+  entries).
 - ATM-29f8b0: the TUI dispatch dialog is now universal. `D` opens it from any
   pane (even an empty workspace); the persona is a selectable field (`p`) over
   every store persona instead of being fixed by the opening context. Context

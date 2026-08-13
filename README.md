@@ -238,7 +238,7 @@ atm --persona developer --project ATM --agent codex -- --yolo
 
 ### Dispatching Sessions From The TUI
 
-The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project — or, when the persona chart is drilled in, a session for the drilled persona (concierge and admin launch without a project). From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's recorded repo dispatch targets (see below); when none are recorded it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out).
+The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project — or, when the persona chart is drilled in, a session for the drilled persona (concierge and admin launch without a project). From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's wired repo channels (see Channels, below); when none are wired it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out); `E` opens a read-only **channels** overlay (every channel with its wiring and stamp status, `Enter` for detail, `Esc` backs out).
 
 A developer session can equally be handed a task from the shell with the new
 `--task <id>` flag — it is validated against `--project`'s store, exported to
@@ -251,15 +251,18 @@ task sessions from sharing a context file):
 atm --persona developer --project ATM --agent claude --task ATM-4b7e24
 ```
 
-A project records its repo dispatch targets with `atm project repo add` —
-machine-local config (not synced), so re-record them on each new machine via a
-concierge session:
+### Channels
+
+A channel is how personas communicate — a git repository, a Notion database, later other surfaces — recorded in three tiers: a ledger record (project code, unique `--name` handle, purpose, and a type-shaped address such as a repo's remote URL or a Notion workspace/database, synced across machines); this machine's local wiring (a repo's clone path and/or an MCP server name, kept only in `config.json`, never synced); and no third tier at all, because ATM never stores a token, password, or credential — authorization lives in the agent's own tooling (e.g. the Notion MCP server's OAuth store), and ATM only records that it happened via a stamp. `atm channel add/list/show/edit/remove` manage the ledger record, `atm channel wire` records this machine's path or MCP server, and `atm channel stamp` vouches that someone actually reached the channel just now:
 
 ```sh
-atm project repo add main ~/projects/scyllas/atm --url https://example.com/atm.git --project ATM
-atm project repo list --project ATM
-atm project repo remove main --project ATM
+atm channel add --project ATM --name atm --type repo --purpose "primary source tree" --url https://example.com/atm.git
+atm channel wire --project ATM --name atm --path ~/projects/scyllas/atm
+atm channel list --project ATM
+atm channel stamp --project ATM --name atm --note "cloned and verified"
 ```
+
+In the TUI, `E` opens a read-only **channels** overlay listing every channel with its status; all writes still go through `atm channel`. A project that recorded repos the old way (`atm project repo add`, now retired) lifts them in one shot with `atm channel migrate-repos --project <CODE>`, which reports three outcomes: `migrated` channels got both a ledger record and this machine's wiring (confirm each one's purpose with `atm channel edit`); `unwired` channels got a ledger record but their recorded local path no longer exists on this machine (re-wire with `atm channel wire` once you know where the repo lives now); `skipped` repos were left untouched in the legacy config because their name already belongs to a different, non-repo channel (nothing is lost — resolve the collision by renaming one side or wiring the legacy path onto a new handle). Channels are gated behind the `channel` capability: new projects get it automatically from the registry, but a project whose capability list was ever recorded explicitly (as ATM's own is) needs it enabled and seeded once, after which `atm channel` works normally: `atm project capability add --project <CODE> --name channel` then `atm capability channel seed --project <CODE>`.
 
 When neither herdr nor tmux is present, the terminal fallback opens a new tab
 in a known emulator (kitty, wezterm, gnome-terminal, konsole, alacritty,

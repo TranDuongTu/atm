@@ -176,8 +176,16 @@ func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle string) 
 	d.preview, d.previewErr = "", ""
 	d.repos, d.repoCursor = nil, 0
 	if project != "" {
-		if repos, err := d.m.store.ProjectRepos(project); err == nil {
-			d.repos = repos
+		// RepoChannelTargets, not ProjectChannels: the dialog opens on a
+		// keypress and must not shell out to git once per repo to draw a
+		// picker. Status is the overlay's job.
+		if targets, err := d.m.store.RepoChannelTargets(project); err == nil {
+			d.repos = targets
+		}
+		if len(d.repos) == 0 { // legacy fallback until migrate-repos has run
+			if repos, err := d.m.store.ProjectRepos(project); err == nil {
+				d.repos = repos
+			}
 		}
 	}
 	d.active = true

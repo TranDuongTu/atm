@@ -15,7 +15,7 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 		}
 		return nil, err
 	}
-	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 && !c.ArtOn {
+	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 && !c.ArtOn && len(c.Channels) == 0 {
 		return nil, nil
 	}
 	return &c, nil
