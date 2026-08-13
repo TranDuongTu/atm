@@ -58,7 +58,7 @@ type ChannelService interface {
 	RepoChannelTargets(code string) ([]RepoConfig, error)
 	SetChannelWiring(code, name, path, mcpServer, actor string) error
 	AddChannelStamp(code, name, note, actor string) error
-	MigrateReposToChannels(code, actor string) (int, []string, error)
+	MigrateReposToChannels(code, actor string) (migrated int, unwired []string, skipped []string, err error)
 }
 
 type LabelService interface {

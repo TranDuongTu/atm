@@ -214,9 +214,9 @@ func TestMigrateReposToChannels(t *testing.T) {
 	if err := s.SetProjectRepo("ATM", "atm", dir, "git@github.com:TranDuongTu/atm.git", chActor); err != nil {
 		t.Fatal(err)
 	}
-	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
-	if err != nil || n != 1 || len(unwired) != 0 {
-		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
+	n, unwired, skipped, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 0 || len(skipped) != 0 {
+		t.Fatalf("migrated %d, unwired %v, skipped %v, %v", n, unwired, skipped, err)
 	}
 	v, err := s.GetChannelByName("ATM", "atm")
 	if err != nil || v.Type != core.ChannelTypeRepo || v.Address.URL != "git@github.com:TranDuongTu/atm.git" || v.Wiring == nil || v.Wiring.Path != dir {
@@ -226,8 +226,39 @@ func TestMigrateReposToChannels(t *testing.T) {
 		t.Fatalf("legacy repos not cleared: %v", repos)
 	}
 	// idempotent: second run migrates nothing and does not error on the existing handle
-	if n, _, err := s.MigrateReposToChannels("ATM", chActor); err != nil || n != 0 {
+	if n, _, _, err := s.MigrateReposToChannels("ATM", chActor); err != nil || n != 0 {
 		t.Fatalf("re-run: %d %v", n, err)
+	}
+}
+
+// A legacy repo whose name collides with an EXISTING channel of a DIFFERENT
+// type must not be silently dropped: its Path/URL live nowhere else, so
+// clearing it out from under the collision would be unrecoverable. It stays
+// in the legacy list and is reported in `skipped`; the other channel is
+// untouched.
+func TestMigrateReposToChannelsSkipsTypeCollision(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "docs", Type: core.ChannelTypeNotion, Purpose: "specs"}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "docs", dir, "git@x:docs.git", chActor); err != nil {
+		t.Fatal(err)
+	}
+	n, unwired, skipped, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 0 || len(unwired) != 0 || len(skipped) != 1 || skipped[0] != "docs" {
+		t.Fatalf("migrated %d, unwired %v, skipped %v, %v", n, unwired, skipped, err)
+	}
+	repos, err := s.ProjectRepos("ATM")
+	if err != nil || len(repos) != 1 || repos[0].Name != "docs" || repos[0].Path != dir || repos[0].URL != "git@x:docs.git" {
+		t.Fatalf("legacy repo must survive the collision: %v %v", repos, err)
+	}
+	v, err := s.GetChannelByName("ATM", "docs")
+	if err != nil || v.Type != core.ChannelTypeNotion || v.Purpose != "specs" {
+		t.Fatalf("notion channel must be untouched: %+v %v", v, err)
 	}
 }
 
@@ -245,9 +276,9 @@ func TestMigrateReposToChannelsSurvivesMissingPath(t *testing.T) {
 	if err := os.RemoveAll(gone); err != nil {
 		t.Fatal(err)
 	}
-	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
-	if err != nil || n != 1 || len(unwired) != 1 || unwired[0] != "moved" {
-		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
+	n, unwired, skipped, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 1 || unwired[0] != "moved" || len(skipped) != 0 {
+		t.Fatalf("migrated %d, unwired %v, skipped %v, %v", n, unwired, skipped, err)
 	}
 	v, err := s.GetChannelByName("ATM", "moved")
 	if err != nil || v.Address.URL != "git@x:moved.git" || v.Wiring != nil {

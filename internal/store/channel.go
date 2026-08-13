@@ -306,9 +306,10 @@ func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
 
 // MigrateReposToChannels lifts every legacy RepoConfig into a repo channel:
 // tier-1 record (handle, URL; purpose left for the concierge to author) plus
-// tier-2 wiring (path), then clears the legacy repos list. Handles that
-// already exist as channels are skipped, so a re-run is safe. Returns the
-// number migrated plus the handles whose PATH could not be wired.
+// tier-2 wiring (path), then clears the legacy repos entries actually
+// accounted for. Returns the number migrated, the handles whose PATH could
+// not be wired, and the handles left in place because their name already
+// belongs to a channel of a DIFFERENT type.
 //
 // A legacy path that no longer exists (the folder moved since it was
 // recorded) must not abort the migration: SetChannelWiring rejects a missing
@@ -316,51 +317,79 @@ func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
 // uncleared, and every re-run stuck on the same entry forever. The ledger
 // record is the part worth keeping — it is what lets a concierge re-wire the
 // channel — so a missing path is reported, not fatal.
-func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, error) {
+//
+// A legacy repo name that collides with an EXISTING channel of a different
+// type (e.g. a hand-created notion channel named "docs") must not be
+// silently dropped: the legacy repo's Path/URL live nowhere else, so
+// clearing it out from under the collision would be unrecoverable data
+// loss. Such entries are left exactly where they are and reported in
+// `skipped`, not migrated and not cleared. Only a same-named REPO-type
+// channel (a prior migration run) counts as "already accounted for" and
+// clears the legacy entry without recreating anything.
+func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, []string, error) {
 	repos, err := s.ProjectRepos(code)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	existing, err := s.ChannelRecords(code)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
-	taken := make(map[string]bool, len(existing))
+	takenType := make(map[string]string, len(existing))
 	for _, e := range existing {
-		taken[e.Name] = true
+		takenType[e.Name] = e.Type
 	}
 	n := 0
-	var unwired []string
+	var unwired, skipped []string
+	accounted := make(map[string]bool, len(repos))
 	for _, r := range repos {
-		if taken[r.Name] {
+		switch takenType[r.Name] {
+		case core.ChannelTypeRepo:
+			// Already migrated in an earlier run: the information lives in
+			// the channel record, so the legacy entry is safe to clear.
+			accounted[r.Name] = true
+			continue
+		case "":
+			// No existing channel by this name: safe to migrate below.
+		default:
+			// Name collides with a channel of a different type: migrating
+			// would discard this repo's info with nowhere to preserve it.
+			skipped = append(skipped, r.Name)
 			continue
 		}
 		if _, err := s.CreateChannel(code, core.ChannelRecord{Name: r.Name, Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: r.URL}}, actor); err != nil {
-			return n, unwired, err
+			return n, unwired, skipped, err
 		}
 		if err := s.SetChannelWiring(code, r.Name, r.Path, "", actor); err != nil {
 			if !errors.Is(err, core.ErrUsage) {
-				return n, unwired, err
+				return n, unwired, skipped, err
 			}
 			unwired = append(unwired, r.Name) // path gone: record kept, wiring left to concierge
 		}
+		accounted[r.Name] = true
 		n++
 	}
-	if len(repos) > 0 {
+	if len(accounted) > 0 {
 		if err := s.WithLock(code, func() error {
 			merged, err := s.lockedProjectConfig(code)
 			if err != nil {
 				return err
 			}
-			merged.Repos = nil
+			kept := merged.Repos[:0:0]
+			for _, r := range merged.Repos {
+				if !accounted[r.Name] {
+					kept = append(kept, r)
+				}
+			}
+			merged.Repos = kept
 			merged.UpdatedAt = core.RFC3339UTC(core.Now())
 			merged.UpdatedBy = actor
 			return WriteFileAtomic(s.configPath(code), merged)
 		}); err != nil {
-			return n, unwired, err
+			return n, unwired, skipped, err
 		}
 	}
-	return n, unwired, nil
+	return n, unwired, skipped, nil
 }
 
 // RepoChannelTargets is the dispatch read: repo channels wired on THIS
