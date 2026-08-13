@@ -502,3 +502,36 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 		t.Errorf("admin argv must omit --project/--task: %s", argv)
 	}
 }
+
+func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneTasks // no tasks seeded, no row selected
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog on the tasks pane with no task")
+	}
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	}
+}
+
+func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog from an empty workspace")
+	}
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	}
+}

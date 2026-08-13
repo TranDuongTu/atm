@@ -647,31 +647,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpConventions)
 		return nil
 	case "D":
-		// Drilled persona chart takes precedence; otherwise a project row
-		// dispatches manager and a task row dispatches developer-on-task.
-		if m.focused == paneProjects {
-			if m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
-				return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
-			}
-			if row, ok := m.projects.selected(); ok {
-				m.dispatchDlg.open("manager", row.code, "", "")
-			}
-			return nil
-		}
-		if m.focused == paneTasks {
-			if r, ok := m.tasks.selectedRow(); ok {
-				project := m.projectScope
-				if r.task != nil && r.task.ProjectCode != "" {
-					project = r.task.ProjectCode
-				}
-				if project == "" {
-					m.showToast("error: no project scope for dispatch")
-					return nil
-				}
-				m.dispatchDlg.open("developer", project, r.id, r.title)
-			}
-			return nil
-		}
+		m.openDispatch()
+		return nil
 	case "V":
 		m.personasOv.openOverlay()
 		return nil
@@ -717,6 +694,31 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	}
 	return nil
+}
+
+// openDispatch opens the universal dispatch dialog, resolving the current
+// pane/selection into persona, project, and task defaults. Context never
+// changes dispatch logic — it only preselects. With no selection the dialog
+// still opens, defaulting to concierge (the one built-in usable without a
+// project).
+func (m *Model) openDispatch() {
+	persona, project, taskID, taskTitle := "concierge", m.projectScope, "", ""
+	switch {
+	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
+		persona = m.projects.personaGroups[m.projects.personaCursor].Key
+	case m.focused == paneProjects:
+		if row, ok := m.projects.selected(); ok {
+			persona, project = "manager", row.code
+		}
+	case m.focused == paneTasks:
+		if r, ok := m.tasks.selectedRow(); ok {
+			persona, taskID, taskTitle = "developer", r.id, r.title
+			if r.task != nil && r.task.ProjectCode != "" {
+				project = r.task.ProjectCode
+			}
+		}
+	}
+	m.dispatchDlg.open(persona, project, taskID, taskTitle)
 }
 
 // handleFormKey routes a key into the active form, then handles submit/cancel
