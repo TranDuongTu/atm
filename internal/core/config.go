@@ -39,6 +39,25 @@ type RepoConfig struct {
 	URL  string `json:"url,omitempty"` // remote link the concierge logged; optional
 }
 
+// VerificationStamp is one tier-2 verification record: an actor touched the
+// channel and vouched for its wiring at a moment in time. No secrets.
+type VerificationStamp struct {
+	At   string `json:"at"`
+	By   string `json:"by"`
+	Note string `json:"note,omitempty"`
+}
+
+// ChannelWiring is how THIS machine reaches a channel — tier 2: config, not
+// substrate state, no event-log entry, not synced, and never a secret. Path
+// is the local clone for repo channels; MCPServer names the agent-side MCP
+// server for notion channels. A fresh machine has no wiring until a
+// concierge session records it.
+type ChannelWiring struct {
+	Path      string              `json:"path,omitempty"`
+	MCPServer string              `json:"mcp_server,omitempty"`
+	Stamps    []VerificationStamp `json:"stamps,omitempty"`
+}
+
 type ProjectConfig struct {
 	UpdatedAt string            `json:"updated_at,omitempty"`
 	UpdatedBy string            `json:"updated_by,omitempty"`
@@ -46,6 +65,7 @@ type ProjectConfig struct {
 	Remotes   map[string]string `json:"remotes,omitempty"`
 	Boards    *BoardsConfig     `json:"boards,omitempty"`
 	Repos     []RepoConfig      `json:"repos,omitempty"`
+	Channels  map[string]ChannelWiring `json:"channels,omitempty"`
 	// ArtOn toggles the TUI background art on or off. Display preference,
 	// not substrate state: no event-log entry, and the default is off.
 	ArtOn bool `json:"art_on,omitempty"`
