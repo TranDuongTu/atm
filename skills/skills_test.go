@@ -80,8 +80,8 @@ func TestConciergePersonaShape(t *testing.T) {
 
 func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	cs := Capabilities()
-	if len(cs) != 3 {
-		t.Fatalf("want 3 built-in capabilities, got %d", len(cs))
+	if len(cs) != 4 {
+		t.Fatalf("want 4 built-in capabilities, got %d", len(cs))
 	}
 	for _, c := range cs {
 		if strings.Contains(c.Body, "## Brief") || strings.Contains(c.Body, "## Autopilot") {
