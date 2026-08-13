@@ -84,7 +84,7 @@ func TestWorkspaceIdleMatchesViewDispatch(t *testing.T) {
 	})
 	t.Run("dispatch dialog", func(t *testing.T) {
 		m := fresh(t)
-		m.dispatchDlg.kind = dispatchManager
+		m.dispatchDlg.active = true
 		if m.workspaceIdle() {
 			t.Fatal("workspaceIdle should be false with the dispatch dialog open")
 		}

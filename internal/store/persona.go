@@ -27,11 +27,12 @@ func (s *Store) personalityPath(name string) string {
 // Built-ins have no audit trail: they ship with the binary.
 func builtinPersona(spec skills.PersonaSpec) *core.Persona {
 	return &core.Persona{
-		Name:        spec.Name,
-		Prompt:      spec.Body,
-		Description: spec.Description,
-		CreatedBy:   "builtin",
-		UpdatedBy:   "builtin",
+		Name:            spec.Name,
+		Prompt:          spec.Body,
+		Description:     spec.Description,
+		ProjectOptional: spec.ProjectOptional,
+		CreatedBy:       "builtin",
+		UpdatedBy:       "builtin",
 	}
 }
 
@@ -42,6 +43,9 @@ func composePersonaDoc(p *core.Persona) string {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "name: %s\n", p.Name)
 	fmt.Fprintf(&b, "description: %s\n", sanitizeFrontmatterValue(p.Description))
+	if p.ProjectOptional {
+		b.WriteString("project_optional: true\n")
+	}
 	fmt.Fprintf(&b, "created_at: %s\n", p.CreatedAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "created_by: %s\n", p.CreatedBy)
 	fmt.Fprintf(&b, "updated_at: %s\n", p.UpdatedAt.UTC().Format(time.RFC3339))
@@ -68,7 +72,7 @@ func parsePersonaDoc(name string, src []byte) (*core.Persona, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
-	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description}
+	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description, ProjectOptional: spec.ProjectOptional}
 	// Best-effort audit re-read: scan frontmatter lines only (up to the
 	// closing --- delimiter).
 	lines := strings.Split(string(src), "\n")

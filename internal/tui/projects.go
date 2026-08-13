@@ -330,22 +330,11 @@ func (p *projectsModel) refreshPersonaGroups() {
 	p.personaGroups = activity.Aggregate(activity.Build(entries), "persona")
 }
 
-// openDispatchForPersona maps a persona name to its dispatch kind and opens
-// the dispatch dialog over the current project scope (empty for
-// project-optional personas). Falls back to manager for unknown personas.
+// openDispatchForPersona opens the dispatch dialog with the given persona
+// preselected over the current project scope. Unknown personas fall back to
+// concierge inside the dialog.
 func (p *projectsModel) openDispatchForPersona(persona string) tea.Cmd {
-	m := p.m
-	project := m.projectScope
-	switch persona {
-	case "developer":
-		m.dispatchDlg.open(dispatchDeveloper, project, "", "")
-	case "concierge":
-		m.dispatchDlg.open(dispatchConcierge, "", "", "")
-	case "admin":
-		m.dispatchDlg.open(dispatchAdmin, "", "", "")
-	default:
-		m.dispatchDlg.open(dispatchManager, project, "", "")
-	}
+	p.m.dispatchDlg.open(persona, p.m.projectScope, "", "")
 	return nil
 }
 

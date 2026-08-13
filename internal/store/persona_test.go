@@ -185,6 +185,73 @@ func TestCreatePersonaRefusesBuiltinName(t *testing.T) {
 	}
 }
 
+func TestListPersonasCarriesProjectOptional(t *testing.T) {
+	s := newTestStore(t)
+	byName := map[string]bool{}
+	for _, p := range s.ListPersonas() {
+		byName[p.Name] = p.ProjectOptional
+	}
+	if !byName["concierge"] {
+		t.Error("concierge should be project-optional")
+	}
+	if byName["manager"] || byName["developer"] {
+		t.Error("manager/developer should be project-required")
+	}
+}
+
+func TestCustomPersonaProjectOptionalParsed(t *testing.T) {
+	s := newTestStore(t)
+	doc := "---\nname: rover\ndescription: Rover guide\nproject_optional: true\n---\nRover body\n"
+	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "personas", "rover.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPersona("rover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.ProjectOptional {
+		t.Error("custom persona with project_optional: true should parse as optional")
+	}
+}
+
+// TestEditPersonaPreservesProjectOptional guards the composePersonaDoc
+// round-trip: editing a hand-authored custom persona whose frontmatter marks it
+// project-optional must not silently rewrite it back to project-required.
+func TestEditPersonaPreservesProjectOptional(t *testing.T) {
+	s := newTestStore(t)
+	doc := "---\nname: rover\ndescription: Rover guide\nproject_optional: true\n---\nRover body\n"
+	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "personas", "rover.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPersona("rover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.ProjectOptional {
+		t.Fatal("precondition: hand-authored persona must parse as project-optional")
+	}
+	prompt := "Rover body, edited."
+	if _, err := s.EditPersona("rover", &prompt, nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPersona("rover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.ProjectOptional {
+		t.Error("EditPersona must not drop project_optional from the frontmatter")
+	}
+	if got.Prompt != prompt {
+		t.Errorf("prompt = %q, want %q", got.Prompt, prompt)
+	}
+}
+
 // writeLegacyJSONPersona seeds a .json-only persona (no .md) so callers can
 // exercise the migration path under EditPersona/RemovePersona without a prior
 // GetPersona.

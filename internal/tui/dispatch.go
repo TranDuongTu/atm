@@ -20,22 +20,6 @@ type Dispatcher interface {
 	Spawn(dispatch.Spec) error
 }
 
-type dispatchKind int
-
-const (
-	dispatchNone dispatchKind = iota
-	dispatchManager
-	dispatchDeveloper
-	dispatchConcierge
-	dispatchAdmin
-)
-
-// projectRequired reports whether the persona needs --project in its argv.
-// concierge and admin launch without a project.
-func (k dispatchKind) projectRequired() bool {
-	return k == dispatchManager || k == dispatchDeveloper
-}
-
 type agentOption struct {
 	name  string
 	ready bool
@@ -54,33 +38,55 @@ func agentOptions() []agentOption {
 	return out
 }
 
-// dispatchModel is the dispatch dialog overlay (pattern: capabilityModel).
+// dispatchModel is the universal dispatch dialog overlay (pattern:
+// capabilityModel). Persona is a selectable field cycling over every store
+// persona; context only preselects persona/project/task defaults at open.
 type dispatchModel struct {
-	m            *Model
-	kind         dispatchKind
-	project      string
-	taskID       string
-	taskTitle    string
-	agents       []agentOption
-	cursor       int
-	targets      []string
-	targetCursor int
-	preview      string
-	previewErr   string
-	repos        []core.RepoConfig
-	repoCursor   int
+	m             *Model
+	active        bool
+	personas      []*core.Persona
+	personaCursor int
+	project       string
+	taskID        string
+	taskTitle     string
+	agents        []agentOption
+	cursor        int
+	targets       []string
+	targetCursor  int
+	preview       string
+	previewErr    string
+	repos         []core.RepoConfig
+	repoCursor    int
+}
+
+// selectedPersona returns the persona under the cursor, or nil.
+func (d *dispatchModel) selectedPersona() *core.Persona {
+	if d.personaCursor < 0 || d.personaCursor >= len(d.personas) {
+		return nil
+	}
+	return d.personas[d.personaCursor]
 }
 
 func (d *dispatchModel) persona() string {
-	switch d.kind {
-	case dispatchDeveloper:
-		return "developer"
-	case dispatchConcierge:
-		return "concierge"
-	case dispatchAdmin:
-		return "admin"
+	if p := d.selectedPersona(); p != nil {
+		return p.Name
 	}
-	return "manager"
+	return ""
+}
+
+// projectRequired reports whether the selected persona needs --project in its
+// argv. Derived from the persona's project_optional spec; admin is always
+// project-optional because --persona admin routes to a fresh TUI that ignores
+// --project.
+func (d *dispatchModel) projectRequired() bool {
+	p := d.selectedPersona()
+	if p == nil {
+		return false
+	}
+	if p.Name == "admin" {
+		return false
+	}
+	return !p.ProjectOptional
 }
 
 func (d *dispatchModel) target() string {
@@ -91,10 +97,15 @@ func (d *dispatchModel) target() string {
 }
 
 func (d *dispatchModel) title() string {
+	// admin routes to a fresh TUI that ignores --project, so its title never
+	// carries a project scope (mirrors projectRequired's admin special-case).
+	if d.persona() == "admin" {
+		return "admin"
+	}
 	if d.taskID != "" {
 		return d.taskID
 	}
-	if d.kind.projectRequired() {
+	if d.project != "" && d.persona() != "" {
 		return d.project + " · " + d.persona()
 	}
 	return d.persona()
@@ -129,8 +140,29 @@ func bwInner(width int) int {
 	return bw - 4
 }
 
-func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle string) {
-	d.kind, d.project, d.taskID, d.taskTitle = kind, project, taskID, taskTitle
+// open preselects the given default persona (falling back to concierge when
+// it is not in the store list), sets the context defaults, and refreshes the
+// target preview. Dispatch logic never branches on how it was opened.
+func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle string) {
+	d.project, d.taskID, d.taskTitle = project, taskID, taskTitle
+	d.personas = d.m.store.ListPersonas()
+	d.personaCursor = 0
+	for i, p := range d.personas {
+		if p.Name == defaultPersona {
+			d.personaCursor = i
+			break
+		}
+	}
+	if d.persona() != defaultPersona {
+		// default not found: preselect concierge (project-optional, always
+		// dispatchable) so the dialog always opens with a usable persona.
+		for i, p := range d.personas {
+			if p.Name == "concierge" {
+				d.personaCursor = i
+				break
+			}
+		}
+	}
 	d.agents = d.m.agentOptionsFn()
 	d.cursor = 0
 	for i, a := range d.agents { // preselect the first ready agent
@@ -143,11 +175,12 @@ func (d *dispatchModel) open(kind dispatchKind, project, taskID, taskTitle strin
 	d.targetCursor = 0
 	d.preview, d.previewErr = "", ""
 	d.repos, d.repoCursor = nil, 0
-	if kind == dispatchDeveloper && project != "" {
+	if project != "" {
 		if repos, err := d.m.store.ProjectRepos(project); err == nil {
 			d.repos = repos
 		}
 	}
+	d.active = true
 	if d.m.dispatcher == nil {
 		d.previewErr = "dispatch unavailable in this build"
 		return
@@ -172,7 +205,11 @@ func (d *dispatchModel) refreshPreview() {
 func (d *dispatchModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
-		d.kind = dispatchNone
+		d.active = false
+	case "p":
+		if len(d.personas) > 0 {
+			d.personaCursor = (d.personaCursor + 1) % len(d.personas)
+		}
 	case "left", "h":
 		if d.cursor > 0 {
 			d.cursor--
@@ -203,21 +240,35 @@ func (d *dispatchModel) submit() {
 		d.m.showToast("error: " + d.previewErr)
 		return
 	}
+	p := d.selectedPersona()
+	if p == nil {
+		d.m.showToast("error: no personas available")
+		return
+	}
+	if d.projectRequired() && d.project == "" {
+		d.m.showToast("error: persona " + p.Name + " requires a project scope")
+		return
+	}
 	if len(d.agents) == 0 {
 		d.m.showToast("error: agent catalog is empty")
 		return
 	}
 	a := d.agents[d.cursor]
-	if !a.ready {
+	if p.Name != "admin" && !a.ready {
 		d.m.showToast("error: agent " + a.name + " not ready: " + a.hint)
 		return
 	}
-	argv := []string{"atm", "--persona", d.persona()}
-	if d.kind.projectRequired() {
+	argv := []string{"atm", "--persona", p.Name}
+	if d.projectRequired() {
 		argv = append(argv, "--project", d.project)
 	}
-	argv = append(argv, "--agent", a.name)
-	if d.taskID != "" {
+	if p.Name != "admin" {
+		argv = append(argv, "--agent", a.name)
+	}
+	// --task rides only with --project: the CLI launcher rejects
+	// "--task requires --project", so a task is only passed when the selected
+	// persona will receive --project in the same argv.
+	if d.taskID != "" && d.projectRequired() {
 		argv = append(argv, "--task", d.taskID)
 	}
 	dir, err := os.Getwd()
@@ -232,21 +283,21 @@ func (d *dispatchModel) submit() {
 		d.m.showToast("error: " + err.Error())
 		return
 	}
-	d.m.showToast("dispatched " + d.persona() + " → " + d.preview)
-	d.kind = dispatchNone
+	d.m.showToast("dispatched " + p.Name + " → " + d.preview)
+	d.active = false
 }
 
 // renderOverlay draws the dialog. Box construction mirrors
-// capabilityModel.renderOverlay (titledBoxHeight + styles.DialogBody) —
-// reuse the same helpers and width conventions found there. The taskTitle
-// echo line is truncated to the box's inner width with fitLine so a long
-// title cannot widen the dialog.
+// capabilityModel.renderOverlay (titledBoxHeight + styles.DialogBody) — reuse
+// the same helpers and width conventions found there. The persona description,
+// taskTitle, and repo path hints are truncated to the box's inner width with
+// fitLine so a long value cannot widen the dialog.
 func (d *dispatchModel) renderOverlay() string {
 	styles := d.m.styles
 
 	// Box width mirrors capabilityModel.renderOverlay's computation; it is
-	// computed before the task lines so the taskTitle truncation below can
-	// use the inner width.
+	// computed before the content lines so the truncations below can use the
+	// inner width.
 	bw := d.m.width * 60 / 100
 	if bw < 64 {
 		bw = 64
@@ -256,9 +307,15 @@ func (d *dispatchModel) renderOverlay() string {
 	}
 
 	var b strings.Builder
-	if d.kind == dispatchDeveloper {
+	if p := d.selectedPersona(); p != nil {
+		b.WriteString("Persona: ‹ " + p.Name + " ›\n")
+		b.WriteString(styles.FieldHint.Render("        "+fitLine(p.Description, bw-10)) + "\n\n")
+	}
+	if d.taskID != "" {
 		b.WriteString("Task:   " + d.taskID + "\n")
 		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, bw-10)) + "\n\n")
+	}
+	if d.project != "" {
 		b.WriteString("Repo:   " + d.repoLabel() + "\n\n")
 	}
 	a := agentOption{name: "—"}
@@ -266,7 +323,7 @@ func (d *dispatchModel) renderOverlay() string {
 		a = d.agents[d.cursor]
 	}
 	b.WriteString("Agent:  ‹ " + a.name + " ›\n")
-	if a.ready {
+	if a.ready || d.persona() == "admin" {
 		b.WriteString(styles.Success.Render("        ready") + "\n\n")
 	} else {
 		b.WriteString(styles.Error.Render("        x "+a.hint) + "\n\n")
@@ -276,16 +333,15 @@ func (d *dispatchModel) renderOverlay() string {
 	} else {
 		b.WriteString("Target: " + d.targets[d.targetCursor] + " · " + d.preview + " \"" + d.title() + "\"\n")
 	}
-	help := "[←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
-	if d.kind == dispatchDeveloper {
-		help = "[←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
+	if d.projectRequired() && d.project == "" {
+		b.WriteString(styles.Error.Render("⚠ "+d.persona()+" requires a project scope") + "\n")
+	}
+	help := "[p]persona  [←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
+	if d.project != "" {
+		help = "[p]persona  [←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
 	}
 	b.WriteString("\n" + styles.KeyMenuDim.Render(help))
 
 	bh := strings.Count(b.String(), "\n") + 3
-	dialogTitle := "Dispatch " + d.persona()
-	if d.kind.projectRequired() {
-		dialogTitle += " — " + d.project
-	}
-	return titledBoxHeight(styles.DialogBody, bw, dialogTitle, b.String(), bh)
+	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
 }

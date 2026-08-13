@@ -62,11 +62,14 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatal("D on projects pane must open the manager dialog")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on projects pane must open the dialog")
+	}
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q, want manager", m.dispatchDlg.persona())
 	}
 	view := m.dispatchDlg.renderOverlay()
-	for _, want := range []string{"Dispatch manager", "claude", "tmux · new window"} {
+	for _, want := range []string{"Persona:", "manager", "claude", "tmux · new window"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overlay missing %q:\n%s", want, view)
 		}
@@ -84,8 +87,98 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	if got.Title != "ATM · manager" {
 		t.Errorf("title = %q, want ATM · manager", got.Title)
 	}
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		t.Error("dialog must close after dispatch")
+	}
+}
+
+// TestDispatchDOnTaskRowNoProjectRefusesInline drives the real D handler on a
+// task row whose project resolves empty: the dialog must OPEN (developer
+// preselected, no early "no project scope" toast) and Enter must refuse inline
+// without spawning. A store task always carries a non-empty ProjectCode, so the
+// empty state is arranged by clearing the scoped project and the selected
+// row's project code after refresh; openDispatch then falls back to the empty
+// m.projectScope.
+func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	m.projectScope = ""
+	m.tasks.rows[0].task.ProjectCode = ""
+	sizeDispatchModel(m)
+
+	fd := &fakeDispatcher{preview: "herdr · new pane"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on a task row with no project scope must open the dialog, not refuse")
+	}
+	if m.toastMsg != "" {
+		t.Fatalf("opening the dialog must not toast, got %q", m.toastMsg)
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
+	}
+	if m.dispatchDlg.project != "" {
+		t.Fatalf("project = %q, want empty", m.dispatchDlg.project)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 0 {
+		t.Fatal("enter with no project scope must not spawn")
+	}
+	if !strings.Contains(m.toastMsg, "requires a project scope") {
+		t.Errorf("toast = %q, want project-scope error", m.toastMsg)
+	}
+	if !m.dispatchDlg.active {
+		t.Error("dialog must stay open after refusal")
+	}
+}
+
+func TestDispatchEscCloses(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog")
+	}
+	dispatchKey(m, "esc")
+	if m.dispatchDlg.active {
+		t.Error("esc must close the dialog")
+	}
+}
+
+func TestDispatchTargetCycle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	before := m.dispatchDlg.targetCursor
+	dispatchKey(m, "t")
+	want := (before + 1) % len(m.dispatchDlg.targets)
+	if m.dispatchDlg.targetCursor != want {
+		t.Fatalf("targetCursor = %d, want %d after t", m.dispatchDlg.targetCursor, want)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, m.dispatchDlg.targets[m.dispatchDlg.targetCursor]) {
+		t.Errorf("overlay must show the cycled target:\n%s", view)
 	}
 }
 
@@ -93,14 +186,11 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	// Seed a task and refresh so the tasks pane has a row under the cursor.
 	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.refreshAll()
-	// Default tasks focus is focusOff with an empty filter -> a flat row list.
-	// Cursor sits on row 0 after refresh.
 	m.focused = paneTasks
 	sizeDispatchModel(m)
 
@@ -109,8 +199,11 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if !m.dispatchDlg.active {
+		t.Fatal("D on tasks pane must open the dialog")
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
 	}
 	if m.dispatchDlg.taskID != task.ID {
 		t.Fatalf("task = %q, want %q", m.dispatchDlg.taskID, task.ID)
@@ -148,7 +241,7 @@ func TestDispatchUnreadyAgentRefused(t *testing.T) {
 	if !strings.Contains(m.toastMsg, "not ready") {
 		t.Errorf("toast = %q, want not-ready error", m.toastMsg)
 	}
-	if m.dispatchDlg.kind == dispatchNone {
+	if !m.dispatchDlg.active {
 		t.Error("dialog must stay open after refusal")
 	}
 }
@@ -182,7 +275,7 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "https://example.com/atm.git", testActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,8 +288,8 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatal("D on tasks pane must default to developer")
 	}
 	if len(m.dispatchDlg.repos) != 1 || m.dispatchDlg.repos[0].Path != repoDir {
 		t.Fatalf("repos = %+v, want one main -> %s", m.dispatchDlg.repos, repoDir)
@@ -213,14 +306,13 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	if fd.spawned[0].Dir != repoDir {
 		t.Errorf("Spec.Dir = %q, want repo path %q", fd.spawned[0].Dir, repoDir)
 	}
-	_ = task
 }
 
 func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +330,8 @@ func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	}
 
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchDeveloper {
-		t.Fatal("D on tasks pane must open the developer dialog")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatal("D on tasks pane must default to developer")
 	}
 	if len(m.dispatchDlg.repos) != 0 {
 		t.Fatalf("repos = %+v, want empty", m.dispatchDlg.repos)
@@ -261,7 +353,6 @@ func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	if fd.spawned[0].Dir != cwd {
 		t.Errorf("Spec.Dir = %q, want cwd %q", fd.spawned[0].Dir, cwd)
 	}
-	_ = task
 }
 
 func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
@@ -275,7 +366,7 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	if err := m.store.SetProjectRepo("ATM", "docs", d2, "", testActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,8 +387,6 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 		t.Fatalf("repoCursor = %d, want 1 after down", m.dispatchDlg.repoCursor)
 	}
 	view := m.dispatchDlg.renderOverlay()
-	// The selected repo's name renders in the Repo: line; the path may be
-	// truncated by fitLine for long temp dirs, so assert on the name.
 	if !strings.Contains(view, "docs") {
 		t.Errorf("overlay must show second repo name after down:\n%s", view)
 	}
@@ -313,12 +402,12 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	if fd.spawned[0].Dir != d1 {
 		t.Errorf("Spec.Dir = %q, want first repo %q", fd.spawned[0].Dir, d1)
 	}
-	_ = task
 }
 
-// TestDispatchManagerUnchangedByRepoPicker is a regression guard: the
-// manager dialog has no Repo: line and still dispatches into cwd.
-func TestDispatchManagerUnchangedByRepoPicker(t *testing.T) {
+// TestDispatchManagerShowsRepoWhenProjectPresent replaces the old
+// "manager must not show a Repo line" guard: with the universal dialog the
+// Repo picker appears for any persona whenever a project is present.
+func TestDispatchManagerShowsRepoWhenProjectPresent(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -333,24 +422,207 @@ func TestDispatchManagerUnchangedByRepoPicker(t *testing.T) {
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	dispatchKey(m, "D")
-	if m.dispatchDlg.kind != dispatchManager {
-		t.Fatal("D on projects pane must open the manager dialog")
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
 	}
 	view := m.dispatchDlg.renderOverlay()
-	if strings.Contains(view, "Repo:") {
-		t.Errorf("manager dialog must not show a Repo line:\n%s", view)
+	if !strings.Contains(view, "Repo:") || !strings.Contains(view, "main") {
+		t.Errorf("manager dialog must show Repo line when a project is present:\n%s", view)
 	}
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("must spawn")
 	}
-	if fd.spawned[0].Dir != cwd {
-		t.Errorf("manager Spec.Dir = %q, want cwd %q (unchanged)", fd.spawned[0].Dir, cwd)
+	if fd.spawned[0].Dir != repoDir {
+		t.Errorf("Spec.Dir = %q, want repo %q", fd.spawned[0].Dir, repoDir)
+	}
+}
+
+func TestDispatchPersonaCycle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	first := m.dispatchDlg.persona()
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	if m.dispatchDlg.persona() == first {
+		t.Fatal("p must change the persona")
+	}
+}
+
+func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("manager", "", "", "")
+	if m.dispatchDlg.persona() != "manager" {
+		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "requires a project scope") {
+		t.Errorf("overlay must show the no-scope warning:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 0 {
+		t.Fatal("must not spawn without a project")
+	}
+	if !strings.Contains(m.toastMsg, "requires a project scope") {
+		t.Errorf("toast = %q, want project-scope error", m.toastMsg)
+	}
+	if !m.dispatchDlg.active {
+		t.Error("dialog must stay open")
+	}
+}
+
+func TestDispatchUnknownDefaultFallsBackToConcierge(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("ghost", "", "", "")
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	}
+}
+
+func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	sizeDispatchModel(m)
+	fd := &fakeDispatcher{preview: "herdr"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q want developer", m.dispatchDlg.persona())
+	}
+	for i := 0; i < len(m.dispatchDlg.personas); i++ {
+		m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer after full cycle", m.dispatchDlg.persona())
+	}
+	if m.dispatchDlg.taskID != task.ID {
+		t.Fatalf("task = %q, want %q after persona cycle", m.dispatchDlg.taskID, task.ID)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.Contains(argv, "--persona developer") || !strings.Contains(argv, "--task "+task.ID) {
+		t.Errorf("argv = %s", argv)
+	}
+}
+
+func TestDispatchConciergeOmitsProject(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("concierge", "", "", "")
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("concierge should spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if strings.Contains(argv, "--project") {
+		t.Errorf("concierge argv must omit --project: %s", argv)
+	}
+	if !strings.Contains(argv, "--persona concierge") {
+		t.Errorf("concierge argv must set --persona concierge: %s", argv)
+	}
+}
+
+func TestDispatchAdminOpensTUI(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("admin", "ATM", "", "")
+	if m.dispatchDlg.persona() != "admin" {
+		t.Fatalf("persona = %q want admin", m.dispatchDlg.persona())
+	}
+	// admin is not gated on agent readiness: move to the unready codex and
+	// dispatch anyway.
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("admin should spawn even with an unready agent")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.Contains(argv, "--persona admin") {
+		t.Errorf("admin argv must set --persona admin: %s", argv)
+	}
+	if strings.Contains(argv, "--project") || strings.Contains(argv, "--task") {
+		t.Errorf("admin argv must omit --project/--task: %s", argv)
+	}
+	if fd.spawned[0].Title != "admin" {
+		t.Errorf("title = %q, want just admin (no project prefix)", fd.spawned[0].Title)
+	}
+}
+
+func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneTasks // no tasks seeded, no row selected
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog on the tasks pane with no task")
+	}
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	}
+}
+
+func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	m.focused = paneProjects // explicit: D works from any pane's default focus
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+
+	dispatchKey(m, "D")
+	if !m.dispatchDlg.active {
+		t.Fatal("D must open the dialog from an empty workspace")
+	}
+	if m.dispatchDlg.persona() != "concierge" {
+		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
 	}
 }

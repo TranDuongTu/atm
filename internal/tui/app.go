@@ -396,7 +396,7 @@ func (m *Model) workspaceIdle() bool {
 		m.confirm == confirmNone &&
 		m.pluginOverlay == -1 &&
 		!m.capability.open &&
-		m.dispatchDlg.kind == dispatchNone &&
+		!m.dispatchDlg.active &&
 		!m.personasOv.open
 }
 
@@ -557,7 +557,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// Dispatch dialog consumes keys until closed (Esc). Checked before the
 	// actors overlay because dispatch can be opened from within the actors
 	// detail view and must take over key routing immediately.
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		return m.dispatchDlg.handleKey(k)
 	}
 
@@ -647,33 +647,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.openHelp(helpConventions)
 		return nil
 	case "D":
-		// When the persona chart is drilled into a persona, D dispatches
-		// that persona (takes precedence over the project-row manager
-		// dispatch). The projects pane's handlePersonaChartKey also handles
-		// ctrl+shift+right for terminals that emit it distinctly.
-		if m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups) {
-			return m.projects.openDispatchForPersona(m.projects.personaGroups[m.projects.personaCursor].Key)
-		}
-		if m.focused == paneProjects {
-			if row, ok := m.projects.selected(); ok {
-				m.dispatchDlg.open(dispatchManager, row.code, "", "")
-			}
-			return nil
-		}
-		if m.focused == paneTasks {
-			if r, ok := m.tasks.selectedRow(); ok {
-				project := m.projectScope
-				if r.task != nil && r.task.ProjectCode != "" {
-					project = r.task.ProjectCode
-				}
-				if project == "" {
-					m.showToast("error: no project scope for dispatch")
-					return nil
-				}
-				m.dispatchDlg.open(dispatchDeveloper, project, r.id, r.title)
-			}
-			return nil
-		}
+		m.openDispatch()
+		return nil
 	case "V":
 		m.personasOv.openOverlay()
 		return nil
@@ -719,6 +694,31 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.tasks.handleKey(k)
 	}
 	return nil
+}
+
+// openDispatch opens the universal dispatch dialog, resolving the current
+// pane/selection into persona, project, and task defaults. Context never
+// changes dispatch logic — it only preselects. With no selection the dialog
+// still opens, defaulting to concierge (the one built-in usable without a
+// project).
+func (m *Model) openDispatch() {
+	persona, project, taskID, taskTitle := "concierge", m.projectScope, "", ""
+	switch {
+	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
+		persona = m.projects.personaGroups[m.projects.personaCursor].Key
+	case m.focused == paneProjects:
+		if row, ok := m.projects.selected(); ok {
+			persona, project = "manager", row.code
+		}
+	case m.focused == paneTasks:
+		if r, ok := m.tasks.selectedRow(); ok {
+			persona, taskID, taskTitle = "developer", r.id, r.title
+			if r.task != nil && r.task.ProjectCode != "" {
+				project = r.task.ProjectCode
+			}
+		}
+	}
+	m.dispatchDlg.open(persona, project, taskID, taskTitle)
 }
 
 // handleFormKey routes a key into the active form, then handles submit/cancel
@@ -930,7 +930,7 @@ func (m *Model) View() string {
 	if m.capability.open {
 		out = m.placeOverlay(out, m.capability.renderOverlay())
 	}
-	if m.dispatchDlg.kind != dispatchNone {
+	if m.dispatchDlg.active {
 		out = m.placeOverlay(out, m.dispatchDlg.renderOverlay())
 	}
 	if m.personasOv.open {
