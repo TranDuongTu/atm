@@ -27,11 +27,12 @@ func (s *Store) personalityPath(name string) string {
 // Built-ins have no audit trail: they ship with the binary.
 func builtinPersona(spec skills.PersonaSpec) *core.Persona {
 	return &core.Persona{
-		Name:        spec.Name,
-		Prompt:      spec.Body,
-		Description: spec.Description,
-		CreatedBy:   "builtin",
-		UpdatedBy:   "builtin",
+		Name:            spec.Name,
+		Prompt:          spec.Body,
+		Description:     spec.Description,
+		ProjectOptional: spec.ProjectOptional,
+		CreatedBy:       "builtin",
+		UpdatedBy:       "builtin",
 	}
 }
 
@@ -68,7 +69,7 @@ func parsePersonaDoc(name string, src []byte) (*core.Persona, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
-	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description}
+	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description, ProjectOptional: spec.ProjectOptional}
 	// Best-effort audit re-read: scan frontmatter lines only (up to the
 	// closing --- delimiter).
 	lines := strings.Split(string(src), "\n")

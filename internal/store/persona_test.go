@@ -185,6 +185,38 @@ func TestCreatePersonaRefusesBuiltinName(t *testing.T) {
 	}
 }
 
+func TestListPersonasCarriesProjectOptional(t *testing.T) {
+	s := newTestStore(t)
+	byName := map[string]bool{}
+	for _, p := range s.ListPersonas() {
+		byName[p.Name] = p.ProjectOptional
+	}
+	if !byName["concierge"] {
+		t.Error("concierge should be project-optional")
+	}
+	if byName["manager"] || byName["developer"] {
+		t.Error("manager/developer should be project-required")
+	}
+}
+
+func TestCustomPersonaProjectOptionalParsed(t *testing.T) {
+	s := newTestStore(t)
+	doc := "---\nname: rover\ndescription: Rover guide\nproject_optional: true\n---\nRover body\n"
+	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "personas", "rover.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPersona("rover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.ProjectOptional {
+		t.Error("custom persona with project_optional: true should parse as optional")
+	}
+}
+
 // writeLegacyJSONPersona seeds a .json-only persona (no .md) so callers can
 // exercise the migration path under EditPersona/RemovePersona without a prior
 // GetPersona.

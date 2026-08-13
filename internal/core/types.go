@@ -64,13 +64,14 @@ type Comment struct {
 }
 
 type Persona struct {
-	Name        string    `json:"name"`
-	Prompt      string    `json:"prompt"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedBy   string    `json:"updated_by"`
+	Name            string    `json:"name"`
+	Prompt          string    `json:"prompt"`
+	Description     string    `json:"description"`
+	ProjectOptional bool      `json:"project_optional,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	CreatedBy       string    `json:"created_by"`
+	UpdatedBy       string    `json:"updated_by"`
 }
 
 type LabelRemoveResult struct {
