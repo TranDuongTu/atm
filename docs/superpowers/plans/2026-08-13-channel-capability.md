@@ -8,6 +8,8 @@
 
 **Tech Stack:** Go, cobra, Bubble Tea, `git` CLI for probes (stdlib `os/exec`). No new dependencies. No cache schema change (channels reuse the existing task/label tables).
 
+**Deliberate deviations from the spec** (the spec predates these discoveries; this plan is authoritative where they disagree): the spec's "Status model" puts probe functions in the capability package and runs them in the TUI's `refreshAll()`. Both moved. Probes live in `internal/store` because the arch tests forbid adapters from importing capability packages, and they run only where status is actually displayed — `atm channel list/show` and the channels overlay's `openOverlay` — never on the refresh tick and never on the dispatch keypress, which reads the probe-free `RepoChannelTargets`. Shelling out to `git` on a timer is a stall the status light does not earn.
+
 ## Global Constraints
 
 - Never run against the shared store: every test uses a `t.TempDir()` store. Never point a dev binary at `~/.config/atm` (a schema-changing build against the shared cache breaks the installed binary — project doctrine).
@@ -38,7 +40,11 @@
 // internal/core/channel_test.go
 package core
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestChannelPayloadRoundTrip(t *testing.T) {
 	rec := ChannelRecord{Name: "specs", Type: ChannelTypeNotion, Address: ChannelAddress{Workspace: "acme", Database: "abc123"}}
@@ -53,6 +59,20 @@ func TestChannelPayloadRoundTrip(t *testing.T) {
 	}
 	if got.TaskID != "ATM-x1" || got.Name != "specs" || got.Type != ChannelTypeNotion || got.Purpose != "specs live here" || got.Address.Database != "abc123" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// The agent endpoint's JSON keys are a contract: pin them so a field rename
+// or a dropped tag cannot silently change what `--output json` emits.
+func TestChannelViewJSONKeys(t *testing.T) {
+	b, err := json.Marshal(ChannelView{ChannelRecord: ChannelRecord{TaskID: "ATM-x1", Name: "specs", Type: ChannelTypeNotion, Purpose: "p", Address: ChannelAddress{Database: "abc123"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"task_id":"ATM-x1"`, `"name":"specs"`, `"type":"notion"`, `"purpose":"p"`, `"address":{"database":"abc123"}`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("view JSON %s missing %s", b, want)
+		}
 	}
 }
 
@@ -92,7 +112,7 @@ func TestChannelPayloadErrors(t *testing.T) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./internal/core/ -run TestChannelPayload -v`
+Run: `go test ./internal/core/ -run TestChannel -v`
 Expected: FAIL (compile error: undefined `ChannelRecord`, etc.)
 
 - [ ] **Step 3: Write the implementation**
@@ -133,13 +153,16 @@ type ChannelAddress struct {
 
 // ChannelRecord is the tier-1 ledger record decoded from a channel task.
 // Name is the unique handle within the project (canonical in the payload, so
-// it survives title edits); Purpose is the task description.
+// it survives title edits); Purpose is the task description. The json tags
+// are load-bearing: ChannelView embeds this struct and `--output json` on
+// list/show is the agent endpoint's contract — snake_case keys, not Go field
+// names.
 type ChannelRecord struct {
-	TaskID  string
-	Name    string
-	Type    string
-	Purpose string
-	Address ChannelAddress
+	TaskID  string         `json:"task_id"`
+	Name    string         `json:"name"`
+	Type    string         `json:"type"`
+	Purpose string         `json:"purpose,omitempty"`
+	Address ChannelAddress `json:"address,omitzero"`
 }
 
 // ChannelProbe is the cheap local-probe result for a channel's wiring. All
@@ -178,18 +201,20 @@ func DecodeChannelPayload(s string) (map[string]any, error) {
 
 // EncodeChannelPayload serializes, stamping v:1. Unknown fields survive
 // because the map is the source of truth. Empty (besides v) encodes to "".
+// The argument is copied, never mutated: callers decode-mutate-encode and
+// must not have their map silently stamped by a failed encode.
 func EncodeChannelPayload(m map[string]any) (string, error) {
-	rest := 0
-	for k := range m {
+	out := make(map[string]any, len(m)+1)
+	for k, v := range m {
 		if k != "v" {
-			rest++
+			out[k] = v
 		}
 	}
-	if rest == 0 {
+	if len(out) == 0 {
 		return "", nil
 	}
-	m["v"] = 1
-	b, err := json.Marshal(m)
+	out["v"] = 1
+	b, err := json.Marshal(out)
 	if err != nil {
 		return "", err
 	}
@@ -392,6 +417,38 @@ func TestChannelEditPreservesUnknownPayloadFields(t *testing.T) {
 	}
 }
 
+// One hand-corrupted record must not disable every OTHER channel's verbs.
+func TestChannelCorruptRecordDoesNotPoisonNeighbours(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	bad, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "broken", Type: core.ChannelTypeRepo}, chActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "good", Type: core.ChannelTypeNotion}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskCapabilityMeta(bad.ID, core.ChannelMetaKey, "garbage", chActor); err != nil {
+		t.Fatal(err)
+	}
+	// the healthy neighbour still resolves and edits
+	p := "still works"
+	if err := s.EditChannel("ATM", "good", &p, nil, chActor); err != nil {
+		t.Fatalf("corrupt neighbour poisoned lookup: %v", err)
+	}
+	// the broken one is reachable by title and reports its own decode error
+	if err := s.EditChannel("ATM", "broken", &p, nil, chActor); err == nil {
+		t.Fatal("want a decode error for the corrupt record itself")
+	}
+	// and list degrades rather than failing
+	recs, err := s.ChannelRecords("ATM")
+	if err != nil || len(recs) != 1 || recs[0].Name != "good" {
+		t.Fatalf("records: %+v %v", recs, err)
+	}
+}
+
 func mustTask(t *testing.T, s *Store, id string) *core.Task {
 	t.Helper()
 	tk, err := s.GetTask(id)
@@ -431,7 +488,8 @@ func channelTypeValid(typ string) bool {
 
 // ChannelRecords lists the project's tier-1 channel records, decoding every
 // task in the channel:* namespace. Tasks with unreadable payloads are skipped
-// here (list degrades; Annotate and channelByName surface them).
+// here — list degrades rather than failing whole; the capability's Annotate
+// cell and a by-name lookup of that record surface the breakage.
 func (s *Store) ChannelRecords(code string) ([]core.ChannelRecord, error) {
 	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
 	if err != nil {
@@ -449,7 +507,12 @@ func (s *Store) ChannelRecords(code string) ([]core.ChannelRecord, error) {
 }
 
 // channelByName resolves a handle to its record; core.ErrNotFound when absent,
-// and a decode error when the named channel's payload is unreadable.
+// and a decode error ONLY when the named channel's own payload is unreadable.
+// A corrupt record must not poison lookups of its neighbours: the handle a
+// caller asked for either resolves or is absent, no matter what else is in
+// the namespace. When the payload is unreadable the handle is unknowable, so
+// the task's TITLE is the fallback identity — that is how `atm channel` can
+// still name and remove the broken record.
 func (s *Store) channelByName(code, name string) (*core.ChannelRecord, error) {
 	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
 	if err != nil {
@@ -458,7 +521,10 @@ func (s *Store) channelByName(code, name string) (*core.ChannelRecord, error) {
 	for _, t := range tasks {
 		rec, err := core.ChannelFromTask(code, *t)
 		if err != nil {
-			return nil, err
+			if t.Title == name {
+				return nil, err // the one they asked for is the broken one
+			}
+			continue
 		}
 		if rec != nil && rec.Name == name {
 			return rec, nil
@@ -499,7 +565,11 @@ func (s *Store) CreateChannel(code string, rec core.ChannelRecord, actor string)
 
 // EditChannel updates purpose and/or address. Address writes decode the
 // existing payload and mutate only the address key, so unknown fields from
-// newer binaries survive (degrade-never-reject applied to ourselves).
+// newer binaries survive (degrade-never-reject applied to ourselves). An
+// address with every field empty CLEARS the key rather than writing a null.
+// There is no rename: the handle is the channel's identity, referenced by
+// tier-2 wiring keys and by agents that resolved it once — re-authoring a
+// channel under a new handle is `remove` + `add`.
 func (s *Store) EditChannel(code, name string, purpose *string, addr *core.ChannelAddress, actor string) error {
 	rec, err := s.channelByName(code, name)
 	if err != nil {
@@ -521,7 +591,11 @@ func (s *Store) EditChannel(code, name string, purpose *string, addr *core.Chann
 		}
 		next := *rec
 		next.Address = *addr
-		m["address"] = core.ChannelPayloadFrom(next)["address"]
+		if a, ok := core.ChannelPayloadFrom(next)["address"]; ok {
+			m["address"] = a
+		} else {
+			delete(m, "address")
+		}
 		m["name"], m["type"] = rec.Name, rec.Type
 		enc, err := core.EncodeChannelPayload(m)
 		if err != nil {
@@ -758,13 +832,13 @@ git commit -m "feat(ATM-097849): tier-2 channel wiring and verification stamps i
 
 **Files:**
 - Create: `internal/store/channel_probe.go`
-- Modify: `internal/store/channel.go` (`ProjectChannels`, `GetChannelByName`, `MigrateReposToChannels`)
+- Modify: `internal/store/channel.go` (`ProjectChannels`, `GetChannelByName`, `RepoChannelTargets`, `MigrateReposToChannels`)
 - Modify: `internal/core/service.go` (add `ChannelService`, include in `Service`)
 - Test: `internal/store/channel_probe_test.go`, `internal/store/channel_test.go` (append)
 
 **Interfaces:**
 - Consumes: Tasks 1-3; `core.RepoConfig`; existing `s.ProjectRepos`.
-- Produces: `(*Store) ProjectChannels(code string) ([]core.ChannelView, error)` (sorted by name; Wiring/Probe joined), `(*Store) GetChannelByName(code, name string) (*core.ChannelView, error)`, `(*Store) MigrateReposToChannels(code, actor string) (int, error)`, `probeRepoPath(path string) *core.ChannelProbe` (unexported), and the new interface consumed by cli/tui:
+- Produces: `(*Store) ProjectChannels(code string) ([]core.ChannelView, error)` (sorted by name; Wiring/Probe joined), `(*Store) GetChannelByName(code, name string) (*core.ChannelView, error)`, `(*Store) RepoChannelTargets(code string) ([]core.RepoConfig, error)` (probe-free; the dispatch dialog's read), `(*Store) MigrateReposToChannels(code, actor string) (int, []string, error)` (count + handles whose path could not be wired), `probeRepoPath(path string) *core.ChannelProbe` (unexported), and the new interface consumed by cli/tui:
 
 ```go
 // added to internal/core/service.go
@@ -775,9 +849,10 @@ type ChannelService interface {
 	ChannelRecords(code string) ([]ChannelRecord, error)
 	ProjectChannels(code string) ([]ChannelView, error)
 	GetChannelByName(code, name string) (*ChannelView, error)
+	RepoChannelTargets(code string) ([]RepoConfig, error)
 	SetChannelWiring(code, name, path, mcpServer, actor string) error
 	AddChannelStamp(code, name, note, actor string) error
-	MigrateReposToChannels(code, actor string) (int, error)
+	MigrateReposToChannels(code, actor string) (int, []string, error)
 }
 ```
 
@@ -934,9 +1009,9 @@ func TestMigrateReposToChannels(t *testing.T) {
 	if err := s.SetProjectRepo("ATM", "atm", dir, "git@github.com:TranDuongTu/atm.git", chActor); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.MigrateReposToChannels("ATM", chActor)
-	if err != nil || n != 1 {
-		t.Fatalf("migrated %d, %v", n, err)
+	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 0 {
+		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
 	}
 	v, err := s.GetChannelByName("ATM", "atm")
 	if err != nil || v.Type != core.ChannelTypeRepo || v.Address.URL != "git@github.com:TranDuongTu/atm.git" || v.Wiring == nil || v.Wiring.Path != dir {
@@ -946,15 +1021,65 @@ func TestMigrateReposToChannels(t *testing.T) {
 		t.Fatalf("legacy repos not cleared: %v", repos)
 	}
 	// idempotent: second run migrates nothing and does not error on the existing handle
-	if n, err := s.MigrateReposToChannels("ATM", chActor); err != nil || n != 0 {
+	if n, _, err := s.MigrateReposToChannels("ATM", chActor); err != nil || n != 0 {
 		t.Fatalf("re-run: %d %v", n, err)
+	}
+}
+
+// A legacy repo whose folder moved away must still reach the ledger: the
+// record migrates, the wiring is reported missing, and the run completes.
+func TestMigrateReposToChannelsSurvivesMissingPath(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	gone := t.TempDir()
+	if err := s.SetProjectRepo("ATM", "moved", gone, "git@x:moved.git", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	n, unwired, err := s.MigrateReposToChannels("ATM", chActor)
+	if err != nil || n != 1 || len(unwired) != 1 || unwired[0] != "moved" {
+		t.Fatalf("migrated %d, unwired %v, %v", n, unwired, err)
+	}
+	v, err := s.GetChannelByName("ATM", "moved")
+	if err != nil || v.Address.URL != "git@x:moved.git" || v.Wiring != nil {
+		t.Fatalf("record must exist unwired: %+v %v", v, err)
+	}
+	if repos, _ := s.ProjectRepos("ATM"); len(repos) != 0 {
+		t.Fatalf("legacy repos not cleared: %v", repos)
+	}
+}
+
+func TestRepoChannelTargetsSkipsProbes(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: "git@x:y.git"}}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion}, chActor); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RepoChannelTargets("ATM")
+	if err != nil || len(got) != 1 || got[0].Name != "code" || got[0].Path != dir || got[0].URL != "git@x:y.git" {
+		t.Fatalf("targets: %+v %v", got, err)
 	}
 }
 ```
 
+(`channel_test.go` gains `"os"`; `channel.go` gains `"errors"` alongside `"sort"`.)
+
 - [ ] **Step 6: Run to verify failure, then implement views + migration**
 
-Run: `go test ./internal/store/ -run 'TestProjectChannels|TestMigrate' -v` → FAIL. Then append to `internal/store/channel.go` (imports gain `"sort"`):
+Run: `go test ./internal/store/ -run 'TestProjectChannels|TestMigrate|TestRepoChannelTargets' -v` → FAIL. Then append to `internal/store/channel.go` (imports gain `"errors"` and `"sort"`):
 
 ```go
 // ProjectChannels is the joined read every surface consumes: tier-1 records
@@ -1008,30 +1133,41 @@ func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
 // tier-1 record (handle, URL; purpose left for the concierge to author) plus
 // tier-2 wiring (path), then clears the legacy repos list. Handles that
 // already exist as channels are skipped, so a re-run is safe. Returns the
-// number migrated.
-func (s *Store) MigrateReposToChannels(code, actor string) (int, error) {
+// number migrated plus the handles whose PATH could not be wired.
+//
+// A legacy path that no longer exists (the folder moved since it was
+// recorded) must not abort the migration: SetChannelWiring rejects a missing
+// directory, and failing there would leave the tier-1 record created, `repos`
+// uncleared, and every re-run stuck on the same entry forever. The ledger
+// record is the part worth keeping — it is what lets a concierge re-wire the
+// channel — so a missing path is reported, not fatal.
+func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, error) {
 	repos, err := s.ProjectRepos(code)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	existing, err := s.ChannelRecords(code)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	taken := make(map[string]bool, len(existing))
 	for _, e := range existing {
 		taken[e.Name] = true
 	}
 	n := 0
+	var unwired []string
 	for _, r := range repos {
 		if taken[r.Name] {
 			continue
 		}
 		if _, err := s.CreateChannel(code, core.ChannelRecord{Name: r.Name, Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: r.URL}}, actor); err != nil {
-			return n, err
+			return n, unwired, err
 		}
 		if err := s.SetChannelWiring(code, r.Name, r.Path, "", actor); err != nil {
-			return n, err
+			if !errors.Is(err, core.ErrUsage) {
+				return n, unwired, err
+			}
+			unwired = append(unwired, r.Name) // path gone: record kept, wiring left to concierge
 		}
 		n++
 	}
@@ -1046,10 +1182,41 @@ func (s *Store) MigrateReposToChannels(code, actor string) (int, error) {
 			merged.UpdatedBy = actor
 			return WriteFileAtomic(s.configPath(code), merged)
 		}); err != nil {
-			return n, err
+			return n, unwired, err
 		}
 	}
-	return n, nil
+	return n, unwired, nil
+}
+
+// RepoChannelTargets is the dispatch read: repo channels wired on THIS
+// machine, as the dispatch targets the dialog already understands. Separate
+// from ProjectChannels on purpose — dispatch opens on a keypress and must not
+// shell out to `git status`/`rev-list` once per repo to draw a picker. Probes
+// belong to the surfaces that display status, not to the ones that navigate.
+func (s *Store) RepoChannelTargets(code string) ([]core.RepoConfig, error) {
+	recs, err := s.ChannelRecords(code)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.GetProjectConfig(code)
+	if err != nil {
+		return nil, err
+	}
+	var wirings map[string]core.ChannelWiring
+	if cfg != nil {
+		wirings = cfg.Channels
+	}
+	var out []core.RepoConfig
+	for _, rec := range recs {
+		if rec.Type != core.ChannelTypeRepo {
+			continue
+		}
+		if w, ok := wirings[rec.Name]; ok && w.Path != "" {
+			out = append(out, core.RepoConfig{Name: rec.Name, Path: w.Path, URL: rec.Address.URL})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 ```
 
@@ -1141,7 +1308,16 @@ func TestAnnotate(t *testing.T) {
 }
 ```
 
-For `guide_skills_test.go`, copy `internal/capability/workflowai/guide_skills_test.go` verbatim and change the capability name to `channel` — it pins the skill file's frontmatter `labels:`/`boards:` against the Go vocabulary.
+For `guide_skills_test.go`, copy `internal/capability/workflowai/guide_skills_test.go` and change the capability name to `channel`. Note what it actually pins (the workflowai comment oversells it): `spec.Description == Summary()` and the presence of the three `## Semantics`/`## Actions`/`## Converge` sections. The frontmatter `labels:`/`boards:` keys are parsed into `skills.CapabilitySpec` but nothing compares them to the Go vocabulary, so add that assertion here rather than inheriting the gap:
+
+```go
+	if got, want := spec.Labels, []string{"channel:*"}; !slices.Equal(got, want) {
+		t.Fatalf("frontmatter labels %v, want %v", got, want)
+	}
+	if got, want := spec.Boards, []string{"channels"}; !slices.Equal(got, want) {
+		t.Fatalf("frontmatter boards %v, want %v", got, want)
+	}
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1576,7 +1752,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Implement**
 
-`wire` (require at least one of the two flags), `stamp` (`--note` required), `migrate-repos`:
+`wire` (require at least one of the two flags), `stamp` (`--note` required), `migrate-repos` (`channel.go` gains `"strings"`):
 
 ```go
 func newChannelMigrateCmd(st *cliState) *cobra.Command {
@@ -1600,12 +1776,15 @@ func newChannelMigrateCmd(st *cliState) *cobra.Command {
 			if err := requireChannelCapability(s, project); err != nil {
 				return err
 			}
-			n, err := s.MigrateReposToChannels(project, actor)
+			n, unwired, err := s.MigrateReposToChannels(project, actor)
 			if err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": project, "migrated": n}, func() {
+			return st.emit(st.stdout(), map[string]any{"project": project, "migrated": n, "unwired": unwired}, func() {
 				fmt.Fprintf(st.stdout(), "migrated %d repo(s) into channels; author each channel's purpose with `atm channel edit`\n", n)
+				if len(unwired) > 0 {
+					fmt.Fprintf(st.stdout(), "no longer on disk, so recorded WITHOUT local wiring: %s — re-wire with `atm channel wire`\n", strings.Join(unwired, ", "))
+				}
 			})
 		},
 	}
@@ -1643,7 +1822,7 @@ git commit -m "feat(ATM-097849): channel wire/stamp/migrate-repos; retire atm pr
 - Test: `internal/tui/dispatch_test.go` (adjust/append)
 
 **Interfaces:**
-- Consumes: `core.ChannelService.ProjectChannels` via `d.m.store` (the TUI's `core.Service`); `core.ChannelTypeRepo`.
+- Consumes: `core.ChannelService.RepoChannelTargets` via `d.m.store` (the TUI's `core.Service`) — the probe-free read, deliberately NOT `ProjectChannels`.
 - Produces: unchanged dialog behavior over a new source — `d.repos []core.RepoConfig` stays, now built from repo channels' wiring; legacy `ProjectRepos` remains ONLY as a fallback when no repo channel is wired (the deprecation window for stores that never ran migrate-repos).
 
 - [ ] **Step 1: Write the failing test**
@@ -1662,6 +1841,14 @@ func TestDispatchLegacyRepoFallback(t *testing.T) {
 	// open developer dispatch
 	// assert d.repos falls back to the legacy list
 }
+
+func TestDispatchDoesNotProbe(t *testing.T) {
+	// setup: a repo channel wired to a plain (non-git) t.TempDir()
+	// open dispatch; assert the target is listed and no probe data is needed —
+	// the dialog's read is RepoChannelTargets, so a slow or non-git path never
+	// costs the keypress. Assert via a store spy if the package has one, else
+	// simply that the non-git path still appears as a target.
+}
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1675,12 +1862,11 @@ Replace the repo load in `open()` (the `if project != "" { ... ProjectRepos ... 
 
 ```go
 	if project != "" {
-		if views, err := d.m.store.ProjectChannels(project); err == nil {
-			for _, v := range views {
-				if v.Type == core.ChannelTypeRepo && v.Wiring != nil && v.Wiring.Path != "" {
-					d.repos = append(d.repos, core.RepoConfig{Name: v.Name, Path: v.Wiring.Path, URL: v.Address.URL})
-				}
-			}
+		// RepoChannelTargets, not ProjectChannels: the dialog opens on a
+		// keypress and must not shell out to git once per repo to draw a
+		// picker. Status is the overlay's job.
+		if targets, err := d.m.store.RepoChannelTargets(project); err == nil {
+			d.repos = targets
 		}
 		if len(d.repos) == 0 { // legacy fallback until migrate-repos has run
 			if repos, err := d.m.store.ProjectRepos(project); err == nil {
@@ -1931,7 +2117,21 @@ git add skills/persona/concierge.md README.md CHANGELOG.md
 git commit -m "docs(ATM-097849): concierge channels flow, README and CHANGELOG"
 ```
 
-- [ ] **Step 5: Ledger close-out**
+- [ ] **Step 5: Rollout on existing projects (post-merge, against the real store)**
+
+A new capability is NOT retroactively enabled: a project whose `capabilities` list was ever recorded explicitly keeps exactly what it lists, and `atm project list --output json` shows ATM itself carrying `["contextmap","workflow","workflow_ai"]`. Without this step `atm channel` ships gated off on the dogfood project and reads as broken on day one. Only projects with a nil list (never chosen — `ASA`, `DEVENV`, `INFRA`) inherit it automatically.
+
+Run once per explicitly-configured project, AFTER the work is merged and the binary is installed (`make install` or the project's usual path — never point a dev build at `~/.config/atm`):
+
+```bash
+atm project capability add --project ATM --name channel --actor <actor>
+atm capability channel seed --project ATM --actor <actor>
+atm channel migrate-repos --project ATM --actor <actor>   # lifts the legacy repos entries
+```
+
+Then confirm each migrated channel's purpose with the human (`atm channel edit --purpose ...`) — migrate-repos deliberately leaves purpose empty rather than fabricating one. Note in the README's channels section that existing projects need the enable + seed pair; new projects get it from the registry.
+
+- [ ] **Step 6: Ledger close-out**
 
 Journal an implementation-complete comment on ATM-097849 (`atm task comment add --task ATM-097849 --actor <actor> --body "..."` summarizing what landed and any deviations), then hand off per the finishing workflow — do NOT stamp `stage:done` until the work is merged per the project's process.
 
@@ -1941,4 +2141,18 @@ Journal an implementation-complete comment on ATM-097849 (`atm task comment add 
 
 - Spec coverage: concept/data model → Tasks 1-2; three tiers → Tasks 1, 3 (and the no-secrets constraint is global); CLI surface incl. agent endpoint → Tasks 6-7; repo cutover (dispatch, retire, migrate) → Tasks 4, 7, 8; status model + overlay + concierge button → Tasks 4, 9; concierge → Task 10; vocabulary/board/guide → Task 5; testing strategy → embedded per task. Out-of-scope items (Slack, workflow_ai channel locator kind, TUI writes, deep MCP probing) have deliberately no tasks.
 - Type consistency: `ChannelService` method names in Task 4's interface block are the exact names Tasks 6-9 call; `core.ChannelView` embeds `ChannelRecord` so `v.Name`/`v.Type`/`v.Address` field accesses in Tasks 8-9 resolve; `channelStatusGlyph` takes `(core.ChannelView, time.Time)` in both Task 9's test and implementation.
-- Known judgment calls an implementer may adjust with a journal note: the `E` keybinding (any free global key is fine — check `keymap.go` at implementation time), the exact test-harness helper names in `internal/store` and `internal/cli` (reuse whatever those packages already define; the failing-test step says to adapt the harness, not the assertion).
+- Known judgment calls an implementer may adjust with a journal note: the `E` keybinding (free as of `b9df697`, but re-check `keymap.go` at implementation time), the exact test-harness helper names in `internal/store` and `internal/cli` (reuse whatever those packages already define; the failing-test step says to adapt the harness, not the assertion).
+
+## Review pass — 2026-08-13 (Claude Opus 5), folded in
+
+Verified against the merged tree at `b9df697` before implementation. Anchors that were checked and hold: `Expr: "channel:*"` resolves through `resolver.evalAtom`'s `IsNamespaceName` prefix match (`internal/store/resolve.go`); `CreateTask` → `cs.EnsureLabels` auto-registers the `channel:<type>` label, so channel creation has no dependency on `seed` having run; the TUI and CLI test doubles EMBED `core.Service`, so extending the composite interface breaks no fake; `capability.ToneAttention == 2`; the registry mounts `guide` itself (`capability.go:153`); `internalImports` inspects only `atm/internal` and `atm/libs`, so a capability package importing `atm/skills` passes the arch test; `newTestStore` lives in `internal/store/project_test.go:55`; `m.projectScope` is the project the `D` binding passes; `E` is unbound; `dispatch.go:146` `open()` and the `personasOv` anchors match what Tasks 8-9 describe.
+
+Five defects found and fixed above, rather than left for the implementer to hit:
+
+1. `core.ChannelRecord` had no json tags, so `--output json` — the documented agent endpoint — would have emitted `TaskID`/`Name`/`Address` while this plan's own CLI test asserted `name`/`type`/`address.database`. Tags added and pinned by `TestChannelViewJSONKeys`.
+2. `channelByName` returned the decode error of the FIRST unreadable record it walked past, so one hand-corrupted payload would disable `edit`/`wire`/`stamp`/`remove` for every OTHER channel. It now errors only for the handle actually asked for, and finds a broken record by task title so it stays removable.
+3. `MigrateReposToChannels` aborted when a legacy repo path no longer existed on disk (`SetChannelWiring` requires a real directory), leaving the tier-1 record created and `repos` uncleared — and every re-run wedged on the same entry. A missing path is now reported in the returned `unwired` list, not fatal.
+4. There was no rollout step. Project ATM's capability list is explicit, so the feature would have shipped gated off on the dogfood project; Task 10 Step 5 now covers enable + seed + migrate on existing projects.
+5. The dispatch dialog read `ProjectChannels`, which shells `git status` and `rev-list` once per wired repo — synchronously, on every `D` keypress. Task 4 now produces `RepoChannelTargets` (probe-free) and Task 8 consumes it.
+
+Smaller corrections folded in: `EncodeChannelPayload` no longer mutates its argument; `EditChannel` clears the address key instead of writing `"address": null`, and the plan now states that handles are immutable (remove + add to rename); Task 5's description of what the copied `guide_skills_test.go` pins was wrong, so the frontmatter-vs-vocabulary assertion it claimed is now written out explicitly.
