@@ -102,6 +102,7 @@ type Model struct {
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
 	channelsOv     channelsModel
+	menu           menuModel
 
 	form *Form
 
@@ -195,6 +196,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.channelsOv.m = m
+	m.menu = menuModel{m: m}
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
