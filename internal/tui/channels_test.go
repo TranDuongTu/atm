@@ -266,6 +266,7 @@ func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
 	seedChannels(t, m)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
 	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
