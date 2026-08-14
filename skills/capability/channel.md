@@ -27,3 +27,13 @@ Channel records are tasks only as plumbing: manage them exclusively through `atm
 ## Converge
 
 Every place personas exchange work is recorded as a channel with an honest purpose; addresses live in the ledger so a new machine can rehydrate. On this machine, every channel an agent needs is wired (path or MCP server) and carries a reasonably fresh stamp; stale stamps mean dispatch a concierge session, which reads the ledger records, re-wires, walks the human through agent-side MCP auth, and re-stamps. After using a channel successfully, refresh its stamp. Never write credentials into any ATM surface — a channel needing auth is set up in the agent's own tooling, and ATM only records that it happened.
+
+## Scoped session
+
+A session dispatched with `--capability channel` (for example from the TUI channels overlay) exists to make this project's channels healthy and nothing else. Run `atm channel list --project <CODE> --output json` first and branch on what it shows:
+
+- **No records.** Interview the user in their own words about where work flows — repositories, Notion workspaces, other surfaces — one question at a time. In parallel, discover candidates yourself: scan the working directory, its parent, and sibling checkouts/worktrees for git repositories and note each one's remote URL. Propose every candidate (remote URL as the address, folder as the wiring) and confirm before acting: `atm channel add`, then `atm channel wire`, verify you can actually reach it, then `atm channel stamp`.
+- **Records without wiring (fresh machine).** The ledger already knows this project's channels; only this machine's wiring is missing. For each unwired record, search local checkouts for a repository whose remote matches the record's address and propose `atm channel wire --path` for it; offer to clone the recorded URL when nothing matches. For a notion record, help the user install and authorize the agent-side MCP server, then `atm channel wire --mcp-server`. Re-stamp each channel after verifying it.
+- **Partial or stale.** For every `◐`/`○` entry with wiring, read its status note and repair it: re-verify and re-stamp fresh ones, re-wire moved paths, surface dirty or diverged repos to the user rather than fixing them silently.
+
+Never expose flag shapes to the user — speak in plain words and run the commands yourself. Never ask for tokens or passwords; authorization lives in the agent's own tooling. Hand off with a one-paragraph summary of what is now wired, stamped, and still outstanding.
