@@ -73,7 +73,6 @@ type Model struct {
 	// so View never touches the filesystem.
 	storeStats core.StoreStats
 	actor      string
-	km         keymap
 	// reg is the capability registry the composition root injected; nil-safe.
 	reg *capability.Registry
 
@@ -179,7 +178,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m := &Model{
 		store:     s,
 		storeSet:  true,
-		km:        defaultKeymap(),
 		width:     100,
 		height:    30,
 		actor:     actor,

@@ -2037,10 +2037,10 @@ func TestHelpOverlayKeymapUsesPaneLanguage(t *testing.T) {
 	update(t, m, "?")
 	content := strings.Join(m.help.lines, "\n")
 	mustContain(t, content, "Global Keymap")
-	mustContain(t, content, "focus pane")
-	mustContain(t, content, "open keys help")
-	mustContain(t, content, "open conventions")
-	mustContain(t, content, "cycle theme")
+	mustContain(t, content, "Projects pane")
+	mustContain(t, content, "Tasks pane")
+	mustContain(t, content, "Cycle theme")
+	mustContain(t, content, "Add project")
 	mustNotContain(t, content, "switch tab")
 	// Conventions-only content is NOT present in the keys overlay.
 	mustNotContain(t, content, "Suggested seed namespaces")
@@ -2222,20 +2222,13 @@ func TestEscClosesPluginOverlay(t *testing.T) {
 
 func TestKeymapHasPluginPrefixRows(t *testing.T) {
 	foundG := false
-	foundG1 := false
-	for _, r := range keymapRows {
-		if r.Key == "g" {
+	for _, e := range menuEntries {
+		if e.key == "g" {
 			foundG = true
-		}
-		if r.Key == "g 1" {
-			foundG1 = true
 		}
 	}
 	if !foundG {
-		t.Error("keymapRows missing 'g' (plugin prefix)")
-	}
-	if !foundG1 {
-		t.Error("keymapRows missing 'g 1' (indexer overlay)")
+		t.Error("menuEntries missing 'g' (plugin leader prefix)")
 	}
 }
 

@@ -49,7 +49,7 @@ func (h *helpModel) refresh() {
 		b.WriteString("\n\n")
 		b.WriteString(sectionDivider(h.m.styles, h.width, "Global Keymap"))
 		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.width, keymapTable()))
+		b.WriteString(dashboardBlock(h.width, keymapReferenceText()))
 		b.WriteString("\n")
 		b.WriteString(dashboardBlock(h.width, "g <n> opens the nth plugin overlay (g 1 = indexer)."))
 		h.lines = strings.Split(b.String(), "\n")
@@ -205,29 +205,49 @@ atm task comment remove --id            — (CLI only)
 
 atm tui                                (you are here)`
 
-// keymapTable renders the global keymap summary as a fixed-width table.
-func keymapTable() string {
+// keymapReferenceText renders the menu entry table flat: one row per keyed
+// entry, columns Key | Where | Action. Global/views entries come first, then
+// each scope's actions in table order, then the hidden navigation pairs.
+func keymapReferenceText() string {
 	var b strings.Builder
-	widths := []int{10, 18, 21, 19, 21}
-	fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s\n",
-		widths[0], "Key",
-		widths[1], "Projects",
-		widths[2], "Tasks",
-		widths[3], "Boards",
-		widths[4], "Detail/Overlay",
-	)
-	b.WriteString(strings.Repeat("-", widths[0]+1+widths[1]+1+widths[2]+1+widths[3]+1+widths[4]))
+	fmt.Fprintf(&b, "%-18s %-18s %s\n", "Key", "Where", "Action")
+	b.WriteString(strings.Repeat("-", 18+1+18+1+40))
 	b.WriteString("\n")
-	for _, r := range keymapRows {
-		fmt.Fprintf(&b, "%-*s %-*s %-*s %-*s %-*s\n",
-			widths[0], truncateRunes(r.Key, widths[0]),
-			widths[1], truncateRunes(r.Projects, widths[1]),
-			widths[2], truncateRunes(r.Tasks, widths[2]),
-			widths[3], truncateRunes(r.Boards, widths[3]),
-			widths[4], truncateRunes(r.Detail, widths[4]),
-		)
+	for _, e := range menuEntries {
+		if e.key == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%-18s %-18s %s\n", e.key, keymapScopeName(e), e.label)
 	}
 	return b.String()
+}
+
+// keymapScopeName is the Where-column display name for an entry: "global"
+// for views, the focused scope for actions, "—" for hidden navigation rows.
+func keymapScopeName(e menuEntry) string {
+	if e.hidden {
+		return "—"
+	}
+	if e.section == sectionViews {
+		return "global"
+	}
+	for _, s := range e.scopes {
+		switch s {
+		case scopeProjectsList:
+			return "projects"
+		case scopeProjectsDetail:
+			return "projects detail"
+		case scopeProjectsDrill:
+			return "persona drill"
+		case scopeTasksList:
+			return "tasks"
+		case scopeTasksDetail:
+			return "task detail"
+		case scopeBoards:
+			return "boards"
+		}
+	}
+	return "global"
 }
 
 // conventionsTextTUI mirrors the CLI conventions text (the minimal substrate
