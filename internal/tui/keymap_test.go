@@ -169,6 +169,9 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		"1|views": {
+			setup: func(t *testing.T, m *Model) {
+				m.focused = paneTasks
+			},
 			check: func(t *testing.T, m *Model) {
 				if m.focused != paneProjects {
 					t.Errorf("1 must focus the Projects pane, focused=%v", m.focused)
@@ -176,6 +179,9 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		"2|views": {
+			setup: func(t *testing.T, m *Model) {
+				m.focused = paneProjects
+			},
 			check: func(t *testing.T, m *Model) {
 				if m.focused != paneTasks {
 					t.Errorf("2 must focus the Tasks pane, focused=%v", m.focused)
