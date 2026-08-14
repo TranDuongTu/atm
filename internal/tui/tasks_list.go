@@ -652,22 +652,3 @@ func shiftDigitToInt(k string) int {
 	}
 	return 0
 }
-
-func (t *tasksModel) statusHint() string {
-	if t.commentOverlay.id != "" {
-		return "[H]istory   [Esc]back"
-	}
-	if t.historyOverlay.active {
-		return "[Esc]back"
-	}
-	if t.m.projectScope == "" {
-		return ""
-	}
-	if t.view == tViewDetail {
-		return "[e]title [d]desc [b]add label [B]remove label [M]comment [H]history [x]remove [Esc]back"
-	}
-	if t.m.capability.unmanagedCurrent() {
-		return "[C]apabilities  [↑/↓]tasks  [Shift-↑/↓]labels  [Shift-→]drill  [s]ort  [Enter]detail"
-	}
-	return "[C]apabilities  [↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail"
-}

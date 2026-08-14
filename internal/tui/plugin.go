@@ -100,3 +100,35 @@ func dockSegments(m *Model) []string {
 	}
 	return out
 }
+
+// pluginBoxSize returns the outer dimensions of the centered modal that hosts
+// a plugin overlay. It is intentionally larger than the form dialog (~80% of
+// the workspace) so the indexer's wide status tables remain readable, while
+// still leaving workspace visible above and below the modal and a small
+// lateral margin on either side.
+func pluginBoxSize(m *Model) (int, int) {
+	const pct = 80
+	bw := m.width * pct / 100
+	// Keep at least 95 cols so the wide indexer tables fit inside the border;
+	// only go wider (80% of terminal) when the terminal is large.
+	if bw < 95 {
+		bw = 95
+	}
+	if bw > m.width-4 {
+		bw = m.width - 4
+	}
+	if bw < 1 {
+		bw = 1
+	}
+	bh := m.contentHeight * pct / 100
+	if bh > m.contentHeight-2 {
+		bh = m.contentHeight - 2
+	}
+	if bh < 10 {
+		bh = m.contentHeight
+	}
+	if bh < 1 {
+		bh = 1
+	}
+	return bw, bh
+}

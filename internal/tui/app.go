@@ -24,15 +24,6 @@ const (
 
 const numPanes = 2
 
-// helpOverlayKind identifies which read-only reference overlay is open.
-type helpOverlayKind int
-
-const (
-	helpNone        helpOverlayKind = iota
-	helpKeys                        // `?` — CLI/TUI parity + global keymap
-	helpConventions                 // `C` — full conventions text
-)
-
 // formAction identifies what a form overlay is collecting.
 type formAction int
 
@@ -65,7 +56,7 @@ const (
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
-// workspace (Projects, Tasks), a help overlay, and a status line.
+// workspace (Projects, Tasks), the [?] menu overlay, and a status line.
 type Model struct {
 	store    core.Service
 	storeSet bool
@@ -84,16 +75,11 @@ type Model struct {
 	focused       workspacePane
 	projectScope  string // selection (mockup "Selection model")
 	quitting      bool
-	// helpOverlay tracks which read-only reference overlay (if any) is open.
-	// It is a clean full-body replacement over the workspace (the workspace
-	// does not show through), unlike forms/confirms which layer on top.
-	helpOverlay helpOverlayKind
 
 	projects   projectsModel
 	tasks      tasksModel
 	boards     boardsModel
 	capability capabilityModel
-	help       helpModel
 
 	// dispatch is the composition-root-injected dispatch port (the
 	// *dispatch.Service facade). nil disables dispatch with a clear error.
@@ -190,7 +176,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
 	m.capability = newCapabilityModel(m)
-	m.help = newHelpModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
 	m.dispatchDlg.m = m
@@ -234,59 +219,6 @@ func (m *Model) SetSize(w, h int) {
 	leftW, rightW := splitWorkspaceWidths(w)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(m.contentHeight))
-	if m.helpOverlay != helpNone {
-		bw, bh := m.helpBoxSize()
-		m.help.SetSize(bw, bh)
-	} else {
-		m.help.SetSize(w, m.contentHeight)
-	}
-	m.help.refresh()
-}
-
-// helpBoxSize returns the outer dimensions of the centered modal that hosts
-// the ?/C reference overlay. It is intentionally larger than the form dialog
-// (~80% of the workspace) so the parity table and conventions text remain
-// readable, while still leaving workspace visible above and below the modal
-// and a small lateral margin on either side.
-func (m *Model) helpBoxSize() (int, int) {
-	const pct = 80
-	bw := m.width * pct / 100
-	// Keep at least 95 cols so the 93-wide parity table fits inside the
-	// border; only go wider (80% of terminal) when the terminal is large.
-	if bw < 95 {
-		bw = 95
-	}
-	if bw > m.width-4 {
-		bw = m.width - 4
-	}
-	if bw < 1 {
-		bw = 1
-	}
-	bh := m.contentHeight * pct / 100
-	if bh > m.contentHeight-2 {
-		bh = m.contentHeight - 2
-	}
-	if bh < 10 {
-		bh = m.contentHeight
-	}
-	if bh < 1 {
-		bh = 1
-	}
-	return bw, bh
-}
-
-// openHelp activates the requested reference overlay and re-sizes the help
-// content to the centered modal box. closeHelp dismisses it.
-func (m *Model) openHelp(kind helpOverlayKind) {
-	m.helpOverlay = kind
-	m.help.mode = kind
-	bw, bh := m.helpBoxSize()
-	m.help.SetSize(bw, bh)
-	m.help.refresh()
-}
-
-func (m *Model) closeHelp() {
-	m.helpOverlay = helpNone
 }
 
 func splitWorkspaceWidths(width int) (int, int) {
@@ -341,7 +273,6 @@ func (m *Model) refreshAll() {
 	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
-	m.help.refresh()
 	m.refreshStoreStats()
 	m.lastRefreshAt = core.Now()
 }
@@ -394,7 +325,7 @@ func (m *Model) canMutate() bool { return true }
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
-	return m.helpOverlay == helpNone &&
+	return !m.menu.open &&
 		!(m.form != nil && m.form.Active) &&
 		m.confirm == confirmNone &&
 		m.pluginOverlay == -1 &&
@@ -513,35 +444,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// assigned after this point, then renders until the next key.
 	m.toastMsg = ""
 
-	// Help overlay (? / C) toggles anywhere and consumes the key.
-	if m.helpOverlay != helpNone {
+	// Menu overlay consumes keys until closed. T still cycles the theme.
+	if m.menu.open {
 		if k.String() == "T" {
 			m.cycleTheme()
-			m.help.refresh()
 			return nil
 		}
-		// `?` and `C` toggle their own overlay; Esc closes; the other
-		// reference key switches which overlay is shown.
-		switch k.String() {
-		case "?":
-			if m.helpOverlay == helpKeys {
-				m.closeHelp()
-			} else {
-				m.openHelp(helpKeys)
-			}
-			return nil
-		case "C":
-			if m.helpOverlay == helpConventions {
-				m.closeHelp()
-			} else {
-				m.openHelp(helpConventions)
-			}
-			return nil
-		case "esc":
-			m.closeHelp()
-			return nil
-		}
-		return m.help.handleKey(k)
+		return m.menu.handleKey(k)
 	}
 
 	// Confirm overlay consumes all keys until resolved.
@@ -565,9 +474,9 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.dispatchDlg.handleKey(k)
 	}
 
-	// Plugin overlay consumes keys until closed (Esc). T/?/C still work so the
-	// global help/theme shortcuts remain reachable while a plugin overlay is
-	// open.
+	// Plugin overlay consumes keys until closed (Esc). T/? still work so the
+	// global theme shortcut and the [?] menu remain reachable while a plugin
+	// overlay is open.
 	if m.pluginOverlay != -1 {
 		switch k.String() {
 		case "esc":
@@ -578,10 +487,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			m.cycleTheme()
 			return nil
 		case "?":
-			m.openHelp(helpKeys)
-			return nil
-		case "C":
-			m.openHelp(helpConventions)
+			m.menu.openMenu()
 			return nil
 		}
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
@@ -647,14 +553,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.focused = paneTasks
 		return nil
 	case "?":
-		m.openHelp(helpKeys)
+		m.menu.openMenu()
 		return nil
 	case "C":
 		if m.focused == paneTasks && m.projectScope != "" {
 			m.capability.openOverlay()
-			return nil
 		}
-		m.openHelp(helpConventions)
 		return nil
 	case "D":
 		m.openDispatch()
@@ -937,7 +841,7 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
-	// Overlay layers (help, form, confirm) render on top of the body via
+	// Overlay layers (menu, form, confirm) render on top of the body via
 	// placeOverlay: the workspace stays visible on the rows above and below
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
@@ -948,8 +852,8 @@ func (m *Model) View() string {
 	// tick). Adding an overlay here without adding it to workspaceIdle() would
 	// let art animate underneath the new overlay.
 	out := b.String()
-	if m.helpOverlay != helpNone {
-		out = m.placeOverlay(out, m.renderHelpOverlay())
+	if m.menu.open {
+		out = m.placeOverlay(out, m.menu.renderOverlay())
 	}
 	if m.form != nil && m.form.Active {
 		out = m.placeOverlay(out, m.form.View(m.styles))
@@ -992,31 +896,6 @@ func (m *Model) renderPane(pane workspacePane, width int, height int, title stri
 	return titledBoxHeight(style, width, title, body, height)
 }
 
-// statusHint returns the focused-pane keymap hint for the status line.
-func (m *Model) statusHint() string {
-	switch m.focused {
-	case paneProjects:
-		return m.projects.statusHint()
-	case paneTasks:
-		return m.tasks.statusHint()
-	}
-	return ""
-}
-
-// renderHelpOverlay renders the active reference overlay as a centered,
-// larger-than-form modal box (see helpBoxSize), placed on top of the
-// workspace via placeOverlay. We use DialogBody (no Border/Padding) so
-// titledBoxHeight's manual border chars are the only frame — Dialog would
-// double-frame the content.
-func (m *Model) renderHelpOverlay() string {
-	title := "Help - Keys"
-	if m.helpOverlay == helpConventions {
-		title = "Help - Conventions"
-	}
-	bw, bh := m.helpBoxSize()
-	return titledBoxHeight(m.styles.DialogBody, bw, title, m.help.View(), bh)
-}
-
 func (m *Model) renderStatusLine() string {
 	var parts []string
 	// The counts are scoped to the selected project; naming it keeps the
@@ -1027,18 +906,13 @@ func (m *Model) renderStatusLine() string {
 	}
 	parts = append(parts, m.styles.StatusLabel.Render("⛃ "+m.storeStats.Version)+
 		m.styles.Status.Render(fmt.Sprintf(" · %s%d events · %s", scope, m.storeStats.EventCount, formatSize(m.storeStats.SizeBytes))))
-	// Panes with nothing pane-specific to say now return "" — the global
-	// key cluster on the right covers what their hint used to repeat.
-	if hint := m.statusHint(); hint != "" {
-		parts = append(parts, m.styles.KeyMenu.Render(hint))
-	}
 	if m.toastMsg != "" {
 		parts = append(parts, m.styles.Toast.Render(m.toastMsg))
 	}
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
 	rightSegments = append(rightSegments,
-		m.styles.KeyMenu.Render("[?]help [C]conv [T]theme"),
+		m.styles.KeyMenu.Render("[?]menu"),
 		m.styles.KeyMenuDim.Render("atm "+version.Version),
 		m.refreshRecencySegment())
 	right := strings.Join(rightSegments, "  ")

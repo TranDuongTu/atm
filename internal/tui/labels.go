@@ -1695,25 +1695,6 @@ func (b *boardsModel) syntheticLeafTaskCount() int {
 	return count
 }
 
-func (b *boardsModel) statusHint() string {
-	if b.m.projectScope == "" {
-		return ""
-	}
-	switch b.level {
-	case lLevelChart:
-		return "[Enter]inspect [d]esc [l]remove [Esc]back"
-	case lLevelDetail:
-		if b.detail.leaf != "" {
-			return "[Esc]back"
-		}
-		return "[d]esc [l]remove [Esc]back"
-	case lLevelUmbrella:
-		return "[Shift-↑/↓]select label  [Shift-→]drill"
-	default:
-		return "[Enter]open [n]ew [e]dit [a]dd [S]eed"
-	}
-}
-
 // --- describe form (used by [d] in list and detail) ---
 
 // openLabelDescribeForm opens a form with name + description fields. The

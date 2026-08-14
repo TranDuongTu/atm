@@ -4,58 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbletea"
 	"github.com/muesli/reflow/wordwrap"
 )
-
-type helpModel struct {
-	m      *Model
-	mode   helpOverlayKind
-	lines  []string
-	offset int
-	// width and height are the outer dims of the box the help content is
-	// being rendered for (either the full workspace when no overlay is open,
-	// or the smaller centered modal when ?/C is active). refresh() wraps
-	// content to width-2 (the manual titledBox border consumes the 2),
-	// and View() exposes height-2 lines of scrolling content.
-	width, height int
-}
-
-func newHelpModel(m *Model) helpModel {
-	return helpModel{m: m, mode: helpKeys, width: m.width, height: m.contentHeight}
-}
-
-func (h *helpModel) SetSize(w, hh int) {
-	if w < 1 {
-		w = 1
-	}
-	if hh < 1 {
-		hh = 1
-	}
-	h.width = w
-	h.height = hh
-}
-
-func (h *helpModel) refresh() {
-	switch h.mode {
-	case helpConventions:
-		h.lines = strings.Split(renderConventionsText(h.m.styles, h.width, conventionsTextTUI), "\n")
-	default:
-		h.mode = helpKeys
-		var b strings.Builder
-		b.WriteString(sectionDivider(h.m.styles, h.width, "CLI / TUI Parity"))
-		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.width, parityTable))
-		b.WriteString("\n\n")
-		b.WriteString(sectionDivider(h.m.styles, h.width, "Global Keymap"))
-		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.width, keymapReferenceText()))
-		b.WriteString("\n")
-		b.WriteString(dashboardBlock(h.width, "g <n> opens the nth plugin overlay (g 1 = indexer)."))
-		h.lines = strings.Split(b.String(), "\n")
-	}
-	h.clampOffset()
-}
 
 func renderConventionsText(styles Styles, width int, text string) string {
 	// Wrap to the box's inner content width (width minus the titled box's
@@ -107,64 +57,6 @@ func isNumberedItem(line string) bool {
 		return false
 	}
 	return line[1] == '.'
-}
-
-func (h *helpModel) clampOffset() {
-	innerH := h.height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
-	maxOff := len(h.lines) - innerH
-	if maxOff < 0 {
-		maxOff = 0
-	}
-	if h.offset > maxOff {
-		h.offset = maxOff
-	}
-	if h.offset < 0 {
-		h.offset = 0
-	}
-}
-
-func (h *helpModel) handleKey(k tea.KeyMsg) tea.Cmd {
-	switch k.String() {
-	case "j", "down":
-		h.offset++
-		h.clampOffset()
-	case "k", "up":
-		if h.offset > 0 {
-			h.offset--
-		}
-	case "g":
-		h.offset = 0
-	case "pgdown", " ":
-		h.offset += h.m.contentHeight / 2
-		h.clampOffset()
-	case "pgup", "b":
-		if h.offset > h.m.contentHeight/2 {
-			h.offset -= h.m.contentHeight / 2
-		} else {
-			h.offset = 0
-		}
-	}
-	return nil
-}
-
-func (h *helpModel) View() string {
-	innerH := h.height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
-	end := h.offset + innerH
-	if end > len(h.lines) {
-		end = len(h.lines)
-	}
-	var b strings.Builder
-	for i := h.offset; i < end; i++ {
-		b.WriteString(h.lines[i])
-		b.WriteString("\n")
-	}
-	return padToHeight(b.String(), innerH)
 }
 
 // parityTable is the verbatim CLI/TUI parity table from mockup Screen 10.

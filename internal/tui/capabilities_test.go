@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -148,19 +147,18 @@ func TestCKeyOpensSwitcherOnlyInTasksPane(t *testing.T) {
 	m.focused = paneProjects
 	m.handleKey(keyMsg("C"))
 	if m.capability.open {
-		t.Fatalf("switcher opened from Projects pane; C must keep conventions there")
+		t.Fatalf("switcher opened from Projects pane; C must be a no-op there")
 	}
-	if m.helpOverlay != helpConventions {
-		t.Fatalf("helpOverlay = %v, want conventions", m.helpOverlay)
+	if m.menu.open {
+		t.Fatalf("C opened the menu from the Projects pane")
 	}
-	m.closeHelp()
 	m.focused = paneTasks
 	m.handleKey(keyMsg("C"))
 	if !m.capability.open {
 		t.Fatalf("switcher did not open from Tasks pane")
 	}
-	if m.helpOverlay != helpNone {
-		t.Fatalf("conventions overlay opened alongside the switcher")
+	if m.menu.open {
+		t.Fatalf("menu opened alongside the switcher")
 	}
 }
 
@@ -237,15 +235,6 @@ func TestOverlaySpaceDisablesCurrentAndFallsBack(t *testing.T) {
 	}
 	if m.capability.current == "workflow" {
 		t.Fatalf("current still workflow after disabling it; want fallback")
-	}
-}
-
-func TestStatusHintLeadsWithCapabilities(t *testing.T) {
-	m := newCapTestModel(t)
-	setupCapProject(t, m)
-	hint := m.tasks.statusHint()
-	if !strings.HasPrefix(hint, "[C]apabilities") {
-		t.Fatalf("hint = %q, want [C]apabilities first", hint)
 	}
 }
 

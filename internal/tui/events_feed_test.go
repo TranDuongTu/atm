@@ -583,7 +583,6 @@ func TestNoSubfocusModeRemains(t *testing.T) {
 	if m.projects.cursor != before+1 {
 		t.Fatalf("after L, plain j must still drive the project list (cursor %d -> %d)", before, m.projects.cursor)
 	}
-	mustNotContain(t, m.projects.statusHint(), "[L]ogs")
 }
 
 func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {

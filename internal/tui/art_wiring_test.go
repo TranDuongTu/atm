@@ -7,7 +7,7 @@ import (
 
 // TestArtTickAdvancesPhaseOnWorkspace proves artTickMsg advances m.artPhase
 // while the plain workspace is showing, and freezes it once an overlay
-// (help, in this case) covers the workspace — matching View()'s dispatch.
+// (the menu, in this case) covers the workspace — matching View()'s dispatch.
 func TestArtTickAdvancesPhaseOnWorkspace(t *testing.T) {
 	m := newTestModel(t)
 	before := m.artPhase
@@ -17,7 +17,7 @@ func TestArtTickAdvancesPhaseOnWorkspace(t *testing.T) {
 	}
 
 	// Overlay open: phase freezes.
-	m.helpOverlay = helpKeys
+	m.menu.open = true
 	frozen := m.artPhase
 	m.Update(artTickMsg{})
 	if m.artPhase != frozen {
@@ -30,7 +30,7 @@ func TestArtTickAdvancesPhaseOnWorkspace(t *testing.T) {
 // closes rather than needing another trigger to restart the loop.
 func TestArtTickAlwaysReschedules(t *testing.T) {
 	m := newTestModel(t)
-	m.helpOverlay = helpKeys
+	m.menu.open = true
 	_, cmd := m.Update(artTickMsg{})
 	if cmd == nil {
 		t.Fatal("Update(artTickMsg) returned nil cmd even while frozen; want next-tick scheduling")
@@ -47,11 +47,11 @@ func TestWorkspaceIdleMatchesViewDispatch(t *testing.T) {
 		t.Fatal("fresh model should be workspace-idle")
 	}
 
-	t.Run("help overlay", func(t *testing.T) {
+	t.Run("menu overlay", func(t *testing.T) {
 		m := fresh(t)
-		m.helpOverlay = helpKeys
+		m.menu.open = true
 		if m.workspaceIdle() {
-			t.Fatal("workspaceIdle should be false under help overlay")
+			t.Fatal("workspaceIdle should be false under the menu overlay")
 		}
 	})
 	t.Run("confirm", func(t *testing.T) {

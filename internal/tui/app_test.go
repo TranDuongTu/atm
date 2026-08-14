@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // --- test helpers ---
@@ -264,39 +265,41 @@ func TestKey3IsNoOp(t *testing.T) {
 	}
 }
 
-func TestHelpOverlayOpensClosesAndScrolls(t *testing.T) {
+func TestMenuOpensClosesAndScrolls(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "2")
 	update(t, m, "?")
-	if m.helpOverlay != helpKeys {
-		t.Fatalf("help overlay should be open (keys), got %v", m.helpOverlay)
+	if !m.menu.open {
+		t.Fatalf("? must open the menu")
 	}
 	if m.focused != paneTasks {
-		t.Fatalf("opening help changed focus = %v want paneTasks", m.focused)
+		t.Fatalf("opening menu changed focus = %v want paneTasks", m.focused)
 	}
 	v := m.View()
-	mustContain(t, v, "Help - Keys")
-	mustContain(t, v, "CLI / TUI Parity")
-	// The keys overlay holds parity + keymap; scroll to reveal keymap.
-	for i := 0; i < 30; i++ {
+	mustContain(t, v, "Keymap reference")
+	mustContain(t, v, "CLI ↔ TUI parity")
+	// The keymap reference is a menu detail view; drill into it.
+	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
 		update(t, m, "j")
 	}
-	mustContain(t, m.View(), "Global Keymap")
-	// Scrolling is clamped at the bottom; verify j still advances when not
-	// at the limit by resetting to top and stepping once.
-	update(t, m, "g")
-	before := m.help.offset
-	update(t, m, "j")
-	if m.help.offset <= before {
-		t.Fatalf("help j did not scroll: before=%d after=%d", before, m.help.offset)
+	update(t, m, "enter")
+	if m.menu.view != refKeymap {
+		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
+	}
+	mustContain(t, m.View(), "Key")
+	mustContain(t, m.View(), "Action")
+	// Esc closes the detail back to the list, then the menu.
+	update(t, m, "esc")
+	if m.menu.view != refNone {
+		t.Fatalf("esc from detail should return to the menu list, got %v", m.menu.view)
 	}
 	update(t, m, "esc")
-	if m.helpOverlay != helpNone {
-		t.Fatalf("esc should close help overlay, got %v", m.helpOverlay)
+	if m.menu.open {
+		t.Fatalf("esc should close the menu")
 	}
 }
 
-func TestHelpOverlayReadOnly(t *testing.T) {
+func TestMenuReadOnly(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "?")
@@ -304,17 +307,17 @@ func TestHelpOverlayReadOnly(t *testing.T) {
 		update(t, m, k)
 	}
 	if m.form != nil {
-		t.Errorf("mutating key opened a form from help overlay")
+		t.Errorf("mutating key opened a form from the menu")
 	}
 	if m.confirm != confirmNone {
-		t.Errorf("mutating key opened a confirm from help overlay")
+		t.Errorf("mutating key opened a confirm from the menu")
 	}
 	if m.toastMsg != "" {
-		t.Errorf("mutating key produced toast %q from help overlay", m.toastMsg)
+		t.Errorf("mutating key produced toast %q from the menu", m.toastMsg)
 	}
 	ps := m.store.ListProjects()
 	if len(ps) != 1 || ps[0].Code != "ATM" {
-		t.Errorf("store changed from help overlay: projects = %+v", ps)
+		t.Errorf("store changed from the menu: projects = %+v", ps)
 	}
 }
 
@@ -340,6 +343,12 @@ func TestPaneFocusKeepsAllPanesVisible(t *testing.T) {
 }
 
 func TestFocusedPaneStyleChanges(t *testing.T) {
+	// The status bar is now identical across panes (Task 7 stripped the
+	// per-pane hints), so the active/inactive pane borders are the only thing
+	// that must differ. ANSI256 makes that visible; under the Ascii profile
+	// both styles render identically.
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 	m := newTestModel(t)
 	m.SetSize(120, 36)
 	update(t, m, "1")
@@ -354,7 +363,7 @@ func TestFocusedPaneStyleChanges(t *testing.T) {
 	}
 }
 
-func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
+func TestStatusLineHasNoPaneSpecificHints(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
@@ -362,10 +371,15 @@ func TestStatusLineHintsFollowFocusedPane(t *testing.T) {
 	projects := m.renderStatusLine()
 	update(t, m, "2")
 	tasks := m.renderStatusLine()
-	if projects == tasks {
-		t.Fatalf("status hints should differ by focused pane:\nprojects=%q\ntasks=%q", projects, tasks)
+	if projects != tasks {
+		t.Fatalf("status line should be identical across panes (no per-pane hints):\nprojects=%q\ntasks=%q", projects, tasks)
 	}
-	mustContain(t, tasks, "[s]ort")
+	mustContain(t, tasks, "[?]menu")
+	for _, stale := range []string{"[s]ort", "[a]dd", "[e]title", "[C]apabilities", "[Enter]detail"} {
+		if strings.Contains(tasks, stale) {
+			t.Errorf("status line still carries pane hint %q: %s", stale, tasks)
+		}
+	}
 }
 
 func TestDefaultTheme(t *testing.T) {
@@ -492,7 +506,7 @@ func TestStatusLineStatsFollowProjectSelection(t *testing.T) {
 func TestStatusLineShowsKeyClusterAndAppVersion(t *testing.T) {
 	m := newTestModel(t)
 	line := m.renderStatusLine()
-	mustContain(t, line, "[?]help [C]conv [T]theme")
+	mustContain(t, line, "[?]menu")
 	mustContain(t, line, "atm "+version.Version)
 }
 
@@ -565,18 +579,18 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 }
 
-func TestThemeCyclesInsideHelpOverlay(t *testing.T) {
+func TestThemeCyclesInsideMenu(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
-	if m.helpOverlay != helpKeys {
-		t.Fatalf("setup: help overlay should be open, got %v", m.helpOverlay)
+	if !m.menu.open {
+		t.Fatalf("setup: menu should be open, got %v", m.menu.open)
 	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
-	if m.helpOverlay != helpKeys {
-		t.Fatalf("theme cycling should not close help overlay, got %v", m.helpOverlay)
+	if !m.menu.open {
+		t.Fatalf("theme cycling should not close the menu, got open=%v", m.menu.open)
 	}
 }
 
@@ -924,10 +938,6 @@ func TestProjectDetailDashboardSections(t *testing.T) {
 	mustContain(t, v, "code")
 	mustContain(t, v, "tasks")
 	mustNotContain(t, v, "Actions")
-	hint := m.projects.statusHint()
-	mustContain(t, hint, "[N]ame")
-	mustContain(t, hint, "[H]istory")
-	mustContain(t, hint, "[x]remove")
 }
 
 func TestProjectPaneSplitHeights(t *testing.T) {
@@ -1727,9 +1737,6 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "ATM:type:bug")
 	mustContain(t, v, "ATM:priority:high")
 	mustNotContain(t, v, "Actions")
-	hint := m.tasks.statusHint()
-	mustContain(t, hint, "[e]title")
-	mustContain(t, hint, "[b]add label")
 	if strings.Contains(v, "task.created") {
 		t.Fatalf("history must be hidden behind [H] overlay by default, found task.created:\n%s", v)
 	}
@@ -1870,8 +1877,8 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	if m.tasks.view != tViewDetail {
 		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
 	}
-	if m.form != nil || m.confirm != confirmNone || m.helpOverlay != helpNone {
-		t.Fatalf("detail should not open an overlay: form=%v confirm=%v help=%v", m.form != nil, m.confirm, m.helpOverlay)
+	if m.form != nil || m.confirm != confirmNone || m.menu.open {
+		t.Fatalf("detail should not open an overlay: form=%v confirm=%v menu=%v", m.form != nil, m.confirm, m.menu.open)
 	}
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
@@ -1985,35 +1992,43 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 	mustContain(t, v, "task two")
 }
 
-// --- Step 7: help overlay ---
+// --- menu reference views (formerly the ?/C help overlay) ---
 
-func TestHelpOverlayParityTable(t *testing.T) {
+func TestMenuParityReference(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 35)
 	update(t, m, "?")
-	v := m.View()
-	mustContain(t, v, "─ CLI / TUI Parity ─")
-	mustNotContain(t, v, "Help tab")
-	content := strings.Join(m.help.lines, "\n")
+	if !m.menu.open {
+		t.Fatal("? must open the menu")
+	}
+	for i := 0; i < 50 && m.menu.selectedLabel() != "CLI ↔ TUI parity"; i++ {
+		update(t, m, "j")
+	}
+	update(t, m, "enter")
+	if m.menu.view != refParity {
+		t.Fatalf("menu view = %v, want refParity", m.menu.view)
+	}
+	content := strings.Join(m.menu.lines, "\n")
 	mustContain(t, content, "atm project create")
 	mustContain(t, content, "atm task create")
 	mustContain(t, content, "atm conventions")
-	lines := strings.Split(m.help.View(), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("help view too short\n--- help ---\n%s", m.help.View())
-	}
-	if leadingSpaces(lines[1]) != leadingSpaces(lines[0]) {
-		t.Fatalf("help content should align with divider: divider=%q content=%q", lines[0], lines[1])
-	}
+	mustNotContain(t, content, "Help tab")
 }
 
-func TestHelpOverlayConventions(t *testing.T) {
+func TestMenuConventionsReference(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "C")
-	if m.helpOverlay != helpConventions {
-		t.Fatalf("help overlay should be open (conventions), got %v", m.helpOverlay)
+	update(t, m, "?")
+	if !m.menu.open {
+		t.Fatal("? must open the menu")
 	}
-	content := strings.Join(m.help.lines, "\n")
+	for i := 0; i < 50 && m.menu.selectedLabel() != "Conventions"; i++ {
+		update(t, m, "j")
+	}
+	update(t, m, "enter")
+	if m.menu.view != refConventions {
+		t.Fatalf("menu view = %v, want refConventions", m.menu.view)
+	}
+	content := strings.Join(m.menu.lines, "\n")
 	mustContain(t, content, "What ATM is")
 	mustContain(t, content, "Substrate")
 	mustContain(t, content, "Capabilities")
@@ -2027,22 +2042,32 @@ func TestHelpOverlayConventions(t *testing.T) {
 	mustNotContain(t, content, "## Agent code-of-conduct")
 	mustNotContain(t, content, "First-time human sequence")
 	mustNotContain(t, content, "atm label seed")
-	// Keys-only content is NOT present in the conventions overlay.
+	// Keys-only content is NOT present in the conventions reference.
 	mustNotContain(t, content, "CLI / TUI Parity")
 	mustNotContain(t, content, "Global Keymap")
 }
 
-func TestHelpOverlayKeymapUsesPaneLanguage(t *testing.T) {
+func TestMenuKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
-	content := strings.Join(m.help.lines, "\n")
-	mustContain(t, content, "Global Keymap")
-	mustContain(t, content, "Projects pane")
-	mustContain(t, content, "Tasks pane")
+	if !m.menu.open {
+		t.Fatal("? must open the menu")
+	}
+	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
+		update(t, m, "j")
+	}
+	update(t, m, "enter")
+	if m.menu.view != refKeymap {
+		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
+	}
+	content := strings.Join(m.menu.lines, "\n")
+	mustContain(t, content, "Key")
+	mustContain(t, content, "projects")
+	mustContain(t, content, "tasks")
 	mustContain(t, content, "Cycle theme")
 	mustContain(t, content, "Add project")
 	mustNotContain(t, content, "switch tab")
-	// Conventions-only content is NOT present in the keys overlay.
+	// Conventions-only content is NOT present in the keymap reference.
 	mustNotContain(t, content, "Suggested seed namespaces")
 	mustNotContain(t, content, "advisory")
 }
@@ -2232,13 +2257,20 @@ func TestKeymapHasPluginPrefixRows(t *testing.T) {
 	}
 }
 
-func TestHelpMentionsPluginOverlays(t *testing.T) {
+func TestMenuKeymapMentionsPluginOverlays(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	m.openHelp(helpKeys)
-	content := strings.Join(m.help.lines, "\n")
-	if !strings.Contains(content, "g ") {
-		t.Errorf("keys help should mention 'g <n>' plugin overlays\n--- content ---\n%s", content)
+	m.menu.openMenu()
+	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
+		m.menu.handleKey(keyMsg("j"))
+	}
+	m.menu.handleKey(keyMsg("enter"))
+	if m.menu.view != refKeymap {
+		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
+	}
+	content := strings.Join(m.menu.lines, "\n")
+	if !strings.Contains(content, "g") {
+		t.Errorf("keymap reference should mention 'g' plugin overlays\n--- content ---\n%s", content)
 	}
 }
 

@@ -163,21 +163,5 @@ func TestPersonaChartDetailScroll(t *testing.T) {
 	}
 }
 
-func TestProjectsStatusHintMentionsPersonaKeys(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.SetSize(100, 30)
-	m.focused = paneProjects
-	m.projectScope = "ATM"
-	m.refreshAll()
-	hint := m.statusHint()
-	if !strings.Contains(hint, "Ctrl") {
-		t.Fatalf("status hint should mention Ctrl persona keys: %q", hint)
-	}
-	if strings.Contains(hint, "[p]") {
-		t.Fatalf("status hint should not mention [p]: %q", hint)
-	}
-}
-
 // ensure lipgloss is used (silences unused-import in trim builds).
 var _ = lipgloss.Width

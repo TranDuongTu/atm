@@ -138,7 +138,7 @@ func (p *indexerPlugin) HandleKey(k tea.KeyMsg, m *Model) tea.Cmd {
 }
 
 func (p *indexerPlugin) Render(m *Model) string {
-	bw, bh := m.helpBoxSize()
+	bw, bh := pluginBoxSize(m)
 	innerW := bw - 2
 	if innerW < 1 {
 		innerW = 1

@@ -374,21 +374,6 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	mustNotContain(t, v, "showing 1-1 of 1")
 }
 
-// TestListHintOrderPutsNavFirstAndInspectLast verifies the [2] pane list-view
-// hint drops the shift+arrow drill/member/focus keys entirely: that
-// information is already shown inline in the pane itself (the "[Shift-N]" /
-// "[Shift-0]" box labels and the SELECTED cell's "Shift+-> to inspect" hint),
-// so the status bar stays terse rather than duplicating it.
-func TestListHintOrderPutsNavFirstAndInspectLast(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	want := "[C]apabilities  [↑/↓]tasks  [ [ / ] ]board  [s]ort  [a]dd  [p]pin/unpin  [Enter]detail"
-	if got := m.tasks.statusHint(); got != want {
-		t.Errorf("statusHint() = %q, want %q", got, want)
-	}
-}
-
 // TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
 // top-to-bottom the pane stacks task list -> board strip -> tabbed pinned box,
 // so the pinned box is the LAST pinnedBoxHeight lines (pinned at the very

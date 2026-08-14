@@ -1329,22 +1329,6 @@ func (p *projectsModel) renderDetailView() string {
 	return padToHeight(b.String(), p.contentHeight)
 }
 
-func (p *projectsModel) statusHint() string {
-	switch p.view {
-	case pViewList:
-		if p.personaDrilled {
-			return "[Ctrl+←]back from persona"
-		}
-		if len(p.list) == 0 {
-			return "[a]dd"
-		}
-		return "[a]dd [s]elect [Enter]detail [x]remove [Ctrl+↑/↓]persona [Ctrl+→]drill [Ctrl+Shift+→]dispatch"
-	case pViewDetail:
-		return "[N]ame [H]istory [c]apability [space]toggle [x]remove [Esc]back"
-	}
-	return ""
-}
-
 // --- form openers ---
 
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
