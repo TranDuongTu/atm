@@ -64,3 +64,31 @@ func TestRenderContextEmptyActor(t *testing.T) {
 		t.Fatal("empty Actor must remain as placeholder literal")
 	}
 }
+
+func TestRenderContextCapabilityScope(t *testing.T) {
+	d := ContextData{Code: "ATM", Name: "Acme", Actor: "concierge@claude:test", Capability: "channel", PersonaPrompt: "PROMPT"}
+	out := RenderContext(d)
+	for _, want := range []string{
+		"## Session scope",
+		"scoped to the `channel` capability",
+		"atm capability channel guide",
+		"for project ATM",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scoped context missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "<CAPABILITY_SCOPE>") {
+		t.Error("placeholder leaked into scoped render")
+	}
+	if idx := strings.Index(out, "## Session scope"); idx > strings.Index(out, "## Orientation") {
+		t.Error("scope section must precede Orientation")
+	}
+}
+
+func TestRenderContextNoCapabilityNoResidue(t *testing.T) {
+	out := RenderContext(ContextData{Code: "ATM", Actor: "a@b:c", PersonaPrompt: "PROMPT"})
+	if strings.Contains(out, "CAPABILITY_SCOPE") || strings.Contains(out, "Session scope") {
+		t.Errorf("unscoped context must carry no scope residue:\n%s", out)
+	}
+}

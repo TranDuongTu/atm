@@ -6,6 +6,8 @@
 
 <PERSONA_PROMPT>
 
+<CAPABILITY_SCOPE>
+
 ## Orientation
 
 ATM is the visible ledger for this work. Use it to record ideas, discussions, decisions, and progress as you go, and to find prior work and handoffs from earlier sessions. Start with the CLI landscape, read the conventions, then discover which capabilities this project has enabled and read each one's guide.

@@ -169,6 +169,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	rendered := session.RenderContext(session.ContextData{
 		Code: code, Name: projName, Actor: actor,
 		TaskID:        opts.Task,
+		Capability:    opts.Capability,
 		PersonaPrompt: personaPrompt,
 	})
 	if err := writeContextIfDiff(contextPath, []byte(rendered)); err != nil {
@@ -300,6 +301,7 @@ func renderSessionContext(st *cliState, persona, project, actor, capability, tas
 	data := session.ContextData{
 		Code: project, Name: projName, Actor: actor,
 		TaskID:        task,
+		Capability:    capability,
 		PersonaPrompt: buildPersonaPrompt(spec, personality, project, projName, actor, task),
 	}
 	rendered := session.RenderContext(data)
