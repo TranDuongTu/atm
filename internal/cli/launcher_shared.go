@@ -144,24 +144,27 @@ func appendAgentArgs(base, envArgs, extraArgs []string) []string {
 }
 
 // contextCachePath returns the stable on-disk path for a rendered session
-// prompt keyed on (persona, task). Repeated launches of the same
+// prompt keyed on (persona, task, capability). Repeated launches of the same
 // tuple reuse the same file. With no project (project-optional personas), the
 // file lives in the store-level cache dir.
-func contextCachePath(storePath, code, persona, task string) string {
-	key := cacheKey(persona, task)
+func contextCachePath(storePath, code, persona, task, capability string) string {
+	key := cacheKey(persona, task, capability)
 	if code == "" {
 		return filepath.Join(storePath, "cache", key+".md")
 	}
 	return filepath.Join(storePath, "projects", code, "cache", key+".md")
 }
 
-// cacheKey builds the filename stem: session-<persona>[-<task>].
+// cacheKey builds the filename stem: session-<persona>[-<task>][-<capability>].
 // Non-alphanumeric characters collapse to a single "-"; the result is
 // lowercased and trimmed of leading/trailing "-".
-func cacheKey(persona, task string) string {
+func cacheKey(persona, task, capability string) string {
 	parts := []string{"session", persona}
 	if task != "" {
 		parts = append(parts, task)
+	}
+	if capability != "" {
+		parts = append(parts, capability)
 	}
 	for i, p := range parts {
 		parts[i] = sanitizeCacheSegment(p)

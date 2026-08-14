@@ -164,7 +164,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	}
 	runID := newRunID(runCode)
 	timestamp := core.RFC3339UTC(now)
-	contextPath := contextCachePath(s.StorePath(), code, spec.Name, opts.Task)
+	contextPath := contextCachePath(s.StorePath(), code, spec.Name, opts.Task, opts.Capability)
 
 	rendered := session.RenderContext(session.ContextData{
 		Code: code, Name: projName, Actor: actor,

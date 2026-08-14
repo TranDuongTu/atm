@@ -83,7 +83,7 @@ func TestAppendAgentArgs_DoesNotMutateBase(t *testing.T) {
 }
 
 func TestContextCachePathPersona(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "developer", "")
+	got := contextCachePath("/STORE", "FOO", "developer", "", "")
 	want := "/STORE/projects/FOO/cache/session-developer.md"
 	if got != want {
 		t.Fatalf("contextCachePath developer = %q, want %q", got, want)
@@ -91,7 +91,7 @@ func TestContextCachePathPersona(t *testing.T) {
 }
 
 func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
-	got := contextCachePath("/STORE", "", "concierge", "")
+	got := contextCachePath("/STORE", "", "concierge", "", "")
 	want := "/STORE/cache/session-concierge.md"
 	if got != want {
 		t.Fatalf("contextCachePath no-project = %q, want %q", got, want)
@@ -99,7 +99,7 @@ func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
 }
 
 func TestContextCachePathNormalizes(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "")
+	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "")
 	want := "/STORE/projects/FOO/cache/session-dev-staff.md"
 	if got != want {
 		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
@@ -156,11 +156,23 @@ func TestWriteContextIfDiffNoOpOnMatch(t *testing.T) {
 // TestCacheKeyWithTask verifies the task id joins the cache key so two
 // concurrent sessions on different tasks never share a context file.
 func TestCacheKeyWithTask(t *testing.T) {
-	if got, want := cacheKey("developer", "ATM-4b7e24"), "session-developer-atm-4b7e24"; got != want {
+	if got, want := cacheKey("developer", "ATM-4b7e24", ""), "session-developer-atm-4b7e24"; got != want {
 		t.Fatalf("cacheKey = %q, want %q", got, want)
 	}
-	if got, want := cacheKey("developer", ""), "session-developer"; got != want {
+	if got, want := cacheKey("developer", "", ""), "session-developer"; got != want {
 		t.Fatalf("cacheKey no-task = %q, want %q", got, want)
+	}
+}
+
+func TestCacheKeyCapabilitySegment(t *testing.T) {
+	if got := cacheKey("concierge", "", "channel"); got != "session-concierge-channel" {
+		t.Errorf("cacheKey with capability = %q, want session-concierge-channel", got)
+	}
+	if got := cacheKey("concierge", "ATM-3714db", "channel"); got != "session-concierge-atm-3714db-channel" {
+		t.Errorf("cacheKey with task+capability = %q", got)
+	}
+	if got := cacheKey("concierge", "", ""); got != "session-concierge" {
+		t.Errorf("cacheKey without capability changed: %q", got)
 	}
 }
 
