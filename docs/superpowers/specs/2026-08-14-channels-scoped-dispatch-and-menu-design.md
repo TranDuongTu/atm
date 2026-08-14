@@ -53,7 +53,7 @@ Also confirmed as design input: channel records are tier-1 ledger tasks (synced 
 This session is scoped to the `<capability>` capability for project <CODE>. Skip any general onboarding or survey flow your persona defines — orient only as far as this capability needs. Read `atm capability <capability> guide` first, then work solely on this capability's setup and health, and hand off when it is healthy.
 ```
 
-The cache key already includes the capability segment (`session-<persona>[-<mode>][-<capability>].md`), so no cache changes are needed.
+The context cache key (`internal/cli/launcher_shared.go`, `cacheKey`) is `session-<persona>[-<task>]` today and does NOT include the capability, so a scoped and an unscoped launch of the same persona would share one cache file. `cacheKey` gains a capability segment: `session-<persona>[-<task>][-<capability>]`.
 
 ### 2. Channel capability guide: scoped session flow
 
@@ -67,7 +67,9 @@ The channel capability guide (`skills/capability/channel.md`) gains a `Scoped se
 
 ### 3. Dispatch dialog: capability as a default
 
-`dispatchModel` gains a `capability` string. `open()` accepts it alongside persona/project/task (all existing call sites pass `""`; `channels.go` passes `"channel"`). Rendering: a read-only `Capability` line shown only when set, in the same style as the `Task` line. `submit()` appends `--capability <name>` to argv when set. No cursor, no cycling, no branching.
+`dispatchModel` gains a `capability` string. `open()` accepts it alongside persona/project/task (all existing call sites pass `""`; `channels.go` passes `"channel"`). Rendering: a read-only `Scope` line shown only when set, in the same style as the `Task` line. `submit()` appends `--capability <name>` to argv when set. No cursor, no cycling, no branching.
+
+Bug fix folded in: `submit()` currently appends `--project` only when the persona *requires* it, so a concierge dispatched from the channels overlay launches without `--project` even though the overlay resolved one — the scoped session would render with literal project placeholders. `submit()` changes to append `--project` (and permit `--task`) for any non-admin persona whenever a project scope is present; project-optional personas accept `--project` at the CLI already. The admin exclusion mirrors the existing `title()`/`projectRequired()` special case.
 
 ### 4. The key/menu table
 
@@ -75,7 +77,7 @@ The channel capability guide (`skills/capability/channel.md`) gains a `Scoped se
 
 Pure navigation entries (`↑/↓` movement, `j/k` scroll, paired cycle keys) are marked menu-hidden: they appear in the keymap reference but not as activatable menu entries, since replaying one step of a movement pair is not a meaningful action. Menu Actions list only single-shot verbs (add, edit, toggle, remove, drill, sort…).
 
-The table drives: menu content and labels, the keymap reference rendering, and the parity test. It does not execute behavior — replay does.
+The table drives: menu content and labels, the keymap reference rendering, and the parity test. It does not execute behavior — replay does. The keymap reference view renders the table flat (`Key | Where | Action`, grouped by scope) instead of today's hand-maintained four-column matrix, which is deleted with `keymapRows`.
 
 ### 5. `menuModel`
 
