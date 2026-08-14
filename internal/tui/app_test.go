@@ -2245,6 +2245,24 @@ func TestEscClosesPluginOverlay(t *testing.T) {
 	}
 }
 
+// TestQuestionMarkFromPluginOverlayClosesOverlayAndOpensMenu pins the
+// plugin-overlay `?` path: the menu must open with the plugin overlay CLOSED,
+// so the menu's replayed keys target the workspace instead of being swallowed
+// by the still-open plugin overlay.
+func TestQuestionMarkFromPluginOverlayClosesOverlayAndOpensMenu(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.plugins = []plugin{&fakePlugin{}}
+	m.pluginOverlay = 0
+	update(t, m, "?")
+	if m.pluginOverlay != -1 {
+		t.Fatalf("? must close the plugin overlay first, got %d", m.pluginOverlay)
+	}
+	if !m.menu.open {
+		t.Fatal("? must open the menu")
+	}
+}
+
 func TestKeymapHasPluginPrefixRows(t *testing.T) {
 	foundG := false
 	for _, e := range menuEntries {

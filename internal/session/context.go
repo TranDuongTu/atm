@@ -27,8 +27,12 @@ func capabilityScopeSection(capability string) string {
 }
 
 // RenderContext substitutes ContextData into the session template. Empty
-// Code/Name/Actor leave their placeholders literal so a generic template can
-// be produced (`atm session-context` with no --project).
+// Code/Name/Actor/TaskID/PersonaPrompt leave their placeholders literal so a
+// generic template can be produced (`atm session-context` with no --project).
+// Capability differs: an empty Capability REMOVES the Session scope section
+// entirely (see capabilityScopeSection), because a scope section naming no
+// capability would be meaningless — the other fields' empty case leaves a
+// literal placeholder, the capability's does not.
 func RenderContext(d ContextData) string {
 	tmpl := contextV1
 	if d.Capability == "" {

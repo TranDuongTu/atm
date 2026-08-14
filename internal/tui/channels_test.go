@@ -237,6 +237,29 @@ func TestChannelsOverlayDispatchConcierge(t *testing.T) {
 	}
 }
 
+// TestChannelsOverlayCDoesNotDispatchWithoutProject pins the no-project `c`
+// guard: with an empty overlay project the channels `c` must refuse with a
+// toast and keep the overlay open — dispatching would launch a scoped session
+// whose rendered context carries a literal `project <CODE>` placeholder.
+func TestChannelsOverlayCDoesNotDispatchWithoutProject(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if m.channelsOv.project != "" {
+		t.Fatalf("overlay project = %q, want empty", m.channelsOv.project)
+	}
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if m.dispatchDlg.active {
+		t.Error("c with no project must not open the dispatch dialog")
+	}
+	if !m.channelsOv.open {
+		t.Error("c with no project must keep the overlay open")
+	}
+	if !strings.Contains(m.toastMsg, "select a project first") {
+		t.Errorf("toast = %q, want the select-a-project hint", m.toastMsg)
+	}
+}
+
 func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)

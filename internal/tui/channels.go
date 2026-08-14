@@ -81,6 +81,14 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			c.detail, c.offset = true, 0
 		}
 	case "c":
+		// The overlay's empty-state body explains the dead end, but `c` must
+		// not dispatch anyway: a scoped session with no --project would render
+		// a literal `project <CODE>` placeholder. Refuse with a toast and keep
+		// the overlay open so the user can act on the hint.
+		if c.project == "" {
+			c.m.showToast("select a project first")
+			return nil
+		}
 		c.open = false
 		c.m.dispatchDlg.open("concierge", c.project, "", "", "channel")
 	}

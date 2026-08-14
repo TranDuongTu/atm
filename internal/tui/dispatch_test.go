@@ -687,11 +687,18 @@ func TestDispatchNoCapabilityByDefault(t *testing.T) {
 	m.SetSize(120, 40)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
+	// testAgents (not the real catalog) so submit() always finds a ready
+	// agent and spawns — on a machine with no ready agent the real catalog
+	// refuses, spawned stays empty, and fd.spawned[0] below would panic.
+	m.agentOptionsFn = testAgents
 	m.openDispatch() // empty workspace → concierge, no project, no capability
 	if v := m.dispatchDlg.renderOverlay(); strings.Contains(v, "Scope:") {
 		t.Errorf("unscoped dialog must not render a Scope line:\n%s", v)
 	}
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatalf("spawned %d, want 1", len(fd.spawned))
+	}
 	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "--capability") {
 		t.Errorf("unscoped argv must omit --capability: %s", argv)
 	}

@@ -19,7 +19,7 @@ func TestMenuListsScopedActions(t *testing.T) {
 		t.Fatal("openMenu must open")
 	}
 	view := m.menu.renderOverlay()
-	for _, want := range []string{"Add task", "Channels", "Capabilities", "Keymap reference", "Conventions", "[D]", "[E]"} {
+	for _, want := range []string{"Add task", "New board", "Edit board", "Describe label", "Remove label", "Seed vocabulary", "Channels", "Capabilities", "Keymap reference", "Conventions", "[D]", "[E]"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("menu missing %q:\n%s", want, view)
 		}
@@ -38,6 +38,24 @@ func TestMenuHidesProjectGatedViewsWithoutProject(t *testing.T) {
 	m.menu.openMenu()
 	if view := m.menu.renderOverlay(); strings.Contains(view, "Capabilities") {
 		t.Errorf("needsProject entry shown without a project scope:\n%s", view)
+	}
+}
+
+// TestMenuHidesCapabilitiesFromProjectsPane: the `C` entry must only appear
+// when the key it replays can be honored — the Tasks pane with a project
+// scope. A highlighted/selected project row in the Projects pane resolves a
+// project (overlayProject), but pressing C there is a no-op, so advertising
+// Capabilities from that pane would be a phantom menu row.
+func TestMenuHidesCapabilitiesFromProjectsPane(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+
+	m.menu.openMenu()
+	if view := m.menu.renderOverlay(); strings.Contains(view, "Capabilities") {
+		t.Errorf("needsProject entry shown from the Projects pane, where C is a no-op:\n%s", view)
 	}
 }
 

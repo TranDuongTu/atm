@@ -44,7 +44,11 @@ func (m *Model) currentScopes() []menuScope {
 		if m.tasks.view == tViewDetail {
 			return []menuScope{scopeTasksDetail}
 		}
-		return []menuScope{scopeTasksList}
+		// The boards ring is always part of the Tasks pane's list view: the
+		// board-authoring keys (n/e/S/d/l) route unconditionally to boardsModel
+		// from the tasks list, so the boards actions belong to the same scope
+		// surface. There is no separate "boards-active" level above the list.
+		return []menuScope{scopeTasksList, scopeBoards}
 	}
 	return nil
 }
@@ -75,7 +79,8 @@ func (mm *menuModel) openMenu() {
 	mm.open = true
 
 	var actions []menuEntry
-	for _, e := range menuEntries {
+	for i := range menuEntries {
+		e := menuEntries[i]
 		if e.hidden {
 			continue
 		}
@@ -85,26 +90,34 @@ func (mm *menuModel) openMenu() {
 	}
 	if len(actions) > 0 {
 		mm.rows = append(mm.rows, menuRow{header: "Actions"})
-		for _, e := range actions {
+		for i := range actions {
+			e := actions[i]
 			mm.rows = append(mm.rows, menuRow{entry: &e})
 		}
 	}
 
-	for _, e := range menuEntries {
+	for i := range menuEntries {
+		e := menuEntries[i]
 		if e.hidden {
 			continue
 		}
 		if e.section != sectionViews {
 			continue
 		}
-		if e.needsProject && mm.m.projectScope == "" && mm.m.overlayProject() == "" {
+		// The capabilities switcher is only reachable (and therefore only
+		// advertised) when its handler can honor it: the Tasks pane with a
+		// project scope. Advertising it elsewhere (e.g. the Projects pane,
+		// whose highlighted row is NOT the scope the handler reads) would make
+		// activation replay to a no-op.
+		if e.needsProject && !(mm.m.focused == paneTasks && mm.m.projectScope != "") {
 			continue
 		}
 		mm.rows = append(mm.rows, menuRow{entry: &e})
 	}
 
 	mm.rows = append(mm.rows, menuRow{header: "Reference"})
-	for _, e := range menuEntries {
+	for i := range menuEntries {
+		e := menuEntries[i]
 		if e.hidden {
 			continue
 		}

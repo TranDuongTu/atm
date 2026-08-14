@@ -487,6 +487,11 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			m.cycleTheme()
 			return nil
 		case "?":
+			// Close the plugin overlay first so the menu's replayed keys
+			// target the workspace — leaving it open would swallow the replay
+			// into the still-open plugin overlay.
+			m.plugins[m.pluginOverlay].Close(m)
+			m.pluginOverlay = -1
 			m.menu.openMenu()
 			return nil
 		}
