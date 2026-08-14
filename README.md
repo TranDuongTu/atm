@@ -46,7 +46,7 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 - **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
 - **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
 - **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
-- **Explore**: `V` browses personas, `?` lists every keybinding.
+- **Explore**: `V` browses personas; `?` opens the main menu — every keybinding, the CLI↔TUI parity table, and the conventions reference live there.
 
 ## Screenshots
 
