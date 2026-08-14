@@ -68,7 +68,7 @@ atm conventions                       menu, conventions section
 atm project create --code --name      Projects pane  [a]dd
 atm project list                      Projects pane  (list)
 atm project show --code               Projects pane  [Enter] detail
-atm project set-name --code --name    Projects detail  [N]
+atm project set-name --code --name    Projects detail  [n]
 atm project remove --code             Projects pane  [x]
 
 atm label add --name --desc           Tasks pane [a]dd / [d]esc

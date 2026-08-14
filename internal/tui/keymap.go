@@ -73,7 +73,7 @@ var menuEntries = []menuEntry{
 	{key: "ctrl+right", label: "Drill into persona activity", scopes: []menuScope{scopeProjectsList}, section: sectionActions},
 
 	// Actions — projects detail
-	{key: "N", label: "Set project name", scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
+	{key: "n", label: "Set project name", scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 	{key: "H", label: "Toggle history", scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 	{key: "c", label: "Toggle capability (switcher)", scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 	{key: "x", label: "Remove project", scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
