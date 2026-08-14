@@ -751,7 +751,7 @@ func (m *Model) openDispatch() {
 			}
 		}
 	}
-	m.dispatchDlg.open(persona, project, taskID, taskTitle)
+	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
 }
 
 // handleFormKey routes a key into the active form, then handles submit/cancel

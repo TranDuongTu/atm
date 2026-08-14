@@ -334,7 +334,7 @@ func (p *projectsModel) refreshPersonaGroups() {
 // preselected over the current project scope. Unknown personas fall back to
 // concierge inside the dialog.
 func (p *projectsModel) openDispatchForPersona(persona string) tea.Cmd {
-	p.m.dispatchDlg.open(persona, p.m.projectScope, "", "")
+	p.m.dispatchDlg.open(persona, p.m.projectScope, "", "", "")
 	return nil
 }
 

@@ -49,6 +49,7 @@ type dispatchModel struct {
 	project       string
 	taskID        string
 	taskTitle     string
+	capability    string
 	agents        []agentOption
 	cursor        int
 	targets       []string
@@ -143,8 +144,8 @@ func bwInner(width int) int {
 // open preselects the given default persona (falling back to concierge when
 // it is not in the store list), sets the context defaults, and refreshes the
 // target preview. Dispatch logic never branches on how it was opened.
-func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle string) {
-	d.project, d.taskID, d.taskTitle = project, taskID, taskTitle
+func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle, capability string) {
+	d.project, d.taskID, d.taskTitle, d.capability = project, taskID, taskTitle, capability
 	d.personas = d.m.store.ListPersonas()
 	d.personaCursor = 0
 	for i, p := range d.personas {
@@ -267,17 +268,23 @@ func (d *dispatchModel) submit() {
 		return
 	}
 	argv := []string{"atm", "--persona", p.Name}
-	if d.projectRequired() {
+	// A known project rides along for every non-admin persona — a
+	// project-optional persona still accepts --project, and a scoped session
+	// (e.g. concierge from the channels overlay) needs it to render a
+	// project-bound context. admin routes to a fresh TUI that ignores it.
+	if d.project != "" && p.Name != "admin" {
 		argv = append(argv, "--project", d.project)
 	}
 	if p.Name != "admin" {
 		argv = append(argv, "--agent", a.name)
 	}
 	// --task rides only with --project: the CLI launcher rejects
-	// "--task requires --project", so a task is only passed when the selected
-	// persona will receive --project in the same argv.
-	if d.taskID != "" && d.projectRequired() {
+	// "--task requires --project".
+	if d.taskID != "" && d.project != "" && p.Name != "admin" {
 		argv = append(argv, "--task", d.taskID)
+	}
+	if d.capability != "" && p.Name != "admin" {
+		argv = append(argv, "--capability", d.capability)
 	}
 	dir, err := os.Getwd()
 	if err != nil {
@@ -322,6 +329,9 @@ func (d *dispatchModel) renderOverlay() string {
 	if d.taskID != "" {
 		b.WriteString("Task:   " + d.taskID + "\n")
 		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, bw-10)) + "\n\n")
+	}
+	if d.capability != "" {
+		b.WriteString("Scope:  " + d.capability + " capability\n\n")
 	}
 	if d.project != "" {
 		b.WriteString("Repo:   " + d.repoLabel() + "\n\n")

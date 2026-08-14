@@ -585,7 +585,7 @@ func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("manager", "", "", "")
+	m.dispatchDlg.open("manager", "", "", "", "")
 	if m.dispatchDlg.persona() != "manager" {
 		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
 	}
@@ -612,7 +612,7 @@ func TestDispatchUnknownDefaultFallsBackToConcierge(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("ghost", "", "", "")
+	m.dispatchDlg.open("ghost", "", "", "", "")
 	if m.dispatchDlg.persona() != "concierge" {
 		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
 	}
@@ -665,7 +665,7 @@ func TestDispatchConciergeOmitsProject(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("concierge", "", "", "")
+	m.dispatchDlg.open("concierge", "", "", "", "")
 	if m.dispatchDlg.persona() != "concierge" {
 		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
 	}
@@ -682,6 +682,21 @@ func TestDispatchConciergeOmitsProject(t *testing.T) {
 	}
 }
 
+func TestDispatchNoCapabilityByDefault(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.openDispatch() // empty workspace → concierge, no project, no capability
+	if v := m.dispatchDlg.renderOverlay(); strings.Contains(v, "Scope:") {
+		t.Errorf("unscoped dialog must not render a Scope line:\n%s", v)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "--capability") {
+		t.Errorf("unscoped argv must omit --capability: %s", argv)
+	}
+}
+
 func TestDispatchAdminOpensTUI(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(100, 30)
@@ -690,7 +705,7 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("admin", "ATM", "", "")
+	m.dispatchDlg.open("admin", "ATM", "", "", "")
 	if m.dispatchDlg.persona() != "admin" {
 		t.Fatalf("persona = %q want admin", m.dispatchDlg.persona())
 	}

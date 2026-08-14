@@ -237,6 +237,34 @@ func TestChannelsOverlayDispatchConcierge(t *testing.T) {
 	}
 }
 
+func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedChannels(t, m)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if !m.dispatchDlg.active {
+		t.Fatal("c must open the dispatch dialog")
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "Scope:") || !strings.Contains(view, "channel") {
+		t.Errorf("dialog must show the capability scope line:\n%s", view)
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatalf("spawned %d, want 1", len(fd.spawned))
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	for _, want := range []string{"--persona concierge", "--project ATM", "--capability channel"} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("argv missing %q: %s", want, argv)
+		}
+	}
+}
+
 // TestChannelsOverlayIsReadOnly: the overlay never mutates channels — every
 // mutating-looking key is inert (all writes go through `atm channel`).
 func TestChannelsOverlayIsReadOnly(t *testing.T) {
