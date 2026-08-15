@@ -196,6 +196,32 @@ func TestContextRejectsUnkindedSource(t *testing.T) {
 	}
 }
 
+// TestSessionContextRendersCapabilitiesBlock proves a project-scoped
+// session-context render contains the ## Capabilities block, with each
+// capability's own brief rendered verbatim. The cliState must carry the
+// PRODUCTION registry: the block is registry-driven, and testing it
+// registry-less proves nothing.
+func TestSessionContextRendersCapabilitiesBlock(t *testing.T) {
+	st := newTestCLI(t)
+	st.st.registry = productionRegistry()
+	st.st.fullRegistry = productionRegistry()
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "session-context", "--persona", "developer", "--project", "ATM")
+	mustContain(t, out, "## Capabilities")
+	mustContain(t, out, "- **channel** — Before pasting large output")
+	mustContain(t, out, "run `atm capability <name> guide`")
+}
+
+// TestSessionContextProjectlessOmitsBlock proves a project-less render drops
+// the Capabilities section entirely (no ## Capabilities heading).
+func TestSessionContextProjectlessOmitsBlock(t *testing.T) {
+	st := newTestCLI(t)
+	out := runArgsOut(t, st, "session-context", "--persona", "concierge")
+	if strings.Contains(out, "## Capabilities") {
+		t.Fatalf("project-less render must omit the block:\n%s", out)
+	}
+}
+
 func TestContextWorksWithoutSeededLabels(t *testing.T) {
 	// The capability bootstraps its own vocabulary. project create seeds the
 	// default labels, but context-current and knowledge:superseded are NOT among

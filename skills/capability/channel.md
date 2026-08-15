@@ -1,6 +1,7 @@
 ---
 name: channel
 description: Channels — repositories, Notion, and future surfaces personas communicate through; ledger-recorded identity and address, machine-local wiring, agent-side I/O.
+brief: Before pasting large output or reaching an external surface, run `atm channel list` — channels are where big content and cross-tool handoffs go.
 labels: [channel:*]
 boards: [channels]
 ---

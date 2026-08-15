@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"atm/internal/capability"
+	"atm/internal/capability/channel"
 	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
+	"atm/internal/capability/workflowai"
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -80,6 +82,13 @@ var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 // a capability registered in main.go but not here is invisible to goldens.
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(workflow.New(), contextmap.New())
+}
+
+// productionRegistry mirrors cmd/atm's composition root exactly, so tests
+// that need the real capability surface (the session-context Capabilities
+// block) drive the same registered set the binary ships.
+func productionRegistry() *capability.Registry {
+	return capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), channel.New())
 }
 
 var tsRe = regexp.MustCompile(`"2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"`)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"atm/internal/agent"
+	"atm/internal/capability"
 	"atm/internal/core"
 	"atm/internal/session"
 	"atm/skills"
@@ -135,12 +136,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	// auto-created by ensureProjectForLaunch (mountRegistry degraded to the
 	// full registry). Recompute enabled from the resolved project so the
 	// "not enabled for project" branch is reachable on that path.
-	enabled := st.registry.Names()
-	if opts.Project != "" && st.fullRegistry != nil {
-		if p, err := s.GetProject(code); err == nil {
-			enabled = st.fullRegistry.For(p).Names()
-		}
-	}
+	enabled := narrowedRegistry(st, s, code).Names()
 	if err := validateCapabilityScope(opts.Capability, enabled, st.fullRegistry.Names()); err != nil {
 		return err
 	}
@@ -166,10 +162,15 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	timestamp := core.RFC3339UTC(now)
 	contextPath := contextCachePath(s.StorePath(), code, spec.Name, opts.Task, opts.Capability)
 
+	capBlock := ""
+	if code != "" {
+		capBlock = composeCapabilitiesBlock(narrowedRegistry(st, s, code))
+	}
 	rendered := session.RenderContext(session.ContextData{
 		Code: code, Name: projName, Actor: actor,
 		TaskID:        opts.Task,
 		Capability:    opts.Capability,
+		Capabilities:  capBlock,
 		PersonaPrompt: personaPrompt,
 	})
 	if err := writeContextIfDiff(contextPath, []byte(rendered)); err != nil {
@@ -298,10 +299,15 @@ func renderSessionContext(st *cliState, persona, project, actor, capability, tas
 			projName = p.Name
 		}
 	}
+	capBlock := ""
+	if project != "" {
+		capBlock = composeCapabilitiesBlock(narrowedRegistry(st, s, project))
+	}
 	data := session.ContextData{
 		Code: project, Name: projName, Actor: actor,
 		TaskID:        task,
 		Capability:    capability,
+		Capabilities:  capBlock,
 		PersonaPrompt: buildPersonaPrompt(spec, personality, project, projName, actor, task),
 	}
 	rendered := session.RenderContext(data)
@@ -334,4 +340,33 @@ func buildPersonaPrompt(spec skills.PersonaSpec, personality, code, name, actor,
 	}
 	b.WriteString("\nYou are operating as this persona. Hold to its principles throughout the session, alongside repo instructions and the working routine below.\n")
 	return b.String()
+}
+
+// narrowedRegistry resolves the registry narrowed to the project's enabled
+// set, falling back to st.registry when the project cannot be read (the same
+// recompute launchSession already does for --capability validation).
+func narrowedRegistry(st *cliState, s core.Service, code string) *capability.Registry {
+	if code != "" && st.fullRegistry != nil {
+		if p, err := s.GetProject(code); err == nil {
+			return st.fullRegistry.For(p)
+		}
+	}
+	return st.registry
+}
+
+// composeCapabilitiesBlock renders the ## Capabilities section from the
+// project's enabled capabilities. Every word about a capability comes from
+// its own markdown (brief, falling back to description) — the template and
+// this function stay capability-name-free.
+func composeCapabilitiesBlock(reg *capability.Registry) string {
+	descs := reg.Describe()
+	if len(descs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Capabilities\n\nThis project has these capabilities enabled. Each line is that capability's own brief — run `atm capability <name> guide` before relying on one.\n\n")
+	for _, d := range descs {
+		fmt.Fprintf(&b, "- **%s** — %s\n", d.Name, d.Brief)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
