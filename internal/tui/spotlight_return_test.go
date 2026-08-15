@@ -3,6 +3,9 @@ package tui
 import (
 	"testing"
 
+	"atm/internal/capability/contextmap"
+	"atm/internal/capability/workflow"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -96,6 +99,119 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if !m.spotlight.open {
 		t.Error("Esc from a spotlight-spawned overlay must reopen the spotlight")
+	}
+}
+
+// Regression: a kindDialog entry whose replay opens something INSIDE a pane
+// (not one of workspaceIdle's eight overlay/form/confirm states) used to
+// look inert. activate() records spotlightReturn for every kindDialog entry
+// after its replay loop finishes, but that finish happens beneath the SAME
+// outer handleKey call the activating -> keypress triggered (see handleKey's
+// comment) — so the wrapper's reopen check fires immediately, in the same
+// keystroke, and covers the freshly-opened in-pane view with the spotlight
+// again. History overlay (task detail) and Toggle capability (projects
+// detail) are both in-pane views, so they must be kindAction, not
+// kindDialog. Activation must be driven through the real outer m.handleKey
+// (not spotlightModel.handleKey directly) to exercise the wrapper.
+func TestActivateHistoryOverlayLeavesItVisibleAndSpotlightClosed(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	tk := seedTask(t, m, "ATM", "task one")
+	m.focused = paneTasks
+	m.tasks.openDetail(tk.ID)
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "History overlay")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+
+	if !m.tasks.historyOverlay.active {
+		t.Fatal("activating History overlay must open the task's history")
+	}
+	if m.spotlight.open {
+		t.Error("History overlay is an in-pane view; the spotlight must not reopen over it in the same keystroke")
+	}
+}
+
+func TestActivateToggleCapabilityLeavesSpotlightClosed(t *testing.T) {
+	// Two capabilities so the cursor cycle is observable (a one-capability
+	// registry cycles back to 0).
+	m := newTestModelWithCaps(t, workflow.New(), contextmap.New())
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Toggle capability")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+
+	if m.projects.capCursor != 1 {
+		t.Errorf("activating Toggle capability must cycle the cursor, capCursor=%d want 1", m.projects.capCursor)
+	}
+	if m.spotlight.open {
+		t.Error("Toggle capability is an in-pane cursor cycle; the spotlight must not reopen over it")
+	}
+}
+
+// Regression for finding #4: dispatchModel.submit's success path set
+// d.active = false but never cleared spotlightReturn, so the wrapper's
+// "workspace idle again" check fires the moment the dialog closes and
+// reopens the spotlight over the dispatch toast instead of landing on the
+// workspace (spec decision 5).
+func TestSuccessfulDispatchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = testAgents
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Dispatch a session")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	if !m.dispatchDlg.active {
+		t.Fatal("-> must open the dispatch dialog")
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // preselected agent is ready: submits directly
+
+	if m.dispatchDlg.active {
+		t.Fatal("a successful dispatch must close the dialog")
+	}
+	if m.spotlight.open {
+		t.Error("a successful dispatch must land on the workspace, not the spotlight")
+	}
+	if m.spotlightReturn != -1 {
+		t.Errorf("a successful dispatch must clear the return, got %d", m.spotlightReturn)
+	}
+}
+
+// Sibling of the dispatch regression above: capabilityModel.switchTo's
+// success path set c.open = false but never cleared spotlightReturn.
+func TestSuccessfulCapabilitySwitchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
+	m := newTestModelWithCaps(t, workflow.New(), contextmap.New())
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneTasks
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Capabilities")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	if !m.capability.open {
+		t.Fatal("-> must open the capabilities switcher")
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // switch to the row under the cursor
+
+	if m.capability.open {
+		t.Fatal("a successful switch must close the capabilities switcher")
+	}
+	if m.spotlight.open {
+		t.Error("a successful capability switch must land on the workspace, not the spotlight")
+	}
+	if m.spotlightReturn != -1 {
+		t.Errorf("a successful capability switch must clear the return, got %d", m.spotlightReturn)
 	}
 }
 

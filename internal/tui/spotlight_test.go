@@ -9,18 +9,63 @@ import (
 
 // The defining property of the redesign: the list is identical from every
 // context. The old menu filtered Actions through currentScopes(), so the
-// Projects pane and a task detail showed disjoint sets.
+// Projects pane, the Tasks pane, a task detail, and the persona drill showed
+// disjoint sets. These are the four currentScopes() states the spec's
+// Testing section names; the two most likely to reintroduce contextual
+// filtering (a task detail's tasks.view, and the persona drill's
+// personaDrilled) are exactly the two a two-state guard would miss.
 func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 	want := []string{"Add project", "Add task", "Edit title", "New board", "Channels", "Keymap reference", "CLI ↔ TUI parity", "Conventions"}
 
-	var first string
-	for _, focus := range []workspacePane{paneProjects, paneTasks} {
-		m := newTestModel(t)
-		m.SetSize(120, 40)
-		seedProject(t, m, "ATM", "Acme")
-		m.projectScope = "ATM"
-		m.focused = focus
+	states := []struct {
+		name  string
+		setup func(t *testing.T) *Model
+	}{
+		{"Projects pane", func(t *testing.T) *Model {
+			m := newTestModel(t)
+			m.SetSize(120, 40)
+			seedProject(t, m, "ATM", "Acme")
+			m.projectScope = "ATM"
+			m.focused = paneProjects
+			return m
+		}},
+		{"Tasks pane", func(t *testing.T) *Model {
+			m := newTestModel(t)
+			m.SetSize(120, 40)
+			seedProject(t, m, "ATM", "Acme")
+			m.projectScope = "ATM"
+			m.focused = paneTasks
+			return m
+		}},
+		{"task detail", func(t *testing.T) *Model {
+			m := newTestModel(t)
+			m.SetSize(120, 40)
+			seedProject(t, m, "ATM", "Acme")
+			m.projectScope = "ATM"
+			tk := seedTask(t, m, "ATM", "task one")
+			m.focused = paneTasks
+			m.tasks.openDetail(tk.ID)
+			return m
+		}},
+		{"persona drill", func(t *testing.T) *Model {
+			m := mkActorsOverlayTestModel(t)
+			m.SetSize(120, 40)
+			m.projectScope = "ATM"
+			m.focused = paneProjects
+			// The chart renders from the refresh-time snapshot, so a directly
+			// assigned scope needs a refresh before ctrl+right can drill in.
+			m.refreshAll()
+			update(t, m, "ctrl+right")
+			if !m.projects.personaDrilled {
+				t.Fatalf("setup: ctrl+right must drill into persona detail")
+			}
+			return m
+		}},
+	}
 
+	var first string
+	for _, st := range states {
+		m := st.setup(t)
 		m.spotlight.openSpotlight()
 		var labels []string
 		for _, r := range m.spotlight.rows {
@@ -31,13 +76,13 @@ func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 		joined := strings.Join(labels, "\n")
 		for _, w := range want {
 			if !strings.Contains(joined, w) {
-				t.Errorf("focus %v: spotlight missing %q\n%s", focus, w, joined)
+				t.Errorf("%s: spotlight missing %q\n%s", st.name, w, joined)
 			}
 		}
 		if first == "" {
 			first = joined
 		} else if joined != first {
-			t.Errorf("spotlight content changed with pane focus:\n--- %v ---\n%s", focus, joined)
+			t.Errorf("spotlight content changed in %s:\n--- %s ---\n%s", st.name, st.name, joined)
 		}
 	}
 }
@@ -118,6 +163,31 @@ func TestSpotlightActivationReplaysPreludeThenKey(t *testing.T) {
 	}
 	if m.form == nil || m.formKind != formTaskCreate {
 		t.Errorf("activation must open the task-create form, formKind=%v", m.formKind)
+	}
+}
+
+// Regression: the Capabilities row's handler (app.go's "C" case) requires
+// the Tasks pane to be focused, but the entry used to carry no scopes, so
+// activate() replayed a bare "C" into whatever pane was already focused — a
+// silent no-op from the Projects pane. The entry now carries
+// scopes: []menuScope{scopeTasksList}, so activation replays the {"2"}
+// prelude first.
+func TestActivateCapabilitiesFromProjectsPane(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Capabilities")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+
+	if !m.capability.open {
+		t.Fatal("activating Capabilities from the Projects pane must open the capabilities switcher")
+	}
+	if m.focused != paneTasks {
+		t.Errorf("activating Capabilities must focus the Tasks pane first, focused=%v", m.focused)
 	}
 }
 

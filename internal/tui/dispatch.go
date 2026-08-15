@@ -308,6 +308,9 @@ func (d *dispatchModel) submit() {
 	}
 	d.m.showToast("dispatched " + p.Name + " → " + d.preview)
 	d.active = false
+	// A successful dispatch completes the action; land on the workspace
+	// rather than reopening the spotlight over the toast (see completeAction).
+	d.m.completeAction()
 }
 
 // renderOverlay draws the dialog. Box construction mirrors

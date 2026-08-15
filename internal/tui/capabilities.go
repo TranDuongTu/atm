@@ -137,6 +137,10 @@ func (c *capabilityModel) switchTo(name string) {
 		return
 	}
 	c.open = false
+	// A completed switch (even a no-op re-selection of the current
+	// capability) lands on the workspace rather than reopening the spotlight
+	// over it (see completeAction).
+	c.m.completeAction()
 	if name == c.current {
 		return
 	}

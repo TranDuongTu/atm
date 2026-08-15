@@ -32,8 +32,22 @@ func TestMenuEntriesShape(t *testing.T) {
 		if e.ref != refNone && e.key != "" {
 			t.Errorf("reference entry %q must not carry a key", e.label)
 		}
-		if e.section == sectionViews && len(e.scopes) != 0 {
-			t.Errorf("views entry %q must not be scope-filtered (use needsProject)", e.label)
+	}
+}
+
+// A Views entry may carry scopes even though the spotlight list never
+// filters Views by them (openSpotlight's Views loop only reads e.section and
+// needsProject) — a scope on a Views entry feeds preludeFor instead, so
+// activation focuses the right pane before replaying the key (e.g. "C" needs
+// the Tasks pane focused; see the Capabilities entry). Views availability is
+// still gated by needsProject alone.
+func TestViewsEntryScopesFeedPreludeNotFiltering(t *testing.T) {
+	for _, e := range menuEntries {
+		if e.section != sectionViews || len(e.scopes) == 0 {
+			continue
+		}
+		if got := previewKeyFor(e); got != e.key+"|views" {
+			t.Errorf("views entry %q with scopes must still key the preview registry as %q, got %q", e.label, e.key+"|views", got)
 		}
 	}
 }

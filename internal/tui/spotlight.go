@@ -220,11 +220,19 @@ func (sm *spotlightModel) activate() tea.Cmd {
 	if e.kind == kindDialog {
 		// Set only after the replay loop above finishes, so spotlightReturn
 		// stays -1 for every segment replayed through m.handleKey — the
-		// wrapper it feeds (app.go) cannot fire mid-replay and cannot mistake
-		// the spawned overlay's own opening key for a dismissal. If the chain
-		// opens nothing (e.g. a scope prelude into an empty list), the return
-		// is still recorded here; the spotlight then reopens on the user's
-		// next keypress rather than within this activation.
+		// wrapper's check (app.go's handleKey) cannot fire mid-replay and
+		// cannot mistake the spawned overlay's own opening key for a
+		// dismissal. But this call itself runs beneath the outer handleKey
+		// invocation for the user's -> keypress: once that outer call's
+		// dispatchKey (this whole activate()) returns, its own wrapper check
+		// sees spotlightReturn freshly set here and fires immediately — the
+		// reopen happens within this same keystroke, not on the user's next
+		// one. That is exactly right when the chain opened a real
+		// overlay/form/confirm (workspaceIdle() is false, so the check
+		// doesn't fire yet); it is a bug if the chain's kindDialog entry
+		// opens something workspaceIdle() does not gate on (an in-pane view),
+		// which is why every kindDialog entry must leave one of
+		// workspaceIdle's eight states open.
 		sm.m.spotlightReturn = row
 	}
 	return tea.Batch(cmds...)

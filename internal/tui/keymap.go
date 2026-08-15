@@ -4,8 +4,11 @@ import (
 	"github.com/charmbracelet/bubbletea"
 )
 
-// menuScope identifies a context whose actions the menu shows under the
-// Actions section. An entry's scopes gate which contexts display it.
+// menuScope identifies a context an action entry belongs to. The spotlight
+// list itself is global and never filters on it; scopes instead feed the
+// keymap reference's Where column, the parity probe IDs, and — via
+// preludeFor — the replay prelude and the section header a row renders
+// under.
 type menuScope int
 
 const (
@@ -18,8 +21,9 @@ const (
 	scopeBoards
 )
 
-// menuSection groups entries in the menu overlay: Actions are contextual,
-// Views are global overlays and panes, Reference opens menu detail views.
+// menuSection groups entries in the spotlight overlay: Actions are the
+// per-pane action rows (each carries a scope), Views are global overlays and
+// panes, Reference focuses a scrollable reference preview.
 type menuSection int
 
 const (
@@ -50,8 +54,9 @@ const (
 
 // menuEntry is one row of the single declarative menu entry table: the
 // source of truth for key labels and menu structure. Activating a keyed
-// entry replays that key through handleKey, so menu and direct keypress
-// share one behavior path; the table never executes behavior itself.
+// entry replays its scope's prelude plus that key through handleKey, so the
+// spotlight and a direct keypress share one behavior path; the table never
+// executes behavior itself.
 type menuEntry struct {
 	key          string // display + replay string; "" for reference entries
 	label        string
@@ -73,7 +78,13 @@ var menuEntries = []menuEntry{
 	{key: "D", label: "Dispatch a session", summary: "Launch an agent session — pick persona, agent, and target.", kind: kindDialog, section: sectionViews},
 	{key: "E", label: "Channels", summary: "Channel health for the selected project: records, wiring, stamps.", kind: kindDialog, section: sectionViews},
 	{key: "V", label: "Personas", summary: "The registered personas and the prompt each one launches with.", kind: kindDialog, section: sectionViews},
-	{key: "C", label: "Capabilities", summary: "Enable, disable, and switch the project's capabilities.", kind: kindDialog, section: sectionViews, needsProject: true},
+	// scopes here does not filter the list (Views entries are always shown
+	// per needsProject alone) — it feeds preludeFor so activation focuses the
+	// Tasks pane before replaying "C", matching the handler's own guard
+	// (app.go's "C" case requires paneTasks focus and a project scope).
+	// Without it, activating from the Projects pane would replay a bare "C"
+	// into whatever pane is focused and silently no-op.
+	{key: "C", label: "Capabilities", summary: "Enable, disable, and switch the project's capabilities.", kind: kindDialog, scopes: []menuScope{scopeTasksList}, section: sectionViews, needsProject: true},
 	{key: "T", label: "Cycle theme", summary: "Step to the next colour theme.", kind: kindAction, section: sectionViews},
 
 	// Actions — projects list
@@ -84,7 +95,7 @@ var menuEntries = []menuEntry{
 	// Actions — projects detail
 	{key: "n", label: "Set project name", summary: "Rename the open project; the code is immutable.", kind: kindDialog, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 	{key: "H", label: "Toggle history", summary: "Show or hide the project's event history in the detail view.", kind: kindAction, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
-	{key: "c", label: "Toggle capability", summary: "Open the capabilities switcher for the open project.", kind: kindDialog, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
+	{key: "c", label: "Toggle capability", summary: "Cycle the capability cursor to the next registered capability; space toggles it enabled/disabled.", kind: kindAction, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 
 	// Actions — projects persona drill
 	{key: "d", label: "Dispatch this persona", summary: "Open the dispatch dialog preset to the drilled persona.", kind: kindDialog, scopes: []menuScope{scopeProjectsDrill}, section: sectionActions},
@@ -101,7 +112,7 @@ var menuEntries = []menuEntry{
 	{key: "b", label: "Add label", summary: "Attach a label to the open task.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "B", label: "Remove label", summary: "Detach a label from the open task.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "M", label: "Add comment", summary: "Append a classified comment to the open task's thread.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
-	{key: "H", label: "History overlay", summary: "Show the open task's full event history.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
+	{key: "H", label: "History overlay", summary: "Show the open task's full event history inside the task detail view.", kind: kindAction, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "x", label: "Remove task", summary: "Delete the open task after a confirm.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 
 	// Actions — boards

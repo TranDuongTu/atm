@@ -349,6 +349,18 @@ func (m *Model) workspaceIdle() bool {
 		!m.channelsOv.open
 }
 
+// completeAction clears a pending spotlight return: spec decision 5 requires
+// a successful submit or confirm to land on the workspace rather than
+// reopening the spotlight. Call this at every point where a spotlight-spawned
+// form, confirm, dialog, or overlay finishes its action successfully — as
+// opposed to being merely dismissed (Esc), which is meant to return to the
+// spotlight. Four call sites (submitForm, handleConfirmKey,
+// dispatchModel.submit, capabilityModel.switchTo) route through this one
+// helper so a future completion point is never the one that forgets it.
+func (m *Model) completeAction() {
+	m.spotlightReturn = -1
+}
+
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
 // tick that re-runs refreshAll so external mutations (CLI writes in another
 // process) surface in the TUI without a manual key. The tick is cheap: with
@@ -449,13 +461,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // spotlight awareness.
 //
 // spotlightModel.activate also replays prelude/key segments through this
-// same handleKey, so this wrapper runs on every replayed segment too. That
-// is harmless: activate sets spotlightReturn only after its replay loop
+// same handleKey, so this wrapper runs on every replayed segment too — but
+// harmlessly: activate sets spotlightReturn only after its replay loop
 // finishes, so the return is still -1 during replay and the check below
-// cannot fire mid-activation. One consequence: if the replayed chain opens
-// nothing, the return is still recorded once activate finishes, but nothing
-// in this call chain triggers the wrapper again — the spotlight reopens on
-// the user's next keypress, not within the activation itself.
+// cannot fire on any of the nested calls for the replayed segments. It DOES
+// fire, though, on the outer call: activate() itself runs beneath this same
+// handleKey (the user's -> keypress that triggered it), so by the time that
+// outer call's dispatchKey returns, spotlightReturn is freshly set and the
+// check below fires immediately — the reopen happens within the same
+// keystroke that activated the entry, not on the user's next keypress. This
+// is why a kindDialog entry whose replay leaves nothing workspaceIdle()
+// gates on (e.g. an in-pane view rather than a real overlay/form/confirm)
+// looks inert: the spotlight reopens over it before the user sees anything.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	cmd := m.dispatchKey(k)
 	if m.spotlightReturn >= 0 && m.workspaceIdle() {
@@ -482,7 +499,7 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// assigned after this point, then renders until the next key.
 	m.toastMsg = ""
 
-	// Menu overlay consumes keys until closed. T still cycles the theme.
+	// Spotlight overlay consumes keys until closed. T still cycles the theme.
 	if m.spotlight.open {
 		if k.String() == "T" {
 			m.cycleTheme()
@@ -728,7 +745,7 @@ func (m *Model) handleFormKey(k tea.KeyMsg) tea.Cmd {
 func (m *Model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "enter", "y":
-		m.spotlightReturn = -1 // a completed confirm lands on the workspace, not the spotlight
+		m.completeAction()
 		return m.confirmYes()
 	case "esc", "n", "q":
 		m.confirm = confirmNone
@@ -747,7 +764,7 @@ func (m *Model) closeForm() {
 
 // submitForm performs the action bound to the active form.
 func (m *Model) submitForm() tea.Cmd {
-	m.spotlightReturn = -1 // a completed submit lands on the workspace, not the spotlight
+	m.completeAction()
 	defer m.closeForm()
 	vals := m.form.Values()
 	switch m.formKind {
