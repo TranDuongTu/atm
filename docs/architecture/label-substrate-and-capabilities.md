@@ -1,6 +1,6 @@
 # The label substrate and capability commands
 
-This document describes what ATM is made of, and how it is extended. It is the architectural reference behind `atm conventions` (which is the agent-facing summary) and behind every design spec in `docs/superpowers/specs/`. It states both the architecture as built and the committed extensibility direction (the capability extension points initiative, ATM-4dd440); anything not yet implemented is marked *(planned)*.
+This document describes what ATM is made of, and how it is extended. It is the architectural reference behind `atm conventions` (which is the agent-facing summary) and behind every design spec in the Notion `Specs` database (ATM - Superpowers page). It states both the architecture as built and the committed extensibility direction (the capability extension points initiative, ATM-4dd440); anything not yet implemented is marked *(planned)*.
 
 Four ideas carry the whole system:
 
@@ -134,13 +134,13 @@ The UI picks the default board, not the capability. `DefaultBoard` is not a capa
 
 An agent's consultation sequence mirrors the composed surface: read the substrate primer, run `atm capability list`, then consult each enabled capability's `atm capability <name> guide` before operating in its territory — progressive disclosure, the same shape as agent skills.
 
-See `docs/superpowers/specs/2026-07-18-capability-namespace-manager-actions-v2-design.md` for the v2 doctrine (capability namespace, manager action model) and `2026-07-18-capability-semantics-initiative-design.md` for the original initiative roadmap (describe → enable → manage).
+See https://app.notion.com/3bc70f5f1db58107ba9bcaa89dabeaa8 for the v2 doctrine (capability namespace, manager action model) and https://app.notion.com/3bc70f5f1db581d282fadf6b7b7a7901 for the original initiative roadmap (describe → enable → manage).
 
 ### First instance: `atm capability contextmap`
 
 The context map is the pattern's first realisation. It owns `context:*` (pointer kinds), `knowledge:superseded` (lifecycle), `comment:provenance` (its private format — the legacy comment-format pattern, migration to its metadata key pending), and the `context-current` board (`context:* AND NOT knowledge:superseded`). It exposes five verbs (`add`, `stamp`, `retarget`, `supersede`, `check`), mounted under `atm capability contextmap`, of which exactly one (`check`) is read-only. It witnesses git and local files provably, URLs opportunistically, and external systems by age alone.
 
-See `docs/superpowers/specs/2026-07-13-context-map-refresh-design.md` for the full design.
+See https://app.notion.com/3bc70f5f1db581c28394df0ef39b4892 for the full design.
 
 ### Second instance: `atm capability workflow`
 

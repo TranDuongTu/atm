@@ -1,6 +1,6 @@
 #!/bin/sh
 # scripts/install.sh — forge-agnostic consumer installer for atm.
-# See docs/superpowers/specs/2026-07-06-semver-build-pipeline-design.md.
+# See https://app.notion.com/3bc70f5f1db581afb7afcbf5e93240b8.
 set -eu
 
 FORGE=${FORGE:-github}

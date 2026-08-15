@@ -336,7 +336,7 @@ func labelProject(name string) string {
 // suffix and the CLI's retained_usage report. A label like
 // <CODE>:comment:open-question can have zero tasks but many comments, so
 // counting only tasks understated real adoption. Backed by two indexed
-// COUNT queries — see docs/superpowers/specs/2026-07-06-atm-storage-sync-design.md
+// COUNT queries — see https://app.notion.com/3bc70f5f1db5815b82f7fbebe0fea139
 // and ATM-0027-c0003.
 func (s *Store) LabelUsage(projectCode, label string) (int, error) {
 	db, err := s.cacheDB()

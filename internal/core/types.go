@@ -7,7 +7,7 @@ type Label struct {
 	Description string `json:"description,omitempty"`
 	// Expr, when non-empty, makes this a computed label (a "board"): its
 	// membership is derived by evaluating the expression over other labels
-	// rather than asserted by tasks. See docs/superpowers/specs/2026-07-13-computed-labels-boards-design.md
+	// rather than asserted by tasks. See https://app.notion.com/3bc70f5f1db581efa495f89eeffebf61
 	Expr    string `json:"expr,omitempty"`
 	Ordinal int    `json:"ordinal,omitempty"`
 }

@@ -7,8 +7,8 @@ Guidance for any AI agent working in this repository. These rules are **agent-ag
 This repo uses **Superpowers** for its software-development lifecycle (SDLC). Specs/design docs are the source of truth; code follows the approved design and implementation plan.
 
 - Initialize once: `./setup.sh` (validates the local repo workflow; Superpowers itself is provided by the agent environment).
-- Day-to-day design artifacts live under `docs/superpowers/specs/`.
-- Before writing or changing code, check for an existing Superpowers design/spec in `docs/superpowers/specs/`. If none exists, use the Superpowers brainstorming and planning workflow before implementing.
+- Day-to-day design artifacts (specs and implementation plans) live in the Notion channel: the `ATM - Superpowers` page, in the `Specs` and `Plans` databases (https://app.notion.com/p/3bc70f5f1db580479115d3a33697428d). Plans relate to their spec.
+- Before writing or changing code, check the Notion `Specs` database for an existing Superpowers design/spec for the topic. If none exists, use the Superpowers brainstorming and planning workflow before implementing.
 - Keep design docs honest: update them only when requirements genuinely change; never rewrite requirements just to match code.
 
 ## 2. Agent configuration lives in `.agents/`
@@ -48,7 +48,7 @@ Anything agent-specific — skills, commands, subagents, prompts, permission rul
 <!-- SUPERPOWERS START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current spec
-at docs/superpowers/specs/2026-07-02-tasks-management-v2-design.md (Tasks Management System v2). Key facts:
+at https://app.notion.com/3bc70f5f1db58156ba90edcd97022745 (Tasks Management System v2). Key facts:
 - Language: Go 1.22+; single binary `atm` (CLI + Bubble Tea TUI).
 - Layers: internal/store (stable in-process API), internal/cli (stable out-of-process API via cobra), internal/tui (thin client over store).
 - Storage: machine-global text files under `$ATM_HOME` (default ~/.config/atm; one file per task JSON; global labels.json + actors.json; per-project file locking; no DB; detachable by directory copy). A project is NOT 1:1 with a repo.

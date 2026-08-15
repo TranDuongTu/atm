@@ -1,6 +1,6 @@
 // Package capability defines the registry seam between the composition root
 // and the capability commands (docs/architecture/logical-components.md;
-// docs/superpowers/specs/2026-07-17-capability-registry-contextmap-design.md).
+// https://app.notion.com/3bc70f5f1db581a0950bfaac4e30c822).
 // A capability owns a slice of the label substrate, exposes intent verbs, and
 // registers its cobra command tree; the adapters (cli, tui) consume only this
 // package, never a specific capability. Enable/disable is editing the slice

@@ -2,7 +2,7 @@
 // content-addressed events (L0), stored display aliases (L1), the
 // convergent fold (L2), and the one-time v1→v2 upgrade (D6). See
 // docs/eventsource/01-core-data-model.md for the model and
-// docs/superpowers/specs/2026-07-14-eventsource-core-v2-design.md for the
+// https://app.notion.com/3bc70f5f1db58133a081ca24cadd6983 for the
 // implementation decisions.
 package eventsource
 
