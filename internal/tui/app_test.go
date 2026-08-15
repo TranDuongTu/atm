@@ -302,7 +302,7 @@ func TestSpotlightListScrolls(t *testing.T) {
 	}
 }
 
-func TestMenuReadOnly(t *testing.T) {
+func TestSpotlightReadOnly(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "\\")
@@ -310,17 +310,17 @@ func TestMenuReadOnly(t *testing.T) {
 		update(t, m, k)
 	}
 	if m.form != nil {
-		t.Errorf("mutating key opened a form from the menu")
+		t.Errorf("mutating key opened a form from the spotlight")
 	}
 	if m.confirm != confirmNone {
-		t.Errorf("mutating key opened a confirm from the menu")
+		t.Errorf("mutating key opened a confirm from the spotlight")
 	}
 	if m.toastMsg != "" {
-		t.Errorf("mutating key produced toast %q from the menu", m.toastMsg)
+		t.Errorf("mutating key produced toast %q from the spotlight", m.toastMsg)
 	}
 	ps := m.store.ListProjects()
 	if len(ps) != 1 || ps[0].Code != "ATM" {
-		t.Errorf("store changed from the menu: projects = %+v", ps)
+		t.Errorf("store changed from the spotlight: projects = %+v", ps)
 	}
 }
 
@@ -582,18 +582,18 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 }
 
-func TestThemeCyclesInsideMenu(t *testing.T) {
+func TestThemeCyclesInsideSpotlight(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "\\")
 	if !m.spotlight.open {
-		t.Fatalf("setup: menu should be open, got %v", m.spotlight.open)
+		t.Fatalf("setup: spotlight should be open, got %v", m.spotlight.open)
 	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
 	if !m.spotlight.open {
-		t.Fatalf("theme cycling should not close the menu, got open=%v", m.spotlight.open)
+		t.Fatalf("theme cycling should not close the spotlight, got open=%v", m.spotlight.open)
 	}
 }
 
