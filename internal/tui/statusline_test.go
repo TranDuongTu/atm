@@ -14,10 +14,10 @@ func TestQuestionMarkOpensMenuAndStatusBarIsClean(t *testing.T) {
 	m.projectScope = "ATM"
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
-	if !m.menu.open {
+	if !m.spotlight.open {
 		t.Fatal("? must open the menu")
 	}
-	m.menu.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 
 	for _, focused := range []workspacePane{paneProjects, paneTasks} {
 		m.focused = focused
@@ -38,7 +38,7 @@ func TestConventionsKeyRemoved(t *testing.T) {
 	m.SetSize(120, 40)
 	// No project scope, projects pane: C used to open conventions help.
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
-	if m.menu.open {
+	if m.spotlight.open {
 		t.Error("C must not open any overlay outside a project-scoped tasks context")
 	}
 	if m.capability.open {

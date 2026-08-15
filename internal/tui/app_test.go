@@ -265,37 +265,40 @@ func TestKey3IsNoOp(t *testing.T) {
 	}
 }
 
-func TestMenuOpensClosesAndScrolls(t *testing.T) {
+// TestSpotlightListScrolls proves the list scrolls to keep the cursor
+// visible once the row count exceeds the visible list region, rather than
+// clipping it off the bottom of the box. (Esc-closes-the-list is covered by
+// TestSpotlightEscClosesFromTheList; this test does not repeat it.)
+func TestSpotlightListScrolls(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "2")
 	update(t, m, "?")
-	if !m.menu.open {
-		t.Fatalf("? must open the menu")
+	if !m.spotlight.open {
+		t.Fatalf("? must open the spotlight")
 	}
 	if m.focused != paneTasks {
-		t.Fatalf("opening menu changed focus = %v want paneTasks", m.focused)
+		t.Fatalf("opening the spotlight changed focus = %v want paneTasks", m.focused)
 	}
-	v := m.View()
-	mustContain(t, v, "Keymap reference")
-	mustContain(t, v, "CLI ↔ TUI parity")
-	// The keymap reference is a menu detail view; drill into it.
-	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
+	// The cursor starts on the first row ("Dispatch a session"); walk it all
+	// the way to the last row. With the default terminal size the row count
+	// exceeds the visible list region, so this must scroll the window.
+	firstLabel := m.spotlight.selectedLabel()
+	var lastLabel string
+	for i := 0; i < len(m.spotlight.rows); i++ {
 		update(t, m, "j")
+		if e := m.spotlight.selectedEntry(); e != nil {
+			lastLabel = e.label
+		}
 	}
-	update(t, m, "enter")
-	if m.menu.view != refKeymap {
-		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
+	if lastLabel == "" || lastLabel == firstLabel {
+		t.Fatalf("setup: cursor never moved off the first row %q", firstLabel)
 	}
-	mustContain(t, m.View(), "Key")
-	mustContain(t, m.View(), "Action")
-	// Esc closes the detail back to the list, then the menu.
-	update(t, m, "esc")
-	if m.menu.view != refNone {
-		t.Fatalf("esc from detail should return to the menu list, got %v", m.menu.view)
+	view := m.spotlight.renderOverlay()
+	if !strings.Contains(view, lastLabel) {
+		t.Errorf("scrolled view must show the cursor row %q:\n%s", lastLabel, view)
 	}
-	update(t, m, "esc")
-	if m.menu.open {
-		t.Fatalf("esc should close the menu")
+	if strings.Contains(view, firstLabel) {
+		t.Errorf("scrolled view must not still show the first row %q once scrolled past it:\n%s", firstLabel, view)
 	}
 }
 
@@ -582,15 +585,15 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 func TestThemeCyclesInsideMenu(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "?")
-	if !m.menu.open {
-		t.Fatalf("setup: menu should be open, got %v", m.menu.open)
+	if !m.spotlight.open {
+		t.Fatalf("setup: menu should be open, got %v", m.spotlight.open)
 	}
 	update(t, m, "T")
 	if m.themeName != themeLight {
 		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
 	}
-	if !m.menu.open {
-		t.Fatalf("theme cycling should not close the menu, got open=%v", m.menu.open)
+	if !m.spotlight.open {
+		t.Fatalf("theme cycling should not close the menu, got open=%v", m.spotlight.open)
 	}
 }
 
@@ -1877,8 +1880,8 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	if m.tasks.view != tViewDetail {
 		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
 	}
-	if m.form != nil || m.confirm != confirmNone || m.menu.open {
-		t.Fatalf("detail should not open an overlay: form=%v confirm=%v menu=%v", m.form != nil, m.confirm, m.menu.open)
+	if m.form != nil || m.confirm != confirmNone || m.spotlight.open {
+		t.Fatalf("detail should not open an overlay: form=%v confirm=%v spotlight=%v", m.form != nil, m.confirm, m.spotlight.open)
 	}
 	v := m.View()
 	mustContain(t, v, "[1] Projects")
@@ -1994,41 +1997,27 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 
 // --- menu reference views (formerly the ?/C help overlay) ---
 
-func TestMenuParityReference(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 35)
-	update(t, m, "?")
-	if !m.menu.open {
-		t.Fatal("? must open the menu")
-	}
-	for i := 0; i < 50 && m.menu.selectedLabel() != "CLI ↔ TUI parity"; i++ {
-		update(t, m, "j")
-	}
-	update(t, m, "enter")
-	if m.menu.view != refParity {
-		t.Fatalf("menu view = %v, want refParity", m.menu.view)
-	}
-	content := strings.Join(m.menu.lines, "\n")
+// TestParityReferenceRenders, TestConventionsReferenceRenders, and the two
+// TestKeymapReference* tests below assert directly against the pure
+// reference renderers (parityTable, renderConventionsText,
+// keymapReferenceText) rather than drilling through the [?] menu/spotlight to
+// reach them: these functions are untouched by the spotlight redesign, and
+// the old drill-in path (menuModel.openDetail) no longer runs on Enter — see
+// TestSpotlightEnterAndLeftAreInertInTheList. Task 3 wires the spotlight
+// preview to real content; these keep protecting the content itself in the
+// meantime.
+func TestParityReferenceRenders(t *testing.T) {
+	content := parityTable
 	mustContain(t, content, "atm project create")
 	mustContain(t, content, "atm task create")
 	mustContain(t, content, "atm conventions")
 	mustNotContain(t, content, "Help tab")
 }
 
-func TestMenuConventionsReference(t *testing.T) {
+func TestConventionsReferenceRenders(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "?")
-	if !m.menu.open {
-		t.Fatal("? must open the menu")
-	}
-	for i := 0; i < 50 && m.menu.selectedLabel() != "Conventions"; i++ {
-		update(t, m, "j")
-	}
-	update(t, m, "enter")
-	if m.menu.view != refConventions {
-		t.Fatalf("menu view = %v, want refConventions", m.menu.view)
-	}
-	content := strings.Join(m.menu.lines, "\n")
+	m.SetSize(120, 35)
+	content := renderConventionsText(m.styles, m.spotlight.menuBoxWidth()-4, conventionsTextTUI)
 	mustContain(t, content, "What ATM is")
 	mustContain(t, content, "Substrate")
 	mustContain(t, content, "Capabilities")
@@ -2047,20 +2036,8 @@ func TestMenuConventionsReference(t *testing.T) {
 	mustNotContain(t, content, "Global Keymap")
 }
 
-func TestMenuKeymapReferenceUsesPaneLanguage(t *testing.T) {
-	m := newTestModel(t)
-	update(t, m, "?")
-	if !m.menu.open {
-		t.Fatal("? must open the menu")
-	}
-	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
-		update(t, m, "j")
-	}
-	update(t, m, "enter")
-	if m.menu.view != refKeymap {
-		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
-	}
-	content := strings.Join(m.menu.lines, "\n")
+func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
+	content := keymapReferenceText()
 	mustContain(t, content, "Key")
 	mustContain(t, content, "projects")
 	mustContain(t, content, "tasks")
@@ -2258,7 +2235,7 @@ func TestQuestionMarkFromPluginOverlayClosesOverlayAndOpensMenu(t *testing.T) {
 	if m.pluginOverlay != -1 {
 		t.Fatalf("? must close the plugin overlay first, got %d", m.pluginOverlay)
 	}
-	if !m.menu.open {
+	if !m.spotlight.open {
 		t.Fatal("? must open the menu")
 	}
 }
@@ -2275,18 +2252,8 @@ func TestKeymapHasPluginPrefixRows(t *testing.T) {
 	}
 }
 
-func TestMenuKeymapMentionsPluginOverlays(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	m.menu.openMenu()
-	for i := 0; i < 50 && m.menu.selectedLabel() != "Keymap reference"; i++ {
-		m.menu.handleKey(keyMsg("j"))
-	}
-	m.menu.handleKey(keyMsg("enter"))
-	if m.menu.view != refKeymap {
-		t.Fatalf("menu view = %v, want refKeymap", m.menu.view)
-	}
-	content := strings.Join(m.menu.lines, "\n")
+func TestKeymapReferenceMentionsPluginOverlays(t *testing.T) {
+	content := keymapReferenceText()
 	if !strings.Contains(content, "g") {
 		t.Errorf("keymap reference should mention 'g' plugin overlays\n--- content ---\n%s", content)
 	}

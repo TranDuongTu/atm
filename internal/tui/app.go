@@ -88,7 +88,10 @@ type Model struct {
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
 	channelsOv     channelsModel
-	menu           menuModel
+	spotlight      spotlightModel
+	// spotlightReturn is the spotlight row to restore when a spotlight-spawned
+	// overlay, form, or confirm is dismissed, or -1 when nothing is pending.
+	spotlightReturn int
 
 	form *Form
 
@@ -181,7 +184,8 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.channelsOv.m = m
-	m.menu = menuModel{m: m}
+	m.spotlight = spotlightModel{m: m}
+	m.spotlightReturn = -1
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -325,7 +329,7 @@ func (m *Model) canMutate() bool { return true }
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
-	return !m.menu.open &&
+	return !m.spotlight.open &&
 		!(m.form != nil && m.form.Active) &&
 		m.confirm == confirmNone &&
 		m.pluginOverlay == -1 &&
@@ -445,12 +449,12 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	m.toastMsg = ""
 
 	// Menu overlay consumes keys until closed. T still cycles the theme.
-	if m.menu.open {
+	if m.spotlight.open {
 		if k.String() == "T" {
 			m.cycleTheme()
 			return nil
 		}
-		return m.menu.handleKey(k)
+		return m.spotlight.handleKey(k)
 	}
 
 	// Confirm overlay consumes all keys until resolved.
@@ -492,7 +496,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 			// into the still-open plugin overlay.
 			m.plugins[m.pluginOverlay].Close(m)
 			m.pluginOverlay = -1
-			m.menu.openMenu()
+			m.spotlight.openSpotlight()
 			return nil
 		}
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
@@ -558,7 +562,7 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		m.focused = paneTasks
 		return nil
 	case "?":
-		m.menu.openMenu()
+		m.spotlight.openSpotlight()
 		return nil
 	case "C":
 		if m.focused == paneTasks && m.projectScope != "" {
@@ -857,8 +861,8 @@ func (m *Model) View() string {
 	// tick). Adding an overlay here without adding it to workspaceIdle() would
 	// let art animate underneath the new overlay.
 	out := b.String()
-	if m.menu.open {
-		out = m.placeOverlay(out, m.menu.renderOverlay())
+	if m.spotlight.open {
+		out = m.placeOverlay(out, m.spotlight.renderOverlay())
 	}
 	if m.form != nil && m.form.Active {
 		out = m.placeOverlay(out, m.form.View(m.styles))
