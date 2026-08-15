@@ -58,6 +58,31 @@ func TestSuccessfulSubmitLandsOnTheWorkspace(t *testing.T) {
 	}
 }
 
+// TestConfirmAcceptLandsOnTheWorkspace drives a spotlight-spawned confirm
+// (Remove project) to acceptance: like a successful submit, it must clear
+// spotlightReturn and land on the workspace rather than reopening the
+// spotlight.
+func TestConfirmAcceptLandsOnTheWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Remove project")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	if m.confirm != confirmRemoveProject {
+		t.Fatalf("-> must open the remove-project confirm, confirm=%v", m.confirm)
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	if m.spotlight.open {
+		t.Error("a completed confirm must land on the workspace, not the spotlight")
+	}
+	if m.spotlightReturn != -1 {
+		t.Errorf("confirm-accept must clear the return, got %d", m.spotlightReturn)
+	}
+}
+
 func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
