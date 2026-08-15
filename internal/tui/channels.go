@@ -30,7 +30,10 @@ type channelsModel struct {
 	loadedAt time.Time
 }
 
-func (c *channelsModel) openOverlay(project string) {
+// loadFor snapshots the project's channels and the clock the status glyphs
+// are computed against. openOverlay calls it and then opens; the spotlight
+// preview calls it alone, so previewing never opens the overlay.
+func (c *channelsModel) loadFor(project string) {
 	c.project = project
 	c.entries, c.loadErr = nil, ""
 	if views, err := c.m.store.ProjectChannels(project); err != nil {
@@ -39,10 +42,14 @@ func (c *channelsModel) openOverlay(project string) {
 		c.entries = views
 	}
 	c.loadedAt = time.Now()
-	c.open, c.detail, c.offset = true, false, 0
 	if c.cursor >= len(c.entries) {
 		c.cursor = 0
 	}
+}
+
+func (c *channelsModel) openOverlay(project string) {
+	c.loadFor(project)
+	c.open, c.detail, c.offset = true, false, 0
 }
 
 func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
@@ -130,6 +137,27 @@ func (c *channelsModel) renderOverlay() string {
 		return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), 6)
 	}
 
+	var body strings.Builder
+	body.WriteString(c.previewBody(bw-4) + "\n")
+	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]detail  [c]dispatch concierge  [Esc]close"))
+	return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), len(c.entries)+5)
+}
+
+// previewBody renders the channel list rows at content width w, without box
+// chrome or the footer hint. renderOverlay wraps it; the spotlight preview
+// renders it directly, so a preview can never show something the overlay
+// does not.
+func (c *channelsModel) previewBody(w int) string {
+	if c.loadErr != "" {
+		return fitLine("read channels: "+c.loadErr, w)
+	}
+	if len(c.entries) == 0 {
+		msg := "no channels yet — add one with `atm channel add --project " + c.project + " --name <handle> --type repo`"
+		if c.project == "" {
+			msg = "no project selected — select one in the Projects pane first"
+		}
+		return fitLine(msg, w)
+	}
 	nameW := 10
 	for _, v := range c.entries {
 		if len(v.Name) > nameW {
@@ -139,17 +167,15 @@ func (c *channelsModel) renderOverlay() string {
 	var body strings.Builder
 	for i, v := range c.entries {
 		glyph, note := core.ChannelStatus(v, c.loadedAt)
-		line := fmt.Sprintf("%s %-*s %-7s %s", glyph, nameW, v.Name, v.Type, note)
-		line = fitLine(line, bw-4)
+		line := fitLine(fmt.Sprintf("%s %-*s %-7s %s", glyph, nameW, v.Name, v.Type, note), w)
 		if i == c.cursor {
-			line = styles.RowCursor.Render(line)
+			line = c.m.styles.RowCursor.Render(line)
 		} else {
-			line = styles.Body.Render(line)
+			line = c.m.styles.Body.Render(line)
 		}
 		body.WriteString(line + "\n")
 	}
-	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]detail  [c]dispatch concierge  [Esc]close"))
-	return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), len(c.entries)+5)
+	return strings.TrimRight(body.String(), "\n")
 }
 
 func (c *channelsModel) title() string {

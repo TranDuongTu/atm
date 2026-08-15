@@ -1333,7 +1333,9 @@ func (p *projectsModel) renderDetailView() string {
 
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
-func (p *projectsModel) openCreateForm() {
+// newProjectCreateForm builds the create-project form without installing it.
+// The spotlight preview renders one to show the user what -> will open.
+func newProjectCreateForm(width int) *Form {
 	codeValidator := func(field, value string) error {
 		if value == "" {
 			return nil
@@ -1348,8 +1350,12 @@ func (p *projectsModel) openCreateForm() {
 		{Label: "name", Required: true, Hint: "project display name"},
 	}
 	f := NewForm("New project", fields)
-	f.SetWidth(FormWidth(p.m.width))
-	p.m.form = f
+	f.SetWidth(FormWidth(width))
+	return f
+}
+
+func (p *projectsModel) openCreateForm() {
+	p.m.form = newProjectCreateForm(p.m.width)
 	p.m.formKind = formProjectCreate
 }
 

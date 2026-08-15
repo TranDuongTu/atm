@@ -20,11 +20,13 @@ type spotlightModel struct {
 	focus  spotFocus
 	offset int      // preview scroll (focusPreview only)
 	lines  []string // preview content, one string per line
-	// view is unused by the new list/preview flow (kept only so openDetail
-	// below still compiles as dead code); Task 3 removes it along with
-	// openDetail when it replaces the preview machinery.
-	view refKind
 }
+
+// minPreviewHeight is the smallest previewHeight() the live renderer
+// registry is worth consulting at; below it, an entry falls back to its
+// summary line rather than squeezing a real overlay/form render into a
+// sliver.
+const minPreviewHeight = 4
 
 type spotFocus int
 
@@ -151,7 +153,9 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "j", "down":
 		if sm.focus == focusPreview {
-			sm.offset++
+			if sm.offset < sm.maxPreviewOffset() {
+				sm.offset++
+			}
 			return nil
 		}
 		sm.moveCursor(1)
@@ -225,9 +229,13 @@ func (sm *spotlightModel) activate() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// refreshPreview rebuilds the preview content for the cursor row. Task 3
-// replaces the body of this function with the renderer registry; the summary
-// fallback it starts with stays as the no-renderer path.
+// refreshPreview rebuilds the preview content for the cursor row: a
+// reference entry gets its full text; anything else tries the live renderer
+// registry, falling back to the summary line when no renderer is registered,
+// the registry renderer produced nothing, or the region is too short to be
+// worth it. Rebuilding from scratch (rather than caching) is what keeps this
+// safe to call again on resize — SetSize calls it whenever the spotlight is
+// open, so a stale wrap never survives a terminal resize.
 func (sm *spotlightModel) refreshPreview() {
 	sm.offset = 0
 	sm.lines = nil
@@ -235,30 +243,49 @@ func (sm *spotlightModel) refreshPreview() {
 	if e == nil {
 		return
 	}
-	sm.lines = strings.Split(wordwrap.String(e.summary, sm.menuBoxWidth()-4), "\n")
+	w, h := sm.menuBoxWidth()-4, sm.previewHeight()
+	if e.kind == kindReference {
+		sm.lines = strings.Split(strings.TrimRight(sm.referenceText(e.ref, w), "\n"), "\n")
+		return
+	}
+	if h >= minPreviewHeight {
+		if fn, ok := previewRegistry()[previewKeyFor(*e)]; ok {
+			if out := fn(sm.m, w, h); strings.TrimSpace(out) != "" {
+				sm.lines = strings.Split(strings.TrimRight(out, "\n"), "\n")
+				return
+			}
+		}
+	}
+	sm.lines = strings.Split(wordwrap.String(e.summary, w), "\n")
 }
 
-// openDetail switches the menu into one of the read-only reference views and
-// snapshots its content lines. Content is built at drill time so a resize
-// between open and drill is reflected.
-//
-// Dead code: nothing calls this anymore (activate() no longer drills into a
-// detail view on Enter), but it must keep compiling — Task 3 replaces
-// refreshPreview's summary fallback with the renderer registry this method's
-// refKind switch anticipates, then deletes this method and the view field it
-// writes.
-func (sm *spotlightModel) openDetail(kind refKind) {
-	sm.view = kind
-	sm.offset = 0
+// referenceText returns kind's full reference content at width w. Lifted
+// from the deleted openDetail: refreshPreview rebuilds it fresh on every
+// call (including on resize), preserving openDetail's old guarantee that
+// content is built at drill/hover time rather than cached against a width
+// that can go stale.
+func (sm *spotlightModel) referenceText(kind refKind, w int) string {
 	switch kind {
 	case refKeymap:
-		sm.lines = strings.Split(strings.TrimRight(keymapReferenceText(), "\n"), "\n")
+		return keymapReferenceText()
 	case refParity:
-		sm.lines = strings.Split(strings.TrimRight(parityTable, "\n"), "\n")
+		return parityTable
 	case refConventions:
-		bw := sm.menuBoxWidth()
-		sm.lines = strings.Split(strings.TrimRight(renderConventionsText(sm.m.styles, bw-4, conventionsTextTUI), "\n"), "\n")
+		return renderConventionsText(sm.m.styles, w, conventionsTextTUI)
 	}
+	return ""
+}
+
+// maxPreviewOffset is the highest scroll offset that still fills the preview
+// region: enough to reach the end of sm.lines, but never past it, so the
+// last screenful stays full instead of shrinking toward a single remaining
+// line.
+func (sm *spotlightModel) maxPreviewOffset() int {
+	max := len(sm.lines) - sm.previewHeight()
+	if max < 0 {
+		max = 0
+	}
+	return max
 }
 
 // spotlightKeyCol is the fixed width of the key column. Key-first with a
@@ -369,8 +396,8 @@ func (sm *spotlightModel) renderOverlay() string {
 	}
 	body.WriteString(sectionDivider(styles, inner, label) + "\n")
 
-	if sm.offset > len(sm.lines)-1 {
-		sm.offset = len(sm.lines) - 1
+	if sm.offset > sm.maxPreviewOffset() {
+		sm.offset = sm.maxPreviewOffset()
 	}
 	if sm.offset < 0 {
 		sm.offset = 0

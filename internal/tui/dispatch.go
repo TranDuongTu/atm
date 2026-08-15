@@ -141,10 +141,13 @@ func bwInner(width int) int {
 	return bw - 4
 }
 
-// open preselects the given default persona (falling back to concierge when
-// it is not in the store list), sets the context defaults, and refreshes the
-// target preview. Dispatch logic never branches on how it was opened.
-func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle, capability string) {
+// loadFor preselects the given default persona (falling back to concierge
+// when it is not in the store list), sets the context defaults, and
+// refreshes the target preview — everything open does except flipping
+// active. open calls it and then activates; the spotlight preview calls it
+// alone, so previewing never activates the dialog. Dispatch logic never
+// branches on how it was opened.
+func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle, capability string) {
 	d.project, d.taskID, d.taskTitle, d.capability = project, taskID, taskTitle, capability
 	d.personas = d.m.store.ListPersonas()
 	d.personaCursor = 0
@@ -189,12 +192,17 @@ func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle, capabil
 			}
 		}
 	}
-	d.active = true
 	if d.m.dispatcher == nil {
 		d.previewErr = "dispatch unavailable in this build"
 		return
 	}
 	d.refreshPreview()
+}
+
+// open loads the dialog's fields for the given context, then activates it.
+func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle, capability string) {
+	d.loadFor(defaultPersona, project, taskID, taskTitle, capability)
+	d.active = true
 }
 
 func (d *dispatchModel) refreshPreview() {
@@ -322,13 +330,32 @@ func (d *dispatchModel) renderOverlay() string {
 	}
 
 	var b strings.Builder
+	b.WriteString(d.previewBody(bw - 4))
+
+	help := "[p]persona  [←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
+	if d.project != "" {
+		help = "[p]persona  [←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
+	}
+	b.WriteString("\n\n" + styles.KeyMenuDim.Render(help))
+
+	bh := strings.Count(b.String(), "\n") + 3
+	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
+}
+
+// previewBody renders the dialog's field summary (persona/task/scope/repo/
+// agent/target and any warning) at content width w, without box chrome or
+// the footer hint. renderOverlay wraps it; the spotlight preview renders it
+// directly, so a preview can never show something the overlay does not.
+func (d *dispatchModel) previewBody(w int) string {
+	styles := d.m.styles
+	var b strings.Builder
 	if p := d.selectedPersona(); p != nil {
 		b.WriteString("Persona: ‹ " + p.Name + " ›\n")
-		b.WriteString(styles.FieldHint.Render("        "+fitLine(p.Description, bw-10)) + "\n\n")
+		b.WriteString(styles.FieldHint.Render("        "+fitLine(p.Description, w-6)) + "\n\n")
 	}
 	if d.taskID != "" {
 		b.WriteString("Task:   " + d.taskID + "\n")
-		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, bw-10)) + "\n\n")
+		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, w-6)) + "\n\n")
 	}
 	if d.capability != "" {
 		b.WriteString("Scope:  " + d.capability + " capability\n\n")
@@ -354,12 +381,5 @@ func (d *dispatchModel) renderOverlay() string {
 	if d.projectRequired() && d.project == "" {
 		b.WriteString(styles.Error.Render("⚠ "+d.persona()+" requires a project scope") + "\n")
 	}
-	help := "[p]persona  [←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
-	if d.project != "" {
-		help = "[p]persona  [←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
-	}
-	b.WriteString("\n" + styles.KeyMenuDim.Render(help))
-
-	bh := strings.Count(b.String(), "\n") + 3
-	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
+	return strings.TrimRight(b.String(), "\n")
 }

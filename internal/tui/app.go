@@ -223,6 +223,13 @@ func (m *Model) SetSize(w, h int) {
 	leftW, rightW := splitWorkspaceWidths(w)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(m.contentHeight))
+	// The spotlight's preview is wrapped to menuBoxWidth() at the row that was
+	// hovered; without this, a resize while it's open leaves stale wrapping
+	// behind (invisible with a one-line summary, wrong once the preview holds
+	// multi-line reference/overlay/form content).
+	if m.spotlight.open {
+		m.spotlight.refreshPreview()
+	}
 }
 
 func splitWorkspaceWidths(width int) (int, int) {
@@ -648,7 +655,16 @@ func (m *Model) overlayProject() string {
 // still opens, defaulting to concierge (the one built-in usable without a
 // project).
 func (m *Model) openDispatch() {
-	persona, project, taskID, taskTitle := "concierge", m.projectScope, "", ""
+	persona, project, taskID, taskTitle := m.dispatchDefaults()
+	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
+}
+
+// dispatchDefaults resolves the persona/project/task defaults openDispatch
+// preselects from the current pane and selection. Extracted so the
+// spotlight preview can compute the same defaults — without opening the
+// dialog — and never show something the real D key would not.
+func (m *Model) dispatchDefaults() (persona, project, taskID, taskTitle string) {
+	persona, project = "concierge", m.projectScope
 	switch {
 	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
 		persona = m.projects.personaGroups[m.projects.personaCursor].Key
@@ -664,7 +680,7 @@ func (m *Model) openDispatch() {
 			}
 		}
 	}
-	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
+	return
 }
 
 // handleFormKey routes a key into the active form, then handles submit/cancel

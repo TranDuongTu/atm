@@ -7,7 +7,9 @@ import (
 	"github.com/charmbracelet/bubbletea"
 )
 
-func (t *tasksModel) openCreateForm() {
+// newTaskCreateForm builds the create-task form without installing it. The
+// spotlight preview renders one to show the user what -> will open.
+func (t *tasksModel) newTaskCreateForm(width int) *Form {
 	labelsValidator := func(field, value string) error {
 		if value == "" {
 			return nil
@@ -26,8 +28,12 @@ func (t *tasksModel) openCreateForm() {
 	}
 	f := NewForm("New task  "+t.m.projectScope+":", fields)
 	f.Title = "New task  " + t.m.projectScope + ":"
-	f.SetWidth(FormWidth(t.m.width))
-	t.m.form = f
+	f.SetWidth(FormWidth(width))
+	return f
+}
+
+func (t *tasksModel) openCreateForm() {
+	t.m.form = t.newTaskCreateForm(t.m.width)
 	t.m.formKind = formTaskCreate
 }
 

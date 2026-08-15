@@ -238,6 +238,32 @@ func (c *capabilityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 //	▶ ● workflow     status verbs and boards · 6 boards
 func (c *capabilityModel) renderOverlay() string {
 	styles := c.m.styles
+	bw := c.m.width * 60 / 100
+	if bw < 64 {
+		bw = 64
+	}
+	if bw > c.m.width-4 {
+		bw = c.m.width - 4
+	}
+
+	var body strings.Builder
+	if pb := c.previewBody(bw - 4); pb != "" {
+		body.WriteString(pb + "\n")
+	}
+	body.WriteString("\n")
+	body.WriteString(styles.KeyMenuDim.Render("[↑/↓]move  [Enter]switch  [space]enable/disable  [Esc]close"))
+
+	bh := len(c.entries) + 5
+	return titledBoxHeight(styles.DialogBody, bw, "Capabilities", body.String(), bh)
+}
+
+// previewBody renders the capability switcher rows, without box chrome or
+// the footer hint. renderOverlay wraps it; the spotlight preview renders it
+// directly, so a preview can never show something the overlay does not. w is
+// unused: the existing rows were never clipped to the box width, and this
+// extraction preserves that (unchanged) behavior rather than introducing a
+// new truncation.
+func (c *capabilityModel) previewBody(w int) string {
 	nameW := 12
 	for _, e := range c.entries {
 		if len(e.name) > nameW {
@@ -251,13 +277,13 @@ func (c *capabilityModel) renderOverlay() string {
 			marker = "▶ "
 		}
 		state := "● "
-		st := styles.Body
+		st := c.m.styles.Body
 		switch {
 		case e.unmanaged:
 			state = "— "
 		case !e.enabled:
 			state = "○ "
-			st = styles.Muted
+			st = c.m.styles.Muted
 		}
 		name := fmt.Sprintf("%-*s", nameW, e.name)
 		detail := e.summary
@@ -266,23 +292,12 @@ func (c *capabilityModel) renderOverlay() string {
 		}
 		line := marker + state + name + "  " + detail
 		if i == c.cursor {
-			line = styles.RowCursor.Render(line)
+			line = c.m.styles.RowCursor.Render(line)
 		} else {
 			line = st.Render(line)
 		}
 		body.WriteString(line)
 		body.WriteString("\n")
 	}
-	body.WriteString("\n")
-	body.WriteString(styles.KeyMenuDim.Render("[↑/↓]move  [Enter]switch  [space]enable/disable  [Esc]close"))
-
-	bw := c.m.width * 60 / 100
-	if bw < 64 {
-		bw = 64
-	}
-	if bw > c.m.width-4 {
-		bw = c.m.width - 4
-	}
-	bh := len(c.entries) + 5
-	return titledBoxHeight(styles.DialogBody, bw, "Capabilities", body.String(), bh)
+	return strings.TrimRight(body.String(), "\n")
 }
