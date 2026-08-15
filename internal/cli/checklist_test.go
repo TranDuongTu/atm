@@ -132,10 +132,15 @@ func TestChecklistSeedIdempotent(t *testing.T) {
 	mustContain(t, out, "created 3")
 	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
 	mustContain(t, out, "skipped 3")
+	// JSON re-seed: created emits [] (not null) and skipped names every existing seed.
+	st.output = outputJSON
+	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
+	mustContain(t, out, `"created": []`)
+	mustContain(t, out, `"skipped": [`)
+	mustContain(t, out, `"concierge/empty-project"`)
 	// an edited seed survives re-seeding
 	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--persona", "concierge", "--name", "setup-channels", "--purpose", "edited", "--actor", "developer@test:unit")
 	_, _, _ = runArgs(st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
-	st.output = outputJSON
 	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--persona", "concierge", "--name", "setup-channels")
 	mustContain(t, out, `"purpose": "edited"`)
 }

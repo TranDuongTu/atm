@@ -55,7 +55,8 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 				names = append(names, b.Name)
 			}
 			sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", project) }
-			var created, skipped []string
+			created := make([]string, 0)
+			skipped := make([]string, 0)
 			for _, seed := range skills.ChecklistSeeds() {
 				key := seed.Persona + "/" + seed.Name
 				if _, err := svc.GetChecklist(project, seed.Persona, seed.Name); err == nil {
