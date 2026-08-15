@@ -11,7 +11,7 @@ import (
 // context. The old menu filtered Actions through currentScopes(), so the
 // Projects pane and a task detail showed disjoint sets.
 func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
-	want := []string{"Add project", "Add task", "Edit title", "New board", "Channels", "Keymap reference"}
+	want := []string{"Add project", "Add task", "Edit title", "New board", "Channels", "Keymap reference", "CLI ↔ TUI parity", "Conventions"}
 
 	var first string
 	for _, focus := range []workspacePane{paneProjects, paneTasks} {
@@ -70,10 +70,20 @@ func TestSpotlightOmitsBorderHintedAndHiddenRows(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
-	view := m.spotlight.renderOverlay()
+	// Scan the row data, not the rendered view: at this SetSize only ~15 of
+	// ~36 rows render unscrolled, so scanning renderOverlay() would pass
+	// vacuously for anything past the fold (e.g. "Quit", among the last
+	// hidden entries in the table).
+	var labels []string
+	for _, r := range m.spotlight.rows {
+		if r.entry != nil {
+			labels = append(labels, r.entry.label)
+		}
+	}
+	joined := strings.Join(labels, "\n")
 	for _, gone := range []string{"Projects pane", "Tasks pane", "Drill into persona activity", "Quit"} {
-		if strings.Contains(view, gone) {
-			t.Errorf("border-hinted/hidden entry %q must not be a spotlight row:\n%s", gone, view)
+		if strings.Contains(joined, gone) {
+			t.Errorf("border-hinted/hidden entry %q must not be a spotlight row:\n%s", gone, joined)
 		}
 	}
 }

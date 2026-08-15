@@ -2039,6 +2039,7 @@ func TestConventionsReferenceRenders(t *testing.T) {
 func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	content := keymapReferenceText()
 	mustContain(t, content, "Key")
+	mustContain(t, content, "Action")
 	mustContain(t, content, "projects")
 	mustContain(t, content, "tasks")
 	mustContain(t, content, "Cycle theme")
