@@ -121,3 +121,21 @@ func TestChecklistGateWhenCapabilityDisabled(t *testing.T) {
 	}
 	mustContain(t, errText, "atm project capability add --project ATM --name checklist")
 }
+
+// TestChecklistSeedIdempotent proves `atm capability checklist seed` creates
+// the shipped starter checklists once (create-if-absent) and never overwrites
+// them: a second run skips, and an edited record survives re-seeding.
+func TestChecklistSeedIdempotent(t *testing.T) {
+	st := newRegistryTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
+	mustContain(t, out, "created 3")
+	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
+	mustContain(t, out, "skipped 3")
+	// an edited seed survives re-seeding
+	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--persona", "concierge", "--name", "setup-channels", "--purpose", "edited", "--actor", "developer@test:unit")
+	_, _, _ = runArgs(st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
+	st.output = outputJSON
+	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--persona", "concierge", "--name", "setup-channels")
+	mustContain(t, out, `"purpose": "edited"`)
+}

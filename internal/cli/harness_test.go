@@ -13,6 +13,7 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/capability/channel"
+	"atm/internal/capability/checklist"
 	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
 	"atm/internal/capability/workflowai"
@@ -86,9 +87,20 @@ func testRegistry() *capability.Registry {
 
 // productionRegistry mirrors cmd/atm's composition root exactly, so tests
 // that need the real capability surface (the session-context Capabilities
-// block) drive the same registered set the binary ships.
+// block, the capability-mounted verb trees) drive the same registered set the
+// binary ships.
 func productionRegistry() *capability.Registry {
-	return capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), channel.New())
+	return capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), channel.New(), checklist.New())
+}
+
+// newRegistryTestCLI is newTestCLI carrying the production registry, so the
+// capability-mounted trees (`atm capability <name> <verb>`) are reachable —
+// newTestCLI's zero registry mounts none of them.
+func newRegistryTestCLI(t *testing.T) *testCLI {
+	st := newTestCLI(t)
+	st.st.registry = productionRegistry()
+	st.st.fullRegistry = productionRegistry()
+	return st
 }
 
 var tsRe = regexp.MustCompile(`"2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"`)

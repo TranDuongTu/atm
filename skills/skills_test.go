@@ -78,6 +78,30 @@ func TestConciergePersonaShape(t *testing.T) {
 	}
 }
 
+func TestBuiltinChecklistSeedsLoad(t *testing.T) {
+	ss := ChecklistSeeds()
+	if len(ss) != 3 {
+		t.Fatalf("want 3 built-in checklist seeds, got %d", len(ss))
+	}
+	for _, s := range ss {
+		if s.Persona != "concierge" {
+			t.Errorf("%s: persona = %q, want concierge", s.Name, s.Persona)
+		}
+		if len(s.Steps) == 0 {
+			t.Errorf("%s: no steps", s.Name)
+		}
+	}
+	names := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		names[s.Name] = true
+	}
+	for _, want := range []string{"empty-project", "setup-channels", "setup-agent-launcher"} {
+		if !names[want] {
+			t.Errorf("seed %s missing (have %v)", want, names)
+		}
+	}
+}
+
 func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	cs := Capabilities()
 	if len(cs) != 5 {

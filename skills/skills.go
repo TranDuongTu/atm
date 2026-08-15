@@ -8,17 +8,19 @@ import (
 	"strings"
 )
 
-//go:embed persona/*.md capability/*.md
+//go:embed persona/*.md capability/*.md checklist/*.md
 var files embed.FS
 
 var (
-	builtinPersonas     []PersonaSpec
-	builtinCapabilities []CapabilitySpec
+	builtinPersonas       []PersonaSpec
+	builtinCapabilities   []CapabilitySpec
+	builtinChecklistSeeds []ChecklistSeed
 )
 
 func init() {
 	builtinPersonas = mustLoadPersonas()
 	builtinCapabilities = mustLoadCapabilities()
+	builtinChecklistSeeds = mustLoadChecklistSeeds()
 }
 
 func mustLoadPersonas() []PersonaSpec {
@@ -49,6 +51,22 @@ func mustLoadCapabilities() []CapabilitySpec {
 			panic(fmt.Sprintf("skills: %v", err))
 		}
 		out = append(out, c)
+	}
+	return out
+}
+
+func mustLoadChecklistSeeds() []ChecklistSeed {
+	var out []ChecklistSeed
+	for _, name := range mustList("checklist") {
+		src, err := files.ReadFile(path.Join("checklist", name))
+		if err != nil {
+			panic(fmt.Sprintf("skills: read %s: %v", name, err))
+		}
+		s, err := ParseChecklistSeed(strings.TrimSuffix(name, ".md"), src)
+		if err != nil {
+			panic(fmt.Sprintf("skills: %v", err))
+		}
+		out = append(out, s)
 	}
 	return out
 }
@@ -84,6 +102,9 @@ func Persona(name string) (PersonaSpec, bool) {
 
 // Capabilities returns the built-in capability specs (name-sorted order).
 func Capabilities() []CapabilitySpec { return append([]CapabilitySpec(nil), builtinCapabilities...) }
+
+// ChecklistSeeds returns the built-in starter checklists (name-sorted order).
+func ChecklistSeeds() []ChecklistSeed { return append([]ChecklistSeed(nil), builtinChecklistSeeds...) }
 
 // Capability returns the named built-in capability spec.
 func Capability(name string) (CapabilitySpec, bool) {

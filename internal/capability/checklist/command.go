@@ -1,10 +1,13 @@
 package checklist
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/skills"
 
 	"github.com/spf13/cobra"
 )
@@ -51,8 +54,27 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 			for _, b := range boards {
 				names = append(names, b.Name)
 			}
-			return env.Emit(map[string]any{"project": project, "boards": names}, func() {
-				fmt.Fprintf(env.Stdout(), "ensured checklist vocabulary for %s\n", project)
+			sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", project) }
+			var created, skipped []string
+			for _, seed := range skills.ChecklistSeeds() {
+				key := seed.Persona + "/" + seed.Name
+				if _, err := svc.GetChecklist(project, seed.Persona, seed.Name); err == nil {
+					skipped = append(skipped, key)
+					continue
+				} else if !errors.Is(err, core.ErrNotFound) {
+					return err
+				}
+				steps := make([]string, len(seed.Steps))
+				for i, s := range seed.Steps {
+					steps[i] = sub(s)
+				}
+				if _, err := svc.CreateChecklist(project, core.ChecklistRecord{Persona: seed.Persona, Name: seed.Name, Purpose: sub(seed.Purpose), Steps: steps}, actor); err != nil {
+					return err
+				}
+				created = append(created, key)
+			}
+			return env.Emit(map[string]any{"project": project, "boards": names, "created": created, "skipped": skipped}, func() {
+				fmt.Fprintf(env.Stdout(), "ensured checklist vocabulary for %s; created %d starter checklist(s), skipped %d existing\n", project, len(created), len(skipped))
 			})
 		},
 	}

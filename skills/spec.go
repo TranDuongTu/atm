@@ -26,6 +26,16 @@ type PersonaSpec struct {
 	Personality string   // default `## Personality` section body, "" if none
 }
 
+// ChecklistSeed is one shipped starter checklist a project's `seed` verb
+// creates on demand: persona-scoped, purpose and ordered steps, with <CODE>
+// placeholders the seeder substitutes with the project code.
+type ChecklistSeed struct {
+	Persona string
+	Name    string
+	Purpose string
+	Steps   []string
+}
+
 // CapabilitySpec is one parsed capability prompt file. Labels and Boards are
 // the frontmatter declaration of the vocabulary the capability manages; the
 // Go package remains the executable source of truth (a per-capability test
