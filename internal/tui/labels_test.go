@@ -685,6 +685,7 @@ type undescribedCap struct {
 
 func (u *undescribedCap) Name() string    { return "undescribed-test" }
 func (u *undescribedCap) Summary() string { return "synthetic test capability" }
+func (u *undescribedCap) Brief() string   { return "" }
 func (u *undescribedCap) Guide() string   { return "" }
 func (u *undescribedCap) Command(_ capability.Env) *cobra.Command {
 	return &cobra.Command{Use: u.Name()}

@@ -1,0 +1,28 @@
+package checklist
+
+import (
+	"fmt"
+	"strings"
+
+	"atm/internal/capability"
+	"atm/internal/core"
+)
+
+type Cap struct{}
+
+// Annotate renders the checklist cell: persona/name + step count, or an
+// attention cell when the payload is unreadable (degrade, never panic).
+func (Cap) Annotate(t core.Task) *capability.Cell {
+	code, _, ok := strings.Cut(t.ID, "-")
+	if !ok {
+		return nil
+	}
+	rec, err := core.ChecklistFromTask(code, t)
+	if err != nil {
+		return &capability.Cell{Text: "checklist: unreadable payload", Tone: capability.ToneAttention}
+	}
+	if rec == nil {
+		return nil
+	}
+	return &capability.Cell{Text: fmt.Sprintf("checklist %s/%s · %d steps", rec.Persona, rec.Name, len(rec.Steps)), Tone: capability.ToneNeutral}
+}

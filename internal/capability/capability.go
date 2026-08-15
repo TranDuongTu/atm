@@ -71,6 +71,10 @@ type Capability interface {
 	// Summary is a one-line description for enumeration surfaces
 	// (conventions, manager prompt). No trailing newline.
 	Summary() string
+	// Brief is a one-line session-injection imperative rendered into every
+	// session context's Capabilities block; "" falls back to Summary at
+	// Describe time.
+	Brief() string
 	// Guide is the capability's full agent-facing semantics: `## Semantics`
 	// (data model and vocabulary), `## Actions` (exposed verbs), and
 	// `## Converge` (what a healthy, converged data state looks like) —
@@ -123,6 +127,7 @@ func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
 type Description struct {
 	Name    string
 	Summary string
+	Brief   string
 }
 
 // Describe enumerates the registered capabilities in registration order.
@@ -132,7 +137,11 @@ func (r *Registry) Describe() []Description {
 	}
 	out := make([]Description, 0, len(r.caps))
 	for _, c := range r.caps {
-		out = append(out, Description{Name: c.Name(), Summary: c.Summary()})
+		b := c.Brief()
+		if b == "" {
+			b = c.Summary()
+		}
+		out = append(out, Description{Name: c.Name(), Summary: c.Summary(), Brief: b})
 	}
 	return out
 }

@@ -27,6 +27,8 @@ func (f *fakeCap) Name() string { return f.name }
 
 func (f *fakeCap) Summary() string { return f.summary }
 
+func (f *fakeCap) Brief() string { return "" }
+
 func (f *fakeCap) Guide() string { return f.guide }
 
 func (f *fakeCap) Vocabulary(code string) []core.Label { return f.vocab }
@@ -292,6 +294,31 @@ func TestRegistryAnnotateResolvesByName(t *testing.T) {
 	var nilReg *Registry
 	if got := nilReg.Annotate("workflow", core.Task{}); got != nil {
 		t.Errorf("nil registry = %+v, want nil", got)
+	}
+}
+
+type fakeBriefCap struct{ brief string }
+
+func (f fakeBriefCap) Name() string                          { return "fake" }
+func (f fakeBriefCap) Summary() string                       { return "fake summary" }
+func (f fakeBriefCap) Brief() string                         { return f.brief }
+func (f fakeBriefCap) Guide() string                         { return "" }
+func (f fakeBriefCap) Vocabulary(string) []core.Label        { return nil }
+func (f fakeBriefCap) Exposed(string) []core.Label           { return nil }
+func (f fakeBriefCap) Annotate(core.Task) *Cell              { return nil }
+func (f fakeBriefCap) EnsureVocabulary(core.LabelService, string, string) ([]core.Label, error) {
+	return nil, nil
+}
+func (f fakeBriefCap) Command(Env) *cobra.Command { return &cobra.Command{} }
+
+func TestDescribeBriefFallsBackToSummary(t *testing.T) {
+	r := NewRegistry(fakeBriefCap{brief: "do X"}, fakeBriefCap{})
+	d := r.Describe()
+	if d[0].Brief != "do X" {
+		t.Fatalf("brief = %q", d[0].Brief)
+	}
+	if d[1].Brief != "fake summary" {
+		t.Fatalf("fallback = %q", d[1].Brief)
 	}
 }
 

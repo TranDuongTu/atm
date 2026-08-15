@@ -1,4 +1,4 @@
-package channel
+package checklist
 
 import "atm/skills"
 

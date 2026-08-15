@@ -14,6 +14,7 @@ type ContextData struct {
 	Actor         string
 	TaskID        string
 	Capability    string
+	Capabilities  string // pre-rendered ## Capabilities block; "" removes the section (launcher-composed — this package stays registry-free)
 	PersonaPrompt string
 }
 
@@ -39,6 +40,11 @@ func RenderContext(d ContextData) string {
 		tmpl = strings.Replace(tmpl, "<CAPABILITY_SCOPE>\n\n", "", 1)
 	} else {
 		tmpl = strings.Replace(tmpl, "<CAPABILITY_SCOPE>", capabilityScopeSection(d.Capability), 1)
+	}
+	if d.Capabilities == "" {
+		tmpl = strings.Replace(tmpl, "<CAPABILITIES>\n\n", "", 1)
+	} else {
+		tmpl = strings.Replace(tmpl, "<CAPABILITIES>", d.Capabilities, 1)
 	}
 	pairs := []string{
 		"<CODE>", d.Code,

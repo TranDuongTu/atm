@@ -61,6 +61,15 @@ type ChannelService interface {
 	MigrateReposToChannels(code, actor string) (migrated int, unwired []string, skipped []string, err error)
 }
 
+type ChecklistService interface {
+	CreateChecklist(code string, rec ChecklistRecord, actor string) (*Task, error)
+	EditChecklist(code, persona, name string, purpose *string, steps []string, actor string) error // steps nil = unchanged
+	RemoveChecklist(code, persona, name, actor string) error
+	ChecklistRecords(code string) ([]ChecklistRecord, error)
+	PersonaChecklists(code, persona string) ([]ChecklistRecord, error)
+	GetChecklist(code, persona, name string) (*ChecklistRecord, error)
+}
+
 type LabelService interface {
 	LabelAdd(name, description, expr, actor string) error
 	LabelSeed(name, description, expr, actor string) error
@@ -154,6 +163,7 @@ type Service interface {
 	TaskService
 	ProjectService
 	ChannelService
+	ChecklistService
 	LabelService
 	CommentService
 	PersonaService

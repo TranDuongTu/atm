@@ -154,3 +154,39 @@ func TestParseIgnoresUnknownScalarKeys(t *testing.T) {
 		t.Fatalf("unknown scalar keys must be tolerated (store audit fields): %v", err)
 	}
 }
+
+func TestParseChecklistSeed(t *testing.T) {
+	src := []byte("---\npersona: concierge\nname: empty-project\npurpose: a fresh project\n---\n1. First step.\n2. Second step.\n")
+	seed, err := ParseChecklistSeed("empty-project", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed.Persona != "concierge" || seed.Name != "empty-project" || seed.Purpose != "a fresh project" {
+		t.Fatalf("frontmatter: %+v", seed)
+	}
+	if len(seed.Steps) != 2 || seed.Steps[0] != "First step." {
+		t.Fatalf("steps: %v", seed.Steps)
+	}
+	if _, err := ParseChecklistSeed("x", []byte("---\npersona: p\nname: x\npurpose: y\n---\nno steps here\n")); err == nil {
+		t.Fatal("a seed without list items must be rejected")
+	}
+}
+
+func TestParseCapabilityBrief(t *testing.T) {
+	src := []byte("---\nname: x\ndescription: d\nbrief: Do the thing before working.\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
+	c, err := ParseCapability("x", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Brief != "Do the thing before working." {
+		t.Fatalf("Brief = %q", c.Brief)
+	}
+	src2 := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
+	c2, err := ParseCapability("x", src2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.Brief != "" {
+		t.Fatalf("missing brief must parse to empty, got %q", c2.Brief)
+	}
+}

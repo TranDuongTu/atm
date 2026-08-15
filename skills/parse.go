@@ -8,6 +8,8 @@ import (
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
+var seedStepRe = regexp.MustCompile(`^\s*(?:\d+\.|-)\s+(.+)$`)
+
 // frontmatter is the parsed `---` header: scalar keys and inline lists.
 // Unknown scalar keys are tolerated so the store can add audit fields
 // (created_at, ...) to custom persona files.
@@ -181,6 +183,7 @@ func ParseCapability(stem string, src []byte) (CapabilitySpec, error) {
 	c := CapabilitySpec{
 		Name:        fm.scalars["name"],
 		Description: fm.scalars["description"],
+		Brief:       fm.scalars["brief"],
 		Labels:      fm.lists["labels"],
 		Boards:      fm.lists["boards"],
 		Body:        strings.TrimSpace(body),
@@ -211,4 +214,30 @@ func ParseCapability(stem string, src []byte) (CapabilitySpec, error) {
 		}
 	}
 	return c, nil
+}
+
+// ParseChecklistSeed parses one shipped seed checklist file: frontmatter
+// persona/name/purpose (all required; name must match the filename stem) and
+// a body of numbered or dashed step lines.
+func ParseChecklistSeed(stem string, src []byte) (ChecklistSeed, error) {
+	fm, body, err := parseFrontmatter(src)
+	if err != nil {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: %w", stem, err)
+	}
+	s := ChecklistSeed{Persona: fm.scalars["persona"], Name: fm.scalars["name"], Purpose: fm.scalars["purpose"]}
+	if s.Persona == "" || s.Purpose == "" || !nameRe.MatchString(s.Name) {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: persona, name, purpose are required", stem)
+	}
+	if s.Name != stem {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: frontmatter name %q must match filename", stem, s.Name)
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if m := seedStepRe.FindStringSubmatch(line); m != nil {
+			s.Steps = append(s.Steps, strings.TrimSpace(m[1]))
+		}
+	}
+	if len(s.Steps) == 0 {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: needs at least one numbered or dashed step", stem)
+	}
+	return s, nil
 }
