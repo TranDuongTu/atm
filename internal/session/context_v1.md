@@ -8,9 +8,11 @@
 
 <CAPABILITY_SCOPE>
 
+<CAPABILITIES>
+
 ## Orientation
 
-ATM is the visible ledger for this work. Use it to record ideas, discussions, decisions, and progress as you go, and to find prior work and handoffs from earlier sessions. Start with the CLI landscape, read the conventions, then discover which capabilities this project has enabled and read each one's guide.
+ATM is the visible ledger for this work. Use it to record ideas, discussions, decisions, and progress as you go, and to find prior work and handoffs from earlier sessions. Start with the CLI landscape and the conventions; the Capabilities section above lists what this project has enabled — read a capability's guide before relying on it.
 
 First, establish which task this session works on: create one or pick from the backlog, stamp its stage per the project's workflow, and record your intent as a task comment before any design or code work.
 

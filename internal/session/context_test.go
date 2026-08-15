@@ -92,3 +92,31 @@ func TestRenderContextNoCapabilityNoResidue(t *testing.T) {
 		t.Errorf("unscoped context must carry no scope residue:\n%s", out)
 	}
 }
+
+func TestRenderContextCapabilitiesBlock(t *testing.T) {
+	out := RenderContext(ContextData{Code: "ATM", Capabilities: "## Capabilities\n\n- **channel** — brief text"})
+	if !strings.Contains(out, "- **channel** — brief text") {
+		t.Fatalf("block not rendered:\n%s", out)
+	}
+	if strings.Contains(out, "<CAPABILITIES>") {
+		t.Fatalf("placeholder residue:\n%s", out)
+	}
+	if strings.Index(out, "## Capabilities") > strings.Index(out, "## Orientation") {
+		t.Fatalf("block after Orientation:\n%s", out)
+	}
+}
+
+func TestRenderContextNoCapabilitiesNoResidue(t *testing.T) {
+	out := RenderContext(ContextData{Code: "ATM"})
+	if strings.Contains(out, "<CAPABILITIES>") || strings.Contains(out, "## Capabilities") {
+		t.Fatalf("empty Capabilities must remove the section:\n%s", out)
+	}
+}
+
+func TestRenderContextScopeAndCapabilitiesCompose(t *testing.T) {
+	out := RenderContext(ContextData{Code: "ATM", Capability: "channel", Capabilities: "## Capabilities\n\n- **channel** — b"})
+	iScope, iCaps, iOrient := strings.Index(out, "## Session scope"), strings.Index(out, "## Capabilities"), strings.Index(out, "## Orientation")
+	if !(iScope >= 0 && iScope < iCaps && iCaps < iOrient) {
+		t.Fatalf("want scope < capabilities < orientation:\n%s", out)
+	}
+}
