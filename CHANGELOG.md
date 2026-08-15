@@ -1,6 +1,10 @@
 ## Unreleased
 
 ### feat
+- Session contexts render a ## Capabilities block: every enabled capability's one-line brief, sourced from its own guide frontmatter (ATM-daa760).
+- New checklist capability: named per-persona standing operating procedures behind atm checklist, with seeded concierge starter checklists (ATM-daa760).
+
+### feat
 - ATM-3714db: the `[?]` main menu replaces the help overlay, and the status bar no longer shows per-action key hints — a single `[?]menu` pointer remains. A single `?` opens the one discovery surface: every binding, the CLI↔TUI parity table, and the conventions reference. Menu rows replay the real key (same behavior path as a direct keypress) and the keymap reference renders from the same declarative entry table, so advertised keys can never drift from real bindings. The `C` conventions binding is removed — conventions is a menu reference view only, and `C` is the capabilities switcher.
 - ATM-3714db: concierge dispatch from the channels overlay is scoped — the dispatch argv carries `--capability channel` and the dialog renders a `Scope: channel capability` line.
 - ATM-3714db: `--capability` renders a `## Session scope` section in the session context (orientation stays capability-local), and the capability segment joins the session-context cache key, so scoped and unscoped sessions never share a context file.

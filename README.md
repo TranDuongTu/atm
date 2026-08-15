@@ -147,12 +147,16 @@ A board name is a valid `--label` value, so listing its members reads like any o
 atm task list --project ATM --label ATM:next-sprint
 ```
 
-**Capabilities build on the label substrate.** Two built-in capabilities ship with ATM and mount their own boards, verbs, and vocabulary:
+**Capabilities build on the label substrate.** Four built-in capabilities ship with ATM and mount their own boards, verbs, and vocabulary:
 
 | Capability | Verbs | Namespaces | Seeded Boards |
 |-----------|-------|------------|---------------|
 | `workflow` | `start`, `open`, `block`, `complete`, `status` | `status:*`, `priority:*` | `backlog`, `open-tasks`, `in-progress-tasks`, `all-tasks` |
 | `contextmap` | `add`, `stamp`, `retarget`, `supersede`, `check` | `context:*`, `knowledge:*` | `context-current` |
+| `channel` | `add`, `list`, `show`, `edit`, `remove`, `wire`, `stamp`, `migrate-repos` | `channel:*` | `channels` |
+| `checklist` | `list`, `show`, `add`, `edit`, `remove` | `checklist:*` | `checklists` |
+
+Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`, with seeded concierge starter checklists.
 
 Enable capabilities per project and scope manager actions to one:
 

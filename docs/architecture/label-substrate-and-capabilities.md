@@ -84,6 +84,8 @@ A **capability command** is a CLI subsystem that owns a slice of the label subst
 
 *Consequence: a capability's semantics and command surface have exactly one source. Adding a capability is one package implementing the interface; conventions, the manager scope, and agent behaviour follow by registration, with no prose sites to keep in sync.*
 
+A capability may also ship starter records — ledger records it creates through the normal service layer at seed time (the checklist capability's concierge starter checklists are the precedent). Seeding is create-if-absent and never overwrites an existing record, the seed content lives in the capability's own embedded markdown, and the created records are ordinary actor-stamped ledger facts the user may edit or remove like any other; a capability still may not write outside its own label slice and Meta key.
+
 ### Capability independence
 
 Capabilities are parallel interpretations of the same tasks, and the doctrine has three clauses:
@@ -175,5 +177,5 @@ When a subsystem needs structure the substrate lacks, ask in order:
 
 1. **Can a board express it?** A grouping, a filter, a "current view" — these are saved queries, not features. Write the expression; write no code.
 2. **Can existing labels express it?** Read every label's description first. The vocabulary is usually larger than it looks.
-3. **Does it need private machine-readable state?** Then it is a capability. Keep the state in the capability's own metadata key *(planned; the comment-format pattern is legacy and closed to new uses)*, project anything filterable into labels, ensure the vocabulary on first use, expose verbs — not labels — to the callers, and write its guide: the capability explains itself, or its semantics will end up hand-written somewhere they will drift.
+3. **Does it need private machine-readable state?** Then it is a capability. Keep the state in the capability's own metadata key *(planned; the comment-format pattern is legacy and closed to new uses)*, project anything filterable into labels, ensure the vocabulary on first use, expose verbs — not labels — to the callers, and write its guide: the capability explains itself, or its semantics will end up hand-written somewhere they will drift. `internal/capability/checklist` is the precedent for a capability that also ships starter records through the normal service layer at seed time.
 4. **Does it truly need a new store field?** Almost certainly not — capability state has a home now, and the bar for the shared model is higher still. If the answer is genuinely yes, it belongs to the substrate itself, applies to *every* task, and needs its own design discussion — because it is a decision imposed on every project ATM will ever hold. (A new task field touches the action vocabulary, the changeset, the fold, the core struct, the cache schema, and the golden logs — the friction is the point.)
