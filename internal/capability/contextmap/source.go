@@ -5,7 +5,7 @@
 // context-current board -- and ensures that vocabulary exists before using it.
 //
 // See docs/architecture/label-substrate-and-capabilities.md for the pattern,
-// and docs/superpowers/specs/2026-07-13-context-map-refresh-design.md.
+// and https://app.notion.com/3bc70f5f1db581c28394df0ef39b4892.
 package contextmap
 
 import (

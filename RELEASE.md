@@ -1,6 +1,6 @@
 # Release Process
 
-This document describes how the `atm` binary is versioned, built, and published. For the full design rationale, see [docs/superpowers/specs/2026-07-06-semver-build-pipeline-design.md](docs/superpowers/specs/2026-07-06-semver-build-pipeline-design.md).
+This document describes how the `atm` binary is versioned, built, and published. For the full design rationale, see https://app.notion.com/3bc70f5f1db581afb7afcbf5e93240b8.
 
 ## Version model
 

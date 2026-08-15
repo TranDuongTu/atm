@@ -14,15 +14,11 @@ require() {
 require go
 require make
 
-if [[ ! -d docs/superpowers/specs ]]; then
-  echo "missing docs/superpowers/specs"
-  missing=1
-fi
-
 if [[ "$missing" -ne 0 ]]; then
   exit 1
 fi
 
 echo "ATM repo prerequisites look ready."
+echo "Specs and plans live in the Notion channel (ATM - Superpowers page)."
 echo "Use Superpowers brainstorming/planning for new design work."
 echo "Verify changes with: make verify"

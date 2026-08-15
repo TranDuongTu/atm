@@ -315,7 +315,7 @@ Every input is byte-identical on every copy of the log, so **any two machines up
 
 # Implementation refinements (ATM-0106 implementation phase)
 
-The reference implementation is `internal/eventsource` (see `docs/superpowers/specs/2026-07-14-eventsource-core-v2-design.md` for the full list of implementation decisions). Two D6 refinements and two L2 clarifications discovered during implementation are recorded here so the spec stays honest:
+The reference implementation is `internal/eventsource` (see https://app.notion.com/3bc70f5f1db58133a081ca24cadd6983 for the full list of implementation decisions). Two D6 refinements and two L2 clarifications discovered during implementation are recorded here so the spec stays honest:
 
 - **Creation events carry no `subject.id`** — an event cannot contain its own hash. The v1 alias moves from `subject.id` to `payload.alias` during the upgrade; `subject.id` on every non-creation event holds the entity identity as specified.
 - **The D6 "carried across unchanged" row is refined**: the upgrade also (a) synthesizes identity references `task_ref`/`reply_to_ref` on `comment.created` from the v1 alias references, which stay in the payload verbatim; (b) synthesizes per-slot membership deltas (`payload.label`) on `*.label-added/-removed` from consecutive v1 snapshots — a pure function of the log, so D6's purity rule is untouched; (c) materializes absent `description`/`expr` keys on `label.upserted` as `""`, converting v1's replace-the-record semantics into v2's write-present-keys slot semantics without changing any outcome.

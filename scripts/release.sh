@@ -1,6 +1,6 @@
 #!/bin/sh
 # scripts/release.sh — 9-phase release choreography.
-# See docs/superpowers/specs/2026-07-06-semver-build-pipeline-design.md.
+# See https://app.notion.com/3bc70f5f1db581afb7afcbf5e93240b8.
 set -eu
 
 # shellcheck source=_release_lib.sh

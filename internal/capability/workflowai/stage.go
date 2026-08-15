@@ -4,7 +4,7 @@
 // over the stage labels. It coexists with the workflow capability as an
 // independent view: disjoint namespaces, no interplay. The store enforces
 // nothing; every invariant here is a paved road maintained by the verbs
-// (docs/superpowers/specs/2026-07-23-workflow-ai-action-oriented-reframe-design.md).
+// (https://app.notion.com/3bc70f5f1db5812f81c3d895684c0d70).
 package workflowai
 
 import "strings"

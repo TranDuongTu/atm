@@ -41,7 +41,7 @@ Sizing doctrine: a task is sized to one plan a framework like superpowers can ex
 
 - `atm capability workflow_ai queue --task <ID>` — stamp the entry label (new → queued).
 - `atm capability workflow_ai brainstorm --task <ID>` — mark the idea brainstormed (queued → brainstormed).
-- `atm capability workflow_ai clarify --task <ID> --kind file|commit|ephemeral --ref <ref>` — record WHERE the spec lives: `--kind file --ref docs/superpowers/specs/...` (repo-relative), `--kind commit --ref <rev>`, or `--kind ephemeral --ref "session ..."` for a spec that lives in a conversation. Record ephemeral specs honestly — they are unverifiable and always at-risk.
+- `atm capability workflow_ai clarify --task <ID> --kind file|commit|ephemeral --ref <ref>` — record WHERE the spec lives: `--kind ephemeral --ref https://app.notion.com/...` (a Notion spec page in the `ATM - Superpowers` Specs database), `--kind commit --ref <rev>`, or `--kind file --ref <repo-relative path>` for any in-repo spec. Record ephemeral specs honestly — they are unverifiable and always at-risk.
 - `atm capability workflow_ai plan --task <ID> --kind file|commit|ephemeral --ref <ref>` — record WHERE the plan lives (same kind/ref shape as clarify; clarified → planned, or updates the locator from planned).
 - `atm capability workflow_ai done --task <ID>` — close the cycle (planned → done).
 - `atm capability workflow_ai demote --task <ID> --reason "..."` — reset any stage back to queued, clear the spec+plan records, log the reason as a comment.

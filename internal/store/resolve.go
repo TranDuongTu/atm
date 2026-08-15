@@ -72,7 +72,7 @@ func (r *resolver) evalAtom(t *Task, atom string, visiting map[string]bool) (boo
 	// ones. MUST short-circuit before qualify — qualify("*") yields
 	// "<CODE>:*", which core.IsNamespaceName reads as the namespace predicate
 	// "has any label" and so misses naked unlabeled jottings. See
-	// docs/superpowers/specs/2026-07-17-all-tasks-board-design.md.
+	// https://app.notion.com/3bc70f5f1db5811d8372e6ad68ed7c5e.
 	if atom == "*" {
 		return true, nil
 	}
