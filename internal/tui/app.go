@@ -90,7 +90,10 @@ type Model struct {
 	channelsOv     channelsModel
 	spotlight      spotlightModel
 	// spotlightReturn is the spotlight row to restore when a spotlight-spawned
-	// overlay, form, or confirm is dismissed, or -1 when nothing is pending.
+	// overlay, form, or confirm is dismissed, or -1 when nothing is pending. It
+	// is set by spotlightModel.activate for kindDialog entries, consumed by
+	// handleKey's wrapper, and cleared by a successful submit or confirm (which
+	// land on the workspace instead).
 	spotlightReturn int
 
 	form *Form
@@ -439,9 +442,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey dispatches a key based on overlay/form/confirm state first, then
-// by active pane.
+// handleKey dispatches a key, then resolves any pending spotlight return: if
+// the spotlight spawned the overlay/form/confirm that was just dismissed, it
+// reopens where the user left it. Centralizing it here means the six close
+// paths (each overlay's esc, closeForm, the confirm dismissal) need no
+// spotlight awareness.
+//
+// spotlightModel.activate also replays prelude/key segments through this
+// same handleKey, so this wrapper runs on every replayed segment too. That
+// is harmless: activate sets spotlightReturn only after its replay loop
+// finishes, so the return is still -1 during replay and the check below
+// cannot fire mid-activation. One consequence: if the replayed chain opens
+// nothing, the return is still recorded once activate finishes, but nothing
+// in this call chain triggers the wrapper again — the spotlight reopens on
+// the user's next keypress, not within the activation itself.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
+	cmd := m.dispatchKey(k)
+	if m.spotlightReturn >= 0 && m.workspaceIdle() {
+		row := m.spotlightReturn
+		m.spotlightReturn = -1
+		m.spotlight.openAt(row)
+	}
+	return cmd
+}
+
+// dispatchKey is the former handleKey body: overlay/form/confirm routing
+// first, then pane routing.
+func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// Global quit works everywhere.
 	switch k.String() {
 	case "ctrl+c":
@@ -701,6 +728,7 @@ func (m *Model) handleFormKey(k tea.KeyMsg) tea.Cmd {
 func (m *Model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "enter", "y":
+		m.spotlightReturn = -1 // a completed confirm lands on the workspace, not the spotlight
 		return m.confirmYes()
 	case "esc", "n", "q":
 		m.confirm = confirmNone
@@ -719,6 +747,7 @@ func (m *Model) closeForm() {
 
 // submitForm performs the action bound to the active form.
 func (m *Model) submitForm() tea.Cmd {
+	m.spotlightReturn = -1 // a completed submit lands on the workspace, not the spotlight
 	defer m.closeForm()
 	vals := m.form.Values()
 	switch m.formKind {

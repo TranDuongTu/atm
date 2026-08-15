@@ -218,7 +218,14 @@ func (sm *spotlightModel) activate() tea.Cmd {
 		}
 	}
 	if e.kind == kindDialog {
-		sm.m.spotlightReturn = row // Task 4 consumes it; the field is declared below
+		// Set only after the replay loop above finishes, so spotlightReturn
+		// stays -1 for every segment replayed through m.handleKey — the
+		// wrapper it feeds (app.go) cannot fire mid-replay and cannot mistake
+		// the spawned overlay's own opening key for a dismissal. If the chain
+		// opens nothing (e.g. a scope prelude into an empty list), the return
+		// is still recorded here; the spotlight then reopens on the user's
+		// next keypress rather than within this activation.
+		sm.m.spotlightReturn = row
 	}
 	return tea.Batch(cmds...)
 }
