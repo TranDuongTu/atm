@@ -56,7 +56,7 @@ const (
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
-// workspace (Projects, Tasks), the [?] menu overlay, and a status line.
+// workspace (Projects, Tasks), the \ spotlight overlay, and a status line.
 type Model struct {
 	store    core.Service
 	storeSet bool
@@ -88,7 +88,13 @@ type Model struct {
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
 	channelsOv     channelsModel
-	menu           menuModel
+	spotlight      spotlightModel
+	// spotlightReturn is the spotlight row to restore when a spotlight-spawned
+	// overlay, form, or confirm is dismissed, or -1 when nothing is pending. It
+	// is set by spotlightModel.activate for kindDialog entries, consumed by
+	// handleKey's wrapper, and cleared by a successful submit or confirm (which
+	// land on the workspace instead).
+	spotlightReturn int
 
 	form *Form
 
@@ -181,7 +187,8 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.channelsOv.m = m
-	m.menu = menuModel{m: m}
+	m.spotlight = spotlightModel{m: m}
+	m.spotlightReturn = -1
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -219,6 +226,13 @@ func (m *Model) SetSize(w, h int) {
 	leftW, rightW := splitWorkspaceWidths(w)
 	m.projects.SetSize(innerPaneWidth(leftW), innerPaneHeight(m.contentHeight))
 	m.tasks.SetSize(innerPaneWidth(rightW), innerPaneHeight(m.contentHeight))
+	// The spotlight's preview is wrapped to menuBoxWidth() at the row that was
+	// hovered; without this, a resize while it's open leaves stale wrapping
+	// behind (invisible with a one-line summary, wrong once the preview holds
+	// multi-line reference/overlay/form content).
+	if m.spotlight.open {
+		m.spotlight.refreshPreview()
+	}
 }
 
 func splitWorkspaceWidths(width int) (int, int) {
@@ -325,7 +339,7 @@ func (m *Model) canMutate() bool { return true }
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
-	return !m.menu.open &&
+	return !m.spotlight.open &&
 		!(m.form != nil && m.form.Active) &&
 		m.confirm == confirmNone &&
 		m.pluginOverlay == -1 &&
@@ -333,6 +347,18 @@ func (m *Model) workspaceIdle() bool {
 		!m.dispatchDlg.active &&
 		!m.personasOv.open &&
 		!m.channelsOv.open
+}
+
+// completeAction clears a pending spotlight return: spec decision 5 requires
+// a successful submit or confirm to land on the workspace rather than
+// reopening the spotlight. Call this at every point where a spotlight-spawned
+// form, confirm, dialog, or overlay finishes its action successfully — as
+// opposed to being merely dismissed (Esc), which is meant to return to the
+// spotlight. Four call sites (submitForm, handleConfirmKey,
+// dispatchModel.submit, capabilityModel.switchTo) route through this one
+// helper so a future completion point is never the one that forgets it.
+func (m *Model) completeAction() {
+	m.spotlightReturn = -1
 }
 
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
@@ -428,9 +454,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey dispatches a key based on overlay/form/confirm state first, then
-// by active pane.
+// handleKey dispatches a key, then resolves any pending spotlight return: if
+// the spotlight spawned the overlay/form/confirm that was just dismissed, it
+// reopens where the user left it. Centralizing it here means the six close
+// paths (each overlay's esc, closeForm, the confirm dismissal) need no
+// spotlight awareness.
+//
+// spotlightModel.activate also replays prelude/key segments through this
+// same handleKey, so this wrapper runs on every replayed segment too — but
+// harmlessly: activate sets spotlightReturn only after its replay loop
+// finishes, so the return is still -1 during replay and the check below
+// cannot fire on any of the nested calls for the replayed segments. It DOES
+// fire, though, on the outer call: activate() itself runs beneath this same
+// handleKey (the user's -> keypress that triggered it), so by the time that
+// outer call's dispatchKey returns, spotlightReturn is freshly set and the
+// check below fires immediately — the reopen happens within the same
+// keystroke that activated the entry, not on the user's next keypress. This
+// is why a kindDialog entry whose replay leaves nothing workspaceIdle()
+// gates on (e.g. an in-pane view rather than a real overlay/form/confirm)
+// looks inert: the spotlight reopens over it before the user sees anything.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
+	cmd := m.dispatchKey(k)
+	if m.spotlightReturn >= 0 && m.workspaceIdle() {
+		row := m.spotlightReturn
+		m.spotlightReturn = -1
+		m.spotlight.openAt(row)
+	}
+	return cmd
+}
+
+// dispatchKey is the former handleKey body: overlay/form/confirm routing
+// first, then pane routing.
+func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// Global quit works everywhere.
 	switch k.String() {
 	case "ctrl+c":
@@ -444,13 +499,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	// assigned after this point, then renders until the next key.
 	m.toastMsg = ""
 
-	// Menu overlay consumes keys until closed. T still cycles the theme.
-	if m.menu.open {
+	// Spotlight overlay consumes keys until closed. T still cycles the theme.
+	if m.spotlight.open {
 		if k.String() == "T" {
 			m.cycleTheme()
 			return nil
 		}
-		return m.menu.handleKey(k)
+		return m.spotlight.handleKey(k)
 	}
 
 	// Confirm overlay consumes all keys until resolved.
@@ -474,8 +529,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		return m.dispatchDlg.handleKey(k)
 	}
 
-	// Plugin overlay consumes keys until closed (Esc). T/? still work so the
-	// global theme shortcut and the [?] menu remain reachable while a plugin
+	// Plugin overlay consumes keys until closed (Esc). T/\ still work so the
+	// global theme shortcut and the spotlight remain reachable while a plugin
 	// overlay is open.
 	if m.pluginOverlay != -1 {
 		switch k.String() {
@@ -486,13 +541,13 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 		case "T":
 			m.cycleTheme()
 			return nil
-		case "?":
-			// Close the plugin overlay first so the menu's replayed keys
+		case "\\":
+			// Close the plugin overlay first so the spotlight's replayed keys
 			// target the workspace — leaving it open would swallow the replay
 			// into the still-open plugin overlay.
 			m.plugins[m.pluginOverlay].Close(m)
 			m.pluginOverlay = -1
-			m.menu.openMenu()
+			m.spotlight.openSpotlight()
 			return nil
 		}
 		return m.plugins[m.pluginOverlay].HandleKey(k, m)
@@ -557,8 +612,8 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "2":
 		m.focused = paneTasks
 		return nil
-	case "?":
-		m.menu.openMenu()
+	case "\\":
+		m.spotlight.openSpotlight()
 		return nil
 	case "C":
 		if m.focused == paneTasks && m.projectScope != "" {
@@ -644,7 +699,16 @@ func (m *Model) overlayProject() string {
 // still opens, defaulting to concierge (the one built-in usable without a
 // project).
 func (m *Model) openDispatch() {
-	persona, project, taskID, taskTitle := "concierge", m.projectScope, "", ""
+	persona, project, taskID, taskTitle := m.dispatchDefaults()
+	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
+}
+
+// dispatchDefaults resolves the persona/project/task defaults openDispatch
+// preselects from the current pane and selection. Extracted so the
+// spotlight preview can compute the same defaults — without opening the
+// dialog — and never show something the real D key would not.
+func (m *Model) dispatchDefaults() (persona, project, taskID, taskTitle string) {
+	persona, project = "concierge", m.projectScope
 	switch {
 	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
 		persona = m.projects.personaGroups[m.projects.personaCursor].Key
@@ -660,7 +724,7 @@ func (m *Model) openDispatch() {
 			}
 		}
 	}
-	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
+	return
 }
 
 // handleFormKey routes a key into the active form, then handles submit/cancel
@@ -681,6 +745,7 @@ func (m *Model) handleFormKey(k tea.KeyMsg) tea.Cmd {
 func (m *Model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "enter", "y":
+		m.completeAction()
 		return m.confirmYes()
 	case "esc", "n", "q":
 		m.confirm = confirmNone
@@ -699,6 +764,7 @@ func (m *Model) closeForm() {
 
 // submitForm performs the action bound to the active form.
 func (m *Model) submitForm() tea.Cmd {
+	m.completeAction()
 	defer m.closeForm()
 	vals := m.form.Values()
 	switch m.formKind {
@@ -857,8 +923,8 @@ func (m *Model) View() string {
 	// tick). Adding an overlay here without adding it to workspaceIdle() would
 	// let art animate underneath the new overlay.
 	out := b.String()
-	if m.menu.open {
-		out = m.placeOverlay(out, m.menu.renderOverlay())
+	if m.spotlight.open {
+		out = m.placeOverlay(out, m.spotlight.renderOverlay())
 	}
 	if m.form != nil && m.form.Active {
 		out = m.placeOverlay(out, m.form.View(m.styles))
@@ -917,7 +983,7 @@ func (m *Model) renderStatusLine() string {
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
 	rightSegments = append(rightSegments,
-		m.styles.KeyMenu.Render("[?]menu"),
+		m.styles.KeyMenu.Render("[\\]spotlight"),
 		m.styles.KeyMenuDim.Render("atm "+version.Version),
 		m.refreshRecencySegment())
 	right := strings.Join(rightSegments, "  ")

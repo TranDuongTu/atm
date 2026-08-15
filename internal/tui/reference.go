@@ -64,7 +64,7 @@ var parityTable = `CLI                                   TUI
 ─────────────────────────────────────────────────────────────────────────────
 atm init                              (auto on first atm tui)
 atm store path                        status bar (STORE:)
-atm conventions                       menu, conventions section
+atm conventions                       spotlight, Conventions reference
 atm project create --code --name      Projects pane  [a]dd
 atm project list                      Projects pane  (list)
 atm project show --code               Projects pane  [Enter] detail

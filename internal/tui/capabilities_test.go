@@ -149,7 +149,7 @@ func TestCKeyOpensSwitcherOnlyInTasksPane(t *testing.T) {
 	if m.capability.open {
 		t.Fatalf("switcher opened from Projects pane; C must be a no-op there")
 	}
-	if m.menu.open {
+	if m.spotlight.open {
 		t.Fatalf("C opened the menu from the Projects pane")
 	}
 	m.focused = paneTasks
@@ -157,7 +157,7 @@ func TestCKeyOpensSwitcherOnlyInTasksPane(t *testing.T) {
 	if !m.capability.open {
 		t.Fatalf("switcher did not open from Tasks pane")
 	}
-	if m.menu.open {
+	if m.spotlight.open {
 		t.Fatalf("menu opened alongside the switcher")
 	}
 }

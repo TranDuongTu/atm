@@ -21,12 +21,19 @@ type personasModel struct {
 	offset  int
 }
 
-func (p *personasModel) openOverlay() {
+// loadFor populates the persona list. openOverlay calls it and then opens;
+// the spotlight preview calls it alone, so previewing never opens the
+// overlay.
+func (p *personasModel) loadFor() {
 	p.entries = p.m.store.ListPersonas()
-	p.open, p.detail, p.offset = true, false, 0
 	if p.cursor >= len(p.entries) {
 		p.cursor = 0
 	}
+}
+
+func (p *personasModel) openOverlay() {
+	p.loadFor()
+	p.open, p.detail, p.offset = true, false, 0
 }
 
 func (p *personasModel) handleKey(k tea.KeyMsg) tea.Cmd {
@@ -103,6 +110,19 @@ func (p *personasModel) renderOverlay() string {
 		return titledBoxHeight(styles.DialogBody, bw, title, body.String(), height)
 	}
 
+	var body strings.Builder
+	if pb := p.previewBody(bw - 4); pb != "" {
+		body.WriteString(pb + "\n")
+	}
+	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]view prompt  [g]top  [Esc]close"))
+	return titledBoxHeight(styles.DialogBody, bw, "Personas", body.String(), len(p.entries)+5)
+}
+
+// previewBody renders the persona list rows at content width w, without box
+// chrome or the footer hint. renderOverlay wraps it; the spotlight preview
+// renders it directly, so a preview can never show something the overlay
+// does not.
+func (p *personasModel) previewBody(w int) string {
 	nameW := 10
 	for _, e := range p.entries {
 		if len(e.Name) > nameW {
@@ -112,14 +132,13 @@ func (p *personasModel) renderOverlay() string {
 	var body strings.Builder
 	for i, e := range p.entries {
 		line := fmt.Sprintf("%-*s  %s", nameW, e.Name, e.Description)
-		line = fitLine(line, bw-4)
+		line = fitLine(line, w)
 		if i == p.cursor {
-			line = styles.RowCursor.Render(line)
+			line = p.m.styles.RowCursor.Render(line)
 		} else {
-			line = styles.Body.Render(line)
+			line = p.m.styles.Body.Render(line)
 		}
 		body.WriteString(line + "\n")
 	}
-	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]view prompt  [g]top  [Esc]close"))
-	return titledBoxHeight(styles.DialogBody, bw, "Personas", body.String(), len(p.entries)+5)
+	return strings.TrimRight(body.String(), "\n")
 }

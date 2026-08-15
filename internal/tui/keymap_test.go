@@ -32,9 +32,101 @@ func TestMenuEntriesShape(t *testing.T) {
 		if e.ref != refNone && e.key != "" {
 			t.Errorf("reference entry %q must not carry a key", e.label)
 		}
-		if e.section == sectionViews && len(e.scopes) != 0 {
-			t.Errorf("views entry %q must not be scope-filtered (use needsProject)", e.label)
+	}
+}
+
+// A Views entry may carry scopes even though the spotlight list never
+// filters Views by them (openSpotlight's Views loop only reads e.section and
+// needsProject) — a scope on a Views entry feeds preludeFor instead, so
+// activation focuses the right pane before replaying the key (e.g. "C" needs
+// the Tasks pane focused; see the Capabilities entry). Views availability is
+// still gated by needsProject alone.
+func TestViewsEntryScopesFeedPreludeNotFiltering(t *testing.T) {
+	for _, e := range menuEntries {
+		if e.section != sectionViews || len(e.scopes) == 0 {
+			continue
 		}
+		if got := previewKeyFor(e); got != e.key+"|views" {
+			t.Errorf("views entry %q with scopes must still key the preview registry as %q, got %q", e.label, e.key+"|views", got)
+		}
+	}
+}
+
+// Every non-hidden keyed entry must carry a summary (the preview fallback)
+// and a kind (which decides what -> does). A missing summary would render an
+// empty preview region; a missing kind would default kindAction and fire a
+// dialog entry without recording the return.
+func TestMenuEntriesCarrySummaryAndKind(t *testing.T) {
+	for _, e := range menuEntries {
+		if e.hidden || e.key == "" {
+			continue
+		}
+		if strings.TrimSpace(e.summary) == "" {
+			t.Errorf("entry %q (key %q) has no summary", e.label, e.key)
+		}
+		if e.kind != kindAction && e.kind != kindDialog {
+			t.Errorf("entry %q (key %q) has kind %v, want kindAction or kindDialog", e.label, e.key, e.kind)
+		}
+	}
+	for _, e := range menuEntries {
+		if e.section == sectionReference && e.kind != kindReference {
+			t.Errorf("reference entry %q must be kindReference", e.label)
+		}
+	}
+}
+
+// Every prelude segment must round-trip through bubbletea exactly like the
+// entry keys do, and every action scope must have a non-empty prelude — an
+// empty one would replay the entry's key into whatever pane happens to be
+// focused, which is the contextual-menu bug this redesign removes.
+func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
+	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeProjectsDrill, scopeTasksList, scopeTasksDetail, scopeBoards}
+	for _, s := range scopes {
+		chain := preludeFor(s)
+		if len(chain) == 0 {
+			t.Errorf("scope %d has an empty prelude", s)
+		}
+		for _, seg := range chain {
+			if got := keyMsgFromString(seg).String(); got != seg {
+				t.Errorf("prelude segment %q round-trips to %q", seg, got)
+			}
+		}
+		if sectionTitleFor(s) == "" {
+			t.Errorf("scope %d has no section title", s)
+		}
+	}
+	if len(preludeFor(scopeGlobal)) != 0 {
+		t.Error("global entries must have an empty prelude")
+	}
+}
+
+// The pane-focus and chart-drill keys are advertised on the pane and chart
+// borders already; they stay in the keymap reference but must never be
+// spotlight rows.
+func TestBorderHintedKeysAreHidden(t *testing.T) {
+	for _, e := range menuEntries {
+		switch e.key {
+		case "1", "2", "ctrl+right", "ctrl+left":
+			if !e.hidden {
+				t.Errorf("border-hinted key %q (%s) must be hidden", e.key, e.label)
+			}
+		}
+	}
+}
+
+// A global list renders every entry exactly once; the old table carried
+// "Remove project" twice (once per projects scope).
+func TestNoDuplicateVisibleEntries(t *testing.T) {
+	seen := map[string]bool{}
+	for _, e := range menuEntries {
+		if e.hidden || e.key == "" {
+			continue
+		}
+		id := e.key + "|" + e.label
+		if seen[id] {
+			t.Errorf("duplicate visible entry %s", id)
+		}
+		seen[id] = true
 	}
 }
 
@@ -74,30 +166,44 @@ func probeID(key string, scope menuScope) string {
 // and focuses the Tasks pane, so the entry's key routes through
 // tasksModel.handleListKey (the boards keys route to boardsModel from there).
 
-// parityTasksScope is the tasks-pane setup used by the tasks-list and boards
-// parity probes: seed the project so the select key has a row to pick, then
-// scopeTasksPane (which also ensures the workflow vocabulary and picks the
-// all-tasks board).
+// parityTasksSeed selects the seeded project without focusing the Tasks
+// pane: "s" (not "2") is what runs EnsureVocabulary and boards.selectDefault,
+// so the tasks/boards models are ready even though the pane isn't focused
+// yet. This is the setup for probes whose own scope's prelude ends in "2" —
+// the prelude does the focusing the old scopeTasksPane call used to.
+func parityTasksSeed(t *testing.T, m *Model) {
+	t.Helper()
+	seedProject(t, m, "ATM", "Acme")
+	update(t, m, "s")
+}
+
+// parityTasksScope is scopeTasksPane's seed-and-focus setup. It stays in use
+// (rather than parityTasksSeed) wherever a probe's own setup goes on to do
+// more pane-dependent replay of its own — a Views entry with no prelude at
+// all ("C|views"), or parityBoardsChart's namespace/chart drill below — since
+// that replay needs the Tasks pane focused before setup returns, not after
+// the driver's prelude runs.
 func parityTasksScope(t *testing.T, m *Model) {
 	t.Helper()
 	seedProject(t, m, "ATM", "Acme")
 	scopeTasksPane(t, m, "ATM")
 }
 
-// parityTaskDetail drills the tasks pane into a seeded task's detail: the
-// context every task-detail entry (e/d/b/B/M/H/x) applies in.
+// parityTaskDetail seeds a task for the scopeTasksDetail probes (e/d/b/B/M/
+// H/x): the {"2","enter"} prelude focuses the Tasks pane and opens it, so
+// setup's job is done once the task exists to open.
 func parityTaskDetail(t *testing.T, m *Model) {
 	t.Helper()
-	parityTasksScope(t, m)
+	parityTasksSeed(t, m)
 	seedTask(t, m, "ATM", "parity task")
-	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
-		t.Fatalf("enter must open task detail, view=%v", m.tasks.view)
-	}
 }
 
 // parityBoardsChart drills the tasks pane into the status namespace's chart,
-// where the boards describe/remove keys (d/l) apply at chart level.
+// where the boards describe/remove keys (d/l) apply at chart level. The
+// scopeBoards prelude only reaches the ring ({"2"}), not the chart, so the
+// namespace cycle and the shift+right drill-in stay here — and because they
+// replay through m.handleKey themselves, they need the Tasks pane focused
+// already, hence parityTasksScope rather than parityTasksSeed.
 func parityBoardsChart(t *testing.T, m *Model) {
 	t.Helper()
 	parityTasksScope(t, m)
@@ -168,26 +274,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		"1|views": {
-			setup: func(t *testing.T, m *Model) {
-				m.focused = paneTasks
-			},
-			check: func(t *testing.T, m *Model) {
-				if m.focused != paneProjects {
-					t.Errorf("1 must focus the Projects pane, focused=%v", m.focused)
-				}
-			},
-		},
-		"2|views": {
-			setup: func(t *testing.T, m *Model) {
-				m.focused = paneProjects
-			},
-			check: func(t *testing.T, m *Model) {
-				if m.focused != paneTasks {
-					t.Errorf("2 must focus the Tasks pane, focused=%v", m.focused)
-				}
-			},
-		},
 
 		// Actions — projects list.
 		probeID("a", scopeProjectsList): {
@@ -217,25 +303,11 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("ctrl+right", scopeProjectsList): {
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-				seedTask(t, m, "ATM", "activity for the persona chart")
-				m.projectScope = "ATM"
-				m.focused = paneProjects
-			},
-			check: func(t *testing.T, m *Model) {
-				if !m.projects.personaDrilled {
-					t.Error("ctrl+right on the projects list must drill into the persona detail")
-				}
-			},
-		},
 
 		// Actions — projects detail.
 		probeID("n", scopeProjectsDetail): {
 			setup: func(t *testing.T, m *Model) {
 				seedProject(t, m, "ATM", "Acme")
-				m.projects.openDetail("ATM")
 			},
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formProjectSetName {
@@ -246,7 +318,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 		probeID("H", scopeProjectsDetail): {
 			setup: func(t *testing.T, m *Model) {
 				seedProject(t, m, "ATM", "Acme")
-				m.projects.openDetail("ATM")
 			},
 			check: func(t *testing.T, m *Model) {
 				if !m.projects.detail.historyOn {
@@ -262,7 +333,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 			setup: func(t *testing.T, m *Model) {
 				seedProject(t, m, "ATM", "Acme")
-				m.projects.openDetail("ATM")
 			},
 			check: func(t *testing.T, m *Model) {
 				if m.projects.capCursor != 1 {
@@ -273,7 +343,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 		probeID("x", scopeProjectsDetail): {
 			setup: func(t *testing.T, m *Model) {
 				seedProject(t, m, "ATM", "Acme")
-				m.projects.openDetail("ATM")
 			},
 			check: func(t *testing.T, m *Model) {
 				if m.confirm != confirmRemoveProject {
@@ -288,13 +357,8 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				seedProject(t, m, "ATM", "Acme")
 				seedTask(t, m, "ATM", "activity for the persona chart")
 				m.projectScope = "ATM"
-				m.focused = paneProjects
 				m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
 				m.agentOptionsFn = testAgents
-				update(t, m, "ctrl+right")
-				if !m.projects.personaDrilled {
-					t.Fatal("precondition: ctrl+right must drill into the persona detail")
-				}
 			},
 			check: func(t *testing.T, m *Model) {
 				if !m.dispatchDlg.active {
@@ -302,29 +366,10 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("ctrl+left", scopeProjectsDrill): {
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-				seedTask(t, m, "ATM", "activity for the persona chart")
-				m.projectScope = "ATM"
-				m.focused = paneProjects
-				update(t, m, "ctrl+right")
-				if !m.projects.personaDrilled {
-					t.Fatal("precondition: ctrl+right must drill into the persona detail")
-				}
-			},
-			check: func(t *testing.T, m *Model) {
-				if m.projects.personaDrilled {
-					t.Error("ctrl+left in the persona drill must back out to the list")
-				}
-			},
-		},
 
 		// Actions — tasks list.
 		probeID("a", scopeTasksList): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formTaskCreate {
 					t.Errorf("a on the tasks list must open the task-create form, formKind=%v", m.formKind)
@@ -332,9 +377,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		probeID("s", scopeTasksList): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if m.tasks.sortMode != 1 {
 					t.Errorf("s on the tasks list must cycle the sort, sortMode=%d want 1", m.tasks.sortMode)
@@ -342,9 +385,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		probeID("S", scopeTasksList): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
 					t.Errorf("S on the tasks list must re-ensure the capability vocabulary (toast), toast=%q", m.toastMsg)
@@ -352,9 +393,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		probeID("p", scopeTasksList): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if len(m.boards.pins) != 1 || m.boards.pins[0] != "ATM:all-tasks" {
 					t.Errorf("p on the tasks list must pin the selected board, pins=%v want [ATM:all-tasks]", m.boards.pins)
@@ -422,9 +461,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 
 		// Actions — boards ring (routed from the tasks pane).
 		probeID("n", scopeBoards): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formBoardEditor {
 					t.Errorf("n on the boards ring must open the board editor, formKind=%v", m.formKind)
@@ -432,9 +469,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		probeID("e", scopeBoards): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formBoardEditor {
 					t.Errorf("e on the boards ring must open the board editor, formKind=%v", m.formKind)
@@ -461,9 +496,7 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 		probeID("S", scopeBoards): {
-			setup: func(t *testing.T, m *Model) {
-				parityTasksScope(t, m)
-			},
+			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
 					t.Errorf("S on the boards ring must seed the capability vocabulary (toast), toast=%q", m.toastMsg)
@@ -501,6 +534,15 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			m.SetSize(120, 40)
 			if p.setup != nil {
 				p.setup(t, m)
+			}
+			// Replay exactly what the spotlight replays: the scope's prelude,
+			// then the entry's key. A probe's setup now only seeds data — the
+			// navigation half is the prelude's job, and a prelude that fails to
+			// reach the scope surfaces here as the entry's key doing nothing.
+			if len(e.scopes) > 0 {
+				for _, seg := range preludeFor(e.scopes[0]) {
+					m.handleKey(keyMsgFromString(seg))
+				}
 			}
 			m.handleKey(keyMsgFromString(e.key))
 			p.check(t, m)
