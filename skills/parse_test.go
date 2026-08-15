@@ -154,3 +154,22 @@ func TestParseIgnoresUnknownScalarKeys(t *testing.T) {
 		t.Fatalf("unknown scalar keys must be tolerated (store audit fields): %v", err)
 	}
 }
+
+func TestParseCapabilityBrief(t *testing.T) {
+	src := []byte("---\nname: x\ndescription: d\nbrief: Do the thing before working.\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
+	c, err := ParseCapability("x", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Brief != "Do the thing before working." {
+		t.Fatalf("Brief = %q", c.Brief)
+	}
+	src2 := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
+	c2, err := ParseCapability("x", src2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.Brief != "" {
+		t.Fatalf("missing brief must parse to empty, got %q", c2.Brief)
+	}
+}

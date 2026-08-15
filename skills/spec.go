@@ -33,6 +33,7 @@ type PersonaSpec struct {
 type CapabilitySpec struct {
 	Name        string
 	Description string
+	Brief       string // optional one-line session-injection imperative ("" = fall back to Description)
 	Labels      []string
 	Boards      []string
 	Body        string // the full guide served by `atm capability <name> guide`

@@ -181,6 +181,7 @@ func ParseCapability(stem string, src []byte) (CapabilitySpec, error) {
 	c := CapabilitySpec{
 		Name:        fm.scalars["name"],
 		Description: fm.scalars["description"],
+		Brief:       fm.scalars["brief"],
 		Labels:      fm.lists["labels"],
 		Boards:      fm.lists["boards"],
 		Body:        strings.TrimSpace(body),
