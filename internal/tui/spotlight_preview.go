@@ -27,27 +27,30 @@ func previewKeyFor(e menuEntry) string {
 // overlay has actually been opened, so their entries call the model's
 // load-only half here — capabilityModel is kept fresh by refreshAll on every
 // launch/mutation, so its entry previews what it already holds.
-func previewRegistry() map[string]previewFunc {
-	return map[string]previewFunc{
-		"E|views": func(m *Model, w, h int) string {
-			m.channelsOv.loadFor(m.overlayProject()) // populates entries; does not open
-			return m.channelsOv.previewBody(w)
-		},
-		"V|views": func(m *Model, w, h int) string {
-			m.personasOv.loadFor() // populates entries; does not open
-			return m.personasOv.previewBody(w)
-		},
-		"C|views": func(m *Model, w, h int) string { return m.capability.previewBody(w) },
-		"D|views": func(m *Model, w, h int) string {
-			persona, project, taskID, taskTitle := m.dispatchDefaults()
-			m.dispatchDlg.loadFor(persona, project, taskID, taskTitle, "") // populates fields; does not activate
-			return m.dispatchDlg.previewBody(w)
-		},
-		fmt.Sprintf("a|%d", scopeProjectsList): func(m *Model, w, h int) string {
-			return newProjectCreateForm(w).View(m.styles)
-		},
-		fmt.Sprintf("a|%d", scopeTasksList): func(m *Model, w, h int) string {
-			return m.tasks.newTaskCreateForm(w).View(m.styles)
-		},
-	}
+//
+// Package-level rather than built fresh per call: refreshPreview runs on
+// every cursor move and (via SetSize) every resize while the spotlight is
+// open, and this map's closures never vary across calls — rebuilding it each
+// time was pure allocation for the same six entries.
+var previewRegistry = map[string]previewFunc{
+	"E|views": func(m *Model, w, h int) string {
+		m.channelsOv.loadFor(m.overlayProject()) // populates entries; does not open
+		return m.channelsOv.previewBody(w)
+	},
+	"V|views": func(m *Model, w, h int) string {
+		m.personasOv.loadFor() // populates entries; does not open
+		return m.personasOv.previewBody(w)
+	},
+	"C|views": func(m *Model, w, h int) string { return m.capability.previewBody(w) },
+	"D|views": func(m *Model, w, h int) string {
+		persona, project, taskID, taskTitle := m.dispatchDefaults()
+		m.dispatchDlg.loadFor(persona, project, taskID, taskTitle, "") // populates fields; does not activate
+		return m.dispatchDlg.previewBody(w)
+	},
+	fmt.Sprintf("a|%d", scopeProjectsList): func(m *Model, w, h int) string {
+		return newProjectCreateForm(w).View(m.styles)
+	},
+	fmt.Sprintf("a|%d", scopeTasksList): func(m *Model, w, h int) string {
+		return m.tasks.newTaskCreateForm(w).View(m.styles)
+	},
 }

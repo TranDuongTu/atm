@@ -22,12 +22,6 @@ type spotlightModel struct {
 	lines  []string // preview content, one string per line
 }
 
-// minPreviewHeight is the smallest previewHeight() the live renderer
-// registry is worth consulting at; below it, an entry falls back to its
-// summary line rather than squeezing a real overlay/form render into a
-// sliver.
-const minPreviewHeight = 4
-
 type spotFocus int
 
 const (
@@ -230,12 +224,13 @@ func (sm *spotlightModel) activate() tea.Cmd {
 }
 
 // refreshPreview rebuilds the preview content for the cursor row: a
-// reference entry gets its full text; anything else tries the live renderer
-// registry, falling back to the summary line when no renderer is registered,
-// the registry renderer produced nothing, or the region is too short to be
-// worth it. Rebuilding from scratch (rather than caching) is what keeps this
-// safe to call again on resize — SetSize calls it whenever the spotlight is
-// open, so a stale wrap never survives a terminal resize.
+// reference entry gets its full text (falling back to the summary if its
+// refKind is somehow unrecognized); anything else tries the live renderer
+// registry, falling back to the summary line when no renderer is registered
+// or the registry renderer produced nothing. Rebuilding from scratch (rather
+// than caching) is what keeps this safe to call again on resize — SetSize
+// calls it whenever the spotlight is open, so a stale wrap never survives a
+// terminal resize.
 func (sm *spotlightModel) refreshPreview() {
 	sm.offset = 0
 	sm.lines = nil
@@ -245,25 +240,25 @@ func (sm *spotlightModel) refreshPreview() {
 	}
 	w, h := sm.menuBoxWidth()-4, sm.previewHeight()
 	if e.kind == kindReference {
-		sm.lines = strings.Split(strings.TrimRight(sm.referenceText(e.ref, w), "\n"), "\n")
-		return
-	}
-	if h >= minPreviewHeight {
-		if fn, ok := previewRegistry()[previewKeyFor(*e)]; ok {
-			if out := fn(sm.m, w, h); strings.TrimSpace(out) != "" {
-				sm.lines = strings.Split(strings.TrimRight(out, "\n"), "\n")
-				return
-			}
+		if text := sm.referenceText(e.ref, w); text != "" {
+			sm.lines = strings.Split(strings.TrimRight(text, "\n"), "\n")
+			return
+		}
+	} else if fn, ok := previewRegistry[previewKeyFor(*e)]; ok {
+		if out := fn(sm.m, w, h); strings.TrimSpace(out) != "" {
+			sm.lines = strings.Split(strings.TrimRight(out, "\n"), "\n")
+			return
 		}
 	}
 	sm.lines = strings.Split(wordwrap.String(e.summary, w), "\n")
 }
 
-// referenceText returns kind's full reference content at width w. Lifted
-// from the deleted openDetail: refreshPreview rebuilds it fresh on every
-// call (including on resize), preserving openDetail's old guarantee that
-// content is built at drill/hover time rather than cached against a width
-// that can go stale.
+// referenceText returns kind's full reference content at width w, or "" for
+// an unrecognized kind so refreshPreview falls through to the summary line
+// instead of showing a blank preview. Lifted from the deleted openDetail:
+// refreshPreview rebuilds it fresh on every call (including on resize),
+// preserving openDetail's old guarantee that content is built at drill/hover
+// time rather than cached against a width that can go stale.
 func (sm *spotlightModel) referenceText(kind refKind, w int) string {
 	switch kind {
 	case refKeymap:
@@ -281,11 +276,11 @@ func (sm *spotlightModel) referenceText(kind refKind, w int) string {
 // last screenful stays full instead of shrinking toward a single remaining
 // line.
 func (sm *spotlightModel) maxPreviewOffset() int {
-	max := len(sm.lines) - sm.previewHeight()
-	if max < 0 {
-		max = 0
+	top := len(sm.lines) - sm.previewHeight()
+	if top < 0 {
+		top = 0
 	}
-	return max
+	return top
 }
 
 // spotlightKeyCol is the fixed width of the key column. Key-first with a

@@ -45,6 +45,70 @@ func TestPreviewRendersLiveOverlayContent(t *testing.T) {
 	}
 }
 
+// Carried into the fix round: the dispatch preview is the one path this task
+// grew scope to make safe — dispatchModel needed a load/open split to avoid
+// a panic on a fresh session (d.targets is nil until open() has run at least
+// once). Hovering "Dispatch a session" before the real dialog has ever been
+// opened must render real content without activating it.
+func TestPreviewRendersDispatchOnColdSession(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Dispatch a session")
+
+	got := strings.Join(m.spotlight.lines, "\n")
+	want := m.dispatchDlg.previewBody(m.spotlight.menuBoxWidth() - 4)
+	if want == "" {
+		t.Fatal("dispatch previewBody produced nothing to compare")
+	}
+	if !strings.Contains(got, "Agent:") {
+		t.Errorf("dispatch preview missing the Agent field:\n%s", got)
+	}
+	if m.dispatchDlg.active {
+		t.Error("previewing must not activate the dispatch dialog")
+	}
+}
+
+// personasModel.entries is only populated once the overlay has actually been
+// opened; on a fresh session hovering "Personas" must still show the
+// built-in personas without opening the overlay.
+func TestPreviewRendersPersonasOnColdSession(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Personas")
+
+	got := strings.Join(m.spotlight.lines, "\n")
+	if !strings.Contains(got, "developer") {
+		t.Errorf("personas preview missing the built-in developer persona:\n%s", got)
+	}
+	if m.personasOv.open {
+		t.Error("previewing must not open the personas overlay")
+	}
+}
+
+// capabilityModel is kept fresh by refreshAll rather than a load/open split
+// (its entries are always current by the time the spotlight can open); this
+// exercises that its entry still previews real content without opening the
+// switcher.
+func TestPreviewRendersCapabilitiesWithoutOpening(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.refreshAll()
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Capabilities")
+
+	got := strings.Join(m.spotlight.lines, "\n")
+	if strings.TrimSpace(got) == "" {
+		t.Fatal("capabilities preview produced nothing")
+	}
+	if m.capability.open {
+		t.Error("previewing must not open the capabilities switcher")
+	}
+}
+
 // A form entry previews a pristine form without touching model state.
 func TestPreviewRendersPristineFormWithoutMutatingModel(t *testing.T) {
 	m := newTestModel(t)

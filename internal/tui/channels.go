@@ -117,7 +117,7 @@ func (c *channelsModel) renderOverlay() string {
 
 	if c.loadErr != "" {
 		var body strings.Builder
-		body.WriteString(fitLine("read channels: "+c.loadErr, bw-4) + "\n")
+		body.WriteString(c.previewBody(bw-4) + "\n")
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch concierge  [Esc]close"))
 		return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), 6)
 	}
@@ -128,11 +128,7 @@ func (c *channelsModel) renderOverlay() string {
 
 	if len(c.entries) == 0 {
 		var body strings.Builder
-		msg := "no channels yet — add one with `atm channel add --project " + c.project + " --name <handle> --type repo`"
-		if c.project == "" {
-			msg = "no project selected — select one in the Projects pane first"
-		}
-		body.WriteString(fitLine(msg, bw-4) + "\n")
+		body.WriteString(c.previewBody(bw-4) + "\n")
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch concierge  [Esc]close"))
 		return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), 6)
 	}
