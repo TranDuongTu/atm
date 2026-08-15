@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // The brief's sketch actors ("c@t:u") are not registered personas; the store
 // validateActor gate rejects them (built-ins are admin/concierge/developer/
@@ -70,6 +74,37 @@ func TestChecklistEmptyStateAndCollision(t *testing.T) {
 		t.Fatal("duplicate must fail")
 	}
 	mustContain(t, errText, "already exists")
+}
+
+func TestChecklistListJSONEmptyEmitsArray(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	st.output = outputJSON
+	out := runArgsOut(t, st, "checklist", "list", "--project", "ATM", "--persona", "developer")
+	if out != "[]\n" {
+		t.Fatalf("persona-scoped empty list: got %q, want %q", out, "[]\n")
+	}
+	out = runArgsOut(t, st, "checklist", "list", "--project", "ATM", "--all")
+	if out != "[]\n" {
+		t.Fatalf("--all empty list: got %q, want %q", out, "[]\n")
+	}
+}
+
+func TestChecklistEditEmptyStepsFileErrors(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--persona", "developer", "--name", "main",
+		"--step", "a", "--actor", "developer@test:unit")
+	empty := filepath.Join(t.TempDir(), "steps.txt")
+	if err := os.WriteFile(empty, []byte("   \n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	errText, code := runChecklistErrText(t, st, "checklist", "edit", "--project", "ATM", "--persona", "developer",
+		"--name", "main", "--steps-file", empty, "--actor", "developer@test:unit")
+	if code == ExitSuccess {
+		t.Fatal("edit with an empty steps file must fail")
+	}
+	mustContain(t, errText, "needs at least one step")
 }
 
 func TestChecklistGateWhenCapabilityDisabled(t *testing.T) {

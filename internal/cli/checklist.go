@@ -136,6 +136,9 @@ func newChecklistListCmd(st *cliState) *cobra.Command {
 					return err
 				}
 				if st.isJSON() {
+					if recs == nil {
+						recs = []core.ChecklistRecord{}
+					}
 					return writeJSON(st.stdout(), recs)
 				}
 				for _, r := range recs {
@@ -152,6 +155,9 @@ func newChecklistListCmd(st *cliState) *cobra.Command {
 				return err
 			}
 			if st.isJSON() {
+				if recs == nil {
+					recs = []core.ChecklistRecord{}
+				}
 				return writeJSON(st.stdout(), recs)
 			}
 			if len(recs) == 0 {
@@ -304,6 +310,9 @@ func newChecklistEditCmd(st *cliState) *cobra.Command {
 				resolved, err := checklistSteps(cmd, st)
 				if err != nil {
 					return err
+				}
+				if len(resolved) == 0 {
+					return fmt.Errorf("%w: a checklist needs at least one step", core.ErrUsage)
 				}
 				steps = resolved
 			}
