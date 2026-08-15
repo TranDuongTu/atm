@@ -30,8 +30,8 @@ func TestDescribeEnumeratesInRegistrationOrder(t *testing.T) {
 	)
 	got := r.Describe()
 	want := []Description{
-		{Name: "alpha", Summary: "does alpha"},
-		{Name: "beta", Summary: "does beta"},
+		{Name: "alpha", Summary: "does alpha", Brief: "does alpha"},
+		{Name: "beta", Summary: "does beta", Brief: "does beta"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Describe len = %d, want %d", len(got), len(want))
