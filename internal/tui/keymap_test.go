@@ -38,6 +38,84 @@ func TestMenuEntriesShape(t *testing.T) {
 	}
 }
 
+// Every non-hidden keyed entry must carry a summary (the preview fallback)
+// and a kind (which decides what -> does). A missing summary would render an
+// empty preview region; a missing kind would default kindAction and fire a
+// dialog entry without recording the return.
+func TestMenuEntriesCarrySummaryAndKind(t *testing.T) {
+	for _, e := range menuEntries {
+		if e.hidden || e.key == "" {
+			continue
+		}
+		if strings.TrimSpace(e.summary) == "" {
+			t.Errorf("entry %q (key %q) has no summary", e.label, e.key)
+		}
+		if e.kind != kindAction && e.kind != kindDialog {
+			t.Errorf("entry %q (key %q) has kind %v, want kindAction or kindDialog", e.label, e.key, e.kind)
+		}
+	}
+	for _, e := range menuEntries {
+		if e.section == sectionReference && e.kind != kindReference {
+			t.Errorf("reference entry %q must be kindReference", e.label)
+		}
+	}
+}
+
+// Every prelude segment must round-trip through bubbletea exactly like the
+// entry keys do, and every action scope must have a non-empty prelude — an
+// empty one would replay the entry's key into whatever pane happens to be
+// focused, which is the contextual-menu bug this redesign removes.
+func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
+	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeProjectsDrill, scopeTasksList, scopeTasksDetail, scopeBoards}
+	for _, s := range scopes {
+		chain := preludeFor(s)
+		if len(chain) == 0 {
+			t.Errorf("scope %d has an empty prelude", s)
+		}
+		for _, seg := range chain {
+			if got := keyMsgFromString(seg).String(); got != seg {
+				t.Errorf("prelude segment %q round-trips to %q", seg, got)
+			}
+		}
+		if sectionTitleFor(s) == "" {
+			t.Errorf("scope %d has no section title", s)
+		}
+	}
+	if len(preludeFor(scopeGlobal)) != 0 {
+		t.Error("global entries must have an empty prelude")
+	}
+}
+
+// The pane-focus and chart-drill keys are advertised on the pane and chart
+// borders already; they stay in the keymap reference but must never be
+// spotlight rows.
+func TestBorderHintedKeysAreHidden(t *testing.T) {
+	for _, e := range menuEntries {
+		switch e.key {
+		case "1", "2", "ctrl+right", "ctrl+left":
+			if !e.hidden {
+				t.Errorf("border-hinted key %q (%s) must be hidden", e.key, e.label)
+			}
+		}
+	}
+}
+
+// A global list renders every entry exactly once; the old table carried
+// "Remove project" twice (once per projects scope).
+func TestNoDuplicateVisibleEntries(t *testing.T) {
+	seen := map[string]bool{}
+	for _, e := range menuEntries {
+		if e.hidden || e.key == "" {
+			continue
+		}
+		id := e.key + "|" + e.label
+		if seen[id] {
+			t.Errorf("duplicate visible entry %s", id)
+		}
+		seen[id] = true
+	}
+}
+
 func TestKeymapReferenceTextCoversAllEntries(t *testing.T) {
 	ref := keymapReferenceText()
 	for _, e := range menuEntries {
