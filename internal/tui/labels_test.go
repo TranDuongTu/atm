@@ -1802,7 +1802,7 @@ func TestRenderChartShowsNamespaceDescriptorDescription(t *testing.T) {
 
 // TestRenderChartOmitsHintLine and TestRenderDetailOmitsBackToChartHint verify
 // change 4: the leftover Labels-pane hints embedded in renderChart/renderDetail
-// are gone (the [?] menu now covers navigation).
+// are gone (the \ spotlight now covers navigation).
 func TestRenderChartOmitsHintLine(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")

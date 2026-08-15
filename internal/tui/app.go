@@ -56,7 +56,7 @@ const (
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
-// workspace (Projects, Tasks), the [?] menu overlay, and a status line.
+// workspace (Projects, Tasks), the \ spotlight overlay, and a status line.
 type Model struct {
 	store    core.Service
 	storeSet bool
@@ -512,8 +512,8 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return m.dispatchDlg.handleKey(k)
 	}
 
-	// Plugin overlay consumes keys until closed (Esc). T/? still work so the
-	// global theme shortcut and the [?] menu remain reachable while a plugin
+	// Plugin overlay consumes keys until closed (Esc). T/\ still work so the
+	// global theme shortcut and the spotlight remain reachable while a plugin
 	// overlay is open.
 	if m.pluginOverlay != -1 {
 		switch k.String() {
@@ -524,8 +524,8 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		case "T":
 			m.cycleTheme()
 			return nil
-		case "?":
-			// Close the plugin overlay first so the menu's replayed keys
+		case "\\":
+			// Close the plugin overlay first so the spotlight's replayed keys
 			// target the workspace — leaving it open would swallow the replay
 			// into the still-open plugin overlay.
 			m.plugins[m.pluginOverlay].Close(m)
@@ -595,7 +595,7 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	case "2":
 		m.focused = paneTasks
 		return nil
-	case "?":
+	case "\\":
 		m.spotlight.openSpotlight()
 		return nil
 	case "C":
@@ -966,7 +966,7 @@ func (m *Model) renderStatusLine() string {
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
 	rightSegments = append(rightSegments,
-		m.styles.KeyMenu.Render("[?]menu"),
+		m.styles.KeyMenu.Render("[\\]spotlight"),
 		m.styles.KeyMenuDim.Render("atm "+version.Version),
 		m.refreshRecencySegment())
 	right := strings.Join(rightSegments, "  ")

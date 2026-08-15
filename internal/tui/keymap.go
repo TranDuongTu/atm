@@ -66,7 +66,7 @@ type menuEntry struct {
 
 // menuEntries is the single declarative menu entry table. Transcribed from
 // the old keymapRows and the three deleted per-pane status hints: the
-// keymap reference and the [?] menu both render from this table, so the
+// keymap reference and the \ spotlight both render from this table, so the
 // advertised surface can never drift from the real bindings.
 var menuEntries = []menuEntry{
 	// Views (global overlays; needsProject gates the capabilities switcher)

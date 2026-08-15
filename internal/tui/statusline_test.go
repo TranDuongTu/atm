@@ -7,25 +7,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestQuestionMarkOpensMenuAndStatusBarIsClean(t *testing.T) {
+func TestBackslashOpensSpotlightAndStatusBarIsClean(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\\")})
 	if !m.spotlight.open {
-		t.Fatal("? must open the menu")
+		t.Fatal("\\ must open the spotlight")
 	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 
 	for _, focused := range []workspacePane{paneProjects, paneTasks} {
 		m.focused = focused
 		line := m.renderStatusLine()
-		if !strings.Contains(line, "[?]menu") {
-			t.Errorf("status line must advertise [?]menu: %s", line)
+		if !strings.Contains(line, "[\\]spotlight") {
+			t.Errorf("status line must advertise [\\]spotlight: %s", line)
 		}
-		for _, stale := range []string{"[C]conv", "[T]theme", "[?]help", "[a]dd", "[e]title", "Ctrl+Shift"} {
+		for _, stale := range []string{"[C]conv", "[T]theme", "[?]help", "[?]menu", "[a]dd", "[e]title", "Ctrl+Shift"} {
 			if strings.Contains(line, stale) {
 				t.Errorf("status line still advertises %q: %s", stale, line)
 			}

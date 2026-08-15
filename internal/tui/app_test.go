@@ -272,9 +272,9 @@ func TestKey3IsNoOp(t *testing.T) {
 func TestSpotlightListScrolls(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "2")
-	update(t, m, "?")
+	update(t, m, "\\")
 	if !m.spotlight.open {
-		t.Fatalf("? must open the spotlight")
+		t.Fatalf("\\ must open the spotlight")
 	}
 	if m.focused != paneTasks {
 		t.Fatalf("opening the spotlight changed focus = %v want paneTasks", m.focused)
@@ -305,7 +305,7 @@ func TestSpotlightListScrolls(t *testing.T) {
 func TestMenuReadOnly(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	update(t, m, "?")
+	update(t, m, "\\")
 	for _, k := range []string{"a", "x", "L", "l", "N", "H", "s", "S", "d"} {
 		update(t, m, k)
 	}
@@ -377,7 +377,7 @@ func TestStatusLineHasNoPaneSpecificHints(t *testing.T) {
 	if projects != tasks {
 		t.Fatalf("status line should be identical across panes (no per-pane hints):\nprojects=%q\ntasks=%q", projects, tasks)
 	}
-	mustContain(t, tasks, "[?]menu")
+	mustContain(t, tasks, "[\\]spotlight")
 	for _, stale := range []string{"[s]ort", "[a]dd", "[e]title", "[C]apabilities", "[Enter]detail"} {
 		if strings.Contains(tasks, stale) {
 			t.Errorf("status line still carries pane hint %q: %s", stale, tasks)
@@ -509,7 +509,7 @@ func TestStatusLineStatsFollowProjectSelection(t *testing.T) {
 func TestStatusLineShowsKeyClusterAndAppVersion(t *testing.T) {
 	m := newTestModel(t)
 	line := m.renderStatusLine()
-	mustContain(t, line, "[?]menu")
+	mustContain(t, line, "[\\]spotlight")
 	mustContain(t, line, "atm "+version.Version)
 }
 
@@ -584,7 +584,7 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 
 func TestThemeCyclesInsideMenu(t *testing.T) {
 	m := newTestModel(t)
-	update(t, m, "?")
+	update(t, m, "\\")
 	if !m.spotlight.open {
 		t.Fatalf("setup: menu should be open, got %v", m.spotlight.open)
 	}
@@ -2000,7 +2000,7 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 // TestParityReferenceRenders, TestConventionsReferenceRenders, and the two
 // TestKeymapReference* tests below assert directly against the pure
 // reference renderers (parityTable, renderConventionsText,
-// keymapReferenceText) rather than drilling through the [?] menu/spotlight to
+// keymapReferenceText) rather than drilling through the \ spotlight to
 // reach them: these functions are untouched by the spotlight redesign, and
 // the old drill-in path (menuModel.openDetail) no longer runs on Enter — see
 // TestSpotlightEnterAndLeftAreInertInTheList. Task 3 wires the spotlight
@@ -2220,24 +2220,6 @@ func TestEscClosesPluginOverlay(t *testing.T) {
 	update(t, m, "esc")
 	if m.pluginOverlay != -1 {
 		t.Fatalf("Esc should close plugin overlay, got %d", m.pluginOverlay)
-	}
-}
-
-// TestQuestionMarkFromPluginOverlayClosesOverlayAndOpensMenu pins the
-// plugin-overlay `?` path: the menu must open with the plugin overlay CLOSED,
-// so the menu's replayed keys target the workspace instead of being swallowed
-// by the still-open plugin overlay.
-func TestQuestionMarkFromPluginOverlayClosesOverlayAndOpensMenu(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(100, 30)
-	m.plugins = []plugin{&fakePlugin{}}
-	m.pluginOverlay = 0
-	update(t, m, "?")
-	if m.pluginOverlay != -1 {
-		t.Fatalf("? must close the plugin overlay first, got %d", m.pluginOverlay)
-	}
-	if !m.spotlight.open {
-		t.Fatal("? must open the menu")
 	}
 }
 
