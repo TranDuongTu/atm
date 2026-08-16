@@ -227,6 +227,9 @@ func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 		got := rowLabels(m)
 		if first == nil {
 			first = got
+			if len(first) == 0 {
+				t.Fatal("no root rows to compare")
+			}
 			continue
 		}
 		if !equalStrings(got, first) {

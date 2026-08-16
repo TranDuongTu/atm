@@ -452,18 +452,34 @@ func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
 	}
 }
 
-// TestSortFieldAdvertisesKey covers the registry curation in ATM-77af5e:
-// "Cycle sort" is dropped from the spotlight because it's a rapid-toggle key
-// pressed repeatedly while looking at the list, not a launcher destination —
-// instead the SORT field itself advertises the [s] key inline.
-func TestSortFieldAdvertisesKey(t *testing.T) {
+// TestCycleSortKeyAdvancesAndWraps covers the registry curation in
+// ATM-77af5e: "Cycle sort" is dropped from the spotlight because it's a
+// rapid-toggle key pressed repeatedly while looking at the list, not a
+// launcher destination — instead the SORT field itself advertises the [s]
+// key inline (see TestHeaderLineShowsCapabilityAndCounts). This test presses
+// the key itself and asserts sortMode actually advances and wraps, since the
+// header text alone does not prove the key still works.
+func TestCycleSortKeyAdvancesAndWraps(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	m.refreshAll()
-	got := m.tasks.headerLine()
-	if !strings.Contains(got, "SORT: updated-desc [s]") {
-		t.Errorf("headerLine = %q, want it to contain %q", got, "SORT: updated-desc [s]")
+
+	start := m.tasks.sortMode
+	m.tasks.handleKey(keyMsg("s"))
+	if m.tasks.sortMode == start {
+		t.Fatalf("s did not advance sortMode from %v", start)
+	}
+	afterOne := m.tasks.sortMode
+
+	m.tasks.handleKey(keyMsg("s"))
+	if m.tasks.sortMode == afterOne || m.tasks.sortMode == start {
+		t.Fatalf("s did not advance sortMode from %v", afterOne)
+	}
+
+	m.tasks.handleKey(keyMsg("s"))
+	if m.tasks.sortMode != start {
+		t.Errorf("sortMode after 3 presses = %v, want wrap back to %v", m.tasks.sortMode, start)
 	}
 }
 

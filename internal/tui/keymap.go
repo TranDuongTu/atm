@@ -185,7 +185,7 @@ var menuEntries = []menuEntry{
 	{key: "pgup/pgdown", label: "Page list / scroll detail", hidden: true},
 	{key: "ctrl+up/down", label: "Scroll persona chart", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
-	{key: "space", label: "Scroll detail / page", hidden: true},
+	{key: "space", label: "Toggle capability (C overlay)", hidden: true},
 	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},
 	{key: "q / ctrl+c", label: "Quit", hidden: true},
 	{key: "s", label: "Cycle task sort (tasks list)", hidden: true},

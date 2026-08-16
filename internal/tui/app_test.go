@@ -1446,7 +1446,8 @@ func TestProjectDetailLabelKeysNoOp(t *testing.T) {
 // TestProjectDetailHistoryRemoved verifies the legacy [H] history toggle is
 // gone from the project detail view: pressing H is a no-op (no HISTORY
 // section ever renders), and the menu registry no longer advertises it.
-// Project history is now surfaced via the spotlight's preview pane instead.
+// Project-detail history was removed outright, with no replacement (unlike
+// task-detail history, which relocated into the spotlight's task preview).
 func TestProjectDetailHistoryRemoved(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 70)

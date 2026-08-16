@@ -113,7 +113,7 @@ type spotlightSnapshot struct {
 	level     spotLevel
 	group     menuGroupID
 	taskID    string
-	taskTitle string
+	taskTitle string // carried with the snapshot for completeness; not currently rendered (the breadcrumb uses taskID, per spec)
 	taskQuery string
 	query     string
 	cursor    int
@@ -536,15 +536,6 @@ func (sm *spotlightModel) selectedRow() *spotRow {
 		return nil
 	}
 	return r
-}
-
-// selectedEntry is the menu entry under the cursor, or nil when the cursor is
-// on a group, task, or hint row.
-func (sm *spotlightModel) selectedEntry() *menuEntry {
-	if r := sm.selectedRow(); r != nil {
-		return r.entry
-	}
-	return nil
 }
 
 // selectedLabel is the display text of the row under the cursor.

@@ -263,7 +263,7 @@ atm --persona developer --project ATM --agent claude --task ATM-4b7e24
 - **☰ Task** — add a task, or search one to act on it.
 - **▦ Board** — author boards and labels, pin jump slots, seed the enabled capabilities' vocabulary.
 - **§ Reference** — the keymap reference, the CLI↔TUI parity table, and the conventions primer.
-- Inline: `D` dispatch, `E` channels, `V` personas, `C` capabilities (once a project is scoped), `T` cycle theme.
+- Inline: dispatch `[D]`, channels `[E]`, personas `[V]`, capabilities `[C]` (once a project is scoped), cycle theme `[T]` — the bracketed keys are the real TUI bindings each row documents; inside the spotlight they type into the search, and `Enter` on the row is what runs them.
 
 `↑/↓` move the cursor, `Enter` drills into a group (or a task's own action menu), `Esc` peels back one level at a time, and `\` closes the spotlight from any level. `Tab` swaps focus to the preview pane — from there, arrows or `j`/`k` scroll it a line and `pgup`/`pgdn` a screenful (both page keys also work without switching focus). Everything else you type filters: a non-empty query flattens the visible list into ranked `Group · Label` matches — at the root, inside a group, or among a task's own actions — and a query with no hits shows a `no matches` hint.
 
