@@ -117,68 +117,25 @@ func (t *tasksModel) clampCommentOverlay() {
 	}
 }
 
-// historyOverlayModel is a read-only overlay showing the task's audit-log
-// history. Opened with [H] from task detail; closed with Esc.
-type historyOverlayModel struct {
-	active bool
-	lines  []string
-	offset int
-}
-
-func (ho *historyOverlayModel) view(m *Model) string {
-	end := ho.offset + m.tasks.contentHeight
-	if end > len(ho.lines) {
-		end = len(ho.lines)
-	}
-	var b strings.Builder
-	for i := ho.offset; i < end; i++ {
-		b.WriteString(ho.lines[i])
-		b.WriteString("\n")
-	}
-	return padToHeight(b.String(), m.tasks.contentHeight)
-}
-
-func (ho *historyOverlayModel) render(m *Model, code, taskID string) {
+// taskHistoryLines renders a task's audit-log history as plain lines: header
+// "History  <taskID>", separator, "[seq] time actor action" rows, and a
+// "(no history)" fallback. Extracted from the deleted task-detail history
+// overlay (historyOverlayModel.render) — the redesigned spotlight's task
+// preview calls this to show a hovered task's history in-pane, so the
+// signature and output shape are load-bearing for that caller.
+func taskHistoryLines(m *Model, code, taskID string, width int) []string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "History  %s\n", taskID)
-	b.WriteString(sepLine("─", 78, m.tasks.width, 2))
+	b.WriteString(sepLine("─", 78, width, 2))
 	b.WriteString("\n")
 	hv := m.store.History(code, core.Subject{Kind: "task", ID: taskID})
 	if len(hv) == 0 {
-		b.WriteString(dashboardLine(m.tasks.width, " (no history)"))
+		b.WriteString(dashboardLine(width, " (no history)"))
 		b.WriteString("\n")
 	} else {
 		for _, e := range hv {
-			fmt.Fprintf(&b, "%s\n", dashboardLine(m.tasks.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
+			fmt.Fprintf(&b, "%s\n", dashboardLine(width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
 		}
 	}
-	ho.lines = strings.Split(b.String(), "\n")
-}
-
-func (t *tasksModel) handleHistoryOverlayKey(k tea.KeyMsg) tea.Cmd {
-	ho := &t.historyOverlay
-	switch k.String() {
-	case "j", "down":
-		ho.offset++
-		t.clampHistoryOverlay()
-	case "k", "up":
-		if ho.offset > 0 {
-			ho.offset--
-		}
-	case "g":
-		ho.offset = 0
-	case "esc":
-		t.historyOverlay = historyOverlayModel{}
-	}
-	return nil
-}
-
-func (t *tasksModel) clampHistoryOverlay() {
-	maxOff := len(t.historyOverlay.lines) - t.contentHeight
-	if maxOff < 0 {
-		maxOff = 0
-	}
-	if t.historyOverlay.offset > maxOff {
-		t.historyOverlay.offset = maxOff
-	}
+	return strings.Split(b.String(), "\n")
 }

@@ -271,6 +271,11 @@ func TestKey3IsNoOp(t *testing.T) {
 // TestSpotlightEscClosesFromTheList; this test does not repeat it.)
 func TestSpotlightListScrolls(t *testing.T) {
 	m := newTestModel(t)
+	// A short terminal, so the eight root rows outnumber the list region: the
+	// launcher's root is a curated tree now, not the old exhaustive list, and
+	// the list pane runs the full height of the box, so it takes a genuinely
+	// small terminal to overflow it.
+	m.SetSize(120, 16)
 	update(t, m, "2")
 	update(t, m, "\\")
 	if !m.spotlight.open {
@@ -279,15 +284,15 @@ func TestSpotlightListScrolls(t *testing.T) {
 	if m.focused != paneTasks {
 		t.Fatalf("opening the spotlight changed focus = %v want paneTasks", m.focused)
 	}
-	// The cursor starts on the first row ("Dispatch a session"); walk it all
-	// the way to the last row. With the default terminal size the row count
-	// exceeds the visible list region, so this must scroll the window.
+	// The cursor starts on the first row ("Project"); walk it all the way to
+	// the last root row with the arrows (j now types into the query). The row
+	// count exceeds the visible list region, so this must scroll the window.
 	firstLabel := m.spotlight.selectedLabel()
 	var lastLabel string
 	for i := 0; i < len(m.spotlight.rows); i++ {
-		update(t, m, "j")
-		if e := m.spotlight.selectedEntry(); e != nil {
-			lastLabel = e.label
+		update(t, m, "down")
+		if l := m.spotlight.selectedLabel(); l != "" {
+			lastLabel = l
 		}
 	}
 	if lastLabel == "" || lastLabel == firstLabel {
@@ -582,18 +587,42 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 }
 
-func TestThemeCyclesInsideSpotlight(t *testing.T) {
+// TestThemeKeyTypesIntoTheSpotlightQuery pins the key-column contract: with
+// type-to-filter always on, a printable key inside the spotlight goes to the
+// search query, so the `[T]` column is documentation of the real TUI binding
+// and never a live accelerator. `\` is the one key that keeps its role inside
+// the launcher. T formerly cycled the theme from inside the spotlight, which
+// made the query unable to contain the letter at all.
+func TestThemeKeyTypesIntoTheSpotlightQuery(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "\\")
 	if !m.spotlight.open {
 		t.Fatalf("setup: spotlight should be open, got %v", m.spotlight.open)
 	}
+	before := m.themeName
+
 	update(t, m, "T")
-	if m.themeName != themeLight {
-		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
+	if m.themeName != before {
+		t.Errorf("T inside the spotlight must not cycle the theme, themeName = %q", m.themeName)
+	}
+	if m.spotlight.query != "T" {
+		t.Errorf("T inside the spotlight must type into the query, query = %q", m.spotlight.query)
 	}
 	if !m.spotlight.open {
-		t.Fatalf("theme cycling should not close the spotlight, got open=%v", m.spotlight.open)
+		t.Errorf("typing must not close the spotlight, open=%v", m.spotlight.open)
+	}
+
+	// The binding the key column documents is still real: with the launcher
+	// closed, T cycles the theme as it always did. (Reaching it from inside
+	// the launcher is Enter on the Cycle theme row — see
+	// TestSpotlightStaticActivationReplays.)
+	update(t, m, "\\")
+	if m.spotlight.open {
+		t.Fatalf("setup: \\ must close the spotlight")
+	}
+	update(t, m, "T")
+	if m.themeName != themeLight {
+		t.Errorf("T outside the spotlight must cycle the theme, themeName = %q want %q", m.themeName, themeLight)
 	}
 }
 
@@ -1414,27 +1443,26 @@ func TestProjectDetailLabelKeysNoOp(t *testing.T) {
 	}
 }
 
-// TestProjectDetailHistoryToggle verifies the UPPERCASE [H] binding toggles
-// the HISTORY section in the project detail (mockup Screen 4; Task 5 fix).
-func TestProjectDetailHistoryToggle(t *testing.T) {
+// TestProjectDetailHistoryRemoved verifies the legacy [H] history toggle is
+// gone from the project detail view: pressing H is a no-op (no HISTORY
+// section ever renders), and the menu registry no longer advertises it.
+// Project-detail history was removed outright, with no replacement (unlike
+// task-detail history, which relocated into the spotlight's task preview).
+func TestProjectDetailHistoryRemoved(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "enter")
-	v := m.View()
-	// HISTORY off by default.
-	mustNotContain(t, v, "HISTORY")
-	// Press uppercase H to toggle on.
 	update(t, m, "H")
-	if !m.projects.detail.historyOn {
-		t.Errorf("after H: detail.historyOn = false want true")
+	for _, line := range m.projects.detail.lines {
+		if strings.Contains(line, "HISTORY") {
+			t.Errorf("HISTORY section rendered in project detail after H: %q", line)
+		}
 	}
-	v = m.View()
-	mustContain(t, v, "HISTORY")
-	// Press H again to toggle off.
-	update(t, m, "H")
-	if m.projects.detail.historyOn {
-		t.Errorf("after second H: detail.historyOn = true want false")
+	for _, e := range menuEntries {
+		if e.label == "Toggle history" {
+			t.Errorf("menuEntries still carries a %q entry", e.label)
+		}
 	}
 }
 
@@ -1709,7 +1737,9 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 // --- Step 6: task detail + empty states ---
 
 // TestTaskDetailFactsLabelsHistory verifies the task detail (mockup Screen 8):
-// facts, label chips, and HISTORY behind the [H] overlay (opened in-test).
+// facts, label chips, and history hidden from the inline view by default.
+// (History itself, formerly behind the [H] overlay, is now rendered by the
+// pure taskHistoryLines helper — see TestTaskHistoryLines in comments_test.go.)
 func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 80)
@@ -1741,39 +1771,28 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "ATM:priority:high")
 	mustNotContain(t, v, "Actions")
 	if strings.Contains(v, "task.created") {
-		t.Fatalf("history must be hidden behind [H] overlay by default, found task.created:\n%s", v)
+		t.Fatalf("history must be hidden from the inline detail view by default, found task.created:\n%s", v)
 	}
-	// Open the history overlay: it replaces the detail view while active.
-	update(t, m, "H")
-	if !m.tasks.historyOverlay.active {
-		t.Fatal("expected history overlay active after [H]")
-	}
-	v = m.tasks.View()
-	mustContain(t, v, "History")
-	mustContain(t, v, "task.created")
-	mustContain(t, v, "task.label-added")
-	// History rows are decorated with [seq] and ordered chronologically
-	// (the log is append-only); task.created is logged before task.label-added.
-	createdIdx := strings.Index(v, "task.created")
-	addedIdx := strings.Index(v, "task.label-added")
+
+	// taskHistoryLines (the extracted pure renderer) still surfaces the same
+	// history: [seq]-decorated rows, chronologically ordered (the log is
+	// append-only, so task.created precedes task.label-added).
+	lines := taskHistoryLines(m, tk.ProjectCode, tk.ID, m.tasks.width)
+	hv := strings.Join(lines, "\n")
+	mustContain(t, hv, "History")
+	mustContain(t, hv, "task.created")
+	mustContain(t, hv, "task.label-added")
+	createdIdx := strings.Index(hv, "task.created")
+	addedIdx := strings.Index(hv, "task.label-added")
 	if createdIdx < 0 || addedIdx < 0 {
-		t.Fatalf("missing task.created / task.label-added in history overlay")
+		t.Fatalf("missing task.created / task.label-added in taskHistoryLines output")
 	}
 	if addedIdx < createdIdx {
 		t.Errorf("history not chronological: task.label-added (%d) before task.created (%d)", addedIdx, createdIdx)
 	}
-	// The [seq] decoration must precede each row.
-	if !strings.Contains(v, "] ") {
+	if !strings.Contains(hv, "] ") {
 		t.Errorf("history rows missing [seq] decoration")
 	}
-	// Closing the overlay returns to the detail view.
-	update(t, m, "esc")
-	if m.tasks.historyOverlay.active {
-		t.Fatal("Esc should have closed the history overlay")
-	}
-	v = m.tasks.View()
-	mustContain(t, v, "Task "+tk.ID)
-	mustContain(t, v, "FACTS")
 }
 
 // TestTaskDetailScrollDoesNotBreakPaneBorders pins ATM-0100: scrolling the
@@ -2001,11 +2020,10 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 // TestKeymapReference* tests below assert directly against the pure
 // reference renderers (parityTable, renderConventionsText,
 // keymapReferenceText) rather than drilling through the \ spotlight to
-// reach them: these functions are untouched by the spotlight redesign, and
-// the old drill-in path (menuModel.openDetail) no longer runs on Enter — see
-// TestSpotlightEnterAndLeftAreInertInTheList. Task 3 wires the spotlight
-// preview to real content; these keep protecting the content itself in the
-// meantime.
+// reach them: these functions are untouched by the spotlight redesign (the
+// launcher reaches them by drilling into the Reference group and focusing the
+// preview — see TestPreviewReferenceScrollsWhenFocused), so these keep
+// protecting the content itself.
 func TestParityReferenceRenders(t *testing.T) {
 	content := parityTable
 	mustContain(t, content, "atm project create")

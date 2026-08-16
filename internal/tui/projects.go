@@ -24,13 +24,6 @@ type projectsModel struct {
 	cursor        int
 	detail        detailState
 
-	// capCursor indexes into the registry's Names() for the [c]/[space]
-	// capability cursor on the project detail view.
-	capCursor int
-
-	// history toggle on project detail.
-	showHistory bool
-
 	// logsOffset is the Recent Events feed's viewport offset (list view,
 	// ATM-793b19 revision 2): shift+arrows drive it directly, with no
 	// subfocus mode — see events_feed.go's scrollEventsFeed. It indexes the
@@ -79,11 +72,10 @@ type projRow struct {
 }
 
 type detailState struct {
-	code      string
-	project   *core.Project
-	lines     []string // rendered detail lines (for scroll)
-	offset    int
-	historyOn bool
+	code    string
+	project *core.Project
+	lines   []string // rendered detail lines (for scroll)
+	offset  int
 }
 
 type activityStripeDay struct {
@@ -458,68 +450,10 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		p.detail.offset = 0
 	case "n":
 		p.openSetNameForm()
-	case "H":
-		p.detail.historyOn = !p.detail.historyOn
-		p.renderDetail()
 	case "x":
 		return p.requestRemoveProject(p.detail.code)
-	case "c":
-		names := p.m.reg.Names()
-		if len(names) > 0 {
-			p.capCursor = (p.capCursor + 1) % len(names)
-			p.renderDetail()
-		}
-	case " ":
-		p.toggleCapability()
 	}
 	return nil
-}
-
-// toggleCapability flips the enabled state of the capability under the
-// detail view's capability cursor (set by the "c" key). A legacy (nil
-// Capabilities) project reads as "all enabled" per Registry.For; disabling
-// one of its capabilities must first make that reading EXPLICIT — before the
-// Disable call, every OTHER registered name is enabled so the stored set
-// becomes "all but this one", matching what the (default) view already
-// implied. Errors are swallowed (mirrors the plan's other detail mutations,
-// e.g. requestRemoveProject's guard toast pattern is the exception, not the
-// rule) since a failed toggle simply leaves the view unchanged on refresh.
-func (p *projectsModel) toggleCapability() {
-	names := p.m.reg.Names()
-	if len(names) == 0 {
-		return
-	}
-	name := names[p.capCursor%len(names)]
-	code := p.detail.code
-	proj, err := p.m.store.GetProject(code)
-	if err != nil {
-		return
-	}
-	isEnabled := proj.Capabilities == nil // legacy: everything enabled
-	for _, n := range proj.Capabilities {
-		if n == name {
-			isEnabled = true
-		}
-	}
-	if isEnabled {
-		if proj.Capabilities == nil {
-			for _, n := range names {
-				if n != name {
-					_ = p.m.store.EnableProjectCapability(code, n, p.m.actor)
-				}
-			}
-		}
-		_ = p.m.store.DisableProjectCapability(code, name, p.m.actor)
-	} else {
-		_ = p.m.store.EnableProjectCapability(code, name, p.m.actor)
-	}
-	// Refresh the detail view's cached project + rendered lines so the
-	// toggle is visible immediately (mirrors the H history-toggle refresh
-	// above: mutate, then re-render from the freshly read project).
-	if pr, err := p.m.store.GetProject(code); err == nil {
-		p.detail.project = pr
-	}
-	p.renderDetail()
 }
 
 func (p *projectsModel) selected() (projRow, bool) {
@@ -535,8 +469,7 @@ func (p *projectsModel) openDetail(code string) {
 		p.m.showToast("error: " + err.Error())
 		return
 	}
-	p.detail = detailState{code: code, project: pr, historyOn: false}
-	p.capCursor = 0
+	p.detail = detailState{code: code, project: pr}
 	p.view = pViewDetail
 	p.renderDetail()
 }
@@ -572,32 +505,16 @@ func (p *projectsModel) renderDetail() {
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.renderCapabilitiesLine(pr)))
 
-	if p.detail.historyOn {
-		b.WriteString("\n")
-		b.WriteString(sectionCaption(p.m.styles, p.width, "HISTORY"))
-		b.WriteString("\n")
-		hv := p.m.store.History(p.detail.code, core.Subject{Kind: "project", Code: p.detail.code})
-		if len(hv) == 0 {
-			b.WriteString(dashboardLine(p.width, " (no history)"))
-			b.WriteString("\n")
-		} else {
-			for _, e := range hv {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
-			}
-		}
-	}
-
 	p.detail.lines = strings.Split(b.String(), "\n")
 	p.clampDetail()
 }
 
-// renderCapabilitiesLine renders the "capabilities: [x]/[ ] name ..." line
-// for the project detail view. A legacy project (nil Capabilities) reads as
-// "all enabled" (Registry.For's own contract), so every registered name
-// shows [x] with a trailing "(default)" marker distinguishing it from an
-// explicit all-enabled project. The name under the capability cursor (set by
-// the "c" key, toggled by " ") is highlighted with the same RowCursor style
-// the list view uses for its cursor row.
+// renderCapabilitiesLine renders the read-only "capabilities: [x]/[ ] name
+// ..." line for the project detail view. A legacy project (nil
+// Capabilities) reads as "all enabled" (Registry.For's own contract), so
+// every registered name shows [x] with a trailing "(default)" marker
+// distinguishing it from an explicit all-enabled project. Capability
+// management (enabling/disabling) lives in the C overlay, not here.
 func (p *projectsModel) renderCapabilitiesLine(pr *core.Project) string {
 	names := p.m.reg.Names()
 	enabled := map[string]bool{}
@@ -608,16 +525,12 @@ func (p *projectsModel) renderCapabilitiesLine(pr *core.Project) string {
 		}
 	}
 	parts := make([]string, 0, len(names))
-	for i, n := range names {
+	for _, n := range names {
 		mark := "[ ]"
 		if !explicit || enabled[n] {
 			mark = "[x]"
 		}
-		cell := fmt.Sprintf("%s %s", mark, n)
-		if i == p.capCursor {
-			cell = p.m.styles.RowCursor.Render(cell)
-		}
-		parts = append(parts, cell)
+		parts = append(parts, fmt.Sprintf("%s %s", mark, n))
 	}
 	suffix := ""
 	if !explicit {
@@ -1334,7 +1247,7 @@ func (p *projectsModel) renderDetailView() string {
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 // newProjectCreateForm builds the create-project form without installing it.
-// The spotlight preview renders one to show the user what -> will open.
+// The spotlight preview renders one to show the user what Enter will open.
 func newProjectCreateForm(width int) *Form {
 	codeValidator := func(field, value string) error {
 		if value == "" {

@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"atm/internal/capability/contextmap"
-	"atm/internal/capability/workflow"
 )
 
 // Every keyed entry's replay string must round-trip through bubbletea: the
@@ -21,6 +18,19 @@ func TestMenuEntriesReplayRoundTrip(t *testing.T) {
 		}
 		if got := keyMsgFromString(e.key).String(); got != e.key {
 			t.Errorf("entry %q: keyMsgFromString(%q).String() = %q", e.label, e.key, got)
+		}
+	}
+}
+
+// The named (non-rune) keys keyMsgFromString special-cases must round-trip
+// too. They are not all reachable from menuEntries — "tab" is the spotlight's
+// own focus swap rather than any entry's replay key — so the table above
+// cannot cover them, and a missing case would silently synthesize the literal
+// runes "t","a","b" instead.
+func TestKeyMsgFromStringNamedKeys(t *testing.T) {
+	for _, k := range []string{"enter", "esc", "tab", "ctrl+right", "ctrl+left"} {
+		if got := keyMsgFromString(k).String(); got != k {
+			t.Errorf("keyMsgFromString(%q).String() = %q", k, got)
 		}
 	}
 }
@@ -90,9 +100,6 @@ func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
 			if got := keyMsgFromString(seg).String(); got != seg {
 				t.Errorf("prelude segment %q round-trips to %q", seg, got)
 			}
-		}
-		if sectionTitleFor(s) == "" {
-			t.Errorf("scope %d has no section title", s)
 		}
 	}
 	if len(preludeFor(scopeGlobal)) != 0 {
@@ -315,31 +322,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("H", scopeProjectsDetail): {
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-			},
-			check: func(t *testing.T, m *Model) {
-				if !m.projects.detail.historyOn {
-					t.Error("H in project detail must toggle the history section on")
-				}
-			},
-		},
-		probeID("c", scopeProjectsDetail): {
-			model: func(t *testing.T) *Model {
-				// Two capabilities so the capability-switcher cursor has
-				// somewhere to move (a one-capability registry cycles back to 0).
-				return newTestModelWithCaps(t, workflow.New(), contextmap.New())
-			},
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-			},
-			check: func(t *testing.T, m *Model) {
-				if m.projects.capCursor != 1 {
-					t.Errorf("c in project detail must cycle the capability cursor, capCursor=%d want 1", m.projects.capCursor)
-				}
-			},
-		},
 		probeID("x", scopeProjectsDetail): {
 			setup: func(t *testing.T, m *Model) {
 				seedProject(t, m, "ATM", "Acme")
@@ -373,22 +355,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formTaskCreate {
 					t.Errorf("a on the tasks list must open the task-create form, formKind=%v", m.formKind)
-				}
-			},
-		},
-		probeID("s", scopeTasksList): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if m.tasks.sortMode != 1 {
-					t.Errorf("s on the tasks list must cycle the sort, sortMode=%d want 1", m.tasks.sortMode)
-				}
-			},
-		},
-		probeID("S", scopeTasksList): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
-					t.Errorf("S on the tasks list must re-ensure the capability vocabulary (toast), toast=%q", m.toastMsg)
 				}
 			},
 		},
@@ -439,14 +405,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formCommentAdd {
 					t.Errorf("M in task detail must open the add-comment form, formKind=%v", m.formKind)
-				}
-			},
-		},
-		probeID("H", scopeTasksDetail): {
-			setup: parityTaskDetail,
-			check: func(t *testing.T, m *Model) {
-				if !m.tasks.historyOverlay.active {
-					t.Error("H in task detail must open the history overlay")
 				}
 			},
 		},

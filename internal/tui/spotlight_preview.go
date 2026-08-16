@@ -1,6 +1,49 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"atm/internal/core"
+	"github.com/muesli/reflow/wordwrap"
+)
+
+// taskPreviewDescLines caps how much of a task's description the preview
+// shows. The preview is an identification aid — enough to be sure this is the
+// task you meant — and the history under it is the part the deleted overlay
+// existed for, so a long description must not push it off the pane.
+const taskPreviewDescLines = 5
+
+// taskPreviewLines is a hovered task row's preview: the ID and title, the
+// task's label chips, the first lines of its description, then the task's
+// audit history. The history is rendered by taskHistoryLines — the same
+// renderer the deleted task-detail history overlay used, which is what makes
+// this pane that overlay's replacement rather than a lookalike.
+//
+// The header and the history are unconditional: a task with neither
+// description nor labels still previews as itself, never as the "(no
+// preview)" empty pane.
+func taskPreviewLines(m *Model, tk *core.Task, w int) []string {
+	if tk == nil {
+		return nil
+	}
+	// One line, cut with an ellipsis: the header is identity, and an identity
+	// line that wraps into the labels below it reads as two facts, not one.
+	out := []string{fitLineTail(tk.ID+"  "+tk.Title, w)}
+	if chips := renderLabelChips(m.styles, tk.Labels, w); chips != "" {
+		out = append(out, chips)
+	}
+	if desc := strings.TrimSpace(tk.Description); desc != "" {
+		lines := strings.Split(wordwrap.String(desc, w), "\n")
+		if len(lines) > taskPreviewDescLines {
+			lines = append(lines[:taskPreviewDescLines:taskPreviewDescLines], "…")
+		}
+		out = append(out, "")
+		out = append(out, lines...)
+	}
+	out = append(out, "")
+	return append(out, taskHistoryLines(m, tk.ProjectCode, tk.ID, w)...)
+}
 
 // previewFunc renders an entry's live preview at the region's dimensions.
 type previewFunc func(m *Model, w, h int) string

@@ -40,11 +40,9 @@ type tasksModel struct {
 	// detail
 	detail taskDetailState
 
-	// comment read-only overlay (peek) and history overlay; both clear on
-	// backToList / openDetail so stale overlay state never leaks across
-	// detail sessions.
+	// comment read-only overlay (peek); clears on backToList / openDetail so
+	// stale overlay state never leaks across detail sessions.
 	commentOverlay commentOverlayModel
-	historyOverlay historyOverlayModel
 }
 
 type tView int

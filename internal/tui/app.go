@@ -89,12 +89,12 @@ type Model struct {
 	personasOv     personasModel
 	channelsOv     channelsModel
 	spotlight      spotlightModel
-	// spotlightReturn is the spotlight row to restore when a spotlight-spawned
-	// overlay, form, or confirm is dismissed, or -1 when nothing is pending. It
-	// is set by spotlightModel.activate for kindDialog entries, consumed by
-	// handleKey's wrapper, and cleared by a successful submit or confirm (which
-	// land on the workspace instead).
-	spotlightReturn int
+	// spotlightReturn is the spotlight position to restore when a
+	// spotlight-spawned overlay, form, or confirm is dismissed, or nil when
+	// nothing is pending. It is set by spotlightModel.activate for kindDialog
+	// entries, consumed by handleKey's wrapper, and cleared by a successful
+	// submit or confirm (which land on the workspace instead).
+	spotlightReturn *spotlightSnapshot
 
 	form *Form
 
@@ -188,7 +188,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.personasOv.m = m
 	m.channelsOv.m = m
 	m.spotlight = spotlightModel{m: m}
-	m.spotlightReturn = -1
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -358,7 +357,7 @@ func (m *Model) workspaceIdle() bool {
 // dispatchModel.submit, capabilityModel.switchTo) route through this one
 // helper so a future completion point is never the one that forgets it.
 func (m *Model) completeAction() {
-	m.spotlightReturn = -1
+	m.spotlightReturn = nil
 }
 
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
@@ -463,10 +462,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // spotlightModel.activate also replays prelude/key segments through this
 // same handleKey, so this wrapper runs on every replayed segment too — but
 // harmlessly: activate sets spotlightReturn only after its replay loop
-// finishes, so the return is still -1 during replay and the check below
+// finishes, so the return is still nil during replay and the check below
 // cannot fire on any of the nested calls for the replayed segments. It DOES
 // fire, though, on the outer call: activate() itself runs beneath this same
-// handleKey (the user's -> keypress that triggered it), so by the time that
+// handleKey (the user's Enter keypress that triggered it), so by the time that
 // outer call's dispatchKey returns, spotlightReturn is freshly set and the
 // check below fires immediately — the reopen happens within the same
 // keystroke that activated the entry, not on the user's next keypress. This
@@ -475,10 +474,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // looks inert: the spotlight reopens over it before the user sees anything.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	cmd := m.dispatchKey(k)
-	if m.spotlightReturn >= 0 && m.workspaceIdle() {
-		row := m.spotlightReturn
-		m.spotlightReturn = -1
-		m.spotlight.openAt(row)
+	if m.spotlightReturn != nil && m.workspaceIdle() {
+		s := *m.spotlightReturn
+		m.spotlightReturn = nil
+		m.spotlight.openAt(s)
 	}
 	return cmd
 }
@@ -499,12 +498,14 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// assigned after this point, then renders until the next key.
 	m.toastMsg = ""
 
-	// Spotlight overlay consumes keys until closed. T still cycles the theme.
+	// The spotlight consumes every key until closed — including T, which the
+	// other overlays still take as the global theme shortcut. Inside the
+	// launcher type-to-filter is always on, so a printable key belongs to the
+	// search query and the rendered key column is documentation of the real
+	// binding rather than a live accelerator; intercepting T here would make
+	// the letter untypeable. The theme is still reachable from the launcher:
+	// Enter on its row replays T after closing.
 	if m.spotlight.open {
-		if k.String() == "T" {
-			m.cycleTheme()
-			return nil
-		}
 		return m.spotlight.handleKey(k)
 	}
 
@@ -644,11 +645,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	}
 
 	// Esc at pane level: back from detail to list, or cancel task filter.
-	// If a per-detail overlay (comment peek or history) is open, defer to
-	// the pane's overlay Esc handler so Esc returns to the detail rather
-	// than leaping out to the list and leaving the overlay state stale.
-	// Persona-chart drill-in Esc (back from detail) is handled by the
-	// projects pane's own key handler.
+	// If a per-detail overlay (comment peek) is open, defer to the pane's
+	// overlay Esc handler so Esc returns to the detail rather than leaping
+	// out to the list and leaving the overlay state stale. Persona-chart
+	// drill-in Esc (back from detail) is handled by the projects pane's own
+	// key handler.
 	if k.String() == "esc" {
 		if m.focused == paneProjects && m.projects.personaDrilled {
 			return m.projects.handleKey(k)
@@ -659,7 +660,7 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		}
 		if m.focused == paneTasks {
 			if m.tasks.view == tViewDetail {
-				if m.tasks.commentOverlay.id != "" || m.tasks.historyOverlay.active {
+				if m.tasks.commentOverlay.id != "" {
 					return m.tasks.handleKey(k)
 				}
 				m.tasks.backToList()

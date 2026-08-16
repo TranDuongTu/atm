@@ -28,7 +28,7 @@ func TestPreviewRendersLiveOverlayContent(t *testing.T) {
 	walkTo(t, m, "Channels")
 
 	got := strings.Join(m.spotlight.lines, "\n")
-	want := m.channelsOv.previewBody(m.spotlight.menuBoxWidth() - 4)
+	want := m.channelsOv.previewBody(m.spotlight.previewWidth())
 	if want == "" {
 		t.Fatal("channels previewBody produced nothing to compare")
 	}
@@ -57,7 +57,7 @@ func TestPreviewRendersDispatchOnColdSession(t *testing.T) {
 	walkTo(t, m, "Dispatch a session")
 
 	got := strings.Join(m.spotlight.lines, "\n")
-	want := m.dispatchDlg.previewBody(m.spotlight.menuBoxWidth() - 4)
+	want := m.dispatchDlg.previewBody(m.spotlight.previewWidth())
 	if want == "" {
 		t.Fatal("dispatch previewBody produced nothing to compare")
 	}
@@ -137,13 +137,27 @@ func TestPreviewReferenceScrollsWhenFocused(t *testing.T) {
 		t.Errorf("conventions preview missing content:\n%s", got)
 	}
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("-> on a reference entry must focus the preview")
+		t.Fatal("Enter on a reference entry must focus the preview")
 	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	if m.spotlight.offset != 1 {
 		t.Errorf("j must scroll the focused preview, offset=%d", m.spotlight.offset)
+	}
+	// The preview footer advertises the arrows, so they must scroll too — and
+	// a printable key must not type into the query here: the query belongs to
+	// the list.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.spotlight.offset != 2 {
+		t.Errorf("down must scroll the focused preview, offset=%d", m.spotlight.offset)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.spotlight.offset != 1 {
+		t.Errorf("up must scroll the focused preview back, offset=%d", m.spotlight.offset)
+	}
+	if m.spotlight.query != "" {
+		t.Errorf("keys in a focused preview must not type into the query, query=%q", m.spotlight.query)
 	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.spotlight.focus != focusList || !m.spotlight.open {
@@ -162,7 +176,7 @@ func TestPreviewReflowsOnResize(t *testing.T) {
 
 	m.SetSize(60, 40)
 
-	want := strings.Split(strings.TrimRight(renderConventionsText(m.styles, m.spotlight.menuBoxWidth()-4, conventionsTextTUI), "\n"), "\n")
+	want := strings.Split(strings.TrimRight(renderConventionsText(m.styles, m.spotlight.previewWidth(), conventionsTextTUI), "\n"), "\n")
 	got := strings.Join(m.spotlight.lines, "\n")
 	if got != strings.Join(want, "\n") {
 		t.Errorf("preview did not re-wrap to the new width after resize\n--- got ---\n%s\n--- want ---\n%s", got, strings.Join(want, "\n"))
@@ -178,9 +192,9 @@ func TestPreviewScrollClampsToLastScreenful(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Keymap reference")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("-> on a reference entry must focus the preview")
+		t.Fatal("Enter on a reference entry must focus the preview")
 	}
 
 	want := len(m.spotlight.lines) - m.spotlight.previewHeight()

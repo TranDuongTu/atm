@@ -19,9 +19,6 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 	if t.commentOverlay.id != "" {
 		return t.handleCommentOverlayKey(k)
 	}
-	if t.historyOverlay.active {
-		return t.handleHistoryOverlayKey(k)
-	}
 	switch k.String() {
 	case "j", "down":
 		t.detail.offset++
@@ -53,8 +50,6 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		return t.requestRemoveTask()
 	case "M":
 		t.openCommentAddForm()
-	case "H":
-		return t.openHistoryOverlay()
 	case "enter":
 		cs, _ := t.m.store.ListComments(t.detail.id)
 		if len(cs) > 0 {
@@ -73,7 +68,6 @@ func (t *tasksModel) openDetail(id string) tea.Cmd {
 		return nil
 	}
 	t.commentOverlay = commentOverlayModel{}
-	t.historyOverlay = historyOverlayModel{}
 	t.detail = taskDetailState{id: id, task: tk}
 	t.view = tViewDetail
 	t.renderDetail()
@@ -84,7 +78,6 @@ func (t *tasksModel) backToList() {
 	t.view = tViewList
 	t.detail = taskDetailState{}
 	t.commentOverlay = commentOverlayModel{}
-	t.historyOverlay = historyOverlayModel{}
 }
 
 func (t *tasksModel) renderDetail() {
@@ -175,9 +168,6 @@ func (t *tasksModel) renderDetailView() string {
 	if t.commentOverlay.id != "" {
 		return t.commentOverlay.view(t.m)
 	}
-	if t.historyOverlay.active {
-		return t.historyOverlay.view(t.m)
-	}
 	end := t.detail.offset + t.contentHeight
 	if end > len(t.detail.lines) {
 		end = len(t.detail.lines)
@@ -198,15 +188,5 @@ func (t *tasksModel) openCommentOverlay(id string) tea.Cmd {
 	}
 	t.commentOverlay = commentOverlayModel{id: id, comment: c}
 	t.commentOverlay.render(t.m)
-	return nil
-}
-
-func (t *tasksModel) openHistoryOverlay() tea.Cmd {
-	tk := t.detail.task
-	if tk == nil {
-		return nil
-	}
-	t.historyOverlay = historyOverlayModel{active: true}
-	t.historyOverlay.render(t.m, tk.ProjectCode, tk.ID)
 	return nil
 }
