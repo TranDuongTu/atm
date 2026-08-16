@@ -651,9 +651,10 @@ func TestSpotlightLayoutColumnsAlign(t *testing.T) {
 		m.SetSize(w, 40)
 		m.spotlight.openSpotlight()
 
-		bw, leftW, prevW := m.spotlight.menuBoxWidth(), m.spotlight.leftPaneWidth(), m.spotlight.previewWidth()
-		if leftW+3+prevW != bw-4 {
-			t.Errorf("width %d: panes %d + 3 + %d must fill the inner width %d", w, leftW, prevW, bw-4)
+		bw, leftW := m.spotlight.menuBoxWidth(), m.spotlight.leftPaneWidth()
+		if leftW+spotPaneGap+m.spotlight.previewPanelWidth() != bw-4 {
+			t.Errorf("width %d: list %d + gap + panel %d must fill the inner width %d",
+				w, leftW, m.spotlight.previewPanelWidth(), bw-4)
 		}
 
 		lines := strings.Split(stripANSI(m.spotlight.renderOverlay()), "\n")
@@ -665,17 +666,101 @@ func TestSpotlightLayoutColumnsAlign(t *testing.T) {
 				t.Errorf("width %d: line %d is %d columns, want %d: %q", w, i, got, bw, line)
 			}
 		}
-		// lines[0] is the top border, [1] the search input, [2] the pane
-		// headers, then previewHeight() body rows, then the footer and the
-		// bottom border.
-		mustContain(t, lines[2], "Actions")
-		for i := 2; i < 3+m.spotlight.previewHeight(); i++ {
+		// The preview panel's left border replaces the old free-floating
+		// divider rule: every block line must show its edge at the same
+		// column, so the panel reads as one box rather than a stack.
+		col := m.spotlight.panelLeftColumn()
+		mustContain(t, lines[m.spotlight.blockTop()], "Actions")
+		for i := m.spotlight.blockTop(); i < m.spotlight.blockTop()+m.spotlight.blockHeight(); i++ {
 			r := []rune(lines[i])
-			if r[leftW+3] != '│' {
-				t.Errorf("width %d: line %d has no divider at column %d: %q", w, i, leftW+3, lines[i])
+			switch r[col] {
+			case '╭', '│', '╰', ' ':
+			default:
+				t.Errorf("width %d: line %d has no panel edge at column %d: %q", w, i, col, lines[i])
 			}
 		}
 	}
+}
+
+// The overlay used to be 80% of the terminal by 34 rows tall regardless of
+// content: eight root rows sat in a box with twenty-one empty ones. Height now
+// follows the content it has, so a short list gets a short box.
+func TestSpotlightBoxFitsContentHeight(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	lines := strings.Split(stripANSI(m.spotlight.renderOverlay()), "\n")
+	rows := len(m.spotlight.rows)
+	// header + rows, the search box (3), the footer (1), two outer borders.
+	want := 1 + rows + 3 + 1 + 2
+	if len(lines) > want+1 {
+		t.Errorf("overlay is %d lines for %d rows; content needs about %d", len(lines), rows, want)
+	}
+	if len(lines) >= m.height-6 {
+		t.Errorf("overlay height %d still tracks the terminal (%d), not its content", len(lines), m.height)
+	}
+}
+
+// Width follows the list's widest row and a fixed prose measure, so the box is
+// the same size on a laptop and on a 200-column monitor rather than growing to
+// fill whatever it is given.
+func TestSpotlightBoxWidthIsStableAcrossTerminals(t *testing.T) {
+	width := func(cols int) int {
+		m := newTestModel(t)
+		m.SetSize(cols, 40)
+		m.spotlight.openSpotlight()
+		return m.spotlight.menuBoxWidth()
+	}
+	narrow, wide := width(120), width(200)
+	if narrow != wide {
+		t.Errorf("overlay is %d columns at 120 and %d at 200; it should not grow with the terminal", narrow, wide)
+	}
+	if wide >= 200*80/100 {
+		t.Errorf("overlay is %d columns on a 200-column terminal — still proportional", wide)
+	}
+}
+
+// A preview shorter than the list centres in its column. Pinned to the top of a
+// tall block it reads as content that failed to finish loading.
+func TestSpotlightShortPreviewPanelCentres(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.lines = []string{"one", "two"} // 2 + 2 borders = 4 of a 9-row block
+
+	panel := m.spotlight.previewPanel(9, 20)
+	if len(panel) != 9 {
+		t.Fatalf("panel is %d lines, want the block's 9", len(panel))
+	}
+	if strings.Contains(panel[0], "╭") {
+		t.Errorf("panel starts on the block's first line; it should be centred: %q", panel[0])
+	}
+	if strings.Contains(panel[len(panel)-1], "╰") {
+		t.Errorf("panel ends on the block's last line; it should be centred: %q", panel[len(panel)-1])
+	}
+	var top int
+	for i, l := range panel {
+		if strings.Contains(l, "╭") {
+			top = i
+		}
+	}
+	if top == 0 {
+		t.Fatal("no panel top border found")
+	}
+}
+
+// The search input read as a caption rather than a field, and the preview
+// floated beside a rule that started below the search line and ran past the
+// content. Both are boxes now.
+func TestSpotlightSearchAndPreviewAreBordered(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "╭ Search")
+	mustContain(t, view, "╭ Preview")
 }
 
 // Exactly one element is bright at a time: the focused pane's header, the
@@ -692,8 +777,9 @@ func TestSpotlightPaneHeaderAccentFollowsFocus(t *testing.T) {
 	m.spotlight.openSpotlight()
 
 	view := stripANSI(m.spotlight.renderOverlay())
-	mustContain(t, view, "<bright>Actions</bright>")
-	mustContain(t, view, "<dim>Preview</dim>")
+	mustContain(t, view, "<accent>Actions</accent>")
+	// The preview's label lives in its panel's border now, so the border test
+	// below is what pins its half of this cue.
 
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if m.spotlight.focus != focusPreview {
@@ -701,7 +787,23 @@ func TestSpotlightPaneHeaderAccentFollowsFocus(t *testing.T) {
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "<dim>Actions</dim>")
-	mustContain(t, view, "<bright>Preview</bright>")
+}
+
+// Nothing in the launcher wears reverse video. RowCursor is a bare
+// lipgloss.Reverse, which renders a filled block rather than emphasis; against
+// a frame that already carries the focus cue it read as far too heavy. This is
+// the guard on that — tagFocusStyles still tags RowCursor, so a return to it
+// shows up here rather than in a screenshot.
+func TestSpotlightUsesNoReverseVideo(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	tagFocusStyles(m)
+	m.spotlight.openSpotlight()
+
+	for _, focus := range []spotFocus{focusList, focusPreview} {
+		m.spotlight.focus = focus
+		mustNotContain(t, stripANSI(m.spotlight.renderOverlay()), "<bright>")
+	}
 }
 
 // The ▸ glyph stays put when focus moves to the preview — the cursor row is
@@ -714,7 +816,7 @@ func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
 	m.spotlight.openSpotlight()
 
 	view := stripANSI(m.spotlight.renderOverlay())
-	mustContain(t, view, "<bright>▸ </bright>")
+	mustContain(t, view, "<accent>▸ </accent>")
 	mustNotContain(t, view, "<muted>▸ </muted>")
 
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
@@ -723,7 +825,7 @@ func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "<muted>▸ </muted>")
-	mustNotContain(t, view, "<bright>▸ </bright>")
+	mustNotContain(t, view, "<accent>▸ </accent>")
 }
 
 // The divider's accented run starts at the pane-header row and stops where the
@@ -735,30 +837,26 @@ func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
 // because the divider is not load-bearing alone — the header accent, the glyph,
 // and the caret each carry the same information, and each is pinned by its own
 // test above.
-func TestSpotlightDividerRunMarksTheFocusedPane(t *testing.T) {
+func TestSpotlightBorderMarksTheFocusedPane(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	tagFocusStyles(m)
 	m.spotlight.openSpotlight()
-	accented := func() int {
-		return strings.Count(stripANSI(m.spotlight.renderOverlay()), "<accent>│</accent>")
-	}
 
-	// The header row plus one cell per visible list row.
-	if got, want := accented(), len(m.spotlight.rows)+1; got != want {
-		t.Errorf("with the list focused the accented run is %d cells, want %d (header + %d rows)", got, want, len(m.spotlight.rows))
-	}
+	// titledBox styles a box's whole top line, title included, so the title
+	// says which frame each tag belongs to — no counting, and no degenerate
+	// case where two panes happen to be the same length.
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<accent>╭ Search")
+	mustContain(t, view, "<dim>╭ Preview")
 
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if m.spotlight.focus != focusPreview {
 		t.Fatal("setup: Tab must focus the preview")
 	}
-	if len(m.spotlight.lines) == len(m.spotlight.rows) {
-		t.Fatal("setup: this row's preview is exactly as long as the list, which is the one case the run cannot distinguish")
-	}
-	if got, want := accented(), len(m.spotlight.lines)+1; got != want {
-		t.Errorf("with the preview focused the accented run is %d cells, want %d (header + %d lines)", got, want, len(m.spotlight.lines))
-	}
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<dim>╭ Search")
+	mustContain(t, view, "<accent>╭ Preview")
 }
 
 // tagFocusStyles wraps the four styles the focus cues switch between in
@@ -1270,8 +1368,10 @@ func TestSpotlightSearchLineUnfocusedOffByOneFixed(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 
+	// the box's two borders, its padding column, and "> " — no caret, because
+	// the unfocused branch draws none and must not reserve one
 	w := m.spotlight.innerWidth()
-	room := w - 2 // "> " only — the unfocused branch draws no caret
+	room := w - 5
 	q := "HEAD" + strings.Repeat("y", room-8) + "TAIL"
 	if lipgloss.Width(q) != room {
 		t.Fatalf("setup: query is %d columns, want exactly room %d", lipgloss.Width(q), room)

@@ -11,48 +11,104 @@ import (
 // The launcher's fixed measurements. Everything else is derived from the
 // terminal, so these are the only numbers the layout hard-codes.
 const (
-	spotMinBoxWidth  = 64 // narrowest overlay before content starts truncating
-	spotMinLeftPane  = 28 // the action list never squeezes below this
-	spotDividerWidth = 3  // " │ ": the gap, the rule, the gap
-	spotKeyCol       = 4  // "[D] " — the key column entries align their icons after
+	spotMinLeftPane = 24 // the action list never squeezes below this
+	spotPaneGap     = 1  // the single column between the list and the panel
+	spotPreviewCols = 52 // the panel's prose measure: wide enough to read, narrow enough to scan
+	spotMinBlock    = 4  // the block never collapses below this many rows
+	spotKeyCol      = 4  // "[D] " — the key column entries align their icons after
 )
 
-// menuBoxWidth is the overlay width: 80% of the terminal, at least 64 columns,
-// and never wider than the terminal minus the two side columns. The split
-// needs more room than the old vertical stack did, hence 80% rather than the
-// 60% the other overlays use.
+// menuBoxWidth is the overlay width. It is derived from what the launcher
+// actually holds — the list's widest row plus a fixed prose measure for the
+// preview — not from a share of the terminal, so the box is the same size on a
+// laptop and on a wide monitor and simply sits in more space. A percentage
+// width grew to 160 columns on a 200-column terminal to show rows 26 columns
+// wide.
 func (sm *spotlightModel) menuBoxWidth() int {
-	bw := sm.m.width * 80 / 100
-	if bw < spotMinBoxWidth {
-		bw = spotMinBoxWidth
-	}
-	if bw > sm.m.width-4 {
-		bw = sm.m.width - 4
+	// leftPaneWidth + the gap + the panel (its prose measure, two borders and
+	// a column of padding), then the outer border and one column of breathing
+	// room each side.
+	bw := sm.leftPaneWidth() + spotPaneGap + sm.previewPanelWidth() + 4
+	if max := sm.m.width - 4; bw > max {
+		bw = max
 	}
 	return bw
+}
+
+// blockHeight is the tall middle of the overlay: the list beneath its header on
+// one side, the preview panel on the other, sized to whichever needs more rows
+// and capped by the terminal. The launcher used to be the terminal's height
+// less six whatever it held, so eight rows sat in a box with twenty-one empty
+// ones.
+func (sm *spotlightModel) blockHeight() int {
+	h := 1 + len(sm.rows) // the Actions header sits above the rows
+	if p := 2 + len(sm.lines); p > h {
+		h = p // the panel's two borders around its content
+	}
+	if h < spotMinBlock {
+		h = spotMinBlock
+	}
+	// The overlay is the block plus its chrome: two outer borders, the three
+	// rows of the search box, and the footer.
+	if max := sm.m.height - 4 - 6; h > max {
+		h = max
+	}
+	if h < spotMinBlock {
+		h = spotMinBlock
+	}
+	return h
+}
+
+// blockTop is the first line of the block: past the top border and the search
+// box's three rows.
+func (sm *spotlightModel) blockTop() int { return 4 }
+
+// panelLeftColumn is the column the preview panel's border occupies on every
+// block line — the outer border, the leading space, the list, and the gap.
+func (sm *spotlightModel) panelLeftColumn() int {
+	return 2 + sm.leftPaneWidth() + spotPaneGap
 }
 
 // innerWidth is the width the two panes and the divider share: the box minus
 // its two borders and one column of padding on each side.
 func (sm *spotlightModel) innerWidth() int { return sm.menuBoxWidth() - 4 }
 
-// leftPaneWidth is the action list's column. The list is short and its rows
-// are short, so it takes the smaller share — but never less than 28 columns,
-// below which a keyed row's label starts truncating.
+// leftPaneWidth is the action list's column, sized to the widest row it
+// actually holds so the list neither truncates nor trails empty space. Neither
+// this nor previewWidth may consult menuBoxWidth: the box is derived from them.
 func (sm *spotlightModel) leftPaneWidth() int {
-	w := sm.innerWidth() * 40 / 100
-	if w < spotMinLeftPane {
-		w = spotMinLeftPane
+	w := spotMinLeftPane
+	for _, r := range sm.rows {
+		// two columns for the cursor glyph, then the row's own text
+		if rw := 2 + lipgloss.Width(sm.rowText(r)); rw > w {
+			w = rw
+		}
+	}
+	// On a terminal too narrow to hold the list, the gap, a one-column panel
+	// and the chrome, the list gives way first — it truncates more gracefully
+	// than prose does.
+	if max := sm.m.width - 14; max > spotMinLeftPane && w > max {
+		w = max
 	}
 	return w
 }
 
-// previewWidth is everything the list and the divider leave. It floors at 1 so
-// a terminal too narrow for the minimum left pane still renders a box: the
-// content overflows into fitLine's truncation rather than into a negative
-// width.
+// previewWidth is the panel's prose measure: fixed, because readability is a
+// property of line length rather than of the terminal, and a preview stretched
+// to 120 columns is harder to read than one held at 52. It shrinks only when
+// the terminal cannot hold the list, the panel and the chrome together.
+// previewPanelWidth is the whole panel: the prose measure, its two borders and
+// the column of padding inside them. The measure is what preview content is
+// built against, so the panel is derived from it rather than the reverse —
+// deriving the measure from the panel is how a line's ellipsis gets eaten by
+// the padding.
+func (sm *spotlightModel) previewPanelWidth() int { return sm.previewWidth() + 3 }
+
 func (sm *spotlightModel) previewWidth() int {
-	w := sm.innerWidth() - sm.leftPaneWidth() - spotDividerWidth
+	w := spotPreviewCols
+	if room := sm.m.width - 4 - 4 - 3 - spotPaneGap - sm.leftPaneWidth(); w > room {
+		w = room
+	}
 	if w < 1 {
 		w = 1
 	}
@@ -62,20 +118,18 @@ func (sm *spotlightModel) previewWidth() int {
 // spotlightHeight is the overlay's total height: most of the terminal, so the
 // list and its preview both have room.
 func (sm *spotlightModel) spotlightHeight() int {
-	h := sm.m.height - 6
-	if h < 12 {
-		h = 12
-	}
-	return h
+	// the block, plus two outer borders, the search box's three rows, and the
+	// footer
+	return sm.blockHeight() + 6
 }
 
 // previewHeight is the body region's height — the full inner height less the
 // search input, the pane headers, and the footer. Both panes are that tall:
 // the preview is no longer the bottom half of the box, it is the right half.
 func (sm *spotlightModel) previewHeight() int {
-	h := sm.spotlightHeight() - 5
-	if h < 3 {
-		h = 3
+	h := sm.blockHeight() - 2 // the panel's own top and bottom borders
+	if h < 1 {
+		h = 1
 	}
 	return h
 }
@@ -98,11 +152,15 @@ func (sm *spotlightModel) breadcrumb() string {
 }
 
 // paneStyle is the chrome style for the pane f: accented when it owns focus,
-// dim when it does not. Both headers ask for it, so the two can never both
-// come out bright.
+// dim when it does not.
+//
+// The accent is KeyMenu — bold accent text — and not RowCursor, which is bare
+// reverse video. A reversed word reads as a filled block rather than as
+// emphasis, and with the frame now carrying the focus cue too, a block was one
+// loud element more than the layout needs.
 func (sm *spotlightModel) paneStyle(f spotFocus) lipgloss.Style {
 	if sm.focus == f {
-		return sm.m.styles.RowCursor
+		return sm.m.styles.KeyMenu
 	}
 	return sm.m.styles.KeyMenuDim
 }
@@ -113,44 +171,26 @@ func (sm *spotlightModel) paneStyle(f spotFocus) lipgloss.Style {
 // exactly the confusion the redesign is meant to remove.
 func (sm *spotlightModel) cursorStyle() lipgloss.Style {
 	if sm.focus == focusList {
-		return sm.m.styles.RowCursor
+		return sm.m.styles.KeyMenu
 	}
 	return sm.m.styles.Muted
 }
 
-// dividerStyle styles one cell of the rule between the panes. row 0 is the
-// pane-header row and row n sits beside the nth body row, so the accented run
-// starts at the header and stops where the focused pane's content stops: the
-// length of the bright segment is itself the cue for which pane is live.
+// borderStyle is the frame style for the pane f: accented when it owns focus,
+// dim when it does not. It replaces the free-floating rule that used to divide
+// the panes — a rule that began below the search line, ran on past the content,
+// and stopped short of the footer, so it never met anything at either end. The
+// panel's own left border does the dividing now, and it cannot drift out of
+// alignment with a box it is part of.
 //
-// The accent is KeyMenu, not the RowCursor the headers use: RowCursor is
-// reverse video, and a reversed rule tens of rows tall reads as a solid bar
-// that would drown out every other cue — the opposite of the one-bright-
-// element rule this accent exists to serve.
-func (sm *spotlightModel) dividerStyle(row, bodyH int) lipgloss.Style {
-	if row <= sm.focusedRun(bodyH) {
+// Carrying the focus cue on the frame rather than on text is also what lets the
+// header and cursor stay quiet: the loudest element on screen is a one-column
+// line, not a block of reversed video.
+func (sm *spotlightModel) borderStyle(f spotFocus) lipgloss.Style {
+	if sm.focus == f {
 		return sm.m.styles.KeyMenu
 	}
 	return sm.m.styles.KeyMenuDim
-}
-
-// focusedRun is how many body rows the focused pane actually fills.
-func (sm *spotlightModel) focusedRun(bodyH int) int {
-	n := len(sm.lines) - sm.offset
-	if sm.focus == focusList {
-		n = len(sm.rows) - sm.listStart(bodyH)
-	}
-	if n > bodyH {
-		n = bodyH
-	}
-	if n < 0 {
-		n = 0
-	}
-	return n
-}
-
-func (sm *spotlightModel) dividerCell(row, bodyH int) string {
-	return " " + sm.dividerStyle(row, bodyH).Render("│") + " "
 }
 
 // scrollMark is the "12–34/120" position marker: which slice of the preview is
@@ -183,43 +223,77 @@ func (sm *spotlightModel) footerHint() string {
 	return "[↑↓] move · [Enter] open · [Tab] preview · [Esc] " + esc
 }
 
-// searchLine is the query input above both panes. The caret is the list's
-// alone: it appears only while the list owns focus, so a focused preview can
-// never look like it is taking typed text.
-func (sm *spotlightModel) searchLine(w int) string {
+// searchBox is the query input: its own bordered field across the top of the
+// launcher. Bare text with a "> " prefix read as a caption rather than as
+// somewhere you type, which is the whole problem with an always-on search you
+// cannot see. The caret is the list's alone — it appears only while the list
+// owns focus, so a focused preview can never look like it is taking typed text.
+func (sm *spotlightModel) searchBox(w int) string {
 	st := sm.m.styles
-	q := sm.query
-	// The unfocused line draws "> " + q with no caret, so it only needs 2
-	// columns of overhead; the focused line adds the caret, needing 3. Using
-	// the focused reservation for both used to truncate the unfocused line
-	// one column earlier than it had to.
-	overhead := 2
+	// the two borders, the padding column, then "> " — and the caret too, but
+	// only when the focused line actually draws one. Reserving it either way
+	// truncates the unfocused query a column earlier than it has to.
+	overhead := 2 + 1 + 2
 	if sm.focus == focusList {
-		overhead = 3
+		overhead++
 	}
-	if room := w - overhead; lipgloss.Width(q) > room {
+	room := w - overhead
+	q := sm.query
+	if lipgloss.Width(q) > room {
 		q = fitLineFrom(q, lipgloss.Width(q)-room, room)
 	}
-	if sm.focus != focusList {
-		return st.KeyMenuDim.Render("> " + q)
+	line := st.KeyMenuDim.Render("> ") + st.Body.Render(q)
+	if sm.focus == focusList {
+		line = st.KeyMenu.Render("> ") + st.Body.Render(q) + st.KeyMenu.Render("▏")
 	}
-	return st.KeyMenu.Render(">") + " " + st.Body.Render(q) + st.KeyMenu.Render("▏")
+	return titledBoxHeight(sm.borderStyle(focusList), w, "Search", " "+line, 3)
 }
 
-// paneHeaderLine names the two panes and, on a focused preview that overflows,
-// says where in it you are.
-func (sm *spotlightModel) paneHeaderLine(leftW, prevW int) string {
-	const actions, preview = "Actions", "Preview"
-	left := sm.paneStyle(focusList).Render(actions) + spaces(leftW-lipgloss.Width(actions))
-	right := sm.paneStyle(focusPreview).Render(preview)
-	if mark := sm.scrollMark(); mark != "" {
-		pad := prevW - lipgloss.Width(preview) - lipgloss.Width(mark)
-		if pad < 1 {
-			pad = 1
-		}
-		right += spaces(pad) + sm.m.styles.KeyMenuDim.Render(mark)
+// previewPanel is the preview as its own titled box rather than text floating
+// beside a rule. Its title carries the scroll position when a focused preview
+// overflows, which is where a box's title belongs; the pane header it replaces
+// had to reserve a column for the same marker.
+//
+// A panel shorter than the block centres in it: the preview is the launcher's
+// answer to "what is this row", and answering in a box pinned to the top of a
+// tall column reads as content that failed to load the rest.
+func (sm *spotlightModel) previewPanel(blockH, w int) []string {
+	rows := len(sm.lines)
+	if max := blockH - 2; rows > max {
+		rows = max
 	}
-	return left + sm.dividerCell(0, sm.previewHeight()) + right
+	if rows < 1 {
+		rows = 1
+	}
+	title := "Preview"
+	if mark := sm.scrollMark(); mark != "" {
+		title += "  " + mark
+	}
+	// One column of padding inside the border, so prose does not touch the
+	// frame the way a bare column of text next to a rule used to.
+	padded := sm.previewPaneLines(rows, w-3)
+	for i := range padded {
+		padded[i] = " " + padded[i]
+	}
+	body := strings.Join(padded, "\n")
+	panel := strings.Split(titledBoxHeight(sm.borderStyle(focusPreview), w, title, body, rows+2), "\n")
+
+	blank := spaces(w)
+	for len(panel) < blockH {
+		if (blockH-len(panel))%2 == 1 {
+			panel = append([]string{blank}, panel...)
+			continue
+		}
+		panel = append(panel, blank)
+	}
+	return panel
+}
+
+// actionsHeader labels the list. The preview's label lives in its panel's
+// border, so this is the only header line left.
+func (sm *spotlightModel) actionsHeader(w int) string {
+	const actions = "Actions"
+	return sm.paneStyle(focusList).Render(actions) + spaces(w-lipgloss.Width(actions))
 }
 
 // listStart is the first visible list row: the window scrolls only far enough
@@ -253,12 +327,25 @@ func (sm *spotlightModel) listPaneLines(bodyH, w int) []string {
 // renders "ATM-1a2b3c  wire the indexer ›"; a hint is dim copy at the label
 // column with no cursor.
 func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
-	st := sm.m.styles
-	glyph, glyphStyle := "  ", st.Body
+	glyph, glyphStyle := "  ", sm.m.styles.Body
 	if cursor && r.selectable() {
 		glyph, glyphStyle = "▸ ", sm.cursorStyle()
 	}
-	text, style := r.label(), st.Body
+	text := sm.rowText(r)
+	style := sm.m.styles.Body
+	if r.kind == rowHint {
+		style = sm.m.styles.KeyMenuDim
+	}
+	text = fitLine(text, w-lipgloss.Width(glyph))
+	pad := w - lipgloss.Width(glyph) - lipgloss.Width(text)
+	return glyphStyle.Render(glyph) + style.Render(text) + spaces(pad)
+}
+
+// rowText is a row's text without its cursor glyph or padding. leftPaneWidth
+// measures the list with it and renderListRow draws with it, so the column can
+// never be sized against a different string than the one that lands in it.
+func (sm *spotlightModel) rowText(r spotRow) string {
+	text := r.label()
 	switch r.kind {
 	case rowGroup:
 		if r.group != nil {
@@ -293,11 +380,9 @@ func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 			text = tk.ID + "  " + tk.Title + " ›"
 		}
 	case rowHint:
-		text, style = spaces(spotKeyCol)+r.text, st.KeyMenuDim
+		text = spaces(spotKeyCol) + r.text
 	}
-	text = fitLine(text, w-lipgloss.Width(glyph))
-	pad := w - lipgloss.Width(glyph) - lipgloss.Width(text)
-	return glyphStyle.Render(glyph) + style.Render(text) + spaces(pad)
+	return text
 }
 
 // previewPaneLines is the right column: bodyH lines from sm.offset, each fit
@@ -337,17 +422,20 @@ func (sm *spotlightModel) previewPaneLines(bodyH, w int) []string {
 // glances at the box can always tell which half owns their keystrokes.
 func (sm *spotlightModel) renderOverlay() string {
 	st := sm.m.styles
-	leftW, prevW, bodyH := sm.leftPaneWidth(), sm.previewWidth(), sm.previewHeight()
+	leftW, blockH := sm.leftPaneWidth(), sm.blockHeight()
 	sm.clampOffset()
 
-	list := sm.listPaneLines(bodyH, leftW)
-	preview := sm.previewPaneLines(bodyH, prevW)
+	// The left block is its header and then the rows; the right block is the
+	// panel, whose own borders make the two into one line each.
+	left := append([]string{sm.actionsHeader(leftW)}, sm.listPaneLines(blockH-1, leftW)...)
+	panel := sm.previewPanel(blockH, sm.previewPanelWidth())
 
 	var body strings.Builder
-	body.WriteString(" " + sm.searchLine(sm.innerWidth()) + "\n")
-	body.WriteString(" " + sm.paneHeaderLine(leftW, prevW) + "\n")
-	for i := 0; i < bodyH; i++ {
-		body.WriteString(" " + list[i] + sm.dividerCell(i+1, bodyH) + preview[i] + "\n")
+	for _, line := range strings.Split(sm.searchBox(sm.innerWidth()), "\n") {
+		body.WriteString(" " + line + "\n")
+	}
+	for i := 0; i < blockH; i++ {
+		body.WriteString(" " + left[i] + spaces(spotPaneGap) + panel[i] + "\n")
 	}
 	body.WriteString(" " + st.KeyMenuDim.Render(fitLine(sm.footerHint(), sm.innerWidth())))
 
