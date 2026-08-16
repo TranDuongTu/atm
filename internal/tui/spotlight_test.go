@@ -329,6 +329,43 @@ func TestActivateCapabilitiesFromProjectsPane(t *testing.T) {
 	}
 }
 
+// left is inert in both halves of the launcher. In the list it is neither a
+// case in handleKey's switch nor a printable rune, so it cannot activate,
+// close, navigate, or type — the assertion the deleted
+// TestSpotlightEnterAndLeftAreInertInTheList used to carry, re-homed here
+// because only its Enter half went stale. In a focused preview it must NOT
+// hand focus back either: Tab and Esc are the two advertised exits, and a
+// third undocumented one is exactly what this pins against.
+func TestSpotlightLeftIsInert(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedChannels(t, m)
+
+	m.spotlight.openSpotlight()
+	moveCursorToLabel(t, m, "Channels")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyLeft})
+	if !m.spotlight.open || m.channelsOv.open {
+		t.Errorf("left must not activate or close from the list: open=%v channels=%v", m.spotlight.open, m.channelsOv.open)
+	}
+	if m.spotlight.query != "" {
+		t.Errorf("left must not type into the query, query=%q", m.spotlight.query)
+	}
+	if m.spotlight.level != levelRoot || m.spotlight.selectedLabel() != "Channels" {
+		t.Errorf("left must not move: level=%v selected=%q", m.spotlight.level, m.spotlight.selectedLabel())
+	}
+
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Conventions")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Enter on a reference entry must focus the preview")
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.spotlight.focus != focusPreview {
+		t.Errorf("left must not be a third way out of a focused preview, focus=%v", m.spotlight.focus)
+	}
+}
+
 func TestSpotlightEscClosesFromTheList(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
