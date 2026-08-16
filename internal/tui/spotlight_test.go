@@ -1548,8 +1548,56 @@ func TestSpotlightEscLeavesTaskActions(t *testing.T) {
 		t.Errorf("leaving the task-action level must drop its target: id=%q title=%q",
 			m.spotlight.taskID, m.spotlight.taskTitle)
 	}
+	// A second Esc — the query is back on screen, so it is the layer that
+	// peels next — leaves the group's empty-query tree.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "type to find a task…"}) {
-		t.Errorf("rows after Esc = %v, want the Task group's empty-query tree", got)
+		t.Errorf("rows after clearing the restored query = %v, want the Task group's empty-query tree", got)
+	}
+}
+
+// Esc out of a task's actions returns to the RESULTS, query intact — not to
+// an empty Task group the user has to retype their search into. Both halves
+// are asserted: restoring the query string without rebuilding the rows it
+// selected would read as working while showing nothing.
+func TestSpotlightEscRestoresTheTaskQuery(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "alpha one")
+	seedTask(t, m, "ATM", "alpha two")
+	seedTask(t, m, "ATM", "beta three")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "alpha")
+	before := rowLabels(m)
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.spotlight.query != "alpha" {
+		t.Errorf("query after Esc = %q, want the search intact", m.spotlight.query)
+	}
+	if got := rowLabels(m); !equalStrings(got, before) {
+		t.Errorf("rows after Esc =\n%v\nwant the results the user drilled from\n%v", got, before)
+	}
+	// The restored list is live, not a redrawn string: the cursor is on a
+	// result and its preview is that task.
+	sel := m.spotlight.selectedRow()
+	if sel == nil || sel.kind != rowTask {
+		t.Fatalf("selection after Esc = %q, want a task row", m.spotlight.selectedLabel())
+	}
+	if !strings.Contains(stripANSI(strings.Join(m.spotlight.lines, "\n")), sel.task.ID) {
+		t.Errorf("the restored selection must preview its task, lines:\n%s", strings.Join(m.spotlight.lines, "\n"))
+	}
+	// Drilling in again still works off the restored list.
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.level != levelTaskActions || m.spotlight.taskID != target.ID {
+		t.Errorf("re-drilling from the restored results: level=%v taskID=%q", m.spotlight.level, m.spotlight.taskID)
 	}
 }
 

@@ -26,6 +26,7 @@ type spotlightModel struct {
 	group     menuGroupID
 	taskID    string // levelTaskActions target: the task every action acts on
 	taskTitle string
+	taskQuery string // the Task-group search Esc restores on the way back out
 	query     string
 	cursor    int
 	rows      []spotRow
@@ -122,13 +123,17 @@ func (sm *spotlightModel) openAt(row int) {
 // every pop resets the query, rehomes the cursor, returns focus to the list,
 // and rebuilds. Keeping the reset discipline here is what stops a new
 // transition from forgetting half of it. A level other than levelTaskActions
-// also drops the task the action level was targeting.
+// also drops the task the action level was targeting, and the saved search it
+// was reached from — a caller that means to restore that search (escPeel)
+// reads it into a local before transitioning, so the reset here stays
+// unconditional rather than growing an exception.
 func (sm *spotlightModel) setLevel(l spotLevel, g menuGroupID) {
 	sm.level = l
 	sm.group = g
 	if l != levelTaskActions {
 		sm.taskID = ""
 		sm.taskTitle = ""
+		sm.taskQuery = ""
 	}
 	sm.query = ""
 	sm.cursor = 0
@@ -566,6 +571,13 @@ func (sm *spotlightModel) queryHome() int {
 // preview, then a typed query, then the task-action level, then the group
 // level. Only a bare root closes the launcher — so a user who drilled in and
 // typed is never thrown all the way out by one keypress.
+//
+// Leaving the task-action level restores the search the task was found by, so
+// the user lands back on their results rather than on an empty group. The
+// save/restore is explicit here rather than inside setLevel: the transition
+// point keeps its one meaning (reset everything), and the one rung that owes
+// the user something back says so where it happens. The next Esc then peels
+// the restored query, exactly as if it had never been left.
 func (sm *spotlightModel) escPeel() {
 	switch {
 	case sm.focus == focusPreview:
@@ -574,7 +586,11 @@ func (sm *spotlightModel) escPeel() {
 	case sm.query != "":
 		sm.setQuery("")
 	case sm.level == levelTaskActions:
+		q := sm.taskQuery // setLevel clears it; read it first
 		sm.setLevel(levelGroup, groupTask)
+		if q != "" {
+			sm.setQuery(q)
+		}
 	case sm.level == levelGroup:
 		sm.setLevel(levelRoot, groupNone)
 	default:
@@ -602,8 +618,10 @@ func (sm *spotlightModel) activate() tea.Cmd {
 		if r.task != nil {
 			// Recorded before setLevel, which builds the action rows around
 			// them; setLevel keeps the target precisely because the level it
-			// is entering is the one that acts on it.
-			sm.taskID, sm.taskTitle = r.task.ID, r.task.Title
+			// is entering is the one that acts on it. The search that found
+			// the task is saved with it: Esc owes the user their results
+			// back, not an empty group to retype into.
+			sm.taskID, sm.taskTitle, sm.taskQuery = r.task.ID, r.task.Title, sm.query
 			sm.setLevel(levelTaskActions, groupTask)
 		}
 	}
