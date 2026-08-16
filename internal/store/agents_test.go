@@ -1,9 +1,14 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+const agentsActor = "admin@cli:unset"
 
 func TestAgentsConfigRoundTrip(t *testing.T) {
 	s := newTestStore(t)
@@ -54,5 +59,63 @@ func TestSetSelectedAgentRejectsBadActor(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SetSelectedAgent("opencode", "not-an-actor"); err == nil {
 		t.Fatal("expected actor validation error")
+	}
+}
+
+// A file written by the OLD code (no "models") must load, and writing a model
+// must not disturb anything already there. This is the no-migration contract.
+func TestAgentModelIsAdditiveToLegacyConfig(t *testing.T) {
+	s := newTestStore(t)
+	legacy := `{"selected":"ollama:claude","args":{"claude":["--verbose"]}}`
+	if err := os.WriteFile(filepath.Join(s.Root, "agents.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAgentModel("ollama:claude", "glm-5.2", agentsActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := s.GetAgentsConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Selected != "ollama:claude" {
+		t.Fatalf("selected = %q, want ollama:claude", cfg.Selected)
+	}
+	if got := strings.Join(cfg.Args["claude"], " "); got != "--verbose" {
+		t.Fatalf("args lost: %q", got)
+	}
+	if cfg.Models["ollama:claude"] != "glm-5.2" {
+		t.Fatalf("models = %+v", cfg.Models)
+	}
+}
+
+// Models are keyed per (agent, launcher) pair, exactly like Args, so the two
+// launchers of one agent remember different models.
+func TestAgentModelIsPerSelectionKey(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetAgentModel("claude", "opus-5", agentsActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAgentModel("ollama:claude", "glm-5.2", agentsActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := s.GetAgentsConfig()
+	if cfg.Models["claude"] != "opus-5" || cfg.Models["ollama:claude"] != "glm-5.2" {
+		t.Fatalf("models = %+v", cfg.Models)
+	}
+}
+
+// An empty model clears the entry rather than storing "", so "no model" has
+// exactly one representation.
+func TestAgentModelEmptyClears(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetAgentModel("claude", "opus-5", agentsActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAgentModel("claude", "", agentsActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := s.GetAgentsConfig()
+	if _, ok := cfg.Models["claude"]; ok {
+		t.Fatalf("empty model should clear the entry, got %+v", cfg.Models)
 	}
 }

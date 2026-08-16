@@ -58,3 +58,18 @@ func (s *Store) SetAgentArgs(name string, args []string, actor string) error {
 		c.Args[name] = args
 	}, actor)
 }
+
+// SetAgentModel records the model for a selection key. An empty model clears
+// the entry, so "use the harness default" has one representation.
+func (s *Store) SetAgentModel(key, model, actor string) error {
+	return s.writeAgentsConfig(func(c *AgentsConfig) {
+		if model == "" {
+			delete(c.Models, key)
+			return
+		}
+		if c.Models == nil {
+			c.Models = map[string]string{}
+		}
+		c.Models[key] = model
+	}, actor)
+}
