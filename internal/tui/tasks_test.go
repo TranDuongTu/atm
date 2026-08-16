@@ -446,9 +446,24 @@ func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
 	seedTask(t, m, "ATM", "stray", "ATM:needs-triage")
 	m.refreshAll()
 	got := m.tasks.headerLine()
-	want := "CAPABILITY: workflow    TOTAL: 1/2 tasks    SORT: updated-desc"
+	want := "CAPABILITY: workflow    TOTAL: 1/2 tasks    SORT: updated-desc [s]"
 	if got != want {
 		t.Fatalf("headerLine = %q, want %q", got, want)
+	}
+}
+
+// TestSortFieldAdvertisesKey covers the registry curation in ATM-77af5e:
+// "Cycle sort" is dropped from the spotlight because it's a rapid-toggle key
+// pressed repeatedly while looking at the list, not a launcher destination —
+// instead the SORT field itself advertises the [s] key inline.
+func TestSortFieldAdvertisesKey(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.refreshAll()
+	got := m.tasks.headerLine()
+	if !strings.Contains(got, "SORT: updated-desc [s]") {
+		t.Errorf("headerLine = %q, want it to contain %q", got, "SORT: updated-desc [s]")
 	}
 }
 

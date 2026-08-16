@@ -348,22 +348,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("s", scopeTasksList): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if m.tasks.sortMode != 1 {
-					t.Errorf("s on the tasks list must cycle the sort, sortMode=%d want 1", m.tasks.sortMode)
-				}
-			},
-		},
-		probeID("S", scopeTasksList): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
-					t.Errorf("S on the tasks list must re-ensure the capability vocabulary (toast), toast=%q", m.toastMsg)
-				}
-			},
-		},
 		probeID("p", scopeTasksList): {
 			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {

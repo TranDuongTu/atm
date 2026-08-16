@@ -100,8 +100,6 @@ var menuEntries = []menuEntry{
 
 	// Actions — tasks list
 	{key: "a", label: "Add task", summary: "Create a task with a title, optional description, and labels.", kind: kindDialog, scopes: []menuScope{scopeTasksList}, section: sectionActions},
-	{key: "s", label: "Cycle sort", summary: "Step the task list through its sort orders.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions},
-	{key: "S", label: "Re-ensure capability vocabulary", summary: "Re-seed the enabled capabilities' labels and boards for this project.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions},
 	{key: "p", label: "Pin/unpin board", summary: "Pin the selected board to a !1..!9 jump slot, or unpin it.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions},
 
 	// Actions — task detail
@@ -142,6 +140,7 @@ var menuEntries = []menuEntry{
 	{key: "space", label: "Scroll detail / page", hidden: true},
 	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},
 	{key: "q / ctrl+c", label: "Quit", hidden: true},
+	{key: "s", label: "Cycle task sort (tasks list)", hidden: true},
 }
 
 // preludeFor is the key chain that establishes a scope before an entry's own

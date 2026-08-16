@@ -302,7 +302,7 @@ func (t *tasksModel) headerLine() string {
 	if capName == "" {
 		capName = "(none)"
 	}
-	return fmt.Sprintf("CAPABILITY: %s    TOTAL: %d/%d tasks    SORT: %s", capName, t.capCount, t.totalCount, t.sortMode)
+	return fmt.Sprintf("CAPABILITY: %s    TOTAL: %d/%d tasks    SORT: %s [s]", capName, t.capCount, t.totalCount, t.sortMode)
 }
 
 func (t *tasksModel) renderList() string {
