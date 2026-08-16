@@ -28,7 +28,7 @@ func TestPreviewRendersLiveOverlayContent(t *testing.T) {
 	walkTo(t, m, "Channels")
 
 	got := strings.Join(m.spotlight.lines, "\n")
-	want := m.channelsOv.previewBody(m.spotlight.menuBoxWidth() - 4)
+	want := m.channelsOv.previewBody(m.spotlight.previewWidth())
 	if want == "" {
 		t.Fatal("channels previewBody produced nothing to compare")
 	}
@@ -57,7 +57,7 @@ func TestPreviewRendersDispatchOnColdSession(t *testing.T) {
 	walkTo(t, m, "Dispatch a session")
 
 	got := strings.Join(m.spotlight.lines, "\n")
-	want := m.dispatchDlg.previewBody(m.spotlight.menuBoxWidth() - 4)
+	want := m.dispatchDlg.previewBody(m.spotlight.previewWidth())
 	if want == "" {
 		t.Fatal("dispatch previewBody produced nothing to compare")
 	}
@@ -176,7 +176,7 @@ func TestPreviewReflowsOnResize(t *testing.T) {
 
 	m.SetSize(60, 40)
 
-	want := strings.Split(strings.TrimRight(renderConventionsText(m.styles, m.spotlight.menuBoxWidth()-4, conventionsTextTUI), "\n"), "\n")
+	want := strings.Split(strings.TrimRight(renderConventionsText(m.styles, m.spotlight.previewWidth(), conventionsTextTUI), "\n"), "\n")
 	got := strings.Join(m.spotlight.lines, "\n")
 	if got != strings.Join(want, "\n") {
 		t.Errorf("preview did not re-wrap to the new width after resize\n--- got ---\n%s\n--- want ---\n%s", got, strings.Join(want, "\n"))

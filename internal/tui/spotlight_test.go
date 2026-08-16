@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // The root is the launcher's whole surface: the four groups, then the inline
@@ -429,4 +432,308 @@ func walkTo(t *testing.T, m *Model, label string) {
 		return
 	}
 	t.Fatalf("no menu entry labelled %q", label)
+}
+
+// --- the horizontal layout ---
+
+// The launcher is a split: a short action list on the left, a full-height
+// preview on the right, a search input above both, a footer under both.
+// Pinned as one test because the point is that all four regions render at
+// once — the old vertical stack put the preview below the fold.
+func TestSpotlightRenderHorizontal(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	for _, want := range []string{
+		"Actions",            // left pane header
+		"Preview",            // right pane header
+		"▤ Project ›",        // a group row: icon, label, drill chevron, no key column
+		"[D]",                // an entry row's key column
+		"↯",                  // and its icon
+		"Dispatch a session", // and its label
+		"[Enter] open",       // the list footer
+		"> ▏",                // the search input, with its caret
+	} {
+		mustContain(t, view, want)
+	}
+}
+
+// Focus is unmistakable: the caret belongs to the list, and the footer
+// advertises the keys of whichever half owns the keystrokes.
+func TestSpotlightFocusSwapsCaretAndFooter(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "> ▏")
+	mustContain(t, view, "[Tab] preview")
+	mustNotContain(t, view, "back to list")
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Tab must focus the preview")
+	}
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustNotContain(t, view, "▏")
+	mustNotContain(t, view, "[Enter] open")
+	mustContain(t, view, "back to list")
+	mustContain(t, view, "[↑↓/PgUp/PgDn] scroll")
+}
+
+// Routed from Task 6's review: the footer used to promise "[Esc] back" at
+// every level, but a bare root has nothing to go back to — Esc closes there.
+// A typed query is a layer of its own, so it turns the promise back into
+// "back" without any level change.
+func TestSpotlightFooterEscLabelTracksWhatEscDoes(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "[Esc] close")
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "[Esc] back")
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // clears the query
+	moveCursorToLabel(t, m, "Project")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "[Esc] back")
+}
+
+// A focused preview that overflows says where in the content you are; an
+// unfocused one does not — the marker is a scroll cue, and only a focused
+// preview is being scrolled.
+func TestSpotlightPreviewScrollMarker(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Conventions")
+
+	h, n := m.spotlight.previewHeight(), len(m.spotlight.lines)
+	if n <= h {
+		t.Fatalf("test needs a preview longer than one screenful: %d lines, height %d", n, h)
+	}
+	first := fmt.Sprintf("1–%d/%d", h, n)
+
+	if view := stripANSI(m.spotlight.renderOverlay()); strings.Contains(view, first) {
+		t.Errorf("an unfocused preview must not show the scroll marker %q:\n%s", first, view)
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Enter on a reference entry must focus the preview")
+	}
+	mustContain(t, stripANSI(m.spotlight.renderOverlay()), first)
+
+	// A page down, clamped to the last screenful when the content is under
+	// two screenfuls tall.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	off := h
+	if top := n - h; off > top {
+		off = top
+	}
+	mustContain(t, stripANSI(m.spotlight.renderOverlay()), fmt.Sprintf("%d–%d/%d", off+1, off+h, n))
+}
+
+// Routed from Task 6's review: the footer advertises PgUp/PgDn, so they must
+// page the preview — from the preview's own focus and from the list, where
+// the preview is visible but not focused.
+func TestSpotlightPageKeysScrollPreviewFromEitherFocus(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	walkTo(t, m, "Keymap reference")
+	// One page, or the last screenful when the content is under two screenfuls.
+	h := m.spotlight.previewHeight()
+	if top := m.spotlight.maxPreviewOffset(); h > top {
+		h = top
+	}
+	if h == 0 {
+		t.Fatal("test needs a preview longer than one screenful")
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.spotlight.offset != h || m.spotlight.focus != focusList {
+		t.Errorf("PgDn from the list must page the preview without stealing focus: offset=%d focus=%v", m.spotlight.offset, m.spotlight.focus)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.spotlight.offset != 0 {
+		t.Errorf("PgUp from the list must page back, offset=%d", m.spotlight.offset)
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Enter on a reference entry must focus the preview")
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.spotlight.offset != h {
+		t.Errorf("PgDn in a focused preview must page down, offset=%d", m.spotlight.offset)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.spotlight.offset != 0 {
+		t.Errorf("PgUp in a focused preview must page back up, offset=%d", m.spotlight.offset)
+	}
+}
+
+// Routed from Task 6's review: Tab used to focus the preview unconditionally,
+// stranding the user in a blank pane where most keys do nothing. An empty
+// preview is not focusable, and it says so rather than rendering as a blank
+// column the user cannot tell from a broken one.
+func TestSpotlightTabIgnoresAnEmptyPreview(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.lines = nil
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.focus != focusList {
+		t.Errorf("Tab must not focus an empty preview, focus=%v", m.spotlight.focus)
+	}
+	mustContain(t, stripANSI(m.spotlight.renderOverlay()), "(no preview)")
+}
+
+// The two panes and the divider column exactly fill the inner width, and the
+// divider lands on the same column on the header row and on every body row —
+// the alignment the split depends on to read as two panes rather than as
+// ragged text.
+func TestSpotlightLayoutColumnsAlign(t *testing.T) {
+	for _, w := range []int{64, 100, 200} {
+		m := newTestModel(t)
+		m.SetSize(w, 40)
+		m.spotlight.openSpotlight()
+
+		bw, leftW, prevW := m.spotlight.menuBoxWidth(), m.spotlight.leftPaneWidth(), m.spotlight.previewWidth()
+		if leftW+3+prevW != bw-4 {
+			t.Errorf("width %d: panes %d + 3 + %d must fill the inner width %d", w, leftW, prevW, bw-4)
+		}
+
+		lines := strings.Split(stripANSI(m.spotlight.renderOverlay()), "\n")
+		if got := len(lines); got != m.spotlight.spotlightHeight() {
+			t.Fatalf("width %d: overlay is %d lines, want %d", w, got, m.spotlight.spotlightHeight())
+		}
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != bw {
+				t.Errorf("width %d: line %d is %d columns, want %d: %q", w, i, got, bw, line)
+			}
+		}
+		// lines[0] is the top border, [1] the search input, [2] the pane
+		// headers, then previewHeight() body rows, then the footer and the
+		// bottom border.
+		mustContain(t, lines[2], "Actions")
+		for i := 2; i < 3+m.spotlight.previewHeight(); i++ {
+			r := []rune(lines[i])
+			if r[leftW+3] != '│' {
+				t.Errorf("width %d: line %d has no divider at column %d: %q", w, i, leftW+3, lines[i])
+			}
+		}
+	}
+}
+
+// Exactly one element is bright at a time: the focused pane's header, the
+// divider running alongside it, and — only while the list owns focus — the ▸
+// glyph. The test profile renders styles as plain text, so the choice itself
+// is what gets asserted.
+func TestSpotlightFocusVisualsSwapStyles(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	st := m.styles
+
+	same := func(label string, got, want lipgloss.Style) {
+		t.Helper()
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: wrong style", label)
+		}
+	}
+
+	same("list header while the list is focused", m.spotlight.paneStyle(focusList), st.RowCursor)
+	same("preview header while the list is focused", m.spotlight.paneStyle(focusPreview), st.KeyMenuDim)
+	same("cursor glyph while the list is focused", m.spotlight.cursorStyle(), st.RowCursor)
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Tab must focus the preview")
+	}
+	same("list header while the preview is focused", m.spotlight.paneStyle(focusList), st.KeyMenuDim)
+	same("preview header while the preview is focused", m.spotlight.paneStyle(focusPreview), st.RowCursor)
+	same("cursor glyph while the preview is focused", m.spotlight.cursorStyle(), st.Muted)
+
+	// The bright run of the divider is as long as the focused pane's content:
+	// it starts at the header row and stops where that pane's rows stop. Its
+	// accent is KeyMenu rather than the headers' reverse-video RowCursor — see
+	// dividerStyle.
+	m.spotlight.escPeel()
+	run := len(m.spotlight.rows)
+	same("divider beside the last list row", m.spotlight.dividerStyle(run, m.spotlight.previewHeight()), st.KeyMenu)
+	same("divider past the last list row", m.spotlight.dividerStyle(run+1, m.spotlight.previewHeight()), st.KeyMenuDim)
+}
+
+// The title says where in the tree you are, so a drilled launcher never looks
+// like the root.
+func TestSpotlightBreadcrumb(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	if got := m.spotlight.breadcrumb(); got != "Spotlight" {
+		t.Errorf("root breadcrumb = %q", got)
+	}
+
+	moveCursorToLabel(t, m, "Project")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.spotlight.breadcrumb(); got != "Spotlight · Project" {
+		t.Errorf("group breadcrumb = %q", got)
+	}
+
+	m.spotlight.taskID = "ATM-7"
+	m.spotlight.setLevel(levelTaskActions, groupTask)
+	if got := m.spotlight.breadcrumb(); got != "Spotlight · Task · ATM-7" {
+		t.Errorf("task-actions breadcrumb = %q", got)
+	}
+}
+
+// A group's preview is the group's contents: its hint, a blank line, then one
+// line per member entry. Hovering a group must answer "what is in here?"
+// rather than repeating the one-line hint the row already carries.
+func TestGroupPreviewLines(t *testing.T) {
+	if got := groupPreviewLines(nil, 80); got != nil {
+		t.Errorf("a nil group has no preview, got %v", got)
+	}
+
+	g := groupByID(groupBoard)
+	got := groupPreviewLines(g, 200)
+	if len(got) < 3 {
+		t.Fatalf("group preview too short: %v", got)
+	}
+	if got[0] != g.hint {
+		t.Errorf("first line = %q, want the group hint %q", got[0], g.hint)
+	}
+	if got[1] != "" {
+		t.Errorf("second line = %q, want a blank separator", got[1])
+	}
+	var want []string
+	for _, e := range menuEntries {
+		if e.hidden || e.group != g.id {
+			continue
+		}
+		want = append(want, e.icon+" "+e.label+" — "+e.summary)
+	}
+	if len(want) == 0 {
+		t.Fatal("the Board group has no member entries to preview")
+	}
+	if !equalStrings(got[2:], want) {
+		t.Errorf("member lines =\n%v\nwant\n%v", got[2:], want)
+	}
+
+	// Every line fits the pane it is rendered into.
+	for _, line := range groupPreviewLines(g, 30) {
+		if w := lipgloss.Width(line); w > 30 {
+			t.Errorf("line %q is %d columns, want at most 30", line, w)
+		}
+	}
 }

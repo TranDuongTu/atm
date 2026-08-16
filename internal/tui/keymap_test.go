@@ -22,6 +22,19 @@ func TestMenuEntriesReplayRoundTrip(t *testing.T) {
 	}
 }
 
+// The named (non-rune) keys keyMsgFromString special-cases must round-trip
+// too. They are not all reachable from menuEntries — "tab" is the spotlight's
+// own focus swap rather than any entry's replay key — so the table above
+// cannot cover them, and a missing case would silently synthesize the literal
+// runes "t","a","b" instead.
+func TestKeyMsgFromStringNamedKeys(t *testing.T) {
+	for _, k := range []string{"enter", "esc", "tab", "ctrl+right", "ctrl+left"} {
+		if got := keyMsgFromString(k).String(); got != k {
+			t.Errorf("keyMsgFromString(%q).String() = %q", k, got)
+		}
+	}
+}
+
 // Hidden entries never carry a section other than Actions-invisible
 // documentation, and reference entries never carry a key.
 func TestMenuEntriesShape(t *testing.T) {

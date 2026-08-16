@@ -6,7 +6,6 @@ import (
 
 	"atm/internal/core"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 )
 
@@ -287,8 +286,17 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "enter":
 		return sm.activate()
 	case "tab":
-		sm.focus = focusPreview
-		sm.offset = 0
+		// An empty preview is not worth focusing: Tab would strand the user in
+		// a pane with nothing to scroll, where every key but Tab/Esc/`\` does
+		// nothing. The pane says "(no preview)" rather than going blank, so
+		// the ignored Tab reads as "nothing to see" and not as a dead key.
+		if len(sm.lines) > 0 {
+			sm.focus = focusPreview
+		}
+	case "pgup":
+		sm.scrollPreview(-sm.previewHeight())
+	case "pgdown":
+		sm.scrollPreview(sm.previewHeight())
 	case "esc":
 		sm.escPeel()
 	case "backspace":
@@ -303,19 +311,20 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handlePreviewKey is the focused-preview mode: the arrows (advertised in the
-// footer) and j/k scroll; Tab and Esc — the only two exits — hand focus back
-// to the list. Printable keys do not type here: the query belongs to the list.
+// handlePreviewKey is the focused-preview mode: the arrows and j/k scroll a
+// line, PgUp/PgDn a screenful (both advertised in the footer); Tab and Esc —
+// the only two exits — hand focus back to the list. Printable keys do not type
+// here: the query belongs to the list.
 func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) {
 	switch k.String() {
 	case "j", "down":
-		if sm.offset < sm.maxPreviewOffset() {
-			sm.offset++
-		}
+		sm.scrollPreview(1)
 	case "k", "up":
-		if sm.offset > 0 {
-			sm.offset--
-		}
+		sm.scrollPreview(-1)
+	case "pgdown":
+		sm.scrollPreview(sm.previewHeight())
+	case "pgup":
+		sm.scrollPreview(-sm.previewHeight())
 	case "tab", "esc":
 		sm.escPeel()
 	}
@@ -431,11 +440,11 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 }
 
 // refreshPreview rebuilds the preview content for the cursor row: a group row
-// gets the group's one-line hint; a reference entry gets its full text
-// (falling back to the summary if its refKind is somehow unrecognized);
-// anything else tries the live renderer registry, falling back to the summary
-// line when no renderer is registered or the registry renderer produced
-// nothing. Rebuilding from scratch (rather than caching) is what keeps this
+// gets its contents (the hint plus one line per member entry); a reference
+// entry gets its full text (falling back to the summary if its refKind is
+// somehow unrecognized); anything else tries the live renderer registry,
+// falling back to the summary line when no renderer is registered or the
+// registry renderer produced nothing. Rebuilding from scratch (rather than caching) is what keeps this
 // safe to call again on resize — SetSize calls it whenever the spotlight is
 // open, so a stale wrap never survives a terminal resize.
 func (sm *spotlightModel) refreshPreview() {
@@ -445,11 +454,9 @@ func (sm *spotlightModel) refreshPreview() {
 	if r == nil {
 		return
 	}
-	w, h := sm.menuBoxWidth()-4, sm.previewHeight()
+	w, h := sm.previewWidth(), sm.previewHeight()
 	if r.kind == rowGroup {
-		if r.group != nil {
-			sm.lines = strings.Split(wordwrap.String(r.group.hint, w), "\n")
-		}
+		sm.lines = groupPreviewLines(r.group, w)
 		return
 	}
 	e := r.entry
@@ -500,132 +507,23 @@ func (sm *spotlightModel) maxPreviewOffset() int {
 	return top
 }
 
-// spotlightKeyCol is the fixed width of the key column. Key-first with a
-// fixed column keeps the labels aligned, so the list reads as a keymap the
-// user can learn, not as a menu with a key footnote.
-const spotlightKeyCol = 8
-
-// renderRow draws "  [a]     Add project" — cursor glyph, padded key, label.
-// A group, task, or hint row has no key, so the column pads to blank and its
-// label still lines up with the entry labels. (Task 7 redesigns this half.)
-func (sm *spotlightModel) renderRow(r spotRow, cursor bool, w int) string {
-	glyph := "  "
-	if cursor {
-		glyph = "▸ "
-	}
-	key := ""
-	if r.entry != nil && r.entry.key != "" {
-		key = "[" + r.entry.key + "]"
-	}
-	if lipgloss.Width(key) < spotlightKeyCol {
-		key += spaces(spotlightKeyCol - lipgloss.Width(key))
-	} else {
-		key += " "
-	}
-	return fitLine(glyph+key+r.label(), w)
-}
-
-// menuBoxWidth is the overlay width: 60% of the terminal, at least 64, and
-// never wider than the terminal minus the two side columns. Mirrors
-// channelsModel.renderOverlay.
-func (sm *spotlightModel) menuBoxWidth() int {
-	bw := sm.m.width * 60 / 100
-	if bw < 64 {
-		bw = 64
-	}
-	if bw > sm.m.width-4 {
-		bw = sm.m.width - 4
-	}
-	return bw
-}
-
-// spotlightHeight is the overlay's total height: most of the terminal, so the
-// global list and its preview both have room.
-func (sm *spotlightModel) spotlightHeight() int {
-	h := sm.m.height - 6
-	if h < 12 {
-		h = 12
-	}
-	return h
-}
-
-// previewHeight is the bottom region's content height — roughly half the box,
-// minus the divider and the footer.
-func (sm *spotlightModel) previewHeight() int {
-	h := sm.spotlightHeight()/2 - 2
-	if h < 3 {
-		h = 3
-	}
-	return h
-}
-
-// renderOverlay draws the list above and the preview below, separated by a
-// divider. The list scrolls around the cursor when it exceeds its region;
-// the preview shows sm.lines from sm.offset.
-func (sm *spotlightModel) renderOverlay() string {
-	styles := sm.m.styles
-	bw := sm.menuBoxWidth()
-	inner := bw - 4
-	total := sm.spotlightHeight()
-	previewH := sm.previewHeight()
-	listH := total - previewH - 4 // divider + footer + the box's two border rows
-	if listH < 3 {
-		listH = 3
-	}
-
-	// Scroll the list so the cursor stays inside its region.
-	start := 0
-	if sm.cursor >= listH {
-		start = sm.cursor - listH + 1
-	}
-	end := start + listH
-	if end > len(sm.rows) {
-		end = len(sm.rows)
-	}
-
-	var body strings.Builder
-	for i := start; i < end; i++ {
-		line := sm.renderRow(sm.rows[i], i == sm.cursor, inner)
-		switch {
-		case i == sm.cursor:
-			line = styles.RowCursor.Render(line)
-		case sm.rows[i].kind == rowHint:
-			line = styles.KeyMenuDim.Render(line)
-		default:
-			line = styles.Body.Render(line)
-		}
-		body.WriteString(line + "\n")
-	}
-	// padToHeight pads a rendered block to a total *line count*, not a count
-	// of blank lines to append — passing "" through it would swallow the
-	// trailing newline and merge the next divider onto this line, so the
-	// remaining rows are padded directly with newlines instead.
-	body.WriteString(strings.Repeat("\n", listH-(end-start)))
-
-	label := "Preview"
-	if sm.focus == focusPreview {
-		label = "Preview ·"
-	}
-	body.WriteString(sectionDivider(styles, inner, label) + "\n")
-
-	if sm.offset > sm.maxPreviewOffset() {
-		sm.offset = sm.maxPreviewOffset()
+// clampOffset keeps the preview scroll inside its content. Every scroll goes
+// through it, and so does the renderer, so a stale offset (a resize that
+// re-wrapped sm.lines shorter, say) can never survive to be drawn.
+func (sm *spotlightModel) clampOffset() {
+	if top := sm.maxPreviewOffset(); sm.offset > top {
+		sm.offset = top
 	}
 	if sm.offset < 0 {
 		sm.offset = 0
 	}
-	shown := 0
-	for i := sm.offset; i < len(sm.lines) && shown < previewH; i++ {
-		body.WriteString(fitLine(sm.lines[i], inner) + "\n")
-		shown++
-	}
-	body.WriteString(strings.Repeat("\n", previewH-shown))
+}
 
-	footer := "[↑/↓]move  [Enter]open  [Esc]back"
-	if sm.focus == focusPreview {
-		footer = "[j/k]scroll  [Esc]back"
-	}
-	body.WriteString(styles.KeyMenuDim.Render(footer))
-
-	return titledBoxHeight(styles.DialogBody, bw, "Spotlight", body.String(), total)
+// scrollPreview moves the preview window by delta lines. PgUp/PgDn reach it
+// from either focus: the preview is on screen whether or not it owns the
+// keystrokes, so paging it from the list is useful and costs the list nothing
+// (neither key types or navigates there).
+func (sm *spotlightModel) scrollPreview(delta int) {
+	sm.offset += delta
+	sm.clampOffset()
 }

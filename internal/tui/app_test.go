@@ -273,8 +273,9 @@ func TestSpotlightListScrolls(t *testing.T) {
 	m := newTestModel(t)
 	// A short terminal, so the eight root rows outnumber the list region: the
 	// launcher's root is a curated tree now, not the old exhaustive list, and
-	// it fits on a full-height screen.
-	m.SetSize(120, 20)
+	// the list pane runs the full height of the box, so it takes a genuinely
+	// small terminal to overflow it.
+	m.SetSize(120, 16)
 	update(t, m, "2")
 	update(t, m, "\\")
 	if !m.spotlight.open {
