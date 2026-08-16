@@ -586,18 +586,42 @@ func TestThemeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 }
 
-func TestThemeCyclesInsideSpotlight(t *testing.T) {
+// TestThemeKeyTypesIntoTheSpotlightQuery pins the key-column contract: with
+// type-to-filter always on, a printable key inside the spotlight goes to the
+// search query, so the `[T]` column is documentation of the real TUI binding
+// and never a live accelerator. `\` is the one key that keeps its role inside
+// the launcher. T formerly cycled the theme from inside the spotlight, which
+// made the query unable to contain the letter at all.
+func TestThemeKeyTypesIntoTheSpotlightQuery(t *testing.T) {
 	m := newTestModel(t)
 	update(t, m, "\\")
 	if !m.spotlight.open {
 		t.Fatalf("setup: spotlight should be open, got %v", m.spotlight.open)
 	}
+	before := m.themeName
+
 	update(t, m, "T")
-	if m.themeName != themeLight {
-		t.Fatalf("themeName = %q want %q", m.themeName, themeLight)
+	if m.themeName != before {
+		t.Errorf("T inside the spotlight must not cycle the theme, themeName = %q", m.themeName)
+	}
+	if m.spotlight.query != "T" {
+		t.Errorf("T inside the spotlight must type into the query, query = %q", m.spotlight.query)
 	}
 	if !m.spotlight.open {
-		t.Fatalf("theme cycling should not close the spotlight, got open=%v", m.spotlight.open)
+		t.Errorf("typing must not close the spotlight, open=%v", m.spotlight.open)
+	}
+
+	// The binding the key column documents is still real: with the launcher
+	// closed, T cycles the theme as it always did. (Reaching it from inside
+	// the launcher is Enter on the Cycle theme row — see
+	// TestSpotlightStaticActivationReplays.)
+	update(t, m, "\\")
+	if m.spotlight.open {
+		t.Fatalf("setup: \\ must close the spotlight")
+	}
+	update(t, m, "T")
+	if m.themeName != themeLight {
+		t.Errorf("T outside the spotlight must cycle the theme, themeName = %q want %q", m.themeName, themeLight)
 	}
 }
 

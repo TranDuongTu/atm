@@ -145,6 +145,20 @@ func TestPreviewReferenceScrollsWhenFocused(t *testing.T) {
 	if m.spotlight.offset != 1 {
 		t.Errorf("j must scroll the focused preview, offset=%d", m.spotlight.offset)
 	}
+	// The preview footer advertises the arrows, so they must scroll too — and
+	// a printable key must not type into the query here: the query belongs to
+	// the list.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.spotlight.offset != 2 {
+		t.Errorf("down must scroll the focused preview, offset=%d", m.spotlight.offset)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.spotlight.offset != 1 {
+		t.Errorf("up must scroll the focused preview back, offset=%d", m.spotlight.offset)
+	}
+	if m.spotlight.query != "" {
+		t.Errorf("keys in a focused preview must not type into the query, query=%q", m.spotlight.query)
+	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.spotlight.focus != focusList || !m.spotlight.open {
 		t.Error("Esc from a focused preview must return to the list, not close")

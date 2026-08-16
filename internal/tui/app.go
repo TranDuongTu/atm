@@ -499,12 +499,14 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// assigned after this point, then renders until the next key.
 	m.toastMsg = ""
 
-	// Spotlight overlay consumes keys until closed. T still cycles the theme.
+	// The spotlight consumes every key until closed — including T, which the
+	// other overlays still take as the global theme shortcut. Inside the
+	// launcher type-to-filter is always on, so a printable key belongs to the
+	// search query and the rendered key column is documentation of the real
+	// binding rather than a live accelerator; intercepting T here would make
+	// the letter untypeable. The theme is still reachable from the launcher:
+	// Enter on its row replays T after closing.
 	if m.spotlight.open {
-		if k.String() == "T" {
-			m.cycleTheme()
-			return nil
-		}
 		return m.spotlight.handleKey(k)
 	}
 

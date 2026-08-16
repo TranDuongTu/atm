@@ -303,9 +303,9 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handlePreviewKey is the focused-preview mode: j/k and the arrows scroll,
-// Tab/Esc/left hand focus back to the list. Printable keys do not type here —
-// the query belongs to the list.
+// handlePreviewKey is the focused-preview mode: the arrows (advertised in the
+// footer) and j/k scroll; Tab and Esc — the only two exits — hand focus back
+// to the list. Printable keys do not type here: the query belongs to the list.
 func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) {
 	switch k.String() {
 	case "j", "down":
@@ -316,7 +316,7 @@ func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) {
 		if sm.offset > 0 {
 			sm.offset--
 		}
-	case "tab", "esc", "left":
+	case "tab", "esc":
 		sm.escPeel()
 	}
 }
