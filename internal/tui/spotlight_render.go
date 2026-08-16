@@ -334,6 +334,13 @@ func (sm *spotlightModel) renderOverlay() string {
 // groupPreviewLines is a group row's preview: the group's hint, a blank line,
 // then one line per member entry. Hovering a group answers "what is in here?"
 // — repeating the hint alone would only restate what the row already says.
+//
+// One line per entry is the shape, so a summary too long for the pane is cut
+// rather than wrapped — and cut with an ellipsis (fitLineTail, not fitLine),
+// because these are prose lines that overflow at every terminal width short of
+// about 200 columns. A whole pane of lines stopping mid-word with no cue reads
+// as broken; it is also the first thing the launcher shows, since the cursor
+// opens on a group row.
 func groupPreviewLines(g *menuGroup, w int) []string {
 	if g == nil {
 		return nil
@@ -345,7 +352,7 @@ func groupPreviewLines(g *menuGroup, w int) []string {
 		if e.hidden || e.group != g.id {
 			continue
 		}
-		out = append(out, fitLine(e.icon+" "+e.label+" — "+e.summary, w))
+		out = append(out, fitLineTail(e.icon+" "+e.label+" — "+e.summary, w))
 	}
 	return out
 }

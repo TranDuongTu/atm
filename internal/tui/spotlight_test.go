@@ -789,10 +789,51 @@ func TestGroupPreviewLines(t *testing.T) {
 		t.Errorf("member lines =\n%v\nwant\n%v", got[2:], want)
 	}
 
-	// Every line fits the pane it is rendered into.
+	// Every line fits the pane it is rendered into, and a line too long for it
+	// is cut with an ellipsis rather than stopping mid-word — these are prose
+	// summaries, so at a realistic pane width most of them overflow, and a
+	// whole pane of them cut silently reads as broken rather than as cropped.
+	cut := 0
 	for _, line := range groupPreviewLines(g, 30) {
 		if w := lipgloss.Width(line); w > 30 {
 			t.Errorf("line %q is %d columns, want at most 30", line, w)
 		}
+		if !strings.HasSuffix(line, "…") {
+			continue
+		}
+		cut++
+		if w := lipgloss.Width(line); w != 30 {
+			t.Errorf("cut line %q is %d columns, want exactly 30 — the ellipsis must replace the last column, not extend past it", line, w)
+		}
+	}
+	if cut == 0 {
+		t.Error("no line was cut at width 30, so the ellipsis went unexercised")
+	}
+}
+
+// The ellipsis has to hold in the real overlay, not only in the helper: it is
+// the first content the launcher shows, because the cursor opens on a group
+// row.
+func TestSpotlightGroupPreviewCutsWithEllipsis(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	if got := m.spotlight.selectedLabel(); got != "Project" {
+		t.Fatalf("setup: the launcher must open on a group row, got %q", got)
+	}
+
+	w := m.spotlight.previewWidth()
+	cut := 0
+	for _, line := range m.spotlight.lines {
+		if !strings.HasSuffix(line, "…") {
+			continue
+		}
+		cut++
+		if got := lipgloss.Width(line); got != w {
+			t.Errorf("cut preview line %q is %d columns, want previewWidth() = %d", line, got, w)
+		}
+	}
+	if cut == 0 {
+		t.Fatalf("no preview line was cut at width %d, so this asserts nothing:\n%s", w, strings.Join(m.spotlight.lines, "\n"))
 	}
 }
