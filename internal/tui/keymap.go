@@ -94,7 +94,6 @@ var menuEntries = []menuEntry{
 
 	// Actions — projects detail
 	{key: "n", label: "Set project name", summary: "Rename the open project; the code is immutable.", kind: kindDialog, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
-	{key: "c", label: "Toggle capability", summary: "Cycle the capability cursor to the next registered capability; space toggles it enabled/disabled.", kind: kindAction, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 
 	// Actions — projects persona drill
 	{key: "d", label: "Dispatch this persona", summary: "Open the dispatch dialog preset to the drilled persona.", kind: kindDialog, scopes: []menuScope{scopeProjectsDrill}, section: sectionActions},
@@ -141,7 +140,7 @@ var menuEntries = []menuEntry{
 	{key: "pgup/pgdown", label: "Page list / scroll detail", hidden: true},
 	{key: "ctrl+up/down", label: "Scroll persona chart", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
-	{key: "space", label: "Toggle capability / scroll", hidden: true},
+	{key: "space", label: "Scroll detail / page", hidden: true},
 	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},
 	{key: "q / ctrl+c", label: "Quit", hidden: true},
 }

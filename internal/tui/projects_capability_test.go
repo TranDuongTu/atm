@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -96,76 +97,28 @@ func TestDetailViewRendersCapabilities(t *testing.T) {
 	}
 }
 
-// TestToggleCapabilityFromDetail verifies " " (toggle) disables the
-// capability under the detail view's cursor, which defaults to the first
-// registered name (workflow) on open, on an explicit project.
-func TestToggleCapabilityFromDetail(t *testing.T) {
+// TestProjectDetailCapabilityToggleRemoved verifies the project detail view
+// no longer toggles capabilities: capability management lives entirely in
+// the C overlay now, so c (cursor) and space (toggle) are inert on the
+// detail view. Uses EXP, whose Capabilities are explicit and non-empty
+// (["workflow"]), so the assertion would genuinely fail if either key still
+// mutated the stored set.
+func TestProjectDetailCapabilityToggleRemoved(t *testing.T) {
 	m := newCapabilityFixtureModel(t)
 	openProjectDetail(t, m, "EXP")
-	sendKeys(t, m, " ") // cursor defaults to workflow (index 0); toggle it off
-	p, err := modelStore(m).GetProject("EXP")
+	before, err := modelStore(m).GetProject("EXP")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range p.Capabilities {
-		if c == "workflow" {
-			t.Fatalf("workflow should have been disabled by the toggle, got Capabilities=%v", p.Capabilities)
-		}
-	}
-	v := m.View()
-	if !strings.Contains(v, "[ ] workflow") {
-		t.Fatalf("detail view should reflect the toggle immediately, got:\n%s", v)
-	}
-}
+	beforeCaps := append([]string(nil), before.Capabilities...)
 
-// TestToggleCapabilityFromDetailLegacyGoesExplicit verifies the legacy-nil
-// semantics: toggling off one capability of a legacy (nil Capabilities)
-// project first makes the choice explicit by enabling every OTHER registered
-// name, so the stored set reads "all but this one" rather than losing every
-// other capability the (default) view implied was on.
-func TestToggleCapabilityFromDetailLegacyGoesExplicit(t *testing.T) {
-	m := newCapabilityFixtureModel(t)
-	openProjectDetail(t, m, "LEG")
-	sendKeys(t, m, " ") // cursor defaults to workflow (index 0); toggle it off
-	p, err := modelStore(m).GetProject("LEG")
+	sendKeys(t, m, "c", " ")
+
+	after, err := modelStore(m).GetProject("EXP")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Capabilities == nil {
-		t.Fatalf("toggling a legacy project's capability should make Capabilities explicit (non-nil), got nil")
-	}
-	foundWorkflow := false
-	foundContextmap := false
-	for _, c := range p.Capabilities {
-		if c == "workflow" {
-			foundWorkflow = true
-		}
-		if c == "contextmap" {
-			foundContextmap = true
-		}
-	}
-	if foundWorkflow {
-		t.Errorf("workflow should be disabled, got Capabilities=%v", p.Capabilities)
-	}
-	if !foundContextmap {
-		t.Errorf("contextmap should have been made explicit (still enabled), got Capabilities=%v", p.Capabilities)
-	}
-}
-
-// TestCapabilityCursorCyclesAndWraps verifies "c" advances the detail
-// capability cursor and wraps around after the last registered name.
-func TestCapabilityCursorCyclesAndWraps(t *testing.T) {
-	m := newCapabilityFixtureModel(t)
-	openProjectDetail(t, m, "EXP")
-	if m.projects.capCursor != 0 {
-		t.Fatalf("capCursor on open = %d, want 0", m.projects.capCursor)
-	}
-	sendKeys(t, m, "c")
-	if m.projects.capCursor != 1 {
-		t.Fatalf("capCursor after one c = %d, want 1", m.projects.capCursor)
-	}
-	sendKeys(t, m, "c")
-	if m.projects.capCursor != 0 {
-		t.Fatalf("capCursor after wrap = %d, want 0", m.projects.capCursor)
+	if !reflect.DeepEqual(beforeCaps, after.Capabilities) {
+		t.Fatalf("c then space must not change capabilities, before=%v after=%v", beforeCaps, after.Capabilities)
 	}
 }

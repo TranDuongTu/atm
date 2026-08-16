@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"atm/internal/capability/contextmap"
-	"atm/internal/capability/workflow"
 )
 
 // Every keyed entry's replay string must round-trip through bubbletea: the
@@ -312,21 +309,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			check: func(t *testing.T, m *Model) {
 				if m.form == nil || m.formKind != formProjectSetName {
 					t.Errorf("n in project detail must open the set-name form, formKind=%v", m.formKind)
-				}
-			},
-		},
-		probeID("c", scopeProjectsDetail): {
-			model: func(t *testing.T) *Model {
-				// Two capabilities so the capability-switcher cursor has
-				// somewhere to move (a one-capability registry cycles back to 0).
-				return newTestModelWithCaps(t, workflow.New(), contextmap.New())
-			},
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-			},
-			check: func(t *testing.T, m *Model) {
-				if m.projects.capCursor != 1 {
-					t.Errorf("c in project detail must cycle the capability cursor, capCursor=%d want 1", m.projects.capCursor)
 				}
 			},
 		},

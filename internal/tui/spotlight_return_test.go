@@ -109,10 +109,10 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 // outer handleKey call the activating -> keypress triggered (see handleKey's
 // comment) — so the wrapper's reopen check fires immediately, in the same
 // keystroke, and covers the freshly-opened in-pane view with the spotlight
-// again. History overlay (task detail) and Toggle capability (projects
-// detail) are both in-pane views, so they must be kindAction, not
-// kindDialog. Activation must be driven through the real outer m.handleKey
-// (not spotlightModel.handleKey directly) to exercise the wrapper.
+// again. History overlay (task detail) is an in-pane view, so it must be
+// kindAction, not kindDialog. Activation must be driven through the real
+// outer m.handleKey (not spotlightModel.handleKey directly) to exercise the
+// wrapper.
 func TestActivateHistoryOverlayLeavesItVisibleAndSpotlightClosed(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -131,25 +131,6 @@ func TestActivateHistoryOverlayLeavesItVisibleAndSpotlightClosed(t *testing.T) {
 	}
 	if m.spotlight.open {
 		t.Error("History overlay is an in-pane view; the spotlight must not reopen over it in the same keystroke")
-	}
-}
-
-func TestActivateToggleCapabilityLeavesSpotlightClosed(t *testing.T) {
-	// Two capabilities so the cursor cycle is observable (a one-capability
-	// registry cycles back to 0).
-	m := newTestModelWithCaps(t, workflow.New(), contextmap.New())
-	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme")
-
-	m.spotlight.openSpotlight()
-	walkTo(t, m, "Toggle capability")
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
-
-	if m.projects.capCursor != 1 {
-		t.Errorf("activating Toggle capability must cycle the cursor, capCursor=%d want 1", m.projects.capCursor)
-	}
-	if m.spotlight.open {
-		t.Error("Toggle capability is an in-pane cursor cycle; the spotlight must not reopen over it")
 	}
 }
 
