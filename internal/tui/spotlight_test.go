@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -411,6 +412,45 @@ func moveCursorToLabel(t *testing.T, m *Model, want string) {
 		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	t.Fatalf("never reached the %q row in %v", want, rowLabels(m))
+}
+
+// moveCursorToGroup drills into the named root group: the cursor onto that
+// group's root row, then Enter. Every Task-group test starts this way.
+func moveCursorToGroup(t *testing.T, m *Model, want string) {
+	t.Helper()
+	moveCursorToLabel(t, m, want)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+// moveCursorToTask arrows the cursor onto the task row for id. Matched on the
+// row's task rather than on its label: two tasks may share a title, and the ID
+// is what the per-task actions target.
+func moveCursorToTask(t *testing.T, m *Model, id string) {
+	t.Helper()
+	for i := 0; i <= len(m.spotlight.rows); i++ {
+		if r := m.spotlight.selectedRow(); r != nil && r.kind == rowTask && r.task != nil && r.task.ID == id {
+			return
+		}
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	t.Fatalf("never reached the task row for %s in %v", id, rowLabels(m))
+}
+
+// selectProject scopes the model to code the way the Projects pane's [s]
+// does, without depending on that pane's cursor.
+func selectProject(t *testing.T, m *Model, code string) {
+	t.Helper()
+	m.projectScope = code
+	m.refreshAll()
+}
+
+// typeQuery types q into the launcher one rune at a time — the real keystroke
+// path, which is the only way a per-keystroke rebuild bug shows up.
+func typeQuery(t *testing.T, m *Model, q string) {
+	t.Helper()
+	for _, r := range q {
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
 }
 
 // walkTo moves the cursor onto the row for a menu entry's label, drilling
@@ -1258,4 +1298,518 @@ func TestSpotlightSearchLineScrollsLongQueryIntoView(t *testing.T) {
 	view := stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "TAILMARK")
 	mustNotContain(t, view, "HEADMARK")
+}
+
+// --- the contextual Task group ---
+
+// The Task group is the launcher's one contextual surface: its query searches
+// the scoped project's live tasks instead of the registry. The result list is
+// capped at 5 — it shares the pane with the static Add-task row, and a search
+// that returns half a project is not a search.
+func TestSpotlightTaskSearchTopFive(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	for i := 1; i <= 7; i++ {
+		seedTask(t, m, "ATM", fmt.Sprintf("alpha task %d", i))
+	}
+	seedTask(t, m, "ATM", "beta task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "alpha")
+
+	var tasks int
+	for _, r := range m.spotlight.rows {
+		if r.kind == rowTask {
+			tasks++
+			if !strings.Contains(r.task.Title, "alpha") {
+				t.Errorf("non-matching task row %q", r.task.Title)
+			}
+		}
+	}
+	if tasks != 5 {
+		t.Errorf("task rows = %d, want the 5-match cap; rows = %v", tasks, rowLabels(m))
+	}
+	// The static Add-task row survives the search: it is how the user files
+	// the task they just failed to find.
+	if len(m.spotlight.rows) != 6 || m.spotlight.rows[0].kind != rowEntry || m.spotlight.rows[0].label() != "Add task" {
+		t.Errorf("rows = %v, want Add task followed by the 5 matches", rowLabels(m))
+	}
+}
+
+// ID matches rank above title matches: a user who pastes an ID means that
+// task, not every task whose title happens to contain the same run of
+// characters.
+func TestSpotlightTaskSearchRanksIDOverTitle(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "no keyword here")
+	// Title matches for the target's own ID, seeded after it so table order
+	// alone would not put the ID match first.
+	seedTask(t, m, "ATM", "mentions "+target.ID+" in the title")
+	seedTask(t, m, "ATM", "also mentions "+target.ID)
+
+	got := m.spotlight.taskMatches(target.ID)
+	if len(got) != 3 {
+		t.Fatalf("taskMatches(%q) = %d tasks, want 3", target.ID, len(got))
+	}
+	if got[0].ID != target.ID {
+		t.Errorf("first match = %q (%q), want the ID match %q", got[0].ID, got[0].Title, target.ID)
+	}
+}
+
+// The search is case-insensitive and matches a substring anywhere in the
+// title — not a prefix.
+func TestSpotlightTaskSearchIsCaseInsensitiveSubstring(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "Wire The Indexer")
+
+	if got := m.spotlight.taskMatches("the index"); len(got) != 1 {
+		t.Errorf("taskMatches(\"the index\") = %d tasks, want 1", len(got))
+	}
+	if got := m.spotlight.taskMatches("nothing here"); len(got) != 0 {
+		t.Errorf("taskMatches on a non-match = %d tasks, want 0", len(got))
+	}
+}
+
+// Without a project scope the Task group has nothing to search: the hint says
+// so and the query is inert — typing must not manufacture rows out of another
+// project's tasks.
+func TestSpotlightTaskQueryIsInertWithoutAScope(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	seedTask(t, m, "ATM", "alpha task")
+	m.projectScope = ""
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "alpha")
+
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "select a project first"}) {
+		t.Errorf("unscoped Task group after typing = %v, want the inert two rows", got)
+	}
+	if got := m.spotlight.taskMatches("alpha"); len(got) != 0 {
+		t.Errorf("taskMatches without a scope = %d tasks, want none", len(got))
+	}
+}
+
+// A query that matches no task says so rather than leaving the group looking
+// like it lost its rows; the hint is not landable, so the cursor stays on the
+// Add-task row.
+func TestSpotlightTaskSearchNoMatchesIsAHint(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "alpha task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "zzzz")
+
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "no tasks match"}) {
+		t.Errorf("rows for a query matching nothing = %v", got)
+	}
+	if got := m.spotlight.selectedLabel(); got != "Add task" {
+		t.Errorf("selected = %q, want the Add task row", got)
+	}
+}
+
+// Regression pin for setQuery's cursor reset. The Task group's row 0 is the
+// static Add-task entry, which no query ever matches: homing the cursor there
+// on every keystroke meant the selection (and the preview beside it) sat on
+// something unrelated to what the user was typing, and every character undid
+// the arrow keys. A typed query homes onto the top *result* instead.
+func TestSpotlightTaskSearchSelectsTheTopResultWhileTyping(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "alpha one")
+	seedTask(t, m, "ATM", "alpha two")
+	seedTask(t, m, "ATM", "alpha three")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+
+	// Every keystroke of the query, not just the last: the reset ran per
+	// rebuild, so a bug here is a per-keystroke bug.
+	for _, r := range "alpha" {
+		typeQuery(t, m, string(r))
+		sel := m.spotlight.selectedRow()
+		if sel == nil || sel.kind != rowTask {
+			t.Fatalf("after typing %q the selection is %q, want a task row; rows = %v",
+				m.spotlight.query, m.spotlight.selectedLabel(), rowLabels(m))
+		}
+		if want := m.spotlight.rows[1]; sel.task != want.task {
+			t.Errorf("after typing %q the selection is %q, want the top result %q",
+				m.spotlight.query, sel.label(), want.label())
+		}
+	}
+
+	// The arrows still move within the results, and backspacing back to an
+	// empty query returns to the tree's first selectable row.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if got := m.spotlight.cursor; got != 2 {
+		t.Errorf("down from the top result left the cursor at %d, want 2", got)
+	}
+	for range "alpha" {
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	if got := m.spotlight.selectedLabel(); got != "Add task" {
+		t.Errorf("clearing the query selected %q, want Add task", got)
+	}
+}
+
+// The whole drill-in: search a task, hover it (its preview is the task, not a
+// registry summary), Enter into the six per-task actions, and run one — which
+// must act on the task that was chosen, not on whatever the Tasks pane cursor
+// happened to be on.
+func TestSpotlightTaskDrillAndTargetedAction(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+	seedTask(t, m, "ATM", "decoy task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+
+	preview := stripANSI(strings.Join(m.spotlight.lines, "\n"))
+	if !strings.Contains(preview, target.ID) || !strings.Contains(preview, "History") {
+		t.Errorf("hovering a task must preview that task with its history, got:\n%s", preview)
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.level != levelTaskActions || m.spotlight.taskID != target.ID {
+		t.Fatalf("Enter on a task row must drill into its actions: level=%v taskID=%q",
+			m.spotlight.level, m.spotlight.taskID)
+	}
+	if m.spotlight.taskTitle != target.Title {
+		t.Errorf("taskTitle = %q, want %q", m.spotlight.taskTitle, target.Title)
+	}
+	if m.spotlight.query != "" {
+		t.Errorf("drilling into a task must clear the query, query=%q", m.spotlight.query)
+	}
+	want := []string{"Edit title", "Edit description", "Add label", "Remove label", "Add comment", "Remove task"}
+	if got := rowLabels(m); !equalStrings(got, want) {
+		t.Errorf("task action rows =\n%v\nwant\n%v", got, want)
+	}
+
+	moveCursorToLabel(t, m, "Edit title")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.spotlight.open {
+		t.Error("activating a task action must close the launcher")
+	}
+	if m.tasks.detail.id != target.ID {
+		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+	}
+	if m.form == nil || m.formKind != formTaskSetTitle {
+		t.Errorf("activation must open the title form, formKind=%v", m.formKind)
+	}
+	if m.focused != paneTasks {
+		t.Errorf("activation must focus the Tasks pane, focused=%v", m.focused)
+	}
+}
+
+// Esc peels the task-action level back to the Task group, exactly as it peels
+// a group back to the root — and drops the task it was targeting.
+func TestSpotlightEscLeavesTaskActions(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.spotlight.level != levelGroup || m.spotlight.group != groupTask {
+		t.Fatalf("Esc from the task actions must return to the Task group: level=%v group=%v",
+			m.spotlight.level, m.spotlight.group)
+	}
+	if m.spotlight.taskID != "" || m.spotlight.taskTitle != "" {
+		t.Errorf("leaving the task-action level must drop its target: id=%q title=%q",
+			m.spotlight.taskID, m.spotlight.taskTitle)
+	}
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "type to find a task…"}) {
+		t.Errorf("rows after Esc = %v, want the Task group's empty-query tree", got)
+	}
+}
+
+// The targeting requirement, stated as the states it must survive: a per-task
+// action selects its target by ID rather than replaying the scopeTasksDetail
+// prelude ({"2", "enter"}), which opens whatever the Tasks list cursor is on.
+// Each state below is one the prelude would get wrong.
+func TestSpotlightTaskActionTargetsFromAnyState(t *testing.T) {
+	states := []struct {
+		name  string
+		setup func(t *testing.T, m *Model, target, decoy *store.Task)
+	}{
+		{"projects pane focused", func(t *testing.T, m *Model, target, decoy *store.Task) {
+			m.focused = paneProjects
+		}},
+		{"projects detail open", func(t *testing.T, m *Model, target, decoy *store.Task) {
+			m.focused = paneProjects
+			m.projects.openDetail("ATM")
+		}},
+		{"tasks list, cursor on the decoy", func(t *testing.T, m *Model, target, decoy *store.Task) {
+			m.focused = paneTasks
+			for i, r := range m.tasks.rows {
+				if r.id == decoy.ID {
+					m.tasks.cursor = i
+				}
+			}
+		}},
+		{"another task's detail already open", func(t *testing.T, m *Model, target, decoy *store.Task) {
+			m.focused = paneTasks
+			m.tasks.openDetail(decoy.ID)
+		}},
+		{"a board filter that hides the target", func(t *testing.T, m *Model, target, decoy *store.Task) {
+			m.focused = paneTasks
+			m.tasks.setFocus(taskFocus{mode: focusUnlabeled}, "")
+			for _, r := range m.tasks.rows {
+				if r.id == target.ID {
+					t.Fatalf("setup: the filter must hide the target, rows = %v", m.tasks.rows)
+				}
+			}
+		}},
+	}
+
+	for _, st := range states {
+		t.Run(st.name, func(t *testing.T) {
+			m := newTestModel(t)
+			m.SetSize(120, 40)
+			seedProject(t, m, "ATM", "Acme")
+			selectProject(t, m, "ATM")
+			target := seedTask(t, m, "ATM", "wire the indexer", "ATM:status:open")
+			decoy := seedTask(t, m, "ATM", "decoy task")
+			st.setup(t, m, target, decoy)
+
+			m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\\")})
+			moveCursorToGroup(t, m, "Task")
+			typeQuery(t, m, "indexer")
+			moveCursorToTask(t, m, target.ID)
+			m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+			moveCursorToLabel(t, m, "Add comment")
+			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+			if m.tasks.detail.id != target.ID {
+				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+			}
+			if m.form == nil || m.formKind != formCommentAdd {
+				t.Fatalf("activation must open the comment form, formKind=%v form=%v", m.formKind, m.form)
+			}
+			if m.focused != paneTasks {
+				t.Errorf("activation must focus the Tasks pane, focused=%v", m.focused)
+			}
+		})
+	}
+}
+
+// Every one of the six actions targets the chosen task, not just the one the
+// drill-in test happens to run. Remove task is the one that never opens a
+// form, so it is checked through the confirm it raises.
+func TestSpotlightEveryTaskActionTargetsTheChosenTask(t *testing.T) {
+	cases := []struct {
+		label string
+		check func(t *testing.T, m *Model, id string)
+	}{
+		{"Edit title", func(t *testing.T, m *Model, id string) { wantFormKind(t, m, formTaskSetTitle) }},
+		{"Edit description", func(t *testing.T, m *Model, id string) { wantFormKind(t, m, formTaskSetDescription) }},
+		{"Add label", func(t *testing.T, m *Model, id string) { wantFormKind(t, m, formTaskLabelAdd) }},
+		{"Remove label", func(t *testing.T, m *Model, id string) { wantFormKind(t, m, formTaskLabelRemove) }},
+		{"Add comment", func(t *testing.T, m *Model, id string) { wantFormKind(t, m, formCommentAdd) }},
+		{"Remove task", func(t *testing.T, m *Model, id string) {
+			if m.confirm != confirmRemoveTask {
+				t.Fatalf("confirm = %v, want confirmRemoveTask", m.confirm)
+			}
+			if !strings.Contains(m.confirmMsg, id) {
+				t.Errorf("confirm message %q must name the chosen task %s", m.confirmMsg, id)
+			}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			m := newTestModel(t)
+			m.SetSize(120, 40)
+			seedProject(t, m, "ATM", "Acme")
+			selectProject(t, m, "ATM")
+			target := seedTask(t, m, "ATM", "wire the indexer", "ATM:status:open")
+			seedTask(t, m, "ATM", "decoy task")
+			m.focused = paneProjects
+
+			m.spotlight.openSpotlight()
+			moveCursorToGroup(t, m, "Task")
+			typeQuery(t, m, "indexer")
+			moveCursorToTask(t, m, target.ID)
+			m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+			moveCursorToLabel(t, m, tc.label)
+			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+			if m.tasks.detail.id != target.ID {
+				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+			}
+			tc.check(t, m, target.ID)
+		})
+	}
+}
+
+// Type-to-filter is live at the task-action level too (searchCandidates keeps
+// it to the six actions there), and a row reached that way must still target
+// the chosen task: the filtered list is rowEntry rows like any other, so the
+// targeting has to hang off the level, not off how the row was reached.
+func TestSpotlightFilteredTaskActionStaysTargeted(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+	seedTask(t, m, "ATM", "decoy task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	typeQuery(t, m, "comment")
+	if got := rowLabels(m); !equalStrings(got, []string{"Add comment"}) {
+		t.Fatalf("filtered task actions = %v, want just Add comment", got)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.tasks.detail.id != target.ID {
+		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+	}
+	wantFormKind(t, m, formCommentAdd)
+}
+
+func wantFormKind(t *testing.T, m *Model, want formAction) {
+	t.Helper()
+	if m.form == nil || m.formKind != want {
+		t.Fatalf("formKind = %v (form=%v), want %v", m.formKind, m.form, want)
+	}
+}
+
+// The task rows are a snapshot of a store another process can change: a task
+// removed between the search and the Enter must never be replayed against.
+// The launcher says so and stays open on the action list.
+func TestSpotlightTaskActionOnAGoneTask(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if err := m.store.RemoveTask(target.ID, testActor); err != nil {
+		t.Fatalf("RemoveTask: %v", err)
+	}
+	moveCursorToLabel(t, m, "Edit title")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if want := "task " + target.ID + " is gone"; m.toastMsg != want {
+		t.Errorf("toast = %q, want %q", m.toastMsg, want)
+	}
+	if !m.spotlight.open || m.spotlight.level != levelTaskActions {
+		t.Errorf("a gone task must leave the launcher open on the action list: open=%v level=%v",
+			m.spotlight.open, m.spotlight.level)
+	}
+	if m.form != nil || m.tasks.detail.id != "" {
+		t.Errorf("nothing may be replayed against a gone task: form=%v detail=%q", m.form, m.tasks.detail.id)
+	}
+}
+
+// The task preview is what replaced the deleted task-detail history overlay:
+// identity, labels, the description's first lines, then the task's audit
+// history rendered by taskHistoryLines itself.
+func TestSpotlightTaskPreviewShowsHistory(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk, err := m.store.CreateTask("ATM", "wire the indexer", "first line of the description\nsecond line", []string{"ATM:status:open"}, testActor)
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	m.refreshAll()
+
+	joined := stripANSI(strings.Join(taskPreviewLines(m, tk, 60), "\n"))
+	for _, want := range []string{tk.ID, "wire the indexer", "ATM:status:open", "first line of the description", "History", "task.created"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("task preview missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "(no history)") {
+		t.Errorf("a task with real history must not render the empty fallback:\n%s", joined)
+	}
+}
+
+// A task with neither description nor labels still previews: the header and
+// the history are unconditional, so the pane never comes out blank (which the
+// renderer would show as "(no preview)").
+func TestSpotlightTaskPreviewWithoutDescriptionOrLabels(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "bare task")
+
+	lines := taskPreviewLines(m, tk, 60)
+	if len(lines) == 0 {
+		t.Fatal("taskPreviewLines returned nothing for a bare task")
+	}
+	joined := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, tk.ID) || !strings.Contains(joined, "bare task") {
+		t.Errorf("preview header missing the id or title:\n%s", joined)
+	}
+	if !strings.Contains(joined, "History") {
+		t.Errorf("preview missing the history section:\n%s", joined)
+	}
+}
+
+// A task row renders its ID, not a bare title: the ID is what the search
+// matches on and what the actions target, and two tasks may share a title. It
+// also carries the same › drill marker a group row does, because Enter on it
+// drills exactly the same way.
+func TestSpotlightTaskRowRendersIDAndDrillMarker(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	for _, want := range []string{target.ID, "wire the indexer ›"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("task row missing %q in:\n%s", want, view)
+		}
+	}
 }

@@ -16,13 +16,15 @@ import (
 // task, into that task's actions); Esc peels one layer at a time. Content
 // never varies with pane focus — activating an entry replays its scope
 // prelude before its key, so a cross-pane action works from anywhere without
-// the user navigating there first.
+// the user navigating there first. A per-task action replaces that prelude
+// with a select-by-ID step, which is the same guarantee for a target the
+// prelude could not name.
 type spotlightModel struct {
 	m         *Model
 	open      bool
 	level     spotLevel
 	group     menuGroupID
-	taskID    string // levelTaskActions target (Task 9)
+	taskID    string // levelTaskActions target: the task every action acts on
 	taskTitle string
 	query     string
 	cursor    int
@@ -38,7 +40,7 @@ type spotLevel int
 const (
 	levelRoot        spotLevel = iota
 	levelGroup                 // a static group's entries (Project, Board, Reference)
-	levelTaskActions           // per-task actions for sm.taskID (Task 9)
+	levelTaskActions           // per-task actions for sm.taskID
 )
 
 type spotFocus int
@@ -55,7 +57,7 @@ type spotRowKind int
 const (
 	rowGroup spotRowKind = iota
 	rowEntry
-	rowTask // Task 9
+	rowTask // one matched task in the Task group's search
 	rowHint // non-selectable helper line
 )
 
@@ -65,8 +67,8 @@ type spotRow struct {
 	kind  spotRowKind
 	group *menuGroup
 	entry *menuEntry
-	task  *core.Task // Task 9
-	text  string     // rowHint copy
+	task  *core.Task
+	text  string // rowHint copy
 }
 
 // label is the row's display text: a group's name, an entry's label, a task's
@@ -168,19 +170,89 @@ func (sm *spotlightModel) buildRows() {
 				continue
 			}
 			// Per-task actions act on one open task, not on the Task group as
-			// a whole: they render at levelTaskActions (Task 9).
+			// a whole: they render at levelTaskActions.
 			if sm.group == groupTask && isTaskAction(e) {
 				continue
 			}
 			sm.rows = append(sm.rows, spotRow{kind: rowEntry, entry: e})
 		}
 		if sm.group == groupTask {
-			sm.rows = append(sm.rows, spotRow{kind: rowHint, text: sm.taskHint()})
+			sm.appendTaskRows()
 		}
 	case levelTaskActions:
-		// Task 9 builds the per-task action rows for sm.taskID.
+		// The per-task actions for sm.taskID: the group's entries that act on
+		// one open task, in table order. They are the rows the levelGroup
+		// branch above deliberately skips.
+		for i := range menuEntries {
+			e := &menuEntries[i]
+			if e.group != groupTask || !isTaskAction(e) || !sm.entryAvailable(e) {
+				continue
+			}
+			sm.rows = append(sm.rows, spotRow{kind: rowEntry, entry: e})
+		}
 	}
 	sm.clampCursor()
+}
+
+// appendTaskRows is the Task group's contextual half: the live search over the
+// scoped project's tasks that follows the static Add-task row. Every state
+// ends in either task rows or exactly one hint, so the group can never look
+// like it lost its rows — and the hint says which state it is in.
+func (sm *spotlightModel) appendTaskRows() {
+	if sm.m.projectScope == "" || sm.query == "" {
+		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: sm.taskHint()})
+		return
+	}
+	hits := sm.taskMatches(sm.query)
+	if len(hits) == 0 {
+		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: "no tasks match"})
+		return
+	}
+	for _, tk := range hits {
+		sm.rows = append(sm.rows, spotRow{kind: rowTask, task: tk})
+	}
+}
+
+// spotTaskMatches caps the Task group's result list. The rows share the left
+// pane with the static Add-task entry and the launcher is a launcher, not a
+// task list: five is enough to recognise the task you meant and short enough
+// that refining the query is the obvious next move.
+const spotTaskMatches = 5
+
+// taskMatches is the Task group's search: the scoped project's tasks whose ID
+// or title contains q, case-insensitively, ID matches ranked first — a user
+// who pastes an ID means that one task. Substring only: no fuzzy matching, no
+// recency, and never across projects (an unscoped launcher has nothing to
+// search, which is what the group's hint says).
+func (sm *spotlightModel) taskMatches(q string) []*core.Task {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" || sm.m.projectScope == "" {
+		return nil
+	}
+	type hit struct {
+		task *core.Task
+		rank int
+	}
+	var hits []hit
+	for _, tk := range sm.m.store.ListTasks(core.QueryFilters{Project: sm.m.projectScope}) {
+		switch {
+		case strings.Contains(strings.ToLower(tk.ID), q):
+			hits = append(hits, hit{tk, 0})
+		case strings.Contains(strings.ToLower(tk.Title), q):
+			hits = append(hits, hit{tk, 1})
+		}
+	}
+	// Stable over a store-ordered list, so ties inside a rank keep the order
+	// the Tasks pane would list them in.
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].rank < hits[j].rank })
+	if len(hits) > spotTaskMatches {
+		hits = hits[:spotTaskMatches]
+	}
+	out := make([]*core.Task, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.task)
+	}
+	return out
 }
 
 // entryAvailable reports whether an entry may become a row at all: hidden
@@ -211,7 +283,7 @@ func (sm *spotlightModel) taskHint() string {
 
 // searchable reports whether the current level supports type-to-filter.
 // levelGroup(groupTask) is excluded on purpose: there the query searches
-// tasks, not registry entries — that surface belongs to Task 9, not this one.
+// tasks, not registry entries — appendTaskRows owns that surface.
 func (sm *spotlightModel) searchable() bool {
 	switch sm.level {
 	case levelRoot, levelTaskActions:
@@ -461,16 +533,33 @@ func printableRune(k tea.KeyMsg) (rune, bool) {
 	return k.Runes[0], true
 }
 
-// setQuery replaces the query and rebuilds around it. The cursor always
-// resets to row 0 first: a changed match set makes wherever the old cursor
-// pointed meaningless, and clearing the query must land back on the tree's
-// first selectable row exactly (clampCursor bumps off row 0 if it turns out
-// not to be selectable, e.g. a level whose first tree row is a hint).
+// setQuery replaces the query and rebuilds around it, then rehomes the
+// cursor: a changed match set makes wherever the old cursor pointed
+// meaningless, and clearing the query must land back on the tree's first
+// selectable row exactly.
 func (sm *spotlightModel) setQuery(q string) {
 	sm.query = q
 	sm.cursor = 0
 	sm.buildRows()
+	sm.cursor = sm.queryHome()
+	sm.clampCursor()
 	sm.refreshPreview()
+}
+
+// queryHome is the row a query-driven rebuild selects. Row 0 everywhere the
+// list is nothing but matches (clampCursor bumps off it when it is a hint) —
+// but the Task group's row 0 is the static Add-task entry, which no query
+// ever matches, so a task search homes onto its top result instead. Homing on
+// Add task there would mean every keystroke selected (and previewed)
+// something unrelated to what the user was typing, and undid their arrow keys
+// on the very next character.
+func (sm *spotlightModel) queryHome() int {
+	for i, r := range sm.rows {
+		if r.kind == rowTask {
+			return i
+		}
+	}
+	return 0
 }
 
 // escPeel unwinds exactly one layer per Esc, most recent first: a focused
@@ -510,7 +599,13 @@ func (sm *spotlightModel) activate() tea.Cmd {
 			return sm.activateEntry(r.entry)
 		}
 	case rowTask:
-		// Task 9: drilling a task row pushes levelTaskActions for r.task.
+		if r.task != nil {
+			// Recorded before setLevel, which builds the action rows around
+			// them; setLevel keeps the target precisely because the level it
+			// is entering is the one that acts on it.
+			sm.taskID, sm.taskTitle = r.task.ID, r.task.Title
+			sm.setLevel(levelTaskActions, groupTask)
+		}
 	}
 	return nil
 }
@@ -524,6 +619,9 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 		sm.focus = focusPreview
 		sm.offset = 0
 		return nil
+	}
+	if sm.level == levelTaskActions {
+		return sm.activateTaskAction(e)
 	}
 	row := sm.cursor
 	sm.open = false
@@ -559,12 +657,50 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// activateTaskAction runs one per-task action against sm.taskID. Where a
+// static entry replays its scope prelude, a per-task action cannot: the
+// scopeTasksDetail prelude ({"2", "enter"}) opens whatever the Tasks list
+// cursor happens to be on, which is exactly the task the user did NOT pick.
+// Selecting the target by ID instead — focus the pane, open that task's
+// detail, then replay the key — is what makes the action independent of the
+// pane, the list cursor, and any board filter hiding the task from the list.
+//
+// The launcher's rows are a snapshot of a store another process can write to,
+// so the target is re-read first: a task removed between the search and the
+// Enter is reported, not replayed against.
+func (sm *spotlightModel) activateTaskAction(e *menuEntry) tea.Cmd {
+	m := sm.m
+	if _, err := m.store.GetTask(sm.taskID); err != nil {
+		m.showToast("task " + sm.taskID + " is gone")
+		sm.buildRows()
+		sm.refreshPreview()
+		return nil
+	}
+	row := sm.cursor
+	sm.open = false
+	m.focused = paneTasks
+	var cmds []tea.Cmd
+	if c := m.tasks.openDetail(sm.taskID); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := m.handleKey(keyMsgFromString(e.key)); c != nil {
+		cmds = append(cmds, c)
+	}
+	// Same ordering rule as activateEntry: the return is recorded only after
+	// the replay, so the wrapper cannot fire mid-chain.
+	if e.kind == kindDialog {
+		m.spotlightReturn = row
+	}
+	return tea.Batch(cmds...)
+}
+
 // refreshPreview rebuilds the preview content for the cursor row: a group row
-// gets its contents (the hint plus one line per member entry); a reference
-// entry gets its full text (falling back to the summary if its refKind is
-// somehow unrecognized); anything else tries the live renderer registry,
-// falling back to the summary line when no renderer is registered or the
-// registry renderer produced nothing. Rebuilding from scratch (rather than caching) is what keeps this
+// gets its contents (the hint plus one line per member entry); a task row gets
+// that task itself, history included; a reference entry gets its full text
+// (falling back to the summary if its refKind is somehow unrecognized);
+// anything else tries the live renderer registry, falling back to the summary
+// line when no renderer is registered or the registry renderer produced
+// nothing. Rebuilding from scratch (rather than caching) is what keeps this
 // safe to call again on resize — SetSize calls it whenever the spotlight is
 // open, so a stale wrap never survives a terminal resize.
 func (sm *spotlightModel) refreshPreview() {
@@ -575,8 +711,15 @@ func (sm *spotlightModel) refreshPreview() {
 		return
 	}
 	w, h := sm.previewWidth(), sm.previewHeight()
-	if r.kind == rowGroup {
+	switch r.kind {
+	case rowGroup:
 		sm.lines = groupPreviewLines(r.group, w)
+		return
+	case rowTask:
+		// The task preview is the launcher's replacement for the deleted
+		// task-detail history overlay: hovering a result is how a task's
+		// history is read now.
+		sm.lines = taskPreviewLines(sm.m, r.task, w)
 		return
 	}
 	e := r.entry

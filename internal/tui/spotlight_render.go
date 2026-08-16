@@ -249,8 +249,9 @@ func (sm *spotlightModel) listPaneLines(bodyH, w int) []string {
 
 // renderListRow draws one list row, padded to w. A group drills in rather than
 // running a key, so it renders "▤ Project ›" with no key column; a keyed entry
-// renders "[a] + Add project", its icon aligned after the key column; a hint
-// is dim copy at the label column with no cursor.
+// renders "[a] + Add project", its icon aligned after the key column; a task
+// renders "ATM-1a2b3c  wire the indexer ›"; a hint is dim copy at the label
+// column with no cursor.
 func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 	st := sm.m.styles
 	glyph, glyphStyle := "  ", st.Body
@@ -282,6 +283,14 @@ func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 				label = searchLabel(*e)
 			}
 			text = key + spaces(pad) + e.icon + " " + label
+		}
+	case rowTask:
+		// A task row drills in exactly as a group row does, so it wears the
+		// same › marker and skips the key column — it has no key of its own.
+		// The ID leads: it is what the query matched, what the actions target,
+		// and the only thing telling two same-titled tasks apart.
+		if tk := r.task; tk != nil {
+			text = tk.ID + "  " + tk.Title + " ›"
 		}
 	case rowHint:
 		text, style = spaces(spotKeyCol)+r.text, st.KeyMenuDim
