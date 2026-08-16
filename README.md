@@ -46,7 +46,7 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 - **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
 - **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
 - **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
-- **Explore**: `V` browses personas; `\` opens the spotlight — every keybinding and action in one global, key-first list, with hover previews and the keymap reference, the CLI↔TUI parity table, and the conventions reference all reachable from it.
+- **Explore**: `V` browses personas; `\` opens the spotlight — a horizontal launcher grouped by Project/Task/Board/Reference, drill in with `Enter`, search by typing, hover a row for a live preview (see "The Spotlight" below).
 
 ## Screenshots
 
@@ -254,6 +254,22 @@ task sessions from sharing a context file):
 ```sh
 atm --persona developer --project ATM --agent claude --task ATM-4b7e24
 ```
+
+### The Spotlight (`\`)
+
+`\` opens the spotlight from any pane — a horizontal launcher: a left action list and a right full-height preview. Its root shows four groups plus a few inline global actions:
+
+- **▤ Project** — create, select, rename, dispatch, remove.
+- **☰ Task** — add a task, or search one to act on it.
+- **▦ Board** — author boards and labels, pin jump slots, seed the enabled capabilities' vocabulary.
+- **§ Reference** — the keymap reference, the CLI↔TUI parity table, and the conventions primer.
+- Inline: `D` dispatch, `E` channels, `V` personas, `C` capabilities (once a project is scoped), `T` cycle theme.
+
+`↑/↓` move the cursor, `Enter` drills into a group (or a task's own action menu), `Esc` peels back one level at a time, and `\` closes the spotlight from any level. `Tab` swaps focus to the preview pane — from there, arrows or `j`/`k` scroll it a line and `pgup`/`pgdn` a screenful (both page keys also work without switching focus). Everything else you type filters: a non-empty query flattens the visible list into ranked `Group · Label` matches — at the root, inside a group, or among a task's own actions — and a query with no hits shows a `no matches` hint.
+
+The **Task** group turns into a live search once a project is in scope: typing matches that project's tasks case-insensitively by ID and by title, ranks ID matches above title matches, and shows at most 5 results. Every task ID in a project shares that project's code prefix (e.g. `ATM-xxxxxx`), so a very short query that happens to appear in the prefix — a single letter, or a fragment like `at`/`tm` — matches every task in the project by ID alone and can fill the 5-result cap before any title match is even considered; that's the ID-substring rule doing exactly what it's meant to, not a search bug, so reach for a few characters from the title when you want a title match to surface. Hovering a result previews the task, comment thread, and label history together; `Enter` opens a menu of six actions scoped to that one task (edit title, edit description, add/remove label, comment, remove) reachable from wherever you currently are in the app.
+
+The spotlight replaced the earlier `[?]` contextual menu; project-detail and task-detail no longer carry their own `H` history toggles (task history now lives in the spotlight's Task-group preview), and project-detail capability toggling was removed in favor of the read-only capabilities list there plus the `C` overlay for changes.
 
 ### Channels
 
