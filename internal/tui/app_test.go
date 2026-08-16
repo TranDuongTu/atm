@@ -1414,27 +1414,25 @@ func TestProjectDetailLabelKeysNoOp(t *testing.T) {
 	}
 }
 
-// TestProjectDetailHistoryToggle verifies the UPPERCASE [H] binding toggles
-// the HISTORY section in the project detail (mockup Screen 4; Task 5 fix).
-func TestProjectDetailHistoryToggle(t *testing.T) {
+// TestProjectDetailHistoryRemoved verifies the legacy [H] history toggle is
+// gone from the project detail view: pressing H is a no-op (no HISTORY
+// section ever renders), and the menu registry no longer advertises it.
+// Project history is now surfaced via the spotlight's preview pane instead.
+func TestProjectDetailHistoryRemoved(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(200, 70)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "enter")
-	v := m.View()
-	// HISTORY off by default.
-	mustNotContain(t, v, "HISTORY")
-	// Press uppercase H to toggle on.
 	update(t, m, "H")
-	if !m.projects.detail.historyOn {
-		t.Errorf("after H: detail.historyOn = false want true")
+	for _, line := range m.projects.detail.lines {
+		if strings.Contains(line, "HISTORY") {
+			t.Errorf("HISTORY section rendered in project detail after H: %q", line)
+		}
 	}
-	v = m.View()
-	mustContain(t, v, "HISTORY")
-	// Press H again to toggle off.
-	update(t, m, "H")
-	if m.projects.detail.historyOn {
-		t.Errorf("after second H: detail.historyOn = true want false")
+	for _, e := range menuEntries {
+		if e.label == "Toggle history" {
+			t.Errorf("menuEntries still carries a %q entry", e.label)
+		}
 	}
 }
 

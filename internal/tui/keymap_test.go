@@ -315,16 +315,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("H", scopeProjectsDetail): {
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-			},
-			check: func(t *testing.T, m *Model) {
-				if !m.projects.detail.historyOn {
-					t.Error("H in project detail must toggle the history section on")
-				}
-			},
-		},
 		probeID("c", scopeProjectsDetail): {
 			model: func(t *testing.T) *Model {
 				// Two capabilities so the capability-switcher cursor has

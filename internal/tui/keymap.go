@@ -94,7 +94,6 @@ var menuEntries = []menuEntry{
 
 	// Actions — projects detail
 	{key: "n", label: "Set project name", summary: "Rename the open project; the code is immutable.", kind: kindDialog, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
-	{key: "H", label: "Toggle history", summary: "Show or hide the project's event history in the detail view.", kind: kindAction, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 	{key: "c", label: "Toggle capability", summary: "Cycle the capability cursor to the next registered capability; space toggles it enabled/disabled.", kind: kindAction, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions},
 
 	// Actions — projects persona drill

@@ -28,9 +28,6 @@ type projectsModel struct {
 	// capability cursor on the project detail view.
 	capCursor int
 
-	// history toggle on project detail.
-	showHistory bool
-
 	// logsOffset is the Recent Events feed's viewport offset (list view,
 	// ATM-793b19 revision 2): shift+arrows drive it directly, with no
 	// subfocus mode — see events_feed.go's scrollEventsFeed. It indexes the
@@ -79,11 +76,10 @@ type projRow struct {
 }
 
 type detailState struct {
-	code      string
-	project   *core.Project
-	lines     []string // rendered detail lines (for scroll)
-	offset    int
-	historyOn bool
+	code    string
+	project *core.Project
+	lines   []string // rendered detail lines (for scroll)
+	offset  int
 }
 
 type activityStripeDay struct {
@@ -458,9 +454,6 @@ func (p *projectsModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		p.detail.offset = 0
 	case "n":
 		p.openSetNameForm()
-	case "H":
-		p.detail.historyOn = !p.detail.historyOn
-		p.renderDetail()
 	case "x":
 		return p.requestRemoveProject(p.detail.code)
 	case "c":
@@ -514,8 +507,8 @@ func (p *projectsModel) toggleCapability() {
 		_ = p.m.store.EnableProjectCapability(code, name, p.m.actor)
 	}
 	// Refresh the detail view's cached project + rendered lines so the
-	// toggle is visible immediately (mirrors the H history-toggle refresh
-	// above: mutate, then re-render from the freshly read project).
+	// toggle is visible immediately: mutate, then re-render from the
+	// freshly read project.
 	if pr, err := p.m.store.GetProject(code); err == nil {
 		p.detail.project = pr
 	}
@@ -535,7 +528,7 @@ func (p *projectsModel) openDetail(code string) {
 		p.m.showToast("error: " + err.Error())
 		return
 	}
-	p.detail = detailState{code: code, project: pr, historyOn: false}
+	p.detail = detailState{code: code, project: pr}
 	p.capCursor = 0
 	p.view = pViewDetail
 	p.renderDetail()
@@ -571,21 +564,6 @@ func (p *projectsModel) renderDetail() {
 	b.WriteString(sectionCaption(p.m.styles, p.width, "CAPABILITIES"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, p.renderCapabilitiesLine(pr)))
-
-	if p.detail.historyOn {
-		b.WriteString("\n")
-		b.WriteString(sectionCaption(p.m.styles, p.width, "HISTORY"))
-		b.WriteString("\n")
-		hv := p.m.store.History(p.detail.code, core.Subject{Kind: "project", Code: p.detail.code})
-		if len(hv) == 0 {
-			b.WriteString(dashboardLine(p.width, " (no history)"))
-			b.WriteString("\n")
-		} else {
-			for _, e := range hv {
-				fmt.Fprintf(&b, "%s\n", dashboardLine(p.width, fmt.Sprintf("[%d] %s %s %s", e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action)))
-			}
-		}
-	}
 
 	p.detail.lines = strings.Split(b.String(), "\n")
 	p.clampDetail()
