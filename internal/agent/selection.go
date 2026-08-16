@@ -56,8 +56,3 @@ func isHarness(name string) bool {
 	}
 	return false
 }
-
-// TEMPORARY — deleted in Task 2 when catalog.go defines Harnesses().
-func Harnesses() []Harness { return []Harness{{Name: "claude"}, {Name: "codex"}, {Name: "opencode"}} }
-
-type Harness struct{ Name string }
