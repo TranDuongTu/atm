@@ -721,6 +721,45 @@ func TestSpotlightBoxWidthIsStableAcrossTerminals(t *testing.T) {
 	}
 }
 
+// No preview line touches either border. A line that filled the measure used
+// to run flush into the right border while every shorter line kept a gap, and
+// the eye tracks that gap rather than the text — so the border read as slipping
+// in and out from one row to the next rather than as text reaching the edge.
+// Truncated lines are the ones that fill the measure, so this shows up on
+// exactly the rows carrying an ellipsis.
+func TestSpotlightPreviewKeepsBothGutters(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	left := m.spotlight.panelLeftColumn()
+	right := left + m.spotlight.previewPanelWidth() - 1
+	cut := 0
+	for i, line := range strings.Split(view, "\n") {
+		r := []rune(line)
+		if right >= len(r) || r[left] != '│' {
+			continue // not a panel body line
+		}
+		if strings.HasSuffix(strings.TrimRight(string(r[:right]), " "), "…") {
+			cut++
+		}
+		if r[left+1] != ' ' {
+			t.Errorf("line %d has no gutter after the left border: %q", i, string(r[left:left+8]))
+		}
+		if r[right-1] != ' ' {
+			t.Errorf("line %d has no gutter before the right border: %q", i, string(r[right-7:right+1]))
+		}
+	}
+	if cut == 0 {
+		// Either the fixture stopped overflowing — in which case the gutter
+		// this guards is untested — or the panel is narrower than the measure
+		// its content was built against and fitLine ate the ellipsis, which is
+		// the other half of the same arithmetic.
+		t.Fatal("setup: no truncated preview line, so either nothing overflows here or the ellipsis is being cut off")
+	}
+}
+
 // A preview shorter than the list centres in its column. Pinned to the top of a
 // tall block it reads as content that failed to finish loading.
 func TestSpotlightShortPreviewPanelCentres(t *testing.T) {

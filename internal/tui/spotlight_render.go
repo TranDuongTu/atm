@@ -13,7 +13,7 @@ import (
 const (
 	spotMinLeftPane = 24 // the action list never squeezes below this
 	spotPaneGap     = 1  // the single column between the list and the panel
-	spotPreviewCols = 52 // the panel's prose measure: wide enough to read, narrow enough to scan
+	spotPreviewCols = 64 // the panel's prose measure: wide enough to read, narrow enough to scan
 	spotMinBlock    = 4  // the block never collapses below this many rows
 	spotKeyCol      = 4  // "[D] " — the key column entries align their icons after
 )
@@ -97,16 +97,22 @@ func (sm *spotlightModel) leftPaneWidth() int {
 // property of line length rather than of the terminal, and a preview stretched
 // to 120 columns is harder to read than one held at 52. It shrinks only when
 // the terminal cannot hold the list, the panel and the chrome together.
-// previewPanelWidth is the whole panel: the prose measure, its two borders and
-// the column of padding inside them. The measure is what preview content is
-// built against, so the panel is derived from it rather than the reverse —
-// deriving the measure from the panel is how a line's ellipsis gets eaten by
-// the padding.
-func (sm *spotlightModel) previewPanelWidth() int { return sm.previewWidth() + 3 }
+// previewPanelWidth is the whole panel: the prose measure, its two borders, and
+// a column of padding on each side of the content.
+//
+// Both padding columns matter. With a gutter on the left only, a line that
+// filled the measure ran flush into the right border while every shorter line
+// had a gap before it — which reads as the border slipping in and out rather
+// than as text reaching the edge, because the eye tracks the gap, not the text.
+//
+// The measure is what preview content is built against, so the panel is derived
+// from it and not the reverse: deriving the measure from the panel is how a
+// cut line's ellipsis gets eaten by the padding.
+func (sm *spotlightModel) previewPanelWidth() int { return sm.previewWidth() + 4 }
 
 func (sm *spotlightModel) previewWidth() int {
 	w := spotPreviewCols
-	if room := sm.m.width - 4 - 4 - 3 - spotPaneGap - sm.leftPaneWidth(); w > room {
+	if room := sm.m.width - 4 - 4 - 4 - spotPaneGap - sm.leftPaneWidth(); w > room {
 		w = room
 	}
 	if w < 1 {
@@ -269,9 +275,9 @@ func (sm *spotlightModel) previewPanel(blockH, w int) []string {
 	if mark := sm.scrollMark(); mark != "" {
 		title += "  " + mark
 	}
-	// One column of padding inside the border, so prose does not touch the
-	// frame the way a bare column of text next to a rule used to.
-	padded := sm.previewPaneLines(rows, w-3)
+	// A column of padding on each side of the content: the left one is written
+	// here, the right one is what titledBoxHeight pads out to.
+	padded := sm.previewPaneLines(rows, w-4)
 	for i := range padded {
 		padded[i] = " " + padded[i]
 	}
