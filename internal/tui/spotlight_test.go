@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -639,39 +638,99 @@ func TestSpotlightLayoutColumnsAlign(t *testing.T) {
 // divider running alongside it, and — only while the list owns focus — the ▸
 // glyph. The test profile renders styles as plain text, so the choice itself
 // is what gets asserted.
-func TestSpotlightFocusVisualsSwapStyles(t *testing.T) {
+// The header accent is one of the four focus cues, and it is pinned on its own:
+// the spec deliberately carries four so that no single one has to be
+// sufficient, which is only true if each is independently correct.
+func TestSpotlightPaneHeaderAccentFollowsFocus(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
+	tagFocusStyles(m)
 	m.spotlight.openSpotlight()
-	st := m.styles
 
-	same := func(label string, got, want lipgloss.Style) {
-		t.Helper()
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: wrong style", label)
-		}
-	}
-
-	same("list header while the list is focused", m.spotlight.paneStyle(focusList), st.RowCursor)
-	same("preview header while the list is focused", m.spotlight.paneStyle(focusPreview), st.KeyMenuDim)
-	same("cursor glyph while the list is focused", m.spotlight.cursorStyle(), st.RowCursor)
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<bright>Actions</bright>")
+	mustContain(t, view, "<dim>Preview</dim>")
 
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if m.spotlight.focus != focusPreview {
 		t.Fatal("setup: Tab must focus the preview")
 	}
-	same("list header while the preview is focused", m.spotlight.paneStyle(focusList), st.KeyMenuDim)
-	same("preview header while the preview is focused", m.spotlight.paneStyle(focusPreview), st.RowCursor)
-	same("cursor glyph while the preview is focused", m.spotlight.cursorStyle(), st.Muted)
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<dim>Actions</dim>")
+	mustContain(t, view, "<bright>Preview</bright>")
+}
 
-	// The bright run of the divider is as long as the focused pane's content:
-	// it starts at the header row and stops where that pane's rows stop. Its
-	// accent is KeyMenu rather than the headers' reverse-video RowCursor — see
-	// dividerStyle.
-	m.spotlight.escPeel()
-	run := len(m.spotlight.rows)
-	same("divider beside the last list row", m.spotlight.dividerStyle(run, m.spotlight.previewHeight()), st.KeyMenu)
-	same("divider past the last list row", m.spotlight.dividerStyle(run+1, m.spotlight.previewHeight()), st.KeyMenuDim)
+// The ▸ glyph stays put when focus moves to the preview — the cursor row is
+// still where Tab returns to — but it dims: a bright selection in a pane that
+// is not taking keystrokes is the exact confusion the redesign removes.
+func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	tagFocusStyles(m)
+	m.spotlight.openSpotlight()
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<bright>▸ </bright>")
+	mustNotContain(t, view, "<muted>▸ </muted>")
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Tab must focus the preview")
+	}
+	view = stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "<muted>▸ </muted>")
+	mustNotContain(t, view, "<bright>▸ </bright>")
+}
+
+// The divider's accented run starts at the pane-header row and stops where the
+// focused pane's content stops, so the length of the bright segment is itself
+// the cue for which pane is live.
+//
+// Note the degenerate case: when the two panes happen to show the same number
+// of rows, switching focus leaves the divider unchanged. That is tolerable only
+// because the divider is not load-bearing alone — the header accent, the glyph,
+// and the caret each carry the same information, and each is pinned by its own
+// test above.
+func TestSpotlightDividerRunMarksTheFocusedPane(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	tagFocusStyles(m)
+	m.spotlight.openSpotlight()
+	accented := func() int {
+		return strings.Count(stripANSI(m.spotlight.renderOverlay()), "<accent>│</accent>")
+	}
+
+	// The header row plus one cell per visible list row.
+	if got, want := accented(), len(m.spotlight.rows)+1; got != want {
+		t.Errorf("with the list focused the accented run is %d cells, want %d (header + %d rows)", got, want, len(m.spotlight.rows))
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.focus != focusPreview {
+		t.Fatal("setup: Tab must focus the preview")
+	}
+	if len(m.spotlight.lines) == len(m.spotlight.rows) {
+		t.Fatal("setup: this row's preview is exactly as long as the list, which is the one case the run cannot distinguish")
+	}
+	if got, want := accented(), len(m.spotlight.lines)+1; got != want {
+		t.Errorf("with the preview focused the accented run is %d cells, want %d (header + %d lines)", got, want, len(m.spotlight.lines))
+	}
+}
+
+// tagFocusStyles wraps the four styles the focus cues switch between in
+// identifying markers, so a render test can assert which style each element was
+// actually drawn with. The test color profile renders every style as plain text
+// — RowCursor.Render("x") is just "x" — so without this a render assertion
+// could not tell a bright header from a dim one. A lipgloss Transform survives
+// the profile, which is what makes the cue visible to a test.
+func tagFocusStyles(m *Model) {
+	tag := func(s lipgloss.Style, name string) lipgloss.Style {
+		return s.Transform(func(v string) string { return "<" + name + ">" + v + "</" + name + ">" })
+	}
+	m.styles.RowCursor = tag(m.styles.RowCursor, "bright")
+	m.styles.KeyMenu = tag(m.styles.KeyMenu, "accent")
+	m.styles.KeyMenuDim = tag(m.styles.KeyMenuDim, "dim")
+	m.styles.Muted = tag(m.styles.Muted, "muted")
 }
 
 // The title says where in the tree you are, so a drilled launcher never looks
