@@ -1247,7 +1247,7 @@ func (p *projectsModel) renderDetailView() string {
 var codeRe = regexp.MustCompile(`^[A-Z]{3,6}$`)
 
 // newProjectCreateForm builds the create-project form without installing it.
-// The spotlight preview renders one to show the user what -> will open.
+// The spotlight preview renders one to show the user what Enter will open.
 func newProjectCreateForm(width int) *Form {
 	codeValidator := func(field, value string) error {
 		if value == "" {

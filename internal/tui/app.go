@@ -466,7 +466,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // finishes, so the return is still -1 during replay and the check below
 // cannot fire on any of the nested calls for the replayed segments. It DOES
 // fire, though, on the outer call: activate() itself runs beneath this same
-// handleKey (the user's -> keypress that triggered it), so by the time that
+// handleKey (the user's Enter keypress that triggered it), so by the time that
 // outer call's dispatchKey returns, spotlightReturn is freshly set and the
 // check below fires immediately — the reopen happens within the same
 // keystroke that activated the entry, not on the user's next keypress. This

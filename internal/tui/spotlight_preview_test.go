@@ -137,9 +137,9 @@ func TestPreviewReferenceScrollsWhenFocused(t *testing.T) {
 		t.Errorf("conventions preview missing content:\n%s", got)
 	}
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("-> on a reference entry must focus the preview")
+		t.Fatal("Enter on a reference entry must focus the preview")
 	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	if m.spotlight.offset != 1 {
@@ -178,9 +178,9 @@ func TestPreviewScrollClampsToLastScreenful(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Keymap reference")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("-> on a reference entry must focus the preview")
+		t.Fatal("Enter on a reference entry must focus the preview")
 	}
 
 	want := len(m.spotlight.lines) - m.spotlight.previewHeight()

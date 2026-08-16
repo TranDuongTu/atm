@@ -271,6 +271,10 @@ func TestKey3IsNoOp(t *testing.T) {
 // TestSpotlightEscClosesFromTheList; this test does not repeat it.)
 func TestSpotlightListScrolls(t *testing.T) {
 	m := newTestModel(t)
+	// A short terminal, so the eight root rows outnumber the list region: the
+	// launcher's root is a curated tree now, not the old exhaustive list, and
+	// it fits on a full-height screen.
+	m.SetSize(120, 20)
 	update(t, m, "2")
 	update(t, m, "\\")
 	if !m.spotlight.open {
@@ -279,15 +283,15 @@ func TestSpotlightListScrolls(t *testing.T) {
 	if m.focused != paneTasks {
 		t.Fatalf("opening the spotlight changed focus = %v want paneTasks", m.focused)
 	}
-	// The cursor starts on the first row ("Dispatch a session"); walk it all
-	// the way to the last row. With the default terminal size the row count
-	// exceeds the visible list region, so this must scroll the window.
+	// The cursor starts on the first row ("Project"); walk it all the way to
+	// the last root row with the arrows (j now types into the query). The row
+	// count exceeds the visible list region, so this must scroll the window.
 	firstLabel := m.spotlight.selectedLabel()
 	var lastLabel string
 	for i := 0; i < len(m.spotlight.rows); i++ {
-		update(t, m, "j")
-		if e := m.spotlight.selectedEntry(); e != nil {
-			lastLabel = e.label
+		update(t, m, "down")
+		if l := m.spotlight.selectedLabel(); l != "" {
+			lastLabel = l
 		}
 	}
 	if lastLabel == "" || lastLabel == firstLabel {
@@ -1990,11 +1994,10 @@ func TestTasksEmptyStateWildcardNoLabels(t *testing.T) {
 // TestKeymapReference* tests below assert directly against the pure
 // reference renderers (parityTable, renderConventionsText,
 // keymapReferenceText) rather than drilling through the \ spotlight to
-// reach them: these functions are untouched by the spotlight redesign, and
-// the old drill-in path (menuModel.openDetail) no longer runs on Enter — see
-// TestSpotlightEnterAndLeftAreInertInTheList. Task 3 wires the spotlight
-// preview to real content; these keep protecting the content itself in the
-// meantime.
+// reach them: these functions are untouched by the spotlight redesign (the
+// launcher reaches them by drilling into the Reference group and focusing the
+// preview — see TestPreviewReferenceScrollsWhenFocused), so these keep
+// protecting the content itself.
 func TestParityReferenceRenders(t *testing.T) {
 	content := parityTable
 	mustContain(t, content, "atm project create")

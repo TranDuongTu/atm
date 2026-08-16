@@ -42,14 +42,14 @@ const (
 	refConventions
 )
 
-// entryKind decides what the spotlight's -> does with an entry and how the
+// entryKind decides what the spotlight's Enter does with an entry and how the
 // preview region renders it.
 type entryKind int
 
 const (
 	kindAction    entryKind = iota // replay executes immediately (theme, sort, pin, select)
 	kindDialog                     // replay leaves an overlay, form, or confirm open
-	kindReference                  // no key; -> focuses a scrollable reference preview
+	kindReference                  // no key; Enter focuses a scrollable reference preview
 )
 
 // menuGroupID identifies which spotlight group a menu entry belongs to.
@@ -106,8 +106,8 @@ type menuEntry struct {
 	ref          refKind
 	group        menuGroupID // groupNone for sectionViews (inline root); else a registered group
 	icon         string      // single-width glyph; unset only for hidden rows
-	hidden       bool // keymap-reference-only; never a spotlight row
-	needsProject bool // shown only when a project scope exists (capabilities switcher)
+	hidden       bool        // keymap-reference-only; never a spotlight row
+	needsProject bool        // shown only when a project scope exists (capabilities switcher)
 }
 
 // menuEntries is the single declarative menu entry table. Transcribed from
@@ -165,7 +165,7 @@ var menuEntries = []menuEntry{
 	{key: "l", label: "Remove label", summary: "Delete the selected label from the project.", kind: kindDialog, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "✗"},
 	{key: "S", label: "Seed vocabulary", summary: "Ensure the enabled capabilities' labels and boards exist.", kind: kindAction, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "↻"},
 
-	// Reference (no keys; -> focuses the preview)
+	// Reference (no keys; Enter focuses the preview)
 	{label: "Keymap reference", summary: "Every binding, flat: Key | Where | Action.", kind: kindReference, section: sectionReference, ref: refKeymap, group: groupReference, icon: "⌨"},
 	{label: "CLI ↔ TUI parity", summary: "Which CLI command each TUI affordance corresponds to.", kind: kindReference, section: sectionReference, ref: refParity, group: groupReference, icon: "⇌"},
 	{label: "Conventions", summary: "The substrate primer: what ATM is, labels, capabilities, actors.", kind: kindReference, section: sectionReference, ref: refConventions, group: groupReference, icon: "§"},

@@ -8,7 +8,7 @@ import (
 )
 
 // newTaskCreateForm builds the create-task form without installing it. The
-// spotlight preview renders one to show the user what -> will open.
+// spotlight preview renders one to show the user what Enter will open.
 func (t *tasksModel) newTaskCreateForm(width int) *Form {
 	labelsValidator := func(field, value string) error {
 		if value == "" {

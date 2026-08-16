@@ -9,15 +9,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Esc from a spotlight-spawned form returns to the launcher.
+//
+// spotlightReturn is still a bare int (a ROOT row index), so the launcher
+// reopens at the root even though "Add project" was activated one level down
+// inside the Project group: the recorded index cannot describe a level. Task
+// 10 replaces the int with a snapshot and restores the real level+cursor;
+// until then the cursor assertion below only pins that the recorded index is
+// applied, not that the user lands back where they were.
 func TestEscFromSpotlightSpawnedFormReopensSpotlight(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Add project")
 	row := m.spotlight.cursor
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.form == nil {
-		t.Fatal("-> must open the project-create form")
+		t.Fatal("Enter must open the project-create form")
 	}
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
@@ -42,7 +50,7 @@ func TestSuccessfulSubmitLandsOnTheWorkspace(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Add project")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
 	for _, r := range "ACME" {
 		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -71,9 +79,9 @@ func TestConfirmAcceptLandsOnTheWorkspace(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Remove project")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.confirm != confirmRemoveProject {
-		t.Fatalf("-> must open the remove-project confirm, confirm=%v", m.confirm)
+		t.Fatalf("Enter must open the remove-project confirm, confirm=%v", m.confirm)
 	}
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
@@ -92,9 +100,9 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 	seedChannels(t, m)
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Channels")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.channelsOv.open {
-		t.Fatal("-> must open the channels overlay")
+		t.Fatal("Enter must open the channels overlay")
 	}
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if !m.spotlight.open {
@@ -106,7 +114,7 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 // (not one of workspaceIdle's eight overlay/form/confirm states) used to
 // look inert. activate() records spotlightReturn for every kindDialog entry
 // after its replay loop finishes, but that finish happens beneath the SAME
-// outer handleKey call the activating -> keypress triggered (see handleKey's
+// outer handleKey call the activating Enter keypress triggered (see handleKey's
 // comment) — so the wrapper's reopen check fires immediately, in the same
 // keystroke, and covers the freshly-opened in-pane view with the spotlight
 // again. Pin/unpin board (tasks list) mutates in-pane state without opening
@@ -134,7 +142,7 @@ func TestActivatePinBoardLeavesItPinnedAndSpotlightClosed(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Pin/unpin board")
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
 	pinned := false
 	for _, full := range m.boards.pins {
@@ -165,9 +173,9 @@ func TestSuccessfulDispatchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Dispatch a session")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.dispatchDlg.active {
-		t.Fatal("-> must open the dispatch dialog")
+		t.Fatal("Enter must open the dispatch dialog")
 	}
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // preselected agent is ready: submits directly
@@ -194,9 +202,9 @@ func TestSuccessfulCapabilitySwitchFromSpotlightLandsOnTheWorkspace(t *testing.T
 
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Capabilities")
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.capability.open {
-		t.Fatal("-> must open the capabilities switcher")
+		t.Fatal("Enter must open the capabilities switcher")
 	}
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // switch to the row under the cursor
