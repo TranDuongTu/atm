@@ -1707,7 +1707,9 @@ func TestTasksGroupedNoMatchingLabelsBucket(t *testing.T) {
 // --- Step 6: task detail + empty states ---
 
 // TestTaskDetailFactsLabelsHistory verifies the task detail (mockup Screen 8):
-// facts, label chips, and HISTORY behind the [H] overlay (opened in-test).
+// facts, label chips, and history hidden from the inline view by default.
+// (History itself, formerly behind the [H] overlay, is now rendered by the
+// pure taskHistoryLines helper — see TestTaskHistoryLines in comments_test.go.)
 func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 80)
@@ -1739,39 +1741,28 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	mustContain(t, v, "ATM:priority:high")
 	mustNotContain(t, v, "Actions")
 	if strings.Contains(v, "task.created") {
-		t.Fatalf("history must be hidden behind [H] overlay by default, found task.created:\n%s", v)
+		t.Fatalf("history must be hidden from the inline detail view by default, found task.created:\n%s", v)
 	}
-	// Open the history overlay: it replaces the detail view while active.
-	update(t, m, "H")
-	if !m.tasks.historyOverlay.active {
-		t.Fatal("expected history overlay active after [H]")
-	}
-	v = m.tasks.View()
-	mustContain(t, v, "History")
-	mustContain(t, v, "task.created")
-	mustContain(t, v, "task.label-added")
-	// History rows are decorated with [seq] and ordered chronologically
-	// (the log is append-only); task.created is logged before task.label-added.
-	createdIdx := strings.Index(v, "task.created")
-	addedIdx := strings.Index(v, "task.label-added")
+
+	// taskHistoryLines (the extracted pure renderer) still surfaces the same
+	// history: [seq]-decorated rows, chronologically ordered (the log is
+	// append-only, so task.created precedes task.label-added).
+	lines := taskHistoryLines(m, tk.ProjectCode, tk.ID, m.tasks.width)
+	hv := strings.Join(lines, "\n")
+	mustContain(t, hv, "History")
+	mustContain(t, hv, "task.created")
+	mustContain(t, hv, "task.label-added")
+	createdIdx := strings.Index(hv, "task.created")
+	addedIdx := strings.Index(hv, "task.label-added")
 	if createdIdx < 0 || addedIdx < 0 {
-		t.Fatalf("missing task.created / task.label-added in history overlay")
+		t.Fatalf("missing task.created / task.label-added in taskHistoryLines output")
 	}
 	if addedIdx < createdIdx {
 		t.Errorf("history not chronological: task.label-added (%d) before task.created (%d)", addedIdx, createdIdx)
 	}
-	// The [seq] decoration must precede each row.
-	if !strings.Contains(v, "] ") {
+	if !strings.Contains(hv, "] ") {
 		t.Errorf("history rows missing [seq] decoration")
 	}
-	// Closing the overlay returns to the detail view.
-	update(t, m, "esc")
-	if m.tasks.historyOverlay.active {
-		t.Fatal("Esc should have closed the history overlay")
-	}
-	v = m.tasks.View()
-	mustContain(t, v, "Task "+tk.ID)
-	mustContain(t, v, "FACTS")
 }
 
 // TestTaskDetailScrollDoesNotBreakPaneBorders pins ATM-0100: scrolling the

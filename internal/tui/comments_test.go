@@ -172,41 +172,27 @@ func TestEscFromCommentOverlayDoesNotLeakIntoNextDetail(t *testing.T) {
 	}
 }
 
-func TestTaskDetailHKeyOpensHistoryOverlay(t *testing.T) {
+// TestTaskHistoryLines verifies taskHistoryLines, the pure line renderer
+// extracted from the deleted task-detail history overlay: same header,
+// same "[seq] time actor action" rows — Task 9's spotlight task preview
+// renders these lines directly, so the format must stay exactly this shape.
+func TestTaskHistoryLines(t *testing.T) {
 	m := newTestModel(t)
 	_, _ = m.store.CreateProject("ATM", "x", testActor)
 	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
-	m.tasks.openDetail(tk.ID)
-	if m.tasks.historyOverlay.active {
-		t.Fatal("history overlay should not be active before [H]")
-	}
-	m.tasks.handleDetailKey(keyMsg("H"))
-	if !m.tasks.historyOverlay.active {
-		t.Fatal("expected history overlay active after [H]")
-	}
-	view := m.tasks.View()
-	if !strings.Contains(view, "History") {
-		t.Fatalf("history overlay view missing History heading:\n%s", view)
-	}
-	if !strings.Contains(view, "task.created") {
-		t.Fatalf("history overlay view missing task.created row:\n%s", view)
-	}
-	// The detail-mode facts must NOT be visible while the history overlay
-	// is open (the overlay replaces the detail view).
-	if strings.Contains(view, "FACTS") {
-		t.Fatalf("history overlay should hide task detail facts, but found them:\n%s", view)
-	}
 
-	// Esc closes the history overlay and returns to the detail view.
-	m.tasks.handleDetailKey(keyMsg("esc"))
-	if m.tasks.historyOverlay.active {
-		t.Fatal("Esc should have closed the history overlay")
+	lines := taskHistoryLines(m, "ATM", tk.ID, 60)
+	if len(lines) == 0 {
+		t.Fatal("taskHistoryLines returned no lines")
 	}
-	view = m.tasks.View()
-	if !strings.Contains(view, "FACTS") {
-		t.Fatalf("detail facts should reappear after closing history overlay:\n%s", view)
+	if !strings.Contains(lines[0], "History") || !strings.Contains(lines[0], tk.ID) {
+		t.Fatalf("header line missing History heading or task ID: %q", lines[0])
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "task.created") {
+		t.Fatalf("history lines missing task.created row:\n%s", joined)
 	}
 }
 
@@ -222,17 +208,4 @@ func TestCommentOverlayHasNoTrailingHintLine(t *testing.T) {
 	mustContain(t, view, "BODY")
 	mustNotContain(t, view, "[Esc] back")
 	mustNotContain(t, view, "[H] history")
-}
-
-func TestHistoryOverlayHasNoTrailingHintLine(t *testing.T) {
-	m := newTestModel(t)
-	_, _ = m.store.CreateProject("ATM", "x", testActor)
-	tk, _ := m.store.CreateTask("ATM", "t", "", nil, testActor)
-	m.projectScope = "ATM"
-	m.SetSize(120, 70)
-	m.tasks.openDetail(tk.ID)
-	m.tasks.handleDetailKey(keyMsg("H"))
-	view := m.tasks.historyOverlay.view(m)
-	mustContain(t, view, "task.created")
-	mustNotContain(t, view, "[Esc] back")
 }

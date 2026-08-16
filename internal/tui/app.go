@@ -644,11 +644,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	}
 
 	// Esc at pane level: back from detail to list, or cancel task filter.
-	// If a per-detail overlay (comment peek or history) is open, defer to
-	// the pane's overlay Esc handler so Esc returns to the detail rather
-	// than leaping out to the list and leaving the overlay state stale.
-	// Persona-chart drill-in Esc (back from detail) is handled by the
-	// projects pane's own key handler.
+	// If a per-detail overlay (comment peek) is open, defer to the pane's
+	// overlay Esc handler so Esc returns to the detail rather than leaping
+	// out to the list and leaving the overlay state stale. Persona-chart
+	// drill-in Esc (back from detail) is handled by the projects pane's own
+	// key handler.
 	if k.String() == "esc" {
 		if m.focused == paneProjects && m.projects.personaDrilled {
 			return m.projects.handleKey(k)
@@ -659,7 +659,7 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		}
 		if m.focused == paneTasks {
 			if m.tasks.view == tViewDetail {
-				if m.tasks.commentOverlay.id != "" || m.tasks.historyOverlay.active {
+				if m.tasks.commentOverlay.id != "" {
 					return m.tasks.handleKey(k)
 				}
 				m.tasks.backToList()

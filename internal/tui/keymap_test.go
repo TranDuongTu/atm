@@ -414,14 +414,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("H", scopeTasksDetail): {
-			setup: parityTaskDetail,
-			check: func(t *testing.T, m *Model) {
-				if !m.tasks.historyOverlay.active {
-					t.Error("H in task detail must open the history overlay")
-				}
-			},
-		},
 		probeID("x", scopeTasksDetail): {
 			setup: parityTaskDetail,
 			check: func(t *testing.T, m *Model) {

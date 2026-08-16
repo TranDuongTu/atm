@@ -109,28 +109,44 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 // outer handleKey call the activating -> keypress triggered (see handleKey's
 // comment) — so the wrapper's reopen check fires immediately, in the same
 // keystroke, and covers the freshly-opened in-pane view with the spotlight
-// again. History overlay (task detail) is an in-pane view, so it must be
-// kindAction, not kindDialog. Activation must be driven through the real
-// outer m.handleKey (not spotlightModel.handleKey directly) to exercise the
-// wrapper.
-func TestActivateHistoryOverlayLeavesItVisibleAndSpotlightClosed(t *testing.T) {
+// again. Pin/unpin board (tasks list) mutates in-pane state without opening
+// a dialog, so it must be kindAction, not kindDialog. Activation must be
+// driven through the real outer m.handleKey (not spotlightModel.handleKey
+// directly) to exercise the wrapper.
+//
+// This test formerly drove "History overlay" (task detail), the invariant's
+// original guard; Task 3 (ATM-77af5e) removed that overlay in favor of a
+// pure taskHistoryLines renderer, so the invariant is re-targeted here onto
+// Pin/unpin board, the closest surviving in-pane kindAction entry.
+func TestActivatePinBoardLeavesItPinnedAndSpotlightClosed(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	tk := seedTask(t, m, "ATM", "task one")
+	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	m.boards.refresh()
+	m.boards.selectDefault()
+	selected := m.boards.selected
+	if selected == "" {
+		t.Fatal("test setup: expected a selected board")
+	}
 	m.focused = paneTasks
-	m.tasks.openDetail(tk.ID)
 
 	m.spotlight.openSpotlight()
-	walkTo(t, m, "History overlay")
+	walkTo(t, m, "Pin/unpin board")
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 
-	if !m.tasks.historyOverlay.active {
-		t.Fatal("activating History overlay must open the task's history")
+	pinned := false
+	for _, full := range m.boards.pins {
+		if full == selected {
+			pinned = true
+		}
+	}
+	if !pinned {
+		t.Fatal("activating Pin/unpin board must pin the selected board")
 	}
 	if m.spotlight.open {
-		t.Error("History overlay is an in-pane view; the spotlight must not reopen over it in the same keystroke")
+		t.Error("Pin/unpin board is an in-pane action; the spotlight must not reopen over it in the same keystroke")
 	}
 }
 

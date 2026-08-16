@@ -110,7 +110,6 @@ var menuEntries = []menuEntry{
 	{key: "b", label: "Add label", summary: "Attach a label to the open task.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "B", label: "Remove label", summary: "Detach a label from the open task.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "M", label: "Add comment", summary: "Append a classified comment to the open task's thread.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
-	{key: "H", label: "History overlay", summary: "Show the open task's full event history inside the task detail view.", kind: kindAction, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 	{key: "x", label: "Remove task", summary: "Delete the open task after a confirm.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions},
 
 	// Actions — boards
