@@ -105,18 +105,103 @@ func (sm *spotlightModel) openSpotlight() {
 	sm.setLevel(levelRoot, groupNone)
 }
 
-// openAt reopens the launcher with the cursor restored to row. A row that no
-// longer exists (or is not landable) falls back to the first selectable row.
-//
-// row is a ROOT row index: spotlightReturn is still a bare int, so a return
-// recorded inside a group cannot describe the level it came from. Task 10
-// replaces it with a snapshot; until then reopening always lands at the root.
-func (sm *spotlightModel) openAt(row int) {
-	sm.openSpotlight()
-	if row >= 0 && row < len(sm.rows) && sm.rows[row].selectable() {
-		sm.cursor = row
-		sm.refreshPreview()
+// spotlightSnapshot is where the launcher was standing when a kindDialog entry
+// closed it: everything needed to put the user back exactly there. A bare row
+// index could only ever describe the root — a row number means something else
+// one level down, and nothing at all on a per-task action list.
+type spotlightSnapshot struct {
+	level     spotLevel
+	group     menuGroupID
+	taskID    string
+	taskTitle string
+	query     string
+	cursor    int
+}
+
+// snapshot records the current position. Taken before the launcher closes:
+// closing is what the user is coming back from, and the replay that follows it
+// may touch the very state being recorded.
+func (sm *spotlightModel) snapshot() spotlightSnapshot {
+	return spotlightSnapshot{
+		level:     sm.level,
+		group:     sm.group,
+		taskID:    sm.taskID,
+		taskTitle: sm.taskTitle,
+		query:     sm.query,
+		cursor:    sm.cursor,
 	}
+}
+
+// openAt reopens the launcher where s was taken: same level, same group, same
+// task, same query, and the cursor back on the row that was activated. The
+// rows themselves are always rebuilt, never restored — the snapshot describes
+// a position, and the store behind it may have changed while the dialog was
+// open.
+//
+// The level is resolved against the world as it is now (restorableLevel), so a
+// snapshot whose target is gone lands on the nearest level that can still be
+// built. A fallback drops the query and the cursor with the level they
+// belonged to: both describe a list this level is not showing.
+func (sm *spotlightModel) openAt(s spotlightSnapshot) {
+	sm.open = true
+	level, group := sm.restorableLevel(s)
+	if level == levelTaskActions {
+		// Set before the transition for the same reason activate does it:
+		// setLevel builds the action rows around the target, and keeps it
+		// precisely because levelTaskActions is the level that acts on it.
+		// Everything else setLevel resets stays reset — the state openAt wants
+		// preserved is restored around the transition, never excepted inside
+		// it. sm.taskQuery survives untouched for the same reason: it is still
+		// the search this task was found by, so Esc lands back on those
+		// results exactly as it would have without the detour.
+		sm.taskID, sm.taskTitle = s.taskID, s.taskTitle
+	}
+	sm.setLevel(level, group)
+	if level != s.level || group != s.group {
+		return
+	}
+	sm.query = s.query
+	sm.cursor = s.cursor
+	// clampCursor (inside buildRows) is what makes a stale cursor safe: an
+	// out-of-range index or one landing on a hint rehomes to the first
+	// selectable row, and to the -1 no-selection sentinel when the restored
+	// query now matches nothing.
+	sm.buildRows()
+	sm.refreshPreview()
+}
+
+// restorableLevel is the level a snapshot can still be restored to, with the
+// group it belongs at. A stale snapshot is ordinary rather than exceptional:
+// the dialog the launcher spawned may have removed the very thing the launcher
+// was standing on, and another process writing the store may have too. Each
+// case falls back one level to the nearest surviving one.
+func (sm *spotlightModel) restorableLevel(s spotlightSnapshot) (spotLevel, menuGroupID) {
+	switch s.level {
+	case levelTaskActions:
+		// An action list for a task that no longer exists has nothing to act
+		// on; one level out is the Task group it was reached through.
+		if sm.taskAlive(s.taskID) {
+			return levelTaskActions, groupTask
+		}
+		return levelGroup, groupTask
+	case levelGroup:
+		if groupByID(s.group) != nil {
+			return levelGroup, s.group
+		}
+	}
+	return levelRoot, groupNone
+}
+
+// taskAlive reports whether id is still a task in the store — the same
+// re-read activateTaskAction does before replaying against a target, for the
+// same reason: the launcher's rows are a snapshot of a store another process
+// can write to.
+func (sm *spotlightModel) taskAlive(id string) bool {
+	if id == "" {
+		return false
+	}
+	_, err := sm.m.store.GetTask(id)
+	return err == nil
 }
 
 // setLevel is the single place a level transition happens: every push and
@@ -646,7 +731,9 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 	if sm.level == levelTaskActions {
 		return sm.activateTaskAction(e)
 	}
-	row := sm.cursor
+	// Taken before the close: closing is what the user will be coming back
+	// from, and the state describing where they were is gone afterwards.
+	snap := sm.snapshot()
 	sm.open = false
 	var chain []string
 	if len(e.scopes) > 0 {
@@ -661,7 +748,7 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 	}
 	if e.kind == kindDialog {
 		// Set only after the replay loop above finishes, so spotlightReturn
-		// stays -1 for every segment replayed through m.handleKey — the
+		// stays nil for every segment replayed through m.handleKey — the
 		// wrapper's check (app.go's handleKey) cannot fire mid-replay and
 		// cannot mistake the spawned overlay's own opening key for a
 		// dismissal. But this call itself runs beneath the outer handleKey
@@ -675,7 +762,7 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 		// opens something workspaceIdle() does not gate on (an in-pane view),
 		// which is why every kindDialog entry must leave one of
 		// workspaceIdle's eight states open.
-		sm.m.spotlightReturn = row
+		sm.m.spotlightReturn = &snap
 	}
 	return tea.Batch(cmds...)
 }
@@ -699,7 +786,7 @@ func (sm *spotlightModel) activateTaskAction(e *menuEntry) tea.Cmd {
 		sm.refreshPreview()
 		return nil
 	}
-	row := sm.cursor
+	snap := sm.snapshot()
 	sm.open = false
 	m.focused = paneTasks
 	var cmds []tea.Cmd
@@ -712,7 +799,7 @@ func (sm *spotlightModel) activateTaskAction(e *menuEntry) tea.Cmd {
 	// Same ordering rule as activateEntry: the return is recorded only after
 	// the replay, so the wrapper cannot fire mid-chain.
 	if e.kind == kindDialog {
-		m.spotlightReturn = row
+		m.spotlightReturn = &snap
 	}
 	return tea.Batch(cmds...)
 }

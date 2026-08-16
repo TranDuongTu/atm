@@ -89,12 +89,12 @@ type Model struct {
 	personasOv     personasModel
 	channelsOv     channelsModel
 	spotlight      spotlightModel
-	// spotlightReturn is the spotlight row to restore when a spotlight-spawned
-	// overlay, form, or confirm is dismissed, or -1 when nothing is pending. It
-	// is set by spotlightModel.activate for kindDialog entries, consumed by
-	// handleKey's wrapper, and cleared by a successful submit or confirm (which
-	// land on the workspace instead).
-	spotlightReturn int
+	// spotlightReturn is the spotlight position to restore when a
+	// spotlight-spawned overlay, form, or confirm is dismissed, or nil when
+	// nothing is pending. It is set by spotlightModel.activate for kindDialog
+	// entries, consumed by handleKey's wrapper, and cleared by a successful
+	// submit or confirm (which land on the workspace instead).
+	spotlightReturn *spotlightSnapshot
 
 	form *Form
 
@@ -188,7 +188,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.personasOv.m = m
 	m.channelsOv.m = m
 	m.spotlight = spotlightModel{m: m}
-	m.spotlightReturn = -1
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
@@ -358,7 +357,7 @@ func (m *Model) workspaceIdle() bool {
 // dispatchModel.submit, capabilityModel.switchTo) route through this one
 // helper so a future completion point is never the one that forgets it.
 func (m *Model) completeAction() {
-	m.spotlightReturn = -1
+	m.spotlightReturn = nil
 }
 
 // Init is the Bubble Tea Init command. It schedules the periodic refresh
@@ -463,7 +462,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // spotlightModel.activate also replays prelude/key segments through this
 // same handleKey, so this wrapper runs on every replayed segment too — but
 // harmlessly: activate sets spotlightReturn only after its replay loop
-// finishes, so the return is still -1 during replay and the check below
+// finishes, so the return is still nil during replay and the check below
 // cannot fire on any of the nested calls for the replayed segments. It DOES
 // fire, though, on the outer call: activate() itself runs beneath this same
 // handleKey (the user's Enter keypress that triggered it), so by the time that
@@ -475,10 +474,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // looks inert: the spotlight reopens over it before the user sees anything.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	cmd := m.dispatchKey(k)
-	if m.spotlightReturn >= 0 && m.workspaceIdle() {
-		row := m.spotlightReturn
-		m.spotlightReturn = -1
-		m.spotlight.openAt(row)
+	if m.spotlightReturn != nil && m.workspaceIdle() {
+		s := *m.spotlightReturn
+		m.spotlightReturn = nil
+		m.spotlight.openAt(s)
 	}
 	return cmd
 }

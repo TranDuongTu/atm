@@ -9,14 +9,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Esc from a spotlight-spawned form returns to the launcher.
-//
-// spotlightReturn is still a bare int (a ROOT row index), so the launcher
-// reopens at the root even though "Add project" was activated one level down
-// inside the Project group: the recorded index cannot describe a level. Task
-// 10 replaces the int with a snapshot and restores the real level+cursor;
-// until then the cursor assertion below only pins that the recorded index is
-// applied, not that the user lands back where they were.
+// Esc from a spotlight-spawned form returns to the launcher — to the level the
+// entry was activated from, not to the root. "Add project" lives one level down
+// inside the Project group, which is exactly the case the old bare-int return
+// could not describe: an int is a root row index, so the launcher used to
+// reopen at the root with a cursor that meant something else there.
 func TestEscFromSpotlightSpawnedFormReopensSpotlight(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -32,11 +29,18 @@ func TestEscFromSpotlightSpawnedFormReopensSpotlight(t *testing.T) {
 	if !m.spotlight.open {
 		t.Fatal("Esc from a spotlight-spawned form must reopen the spotlight")
 	}
+	if m.spotlight.level != levelGroup || m.spotlight.group != groupProject {
+		t.Errorf("the launcher must reopen where it was left: level=%v group=%v",
+			m.spotlight.level, m.spotlight.group)
+	}
 	if m.spotlight.cursor != row {
 		t.Errorf("cursor must be restored to %d, got %d", row, m.spotlight.cursor)
 	}
-	if m.spotlightReturn != -1 {
-		t.Errorf("the return must be cleared once used, got %d", m.spotlightReturn)
+	if got := m.spotlight.selectedLabel(); got != "Add project" {
+		t.Errorf("the restored cursor must be back on the activated row, got %q", got)
+	}
+	if m.spotlightReturn != nil {
+		t.Errorf("the return must be cleared once used, got %+v", *m.spotlightReturn)
 	}
 }
 
@@ -64,8 +68,8 @@ func TestSuccessfulSubmitLandsOnTheWorkspace(t *testing.T) {
 	if m.spotlight.open {
 		t.Error("a successful submit must land on the workspace, not the spotlight")
 	}
-	if m.spotlightReturn != -1 {
-		t.Errorf("submit must clear the return, got %d", m.spotlightReturn)
+	if m.spotlightReturn != nil {
+		t.Errorf("submit must clear the return, got %+v", *m.spotlightReturn)
 	}
 }
 
@@ -89,8 +93,8 @@ func TestConfirmAcceptLandsOnTheWorkspace(t *testing.T) {
 	if m.spotlight.open {
 		t.Error("a completed confirm must land on the workspace, not the spotlight")
 	}
-	if m.spotlightReturn != -1 {
-		t.Errorf("confirm-accept must clear the return, got %d", m.spotlightReturn)
+	if m.spotlightReturn != nil {
+		t.Errorf("confirm-accept must clear the return, got %+v", *m.spotlightReturn)
 	}
 }
 
@@ -186,8 +190,8 @@ func TestSuccessfulDispatchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
 	if m.spotlight.open {
 		t.Error("a successful dispatch must land on the workspace, not the spotlight")
 	}
-	if m.spotlightReturn != -1 {
-		t.Errorf("a successful dispatch must clear the return, got %d", m.spotlightReturn)
+	if m.spotlightReturn != nil {
+		t.Errorf("a successful dispatch must clear the return, got %+v", *m.spotlightReturn)
 	}
 }
 
@@ -215,8 +219,8 @@ func TestSuccessfulCapabilitySwitchFromSpotlightLandsOnTheWorkspace(t *testing.T
 	if m.spotlight.open {
 		t.Error("a successful capability switch must land on the workspace, not the spotlight")
 	}
-	if m.spotlightReturn != -1 {
-		t.Errorf("a successful capability switch must clear the return, got %d", m.spotlightReturn)
+	if m.spotlightReturn != nil {
+		t.Errorf("a successful capability switch must clear the return, got %+v", *m.spotlightReturn)
 	}
 }
 
@@ -228,5 +232,139 @@ func TestNoReturnWithoutSpotlightActivation(t *testing.T) {
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.spotlight.open {
 		t.Error("a directly-opened overlay must not reopen the spotlight on Esc")
+	}
+}
+
+// The deepest return there is: a per-task action, two levels down and targeting
+// one task by ID. Dismissing its form must put the user back on that task's
+// action list — same task, same row — and not at the root, which is all a row
+// index could ever describe.
+func TestSpotlightReturnRestoresTaskDrill(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+	seedTask(t, m, "ATM", "decoy task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // drill into the task's actions
+	moveCursorToLabel(t, m, "Add comment")
+	row := m.spotlight.cursor
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	wantFormKind(t, m, formCommentAdd)
+	if m.spotlight.open {
+		t.Fatal("activating a kindDialog task action must close the launcher")
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if !m.spotlight.open {
+		t.Fatal("Esc from a task action's form must reopen the spotlight")
+	}
+	if m.spotlight.level != levelTaskActions || m.spotlight.taskID != target.ID {
+		t.Fatalf("the launcher must reopen on the same task's actions: level=%v taskID=%q",
+			m.spotlight.level, m.spotlight.taskID)
+	}
+	if m.spotlight.taskTitle != target.Title {
+		t.Errorf("taskTitle = %q, want %q", m.spotlight.taskTitle, target.Title)
+	}
+	if m.spotlight.cursor != row || m.spotlight.selectedLabel() != "Add comment" {
+		t.Errorf("cursor = %d (%q), want %d (Add comment)",
+			m.spotlight.cursor, m.spotlight.selectedLabel(), row)
+	}
+	if m.spotlightReturn != nil {
+		t.Errorf("the return must be cleared once used, got %+v", *m.spotlightReturn)
+	}
+}
+
+// The dialog the launcher spawned can outlive what the launcher was standing
+// on: a task removed while its comment form is open leaves an action list with
+// nothing to act on. The return falls back one level, to the Task group.
+func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "indexer")
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	moveCursorToLabel(t, m, "Add comment")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	wantFormKind(t, m, formCommentAdd)
+
+	if err := m.store.RemoveTask(target.ID, testActor); err != nil {
+		t.Fatalf("RemoveTask: %v", err)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if !m.spotlight.open {
+		t.Fatal("a stale return must still reopen the spotlight")
+	}
+	if m.spotlight.level != levelGroup || m.spotlight.group != groupTask {
+		t.Fatalf("a gone task must fall back to the Task group: level=%v group=%v",
+			m.spotlight.level, m.spotlight.group)
+	}
+	if m.spotlight.taskID != "" || m.spotlight.taskTitle != "" {
+		t.Errorf("the vanished target must be dropped: id=%q title=%q",
+			m.spotlight.taskID, m.spotlight.taskTitle)
+	}
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowEntry || r.label() != "Add task" {
+		t.Errorf("the fallback must land on the group's first row, got %q", m.spotlight.selectedLabel())
+	}
+}
+
+// A snapshot is read back against a world that may have moved on. An
+// unrecoverable one lands at the root rather than panicking or restoring a
+// level that cannot be built.
+func TestSpotlightOpenAtUnrecoverableSnapshot(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+
+	m.spotlight.openAt(spotlightSnapshot{
+		level: levelGroup, group: menuGroupID(99), query: "proj", cursor: 42,
+	})
+
+	if !m.spotlight.open {
+		t.Fatal("openAt must open the launcher even for a stale snapshot")
+	}
+	if m.spotlight.level != levelRoot || m.spotlight.group != groupNone {
+		t.Errorf("an unknown group must fall back to the root: level=%v group=%v",
+			m.spotlight.level, m.spotlight.group)
+	}
+	if m.spotlight.query != "" {
+		t.Errorf("a fallback level never inherits the snapshot's query, got %q", m.spotlight.query)
+	}
+	if r := m.spotlight.selectedRow(); r == nil {
+		t.Errorf("the fallback must leave a landable cursor, cursor=%d rows=%v",
+			m.spotlight.cursor, rowLabels(m))
+	}
+}
+
+// The restored cursor obeys the -1 no-selection sentinel: a query that matched
+// something when the dialog opened can match nothing when it closes, leaving
+// one hint row the cursor may not land on.
+func TestSpotlightOpenAtWithNothingSelectable(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+
+	m.spotlight.openAt(spotlightSnapshot{level: levelRoot, query: "zzzzz", cursor: 4})
+
+	if got := rowLabels(m); !equalStrings(got, []string{"no matches"}) {
+		t.Fatalf("rows = %v, want the no-matches hint", got)
+	}
+	if m.spotlight.cursor != -1 {
+		t.Errorf("cursor = %d, want the -1 no-selection sentinel", m.spotlight.cursor)
+	}
+	if r := m.spotlight.selectedRow(); r != nil {
+		t.Errorf("nothing may be selected, got %q", r.label())
 	}
 }
