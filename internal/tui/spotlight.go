@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 
@@ -134,11 +135,18 @@ func (sm *spotlightModel) setLevel(l spotLevel, g menuGroupID) {
 	sm.refreshPreview()
 }
 
-// buildRows derives the rows for the current (level, group, query). The query
-// does not filter yet — Task 8 owns filtering; every printable key already
-// lands here so wiring the match is all that remains.
+// buildRows derives the rows for the current (level, group, query). A
+// non-empty query at a searchable level replaces the tree entirely with the
+// flat, ranked match list (buildSearchRows); otherwise the level's tree is
+// built as before. Keeping the two branches separate is what lets the tree
+// shape stay exactly as Tasks 5/6 left it — filtering never reaches into it.
 func (sm *spotlightModel) buildRows() {
 	sm.rows = nil
+	if sm.filtering() {
+		sm.buildSearchRows()
+		sm.clampCursor()
+		return
+	}
 	switch sm.level {
 	case levelRoot:
 		for i := range menuGroups {
@@ -201,6 +209,105 @@ func (sm *spotlightModel) taskHint() string {
 	return "type to find a task…"
 }
 
+// searchable reports whether the current level supports type-to-filter.
+// levelGroup(groupTask) is excluded on purpose: there the query searches
+// tasks, not registry entries — that surface belongs to Task 9, not this one.
+func (sm *spotlightModel) searchable() bool {
+	switch sm.level {
+	case levelRoot, levelTaskActions:
+		return true
+	case levelGroup:
+		return sm.group != groupTask
+	}
+	return false
+}
+
+// filtering reports whether a non-empty query at the current level should
+// replace the tree with the flat match list. Derived rather than cached, so
+// it can never go stale against sm.query or a level/group change.
+func (sm *spotlightModel) filtering() bool {
+	return sm.query != "" && sm.searchable()
+}
+
+// searchCandidates is the entry set a query is matched against: every
+// non-hidden, currently-available entry in the registry at levelRoot and
+// levelGroup ("registry-wide" — search reaches entries outside the group the
+// user drilled into), or just the open task's action entries at
+// levelTaskActions ("the current action list"). entryAvailable keeps the
+// Capabilities project gate in force under search exactly as it is in the
+// tree.
+func (sm *spotlightModel) searchCandidates() []*menuEntry {
+	var out []*menuEntry
+	for i := range menuEntries {
+		e := &menuEntries[i]
+		if e.hidden || !sm.entryAvailable(e) {
+			continue
+		}
+		if sm.level == levelTaskActions {
+			if e.group == groupTask && isTaskAction(e) {
+				out = append(out, e)
+			}
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// buildSearchRows replaces the tree with a flat, ranked list of matching
+// entries: matchRank first, then table order within a rank (sort.SliceStable
+// over table-ordered candidates is what makes ties keep table order). A
+// query matching nothing is not an empty list — it is one rowHint saying so,
+// which the cursor cannot land on.
+func (sm *spotlightModel) buildSearchRows() {
+	type hit struct {
+		entry *menuEntry
+		rank  int
+	}
+	var hits []hit
+	for _, e := range sm.searchCandidates() {
+		if rank := matchRank(*e, sm.query); rank >= 0 {
+			hits = append(hits, hit{e, rank})
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].rank < hits[j].rank })
+	for _, h := range hits {
+		sm.rows = append(sm.rows, spotRow{kind: rowEntry, entry: h.entry})
+	}
+	if len(sm.rows) == 0 {
+		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: "no matches"})
+	}
+}
+
+// matchRank scores e against query q, case-insensitively: 0 when q prefixes
+// the label, 1 when q appears anywhere else in the label, 2 when q appears
+// only in the summary, -1 for no match at all. No fuzzy matching, no
+// recency, no usage-frequency — the three tiers are the whole ranking.
+func matchRank(e menuEntry, q string) int {
+	q = strings.ToLower(q)
+	label := strings.ToLower(e.label)
+	if strings.HasPrefix(label, q) {
+		return 0
+	}
+	if strings.Contains(label, q) {
+		return 1
+	}
+	if strings.Contains(strings.ToLower(e.summary), q) {
+		return 2
+	}
+	return -1
+}
+
+// searchLabel is a search row's display text: "Group · Label" for an entry
+// filed under a real group, or the bare label for a groupNone (root) entry,
+// which has no group name to prefix.
+func searchLabel(e menuEntry) string {
+	if g := groupByID(e.group); g != nil {
+		return g.label + " · " + e.label
+	}
+	return e.label
+}
+
 // clampCursor keeps the cursor on a landable row after a rebuild: a hint line
 // is never landable, and a shrinking row set (a typed query) must not leave
 // the cursor past the end.
@@ -210,13 +317,21 @@ func (sm *spotlightModel) clampCursor() {
 	}
 }
 
+// firstSelectableRow is the first landable row, or -1 when none of the
+// current rows are selectable — a query matching nothing leaves exactly one
+// rowHint ("no matches") and nothing else, which is exactly this case. -1 is
+// a real "no selection" state, not a placeholder: clampCursor stores it as
+// sm.cursor, moveCursor's bounds check leaves it alone (i := -1 + step never
+// re-enters the row range), selectedRow() already treats any cursor < 0 as
+// no selection, and the renderer's `row == sm.cursor` cursor-glyph check
+// never matches a real row index against it — so no glyph is drawn anywhere.
 func (sm *spotlightModel) firstSelectableRow() int {
 	for i, r := range sm.rows {
 		if r.selectable() {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
 
 // moveCursor steps one landable row in dir, skipping hint lines and stopping
@@ -346,9 +461,14 @@ func printableRune(k tea.KeyMsg) (rune, bool) {
 	return k.Runes[0], true
 }
 
-// setQuery replaces the query and rebuilds around it.
+// setQuery replaces the query and rebuilds around it. The cursor always
+// resets to row 0 first: a changed match set makes wherever the old cursor
+// pointed meaningless, and clearing the query must land back on the tree's
+// first selectable row exactly (clampCursor bumps off row 0 if it turns out
+// not to be selectable, e.g. a level whose first tree row is a hint).
 func (sm *spotlightModel) setQuery(q string) {
 	sm.query = q
+	sm.cursor = 0
 	sm.buildRows()
 	sm.refreshPreview()
 }

@@ -837,3 +837,361 @@ func TestSpotlightGroupPreviewCutsWithEllipsis(t *testing.T) {
 		t.Fatalf("no preview line was cut at width %d, so this asserts nothing:\n%s", w, strings.Join(m.spotlight.lines, "\n"))
 	}
 }
+
+// --- type-to-filter (Task 8) ---
+
+// matchRank's three tiers, pinned against the real registry entry rather than
+// a paraphrase: "add project" is a label prefix of "add", a label substring
+// (not prefix) of "proj", and only a summary substring of "code" (the word
+// appears in "a 3-6 letter code", nowhere in the label).
+func TestMatchRank(t *testing.T) {
+	var addProject *menuEntry
+	for i := range menuEntries {
+		if menuEntries[i].label == "Add project" {
+			addProject = &menuEntries[i]
+			break
+		}
+	}
+	if addProject == nil {
+		t.Fatal("setup: no menu entry labelled \"Add project\"")
+	}
+	if got := addProject.summary; got != "Create a project from a 3-6 letter code and a display name." {
+		t.Fatalf("setup: Add project's summary changed, got %q", got)
+	}
+
+	for _, tc := range []struct {
+		q    string
+		want int
+	}{
+		{"add", 0},  // label prefix
+		{"proj", 1}, // label substring, not prefix
+		{"code", 2}, // summary substring only
+		{"zzz", -1}, // no match
+	} {
+		if got := matchRank(*addProject, tc.q); got != tc.want {
+			t.Errorf("matchRank(Add project, %q) = %d, want %d", tc.q, got, tc.want)
+		}
+	}
+}
+
+// Typing at the root replaces the tree with a flat, ranked list: every row is
+// a match, ranks never decrease down the list, and clearing the query brings
+// the group-first tree straight back.
+func TestSpotlightSearchFlattens(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	for _, r := range "board" {
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if len(m.spotlight.rows) == 0 {
+		t.Fatal("typing \"board\" produced no rows")
+	}
+	prevRank := -1
+	for _, row := range m.spotlight.rows {
+		if row.kind == rowGroup {
+			t.Fatalf("a filtered list must not contain group rows: %v", rowLabels(m))
+		}
+		if row.kind != rowEntry || row.entry == nil {
+			continue
+		}
+		rank := matchRank(*row.entry, "board")
+		if rank < 0 {
+			t.Errorf("row %q has matchRank %d, want >= 0", row.label(), rank)
+		}
+		if rank < prevRank {
+			t.Errorf("ranks must be non-decreasing: row %q rank %d after rank %d", row.label(), rank, prevRank)
+		}
+		prevRank = rank
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.spotlight.query != "" {
+		t.Fatalf("Esc must clear the query, query=%q", m.spotlight.query)
+	}
+	if len(m.spotlight.rows) == 0 || m.spotlight.rows[0].kind != rowGroup {
+		t.Errorf("clearing the query must restore the group-first tree, got %v", rowLabels(m))
+	}
+}
+
+// Stability: entries tied on rank keep their original table order, not just a
+// non-decreasing rank sequence (which alone would also pass a shuffle within
+// a tier). Compared by table index via pointer identity rather than by label,
+// since two distinct entries share the label "Remove label" (Task and
+// Board groups).
+func TestSpotlightSearchRankTiesKeepTableOrder(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.setQuery("e") // common enough to produce same-rank ties
+
+	tableIndex := make(map[*menuEntry]int, len(menuEntries))
+	for i := range menuEntries {
+		tableIndex[&menuEntries[i]] = i
+	}
+
+	prevRank, prevIdx := -1, -1
+	seen := 0
+	for _, row := range m.spotlight.rows {
+		if row.kind != rowEntry || row.entry == nil {
+			continue
+		}
+		seen++
+		rank := matchRank(*row.entry, "e")
+		idx := tableIndex[row.entry]
+		if rank == prevRank && idx < prevIdx {
+			t.Errorf("rank %d tie out of table order: entry at table index %d rendered after table index %d", rank, idx, prevIdx)
+		}
+		prevRank, prevIdx = rank, idx
+	}
+	if seen == 0 {
+		t.Fatal("setup: \"e\" must match at least one entry")
+	}
+}
+
+// levelGroup's search is registry-wide, not scoped to the group the user
+// drilled into: "theme" matches "Cycle theme", a root (groupNone) entry, even
+// while browsing inside the Project group.
+func TestSpotlightSearchAtGroupLevelIsRegistryWide(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	moveCursorToLabel(t, m, "Project")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.level != levelGroup || m.spotlight.group != groupProject {
+		t.Fatalf("setup: must be inside the Project group, level=%v group=%v", m.spotlight.level, m.spotlight.group)
+	}
+
+	m.spotlight.setQuery("theme")
+	found := false
+	for _, row := range m.spotlight.rows {
+		if row.kind == rowEntry && row.entry != nil && row.entry.label == "Cycle theme" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("search inside a group must reach registry-wide entries, rows = %v", rowLabels(m))
+	}
+}
+
+// The Task group is a search surface of its own (Task 9 owns it): typing
+// there must not flatten into the registry search Task 8 owns.
+func TestSpotlightSearchExcludesGroupTask(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	moveCursorToLabel(t, m, "Task")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.spotlight.level != levelGroup || m.spotlight.group != groupTask {
+		t.Fatalf("setup: must be inside the Task group, level=%v group=%v", m.spotlight.level, m.spotlight.group)
+	}
+
+	m.spotlight.setQuery("add")
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "select a project first"}) {
+		t.Errorf("typing inside the Task group must not flatten the registry, rows = %v", got)
+	}
+}
+
+// The Capabilities entry keeps its project gate under search: it is not a
+// candidate without a project scope, and becomes one once a scope exists.
+// "capabilities" also appears in other entries' summaries (Seed vocabulary,
+// Conventions), so the assertion is specifically about the Capabilities row,
+// not about the query matching nothing at all.
+func TestSpotlightSearchCapabilitiesGateHolds(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	hasCapabilities := func() bool {
+		for _, row := range m.spotlight.rows {
+			if row.kind == rowEntry && row.entry != nil && row.entry.label == "Capabilities" {
+				return true
+			}
+		}
+		return false
+	}
+
+	m.spotlight.setQuery("capabilities")
+	if hasCapabilities() {
+		t.Errorf("without a project scope, Capabilities must not be a search candidate, rows = %v", rowLabels(m))
+	}
+
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.spotlight.setQuery("capabilities")
+	if !hasCapabilities() {
+		t.Errorf("with a project scope, \"capabilities\" must match the Capabilities entry, rows = %v", rowLabels(m))
+	}
+}
+
+// A filtered row activates exactly as a tree row does: Enter replays the
+// entry's key and closes the launcher.
+func TestSpotlightSearchEnterActivatesFilteredRow(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	before := m.themeName
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\\")})
+	for _, r := range "cycle theme" {
+		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if got := rowLabels(m); len(got) != 1 || got[0] != "Cycle theme" {
+		t.Fatalf("setup: \"cycle theme\" must match exactly Cycle theme, rows = %v", got)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.themeName == before {
+		t.Errorf("activating a filtered row must replay its key, themeName still %q", m.themeName)
+	}
+	if m.spotlight.open {
+		t.Error("activating a filtered entry must close the spotlight")
+	}
+}
+
+// A search row displays "Group · Label", not the bare label, so a flattened
+// list stays legible without its tree context.
+func TestSearchLabelPrefixesTheGroup(t *testing.T) {
+	e := menuEntries[0]
+	for i := range menuEntries {
+		if menuEntries[i].label == "Add project" {
+			e = menuEntries[i]
+		}
+	}
+	if got, want := searchLabel(e), "Project · Add project"; got != want {
+		t.Errorf("searchLabel(Add project) = %q, want %q", got, want)
+	}
+
+	var view *menuEntry
+	for i := range menuEntries {
+		if menuEntries[i].label == "Cycle theme" {
+			view = &menuEntries[i]
+		}
+	}
+	if view == nil {
+		t.Fatal("setup: no menu entry labelled \"Cycle theme\"")
+	}
+	if got, want := searchLabel(*view), "Cycle theme"; got != want {
+		t.Errorf("searchLabel(root entry) = %q, want plain label %q", got, want)
+	}
+}
+
+// The rendered list row itself must show the Group · Label form while
+// filtering, not only searchLabel in isolation.
+func TestSpotlightSearchRowsRenderGroupLabel(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.setQuery("add project")
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "Project · Add project")
+}
+
+// A query matching nothing collapses to a single "no matches" hint, which is
+// not landable — Enter and the arrows must have nothing to do.
+func TestSpotlightSearchZeroMatchesIsAHint(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.setQuery("zzzznomatchzzzz")
+
+	if got := rowLabels(m); len(got) != 1 || got[0] != "no matches" {
+		t.Fatalf("zero matches must produce exactly one hint row, got %v", got)
+	}
+	if m.spotlight.rows[0].selectable() {
+		t.Error("the \"no matches\" row must not be selectable")
+	}
+}
+
+// Routed from Task 6's review: firstSelectableRow used to fall back to row 0
+// when nothing was selectable, which Task 8's zero-match hint makes reachable
+// for real. The cursor must land nowhere — no row is drawn with the ▸ glyph —
+// rather than parking (bright) on the inert hint line.
+func TestSpotlightNoMatchesDrawsNoCursorGlyph(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.setQuery("zzzznomatchzzzz")
+
+	if m.spotlight.selectedRow() != nil {
+		t.Errorf("selectedRow() must be nil on a zero-match hint, got %v", m.spotlight.selectedRow())
+	}
+	view := stripANSI(m.spotlight.renderOverlay())
+	if strings.Contains(view, "▸") {
+		t.Errorf("no row is selectable, so no cursor glyph should be drawn:\n%s", view)
+	}
+
+	// The arrows must not crash and must not manufacture a selection either.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.spotlight.selectedRow() != nil {
+		t.Error("arrow keys on an all-hint list must not manufacture a selection")
+	}
+}
+
+// Clearing a query that had moved the cursor must land back on the tree's
+// first selectable row, not wherever the filtered list's cursor happened to
+// sit.
+func TestSpotlightClearingQueryResetsCursorToFirstRow(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	m.spotlight.setQuery("e") // common enough to produce several rows
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.spotlight.cursor == 0 {
+		t.Fatal("setup: the cursor must have moved off the first filtered row")
+	}
+
+	m.spotlight.setQuery("")
+	if m.spotlight.cursor != 0 {
+		t.Errorf("clearing the query must reset the cursor to row 0, got %d", m.spotlight.cursor)
+	}
+	if got := m.spotlight.selectedLabel(); got != "Project" {
+		t.Errorf("cleared query must land on the tree's first selectable row, selected %q", got)
+	}
+}
+
+// Routed from Task 7's review: the unfocused search line reserved three
+// columns ("> " plus a caret it never draws) instead of two, truncating one
+// column earlier than it needed to.
+func TestSpotlightSearchLineUnfocusedOffByOneFixed(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	w := m.spotlight.innerWidth()
+	room := w - 2 // "> " only — the unfocused branch draws no caret
+	q := "HEAD" + strings.Repeat("y", room-8) + "TAIL"
+	if lipgloss.Width(q) != room {
+		t.Fatalf("setup: query is %d columns, want exactly room %d", lipgloss.Width(q), room)
+	}
+	// Set the query and focus directly rather than through setQuery/Tab: this
+	// test is about searchLine's own truncation math, not about the query
+	// matching anything, and a garbage query like this one is a "no matches"
+	// hint with no preview lines, which Tab refuses to focus.
+	m.spotlight.query = q
+	m.spotlight.focus = focusPreview
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "HEAD")
+	mustContain(t, view, "TAIL")
+}
+
+// A query wider than the pane must scroll so its tail — what the user just
+// typed — stays visible, exercising fitLineFrom's scroll-into-view path,
+// which no earlier test typed a query long enough to reach.
+func TestSpotlightSearchLineScrollsLongQueryIntoView(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	long := "HEADMARK" + strings.Repeat("y", 100) + "TAILMARK"
+	m.spotlight.setQuery(long)
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, "TAILMARK")
+	mustNotContain(t, view, "HEADMARK")
+}

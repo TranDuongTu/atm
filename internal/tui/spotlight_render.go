@@ -189,7 +189,15 @@ func (sm *spotlightModel) footerHint() string {
 func (sm *spotlightModel) searchLine(w int) string {
 	st := sm.m.styles
 	q := sm.query
-	if room := w - 3; lipgloss.Width(q) > room { // "> " plus the caret
+	// The unfocused line draws "> " + q with no caret, so it only needs 2
+	// columns of overhead; the focused line adds the caret, needing 3. Using
+	// the focused reservation for both used to truncate the unfocused line
+	// one column earlier than it had to.
+	overhead := 2
+	if sm.focus == focusList {
+		overhead = 3
+	}
+	if room := w - overhead; lipgloss.Width(q) > room {
 		q = fitLineFrom(q, lipgloss.Width(q)-room, room)
 	}
 	if sm.focus != focusList {
@@ -267,7 +275,13 @@ func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 			if pad < 1 {
 				pad = 1
 			}
-			text = key + spaces(pad) + e.icon + " " + e.label
+			// A search row shows "Group · Label" — a flattened list has no
+			// tree context left to say which group an entry came from.
+			label := e.label
+			if sm.filtering() {
+				label = searchLabel(*e)
+			}
+			text = key + spaces(pad) + e.icon + " " + label
 		}
 	case rowHint:
 		text, style = spaces(spotKeyCol)+r.text, st.KeyMenuDim
