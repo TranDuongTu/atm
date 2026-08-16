@@ -1104,16 +1104,80 @@ func TestSpotlightSearchZeroMatchesIsAHint(t *testing.T) {
 	}
 }
 
+// Enter on the "no matches" hint is inert: selectedRow() is nil on a
+// non-selectable row, so activate() has nothing to act on.
+func TestSpotlightSearchEnterIsInertOnNoMatchesHint(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+	m.spotlight.setQuery("zzzznomatchzzzz")
+	if got := rowLabels(m); len(got) != 1 || got[0] != "no matches" {
+		t.Fatalf("setup: expected exactly the no-matches hint, got %v", got)
+	}
+
+	if cmd := m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Error("Enter on the no-matches hint must not return a command")
+	}
+	if !m.spotlight.open {
+		t.Error("Enter on the no-matches hint must not close the spotlight")
+	}
+	if got := rowLabels(m); len(got) != 1 || got[0] != "no matches" {
+		t.Errorf("Enter on the no-matches hint must not change the rows, got %v", got)
+	}
+}
+
+// Hidden entries (keymap-reference-only rows) must never surface as a search
+// result. "pane" is chosen because it matches the hidden "Projects pane" /
+// "Tasks pane" rows by label — the sanity check below proves that, so the
+// absence of a hit in the real results demonstrates the model's
+// entryAvailable/hidden exclusion is doing the work, not that the query
+// happened to be too narrow to find them.
+func TestSpotlightSearchNeverMatchesHiddenEntries(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.spotlight.openSpotlight()
+
+	hiddenHits := 0
+	for _, e := range menuEntries {
+		if e.hidden && matchRank(e, "pane") >= 0 {
+			hiddenHits++
+		}
+	}
+	if hiddenHits == 0 {
+		t.Fatal("setup: query \"pane\" must matchRank at least one hidden entry, or this test proves nothing")
+	}
+
+	m.spotlight.setQuery("pane")
+	if len(m.spotlight.rows) == 0 {
+		t.Fatal("setup: query \"pane\" must also match at least one visible entry")
+	}
+	for _, row := range m.spotlight.rows {
+		if row.kind == rowEntry && row.entry != nil && row.entry.hidden {
+			t.Errorf("hidden entry %q must never appear in filtered results", row.entry.label)
+		}
+	}
+}
+
 // Routed from Task 6's review: firstSelectableRow used to fall back to row 0
 // when nothing was selectable, which Task 8's zero-match hint makes reachable
-// for real. The cursor must land nowhere — no row is drawn with the ▸ glyph —
-// rather than parking (bright) on the inert hint line.
+// for real. Note that row 0 landing on the hint was already harmless by the
+// time this test was written — renderListRow's `cursor && r.selectable()`
+// guard (bd33346) already suppressed the glyph on a non-selectable row, and
+// selectedRow() (also bd33346) already returned nil for it — so the glyph and
+// selectedRow assertions below hold under the old `return 0` too. What they
+// do NOT hold under is a lying cursor value: with `return 0`, sm.cursor is 0
+// (a real row index) even though nothing is selected. The explicit sentinel
+// check is what actually pins this fix; the rest of the test documents that
+// the surrounding behavior stays correct.
 func TestSpotlightNoMatchesDrawsNoCursorGlyph(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	m.spotlight.setQuery("zzzznomatchzzzz")
 
+	if m.spotlight.cursor != -1 {
+		t.Errorf("cursor must be the no-selection sentinel -1 on a zero-match hint, got %d", m.spotlight.cursor)
+	}
 	if m.spotlight.selectedRow() != nil {
 		t.Errorf("selectedRow() must be nil on a zero-match hint, got %v", m.spotlight.selectedRow())
 	}
