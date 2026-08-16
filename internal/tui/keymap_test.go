@@ -101,9 +101,6 @@ func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
 				t.Errorf("prelude segment %q round-trips to %q", seg, got)
 			}
 		}
-		if sectionTitleFor(s) == "" {
-			t.Errorf("scope %d has no section title", s)
-		}
 	}
 	if len(preludeFor(scopeGlobal)) != 0 {
 		t.Error("global entries must have an empty prelude")

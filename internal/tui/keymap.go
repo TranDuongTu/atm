@@ -175,7 +175,7 @@ var menuEntries = []menuEntry{
 	{key: "2", label: "Tasks pane", hidden: true},
 	{key: "ctrl+right", label: "Drill into persona activity", hidden: true},
 	{key: "ctrl+left", label: "Back from persona detail", hidden: true},
-	{key: "j/k", label: "Move cursor / scroll", hidden: true},
+	{key: "j/k", label: "Move cursor / scroll (spotlight: preview focus only — arrows move its search list)", hidden: true},
 	{key: "g", label: "Top of list · plugin leader prefix", hidden: true},
 	{key: "enter", label: "Open detail / confirm", hidden: true},
 	{key: "esc", label: "Back / close overlay", hidden: true},
@@ -211,19 +211,6 @@ func preludeFor(s menuScope) []string {
 		return []string{"2", "enter"}
 	}
 	return nil
-}
-
-// sectionTitleFor is the spotlight header a scope's entries render under.
-func sectionTitleFor(s menuScope) string {
-	switch s {
-	case scopeProjectsList, scopeProjectsDetail, scopeProjectsDrill:
-		return "Projects"
-	case scopeTasksList, scopeTasksDetail:
-		return "Tasks"
-	case scopeBoards:
-		return "Boards"
-	}
-	return ""
 }
 
 // keyMsgFromString synthesizes the tea.KeyMsg whose String() equals s, for
