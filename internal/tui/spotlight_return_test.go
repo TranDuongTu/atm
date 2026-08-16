@@ -284,13 +284,18 @@ func TestSpotlightReturnRestoresTaskDrill(t *testing.T) {
 
 // The dialog the launcher spawned can outlive what the launcher was standing
 // on: a task removed while its comment form is open leaves an action list with
-// nothing to act on. The return falls back one level, to the Task group.
+// nothing to act on. The return falls back one level, to the Task group — and
+// keeps the search, which is the one thing a fallback inherits: the query that
+// found the vanished task describes exactly the list the Task group shows, so
+// the user lands back on their (now shorter) results rather than on an empty
+// group they must retype into after a step they never took.
 func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	selectProject(t, m, "ATM")
 	target := seedTask(t, m, "ATM", "wire the indexer")
+	survivor := seedTask(t, m, "ATM", "indexer plumbing")
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
@@ -317,8 +322,88 @@ func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 		t.Errorf("the vanished target must be dropped: id=%q title=%q",
 			m.spotlight.taskID, m.spotlight.taskTitle)
 	}
-	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowEntry || r.label() != "Add task" {
-		t.Errorf("the fallback must land on the group's first row, got %q", m.spotlight.selectedLabel())
+	if m.spotlight.query != "indexer" {
+		t.Errorf("query after the fallback = %q, want the search that found the task", m.spotlight.query)
+	}
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", survivor.Title}) {
+		t.Errorf("rows after the fallback = %v, want the search re-run against the surviving tasks", got)
+	}
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask || r.task.ID != survivor.ID {
+		t.Errorf("the fallback must land on a surviving result, got %q", m.spotlight.selectedLabel())
+	}
+}
+
+// The spec's "Esc returns to the results with the query intact" must survive a
+// dialog in the middle of it, which is the whole four-step sequence: search a
+// task, drill in, run a kindDialog action, Esc the form (the launcher returns
+// to the action list), Esc again (the launcher owes the user their results).
+// The second Esc reads sm.taskQuery, so the snapshot has to carry it — leaving
+// it to whatever happens to still be on the closed launcher would make a spec
+// behavior depend on an accident.
+func TestSpotlightReturnKeepsTheTaskQueryAcrossADialog(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "alpha one")
+	seedTask(t, m, "ATM", "alpha two")
+	seedTask(t, m, "ATM", "beta three")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, "alpha")
+	before := rowLabels(m)
+	moveCursorToTask(t, m, target.ID)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	moveCursorToLabel(t, m, "Add comment")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	wantFormKind(t, m, formCommentAdd)
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // dismiss the form: back to the action list
+	if m.spotlight.level != levelTaskActions {
+		t.Fatalf("setup: the return must land on the action list, level=%v", m.spotlight.level)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // peel the action level
+
+	if m.spotlight.query != "alpha" {
+		t.Errorf("query after Esc = %q, want the search intact", m.spotlight.query)
+	}
+	if got := rowLabels(m); !equalStrings(got, before) {
+		t.Errorf("rows after Esc =\n%v\nwant the results the user drilled from\n%v", got, before)
+	}
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask {
+		t.Errorf("the restored results must select a task, got %q", m.spotlight.selectedLabel())
+	}
+}
+
+// The search is carried by the snapshot, not by residual state: openAt restores
+// a launcher that knows nothing about the drill it is being put back into.
+func TestSpotlightOpenAtRestoresTheTaskQueryFromTheSnapshot(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	target := seedTask(t, m, "ATM", "alpha one")
+	seedTask(t, m, "ATM", "beta three")
+
+	m.spotlight.openAt(spotlightSnapshot{
+		level: levelTaskActions, group: groupTask,
+		taskID: target.ID, taskTitle: target.Title, taskQuery: "alpha",
+	})
+	if m.spotlight.level != levelTaskActions || m.spotlight.taskID != target.ID {
+		t.Fatalf("setup: level=%v taskID=%q", m.spotlight.level, m.spotlight.taskID)
+	}
+	if m.spotlight.taskQuery != "alpha" {
+		t.Errorf("taskQuery = %q, want the snapshot's search", m.spotlight.taskQuery)
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.spotlight.query != "alpha" {
+		t.Errorf("query after Esc = %q, want the snapshot's search restored", m.spotlight.query)
+	}
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask || r.task.ID != target.ID {
+		t.Errorf("Esc must land on the results the snapshot's search produces, got %q",
+			m.spotlight.selectedLabel())
 	}
 }
 

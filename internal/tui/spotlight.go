@@ -114,6 +114,7 @@ type spotlightSnapshot struct {
 	group     menuGroupID
 	taskID    string
 	taskTitle string
+	taskQuery string
 	query     string
 	cursor    int
 }
@@ -127,6 +128,7 @@ func (sm *spotlightModel) snapshot() spotlightSnapshot {
 		group:     sm.group,
 		taskID:    sm.taskID,
 		taskTitle: sm.taskTitle,
+		taskQuery: sm.taskQuery,
 		query:     sm.query,
 		cursor:    sm.cursor,
 	}
@@ -141,23 +143,31 @@ func (sm *spotlightModel) snapshot() spotlightSnapshot {
 // The level is resolved against the world as it is now (restorableLevel), so a
 // snapshot whose target is gone lands on the nearest level that can still be
 // built. A fallback drops the query and the cursor with the level they
-// belonged to: both describe a list this level is not showing.
+// belonged to — both describe a list this level is not showing — except for
+// the task search, which describes the Task group's list exactly (see below).
 func (sm *spotlightModel) openAt(s spotlightSnapshot) {
 	sm.open = true
 	level, group := sm.restorableLevel(s)
 	if level == levelTaskActions {
 		// Set before the transition for the same reason activate does it:
-		// setLevel builds the action rows around the target, and keeps it
-		// precisely because levelTaskActions is the level that acts on it.
-		// Everything else setLevel resets stays reset — the state openAt wants
-		// preserved is restored around the transition, never excepted inside
-		// it. sm.taskQuery survives untouched for the same reason: it is still
-		// the search this task was found by, so Esc lands back on those
-		// results exactly as it would have without the detour.
-		sm.taskID, sm.taskTitle = s.taskID, s.taskTitle
+		// setLevel builds the action rows around the target, and keeps both
+		// the target and its search precisely because levelTaskActions is the
+		// level that acts on them. Everything else setLevel resets stays reset
+		// — the state openAt wants preserved is restored around the
+		// transition, never excepted inside it.
+		sm.taskID, sm.taskTitle, sm.taskQuery = s.taskID, s.taskTitle, s.taskQuery
 	}
 	sm.setLevel(level, group)
 	if level != s.level || group != s.group {
+		// The one thing a fallback inherits. Dropping out of a vanished task's
+		// actions lands on the Task group, and taskQuery describes exactly the
+		// list that level shows — it is the search the task was found by, so
+		// the user gets their (now shorter) results rather than an empty group
+		// to retype into after a step they never took. Every other fallback
+		// ends at the root, where neither query nor cursor means anything.
+		if s.level == levelTaskActions && level == levelGroup && s.taskQuery != "" {
+			sm.setQuery(s.taskQuery)
+		}
 		return
 	}
 	sm.query = s.query
