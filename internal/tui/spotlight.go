@@ -203,8 +203,13 @@ func (sm *spotlightModel) buildRows() {
 // scoped project's tasks that follows the static Add-task row. Every state
 // ends in either task rows or exactly one hint, so the group can never look
 // like it lost its rows — and the hint says which state it is in.
+//
+// "Empty query" is trimmed here for the same reason taskMatches trims it:
+// space is a real keystroke inside the launcher, and the two must agree about
+// what an empty query is — otherwise one space replaces the invitation to
+// type with "no tasks match".
 func (sm *spotlightModel) appendTaskRows() {
-	if sm.m.projectScope == "" || sm.query == "" {
+	if sm.m.projectScope == "" || strings.TrimSpace(sm.query) == "" {
 		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: sm.taskHint()})
 		return
 	}

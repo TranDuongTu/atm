@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"atm/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1339,19 +1340,74 @@ func TestSpotlightTaskSearchTopFive(t *testing.T) {
 	}
 }
 
+// The cap is applied AFTER the ranking, not before it: with more matches than
+// the cap, the ID match must survive the cut even when the store hands it over
+// last. Sibling to TestSpotlightTaskSearchTopFive (which pins the cap itself
+// and the row shape) rather than a second phase inside it, because it needs a
+// different query — every task there is a title match, so no ID can rank.
+//
+// Fixture built like TestSpotlightTaskSearchRanksIDOverTitle's: decoys first,
+// retitled after the target exists, so creation order puts the ID match last.
+// Capping before ranking would keep the first five decoys and drop the one
+// task the user actually named.
+func TestSpotlightTaskSearchRanksBeforeCapping(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	var decoys []*store.Task
+	for i := 1; i <= 7; i++ {
+		decoys = append(decoys, seedTask(t, m, "ATM", fmt.Sprintf("placeholder %d", i)))
+	}
+	target := seedTask(t, m, "ATM", "no keyword here")
+	for i, d := range decoys {
+		retitle(t, m, d, fmt.Sprintf("decoy %d mentions %s", i+1, target.ID))
+	}
+
+	got := m.spotlight.taskMatches(target.ID)
+	if len(got) != 5 {
+		t.Fatalf("taskMatches over 8 matches returned %d, want the 5-cap", len(got))
+	}
+	if got[0].ID != target.ID {
+		t.Fatalf("first match = %q (%q), want the ID match %q — the cap must be applied after the ranking",
+			got[0].ID, got[0].Title, target.ID)
+	}
+	// And the same through the rows the user actually sees.
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	typeQuery(t, m, target.ID)
+	moveCursorToTask(t, m, target.ID) // Fatalf if the cut dropped it
+}
+
 // ID matches rank above title matches: a user who pastes an ID means that
 // task, not every task whose title happens to contain the same run of
 // characters.
+//
+// The fixture is built so the store order FIGHTS the assertion. ListTasks
+// sorts by creation ordinal (internal/store/query.go), so seeding the ID match
+// first would put it at got[0] whether or not taskMatches ranks anything —
+// the assertion would hold with the rank sort deleted. The title decoys are
+// therefore created first and only then rewritten to mention the target's ID
+// (a title edit does not move a task's creation ordinal), which leaves the ID
+// match LAST in store order: only the rank sort can bring it forward.
 func TestSpotlightTaskSearchRanksIDOverTitle(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	selectProject(t, m, "ATM")
+	decoys := []*store.Task{
+		seedTask(t, m, "ATM", "placeholder one"),
+		seedTask(t, m, "ATM", "placeholder two"),
+	}
 	target := seedTask(t, m, "ATM", "no keyword here")
-	// Title matches for the target's own ID, seeded after it so table order
-	// alone would not put the ID match first.
-	seedTask(t, m, "ATM", "mentions "+target.ID+" in the title")
-	seedTask(t, m, "ATM", "also mentions "+target.ID)
+	retitle(t, m, decoys[0], "mentions "+target.ID+" in the title")
+	retitle(t, m, decoys[1], "also mentions "+target.ID)
+
+	// Setup check: the store really does hand taskMatches the ID match last.
+	all := m.store.ListTasks(core.QueryFilters{Project: "ATM"})
+	if all[len(all)-1].ID != target.ID {
+		t.Fatalf("setup: want the ID match last in store order, got %q last", all[len(all)-1].ID)
+	}
 
 	got := m.spotlight.taskMatches(target.ID)
 	if len(got) != 3 {
@@ -1360,6 +1416,17 @@ func TestSpotlightTaskSearchRanksIDOverTitle(t *testing.T) {
 	if got[0].ID != target.ID {
 		t.Errorf("first match = %q (%q), want the ID match %q", got[0].ID, got[0].Title, target.ID)
 	}
+}
+
+// retitle rewrites a seeded task's title without disturbing its creation
+// ordinal — the store's list order is by creation, so this is how a fixture
+// puts a task's *content* out of step with its position.
+func retitle(t *testing.T, m *Model, tk *store.Task, title string) {
+	t.Helper()
+	if err := m.store.SetTitle(tk.ID, title, testActor); err != nil {
+		t.Fatalf("SetTitle %s: %v", tk.ID, err)
+	}
+	m.refreshAll()
 }
 
 // The search is case-insensitive and matches a substring anywhere in the
@@ -1420,6 +1487,29 @@ func TestSpotlightTaskSearchNoMatchesIsAHint(t *testing.T) {
 	}
 	if got := m.spotlight.selectedLabel(); got != "Add task" {
 		t.Errorf("selected = %q, want the Add task row", got)
+	}
+}
+
+// A query of nothing but whitespace is an empty query, in the row builder as
+// well as in the matcher. Space is a real keystroke inside the launcher
+// (printableRune maps tea.KeySpace to ' '), so the two disagreeing meant one
+// space turned the invitation to type into "no tasks match".
+func TestSpotlightTaskWhitespaceQueryIsEmpty(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "alpha task")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeySpace})
+
+	if m.spotlight.query != " " {
+		t.Fatalf("setup: space must type into the query, query=%q", m.spotlight.query)
+	}
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "type to find a task…"}) {
+		t.Errorf("rows for a whitespace query = %v, want the empty-query hint", got)
 	}
 }
 
