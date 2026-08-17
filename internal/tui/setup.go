@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"atm/internal/agent"
@@ -406,69 +405,6 @@ func (s *setupModel) setModelFor(agentName, model string) {
 	s.m.showToast(fmt.Sprintf("%s model: %s", key, model))
 }
 
-// render draws the wizard in place of the workspace.
-//
-// It is deliberately minimal: Task 9 owns the real renderer (the column-drop
-// ladder, the MODEL column, and the async cells) in its own file. What is
-// here is the section skeleton the state machine needs to be visible — the
-// headings, each row's identity, and the offer to enable a disabled
-// checklist capability. Pure formatting over s.model; it reads nothing.
-func (s *setupModel) render(width, height int) string {
-	styles := s.m.styles
-	var b strings.Builder
-
-	head := fmt.Sprintf("atm %s · ollama %s", s.model.ATMVersion, s.model.Ollama)
-	if s.probing {
-		head += " · probing…"
-	}
-	b.WriteString(styles.Muted.Render(fitLine(head, width-4)) + "\n")
-	if s.loadErr != "" {
-		b.WriteString(styles.Error.Render(fitLine(s.loadErr, width-4)) + "\n")
-	}
-
-	b.WriteString("\n" + styles.HeaderLabel.Render("AGENTS") + "\n")
-	for i, row := range s.model.Agents {
-		b.WriteString(s.row(setupSectionAgents, i, fmt.Sprintf("%s %-10s", row.Glyph(), row.Agent), width) + "\n")
-	}
-
-	if ps := s.model.Project; ps != nil {
-		b.WriteString("\n" + styles.HeaderLabel.Render("CHANNELS · "+ps.Code) + "\n")
-		if len(ps.Channels) == 0 {
-			b.WriteString(styles.Muted.Render(fitLine("  no channels yet", width-4)) + "\n")
-		}
-		for i, ch := range ps.Channels {
-			b.WriteString(s.row(setupSectionChannels, i, fmt.Sprintf("%s %-14s %-8s %s", ch.Glyph, ch.Name, ch.Type, ch.Note), width) + "\n")
-		}
-
-		b.WriteString("\n" + styles.HeaderLabel.Render("PERSONAS · "+ps.Code) + "\n")
-		if !ps.ChecklistCapEnabled {
-			b.WriteString(styles.Muted.Render(fitLine(
-				"  checklists are off for "+ps.Code+" — press [e] to enable the capability", width-4)) + "\n")
-		}
-		for i, p := range ps.Personas {
-			b.WriteString(s.row(setupSectionPersonas, i, fmt.Sprintf("%-16s %d checklists · starters %d/%d",
-				p.Persona, p.Checklists, p.StartersSeeded, p.StartersTotal), width) + "\n")
-		}
-	}
-
-	b.WriteString("\n" + styles.KeyMenuDim.Render("[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"))
-	return titledBoxHeight(styles.PaneActive, width, s.title(), b.String(), height)
-}
-
-// row formats one section row, highlighting it only when its own section has
-// focus — the cursor is per-section, so two sections must never both look
-// selected.
-func (s *setupModel) row(sec setupSection, i int, text string, width int) string {
-	line := fitLine("  "+text, width-4)
-	if s.section == sec && s.cursor == i {
-		return s.m.styles.RowCursor.Render(line)
-	}
-	return s.m.styles.Body.Render(line)
-}
-
-func (s *setupModel) title() string {
-	if s.drilled {
-		return "Setup · " + s.section.String()
-	}
-	return "Setup"
-}
+// render, row, and title live in setup_render.go: the column-drop ladder,
+// the async cell logic, and the real AGENTS table need the file to
+// themselves (see setupColumns/asyncCell there).

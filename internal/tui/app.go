@@ -662,6 +662,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		// project-wide status view and must not chase the task cursor.
 		m.channelsOv.openOverlay(m.overlayProject())
 		return nil
+	case "W":
+		// The wizard is global (menuEntries' W row sets needsProject: false),
+		// so — unlike C — this case never checks m.projectScope: it must open
+		// with no project selected, same as D and V.
+		return m.setup.open()
 	case "T":
 		m.cycleTheme()
 		return nil

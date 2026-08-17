@@ -129,6 +129,7 @@ var menuEntries = []menuEntry{
 	// into whatever pane is focused and silently no-op.
 	{key: "C", label: "Capabilities", summary: "Enable, disable, and switch the project's capabilities.", kind: kindDialog, scopes: []menuScope{scopeTasksList}, section: sectionViews, needsProject: true, group: groupNone, icon: "⚙"},
 	{key: "T", label: "Cycle theme", summary: "Step to the next colour theme.", kind: kindAction, section: sectionViews, group: groupNone, icon: "◐"},
+	{key: "W", label: "Setup & readiness", summary: "Agents, channels, and checklists: what is ready and how to fix what is not.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "☑"},
 
 	// Actions — projects list
 	{key: "a", label: "Add project", summary: "Create a project from a 3-6 letter code and a display name.", kind: kindDialog, scopes: []menuScope{scopeProjectsList}, section: sectionActions, group: groupProject, icon: "+"},
