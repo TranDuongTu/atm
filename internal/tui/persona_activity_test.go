@@ -81,6 +81,22 @@ func TestChartEnterOpensPersonaActivityOverlayForAllAndCurrentRange(t *testing.T
 	}
 }
 
+func TestChartEnterUsesCarouselFallbackForVanishedPersona(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	m.focused = paneProjects
+	m.projects.chartFocused = true
+	m.projects.chartPersona = "manager"
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: core.Now(), Actor: "developer@codex:gpt-5", Action: "task.created"},
+	}
+
+	update(t, m, "enter")
+	if got := m.personaAct.key; got != "" {
+		t.Fatalf("overlay key = %q, want All after the chart falls back", got)
+	}
+}
+
 func TestPersonaActivityOverlayClampsOverscrollAndKeepsFooter(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 16)
@@ -108,5 +124,35 @@ func TestPersonaActivityOverlayClampsOverscrollAndKeepsFooter(t *testing.T) {
 	m.personaAct.handleKey(keyMsg("k"))
 	if up := stripANSI(m.personaAct.renderOverlay()); up == bottom {
 		t.Fatalf("up after overscroll must reveal an earlier window:\n%s", up)
+	}
+}
+
+func TestPersonaActivityOverlayClampsStoredOffsetAfterResize(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 16)
+	m.personaAct = personaActivityModel{
+		m:    m,
+		open: true,
+		key:  "developer",
+		spec: chartRanges[0],
+		group: activity.Group{
+			Count:   3,
+			Models:  map[string]int{"gpt-5": 1},
+			Agents:  map[string]int{"codex": 1},
+			Actions: map[string]int{"task.created": 1},
+		},
+	}
+
+	for range 20 {
+		m.personaAct.handleKey(keyMsg("j"))
+	}
+	if m.personaAct.offset == 0 {
+		t.Fatal("short overlay must scroll before the resize")
+	}
+
+	m.SetSize(120, 40)
+	m.personaAct.handleKey(keyMsg("k"))
+	if got := m.personaAct.offset; got != 0 {
+		t.Fatalf("offset after resize and up = %d, want 0", got)
 	}
 }

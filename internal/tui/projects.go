@@ -206,7 +206,8 @@ func (p *projectsModel) openPersonaActivity() {
 	if p.chartRange >= 0 && p.chartRange < len(chartRanges) {
 		spec = chartRanges[p.chartRange]
 	}
-	p.m.personaAct.openFor(p.chartPersona, spec, p.summaryEntries)
+	entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
+	p.m.personaAct.openFor(carouselSelected(entries, p.chartPersona), spec, p.summaryEntries)
 }
 
 func (p *projectsModel) resetChart() {

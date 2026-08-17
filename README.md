@@ -51,10 +51,6 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 
 ## Screenshots
 
-![ATM dashboard showing projects, capability-grouped tasks, boards, recent events, and persona activity](docs/assets/screenshots/atm-dashboard.png)
-
-Dashboard view: projects with recent events and persona activity on the left, tasks grouped by the active capability on the right, and the pinned-board strip below.
-
 The Projects pane combines activity into one chart box. Its persona carousel starts
 on **All** activity; `Ctrl+Left/Right` moves between All and individual personas,
 while `Ctrl+Up/Down` changes the time range: `1w`, `1m`, `3m`, `6m`, or `1y`.

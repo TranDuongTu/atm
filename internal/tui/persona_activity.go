@@ -32,6 +32,7 @@ func (p *personaActivityModel) openFor(key string, spec chartRangeSpec, entries 
 }
 
 func (p *personaActivityModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	p.clampOffset()
 	switch k.String() {
 	case "esc":
 		p.open = false
@@ -83,6 +84,15 @@ func (p *personaActivityModel) maxOffset() int {
 	return max
 }
 
+func (p *personaActivityModel) clampOffset() {
+	if p.offset > p.maxOffset() {
+		p.offset = p.maxOffset()
+	}
+	if p.offset < 0 {
+		p.offset = 0
+	}
+}
+
 func (p *personaActivityModel) renderOverlay() string {
 	styles := p.m.styles
 	bw := p.m.width * 60 / 100
@@ -104,10 +114,9 @@ func (p *personaActivityModel) renderOverlay() string {
 	lines := p.activityLines(innerW)
 
 	visible := p.visibleRows()
-	maxOffset := p.maxOffset()
 	offset := p.offset
-	if offset > maxOffset {
-		offset = maxOffset
+	if offset > p.maxOffset() {
+		offset = p.maxOffset()
 	}
 	if offset < 0 {
 		offset = 0
