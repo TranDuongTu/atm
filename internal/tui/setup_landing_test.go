@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"atm/internal/developing"
 	"atm/internal/setup"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -54,6 +57,91 @@ func TestNudgeAppearsOnlyWhileSomethingIsUnready(t *testing.T) {
 	}}
 	if strings.Contains(m.renderStatusLine(), "setup") {
 		t.Fatal("nothing unready means no nudge at all")
+	}
+}
+
+// installFakeAgentsOnPath writes stub "claude"/"opencode"/"codex" executables
+// into a fresh bin dir and puts it on PATH, so exec.LookPath finds all three
+// deterministically regardless of what is actually installed on the machine
+// running the test. codex's stub has to do more than just exist: InstallPlugin
+// "codex" shells out to `codex plugin add ... --json`
+// (developing.installCodexRegistration -> runCodexPluginAdd), so the stub
+// fakes that command's real side effect — populating the plugin cache
+// codexPluginCached checks for. This mirrors internal/developing's own
+// installFakeCodex test helper (plugin_install_test.go) exactly, since it
+// is unexported and this package cannot import it.
+func installFakeAgentsOnPath(t *testing.T, home string) {
+	t.Helper()
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	for _, name := range []string{"claude", "opencode"} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+	codexScript := `#!/bin/sh
+mkdir -p "$HOME/.codex/plugins/cache/atm-local/atm-developing/0.1.0/.codex-plugin"
+printf '{"name":"atm-developing"}\n' > "$HOME/.codex/plugins/cache/atm-local/atm-developing/0.1.0/.codex-plugin/plugin.json"
+`
+	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte(codexScript), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// newTestModelWithFullyReadyAgents builds a model whose store has a project
+// (so the landing rule stays out of the way) and whose three real harnesses
+// (agent.Harnesses(): claude, codex, opencode) are ALL genuinely ready —
+// found on PATH and fully plugin-installed via developing.InstallPlugin, the
+// same production path `atm agents plugin install` uses — under a fresh,
+// isolated $HOME. It exists to prove the nudge stays silent from a real
+// probe, not a fixture that skips the readiness computation.
+func newTestModelWithFullyReadyAgents(t *testing.T) *Model {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	installFakeAgentsOnPath(t, home)
+	for _, agent := range []string{"claude", "opencode", "codex"} {
+		if _, err := developing.InstallPlugin(agent, home, false); err != nil {
+			t.Fatalf("InstallPlugin %s: %v", agent, err)
+		}
+	}
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	return m
+}
+
+// TestNudgeFiresFromANormalSessionWithoutOpeningTheWizard closes the gap
+// review round 1 found: TestNudgeAppearsOnlyWhileSomethingIsUnready above
+// hand-assigns m.setup.model, which is precisely what production never
+// does — refreshAll's tier-1 reload is what has to populate it (see
+// refreshAll's comment in app.go). This builds both halves the way a real
+// session does: a project exists, the wizard is never opened, and the nudge
+// has to reflect a REAL probe (a fresh, plugin-less $HOME for "unready";
+// developing.InstallPlugin under an isolated $HOME for "ready" — see
+// newTestModelWithFullyReadyAgents), not a value the test wrote in by hand.
+func TestNudgeFiresFromANormalSessionWithoutOpeningTheWizard(t *testing.T) {
+	// Unready: a fresh, empty $HOME has no agent plugin installed for any
+	// harness, so Glyph() cannot be ● for any row — regardless of whether
+	// this machine's real PATH happens to have claude/codex/opencode on it.
+	t.Setenv("HOME", t.TempDir())
+	unready := newTestModel(t)
+	seedProject(t, unready, "ATM", "Acme")
+	if unready.setup.active {
+		t.Fatal("precondition: the wizard must never have been opened")
+	}
+	if !strings.Contains(unready.renderStatusLine(), "setup") {
+		t.Fatal("refreshAll must populate setup facts even though the wizard was never opened, so a real unready agent raises the nudge")
+	}
+
+	ready := newTestModelWithFullyReadyAgents(t)
+	if ready.setup.active {
+		t.Fatal("precondition: the wizard must never have been opened")
+	}
+	if strings.Contains(ready.renderStatusLine(), "setup") {
+		t.Fatal("every agent genuinely ready, from a real probe, must mean no nudge — not just an unpopulated model reading as ready")
 	}
 }
 

@@ -321,6 +321,16 @@ func (m *Model) refreshAll() {
 	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
+	// Tier 1 only (setup.Instant is subprocess-free by construction — see
+	// setupModel.reload's doc). This is what makes the status-bar nudge mean
+	// something on a normal launch: without it, m.setup.model stays at its
+	// zero value until the user has opened the wizard at least once, so an
+	// agent that has been broken all along would report nothing wrong until
+	// after the user already found out for themselves. reload() re-applies
+	// the cached tier-2 answers (see apply()) rather than clearing them, and
+	// never touches probing/gen, so this cannot fire a subprocess or clobber
+	// an in-flight or already-landed probe.
+	m.setup.reload()
 	m.refreshStoreStats()
 	m.lastRefreshAt = core.Now()
 }
