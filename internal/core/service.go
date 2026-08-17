@@ -137,6 +137,7 @@ type AgentService interface {
 	GetAgentsConfig() (AgentsConfig, error)
 	SetSelectedAgent(name, actor string) error
 	SetAgentArgs(name string, args []string, actor string) error
+	SetAgentModel(key, model, actor string) error
 }
 
 // StoreStats is the display summary the TUI status bar renders: event-log

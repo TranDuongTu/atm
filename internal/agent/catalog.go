@@ -1,33 +1,77 @@
-// Package agent defines the fixed catalog of host agents ATM can launch and
-// computes their live readiness. Entries are selected via `atm agents` and
-// consumed by the unified `atm --persona` launcher.
+// Package agent defines the host harnesses ATM can launch, the launchers
+// that start them, and their live readiness.
 package agent
 
-// Entry is one selectable launch profile. Native harnesses use their own name
-// as the launcher; ollama-driven variants set Launcher to "ollama" and name the
-// harness ollama drives in Integration.
-type Entry struct {
-	Name        string
-	Launcher    string // opencode | codex | claude | ollama
-	Integration string // set iff Launcher == "ollama"
+// Harness is one host agent ATM can launch. Plugin names the developing/
+// manager plugin backing it — shared by both launchers, because ollama
+// launching claude still runs the claude plugin.
+type Harness struct {
+	Name   string
+	Plugin string
 }
 
-var integrations = []string{"opencode", "codex", "claude"}
-
-// Catalog returns the fixed set of supported agents in stable order: the native
-// harnesses first, then each ollama-driven variant.
-func Catalog() []Entry {
-	out := make([]Entry, 0, len(integrations)*2)
-	for _, name := range integrations {
-		out = append(out, Entry{Name: name, Launcher: name})
+// Harnesses is the real table: three agents, each with one plugin. The
+// launcher is a separate axis (see Launcher), and whether ollama is on PATH
+// is ONE global fact — not three.
+func Harnesses() []Harness {
+	return []Harness{
+		{Name: "opencode", Plugin: "opencode"},
+		{Name: "codex", Plugin: "codex"},
+		{Name: "claude", Plugin: "claude"},
 	}
-	for _, integ := range integrations {
-		out = append(out, Entry{Name: "ollama:" + integ, Launcher: "ollama", Integration: integ})
+}
+
+func LookupHarness(name string) (Harness, bool) {
+	for _, h := range Harnesses() {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return Harness{}, false
+}
+
+// PluginAgent is the harness whose plugin backs this selection.
+func (s Selection) PluginAgent() string { return s.Agent }
+
+// Base is the launch base argv: the native binary, or `ollama launch <agent> --`.
+func (s Selection) Base() []string {
+	if s.Launcher == LauncherOllama {
+		return []string{"ollama", "launch", s.Agent, "--"}
+	}
+	return []string{s.Agent}
+}
+
+// LauncherBinary is the binary that must be on PATH to launch s.
+func (s Selection) LauncherBinary() string {
+	if s.Launcher == LauncherOllama {
+		return "ollama"
+	}
+	return s.Agent
+}
+
+// --- Legacy shim -----------------------------------------------------------
+// Entry and Catalog are the pre-reshape flat view. They are derived from
+// Harnesses x Launcher and kept because init, dispatch, and the agents CLI
+// still read them. Delete once every consumer takes a Selection.
+
+type Entry struct {
+	Name        string
+	Launcher    string
+	Integration string
+}
+
+func Catalog() []Entry {
+	hs := Harnesses()
+	out := make([]Entry, 0, len(hs)*2)
+	for _, h := range hs {
+		out = append(out, Entry{Name: h.Name, Launcher: h.Name})
+	}
+	for _, h := range hs {
+		out = append(out, Entry{Name: "ollama:" + h.Name, Launcher: "ollama", Integration: h.Name})
 	}
 	return out
 }
 
-// Lookup returns the catalog entry with the given name.
 func Lookup(name string) (Entry, bool) {
 	for _, e := range Catalog() {
 		if e.Name == name {
@@ -37,8 +81,6 @@ func Lookup(name string) (Entry, bool) {
 	return Entry{}, false
 }
 
-// PluginAgent is the harness whose plugin backs this entry: the integration for
-// ollama entries (ollama has no plugin of its own), else the launcher.
 func (e Entry) PluginAgent() string {
 	if e.Launcher == "ollama" {
 		return e.Integration
@@ -46,11 +88,17 @@ func (e Entry) PluginAgent() string {
 	return e.Launcher
 }
 
-// Base is the launch base argv for display and launch: the native binary, or
-// `ollama launch <integration> --` for ollama entries.
 func (e Entry) Base() []string {
 	if e.Launcher == "ollama" {
 		return []string{"ollama", "launch", e.Integration, "--"}
 	}
 	return []string{e.Launcher}
+}
+
+// Selection converts a legacy entry to the new shape.
+func (e Entry) Selection() Selection {
+	if e.Launcher == "ollama" {
+		return Selection{Agent: e.Integration, Launcher: LauncherOllama}
+	}
+	return Selection{Agent: e.Launcher, Launcher: LauncherNative}
 }

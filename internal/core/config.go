@@ -86,6 +86,10 @@ type AgentsConfig struct {
 	UpdatedBy string              `json:"updated_by,omitempty"`
 	Selected  string              `json:"selected,omitempty"`
 	Args      map[string][]string `json:"args,omitempty"`
+	// Models is the chosen model per selection key, keyed exactly like Args
+	// ("claude", "ollama:claude"). Absent means the harness's own default,
+	// which ATM does not know.
+	Models map[string]string `json:"models,omitempty"`
 }
 
 type VocabularyTerm struct {

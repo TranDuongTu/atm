@@ -95,6 +95,11 @@ atm task comment label add --id --label     — (CLI only)
 atm task comment label remove --id --label  — (CLI only)
 atm task comment remove --id            — (CLI only)
 
+atm agents list                       D dispatch dialog (read-only)
+atm agents select <name> [--model M]  — (CLI only)
+atm agents models <name>              — (CLI only)
+atm agents args <name> [-- args...]   — (CLI only)
+
 atm tui                                (you are here)`
 
 // keymapReferenceText renders the menu entry table flat: one row per keyed

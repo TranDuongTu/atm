@@ -235,10 +235,28 @@ atm --persona developer --project ATM --persona reviewer
 ```sh
 atm agents list
 atm agents select claude
+atm agents select ollama:claude --model qwen3:8b
+atm agents models opencode
 atm agents args claude -- --dangerously-skip-permission
 
 atm --persona developer --project ATM --agent codex -- --yolo
 ```
+
+A selection is **agent × launcher × model**. The agent is the harness
+(`claude`, `codex`, `opencode`); the launcher is who starts it — the harness
+itself, or `ollama` serving a local model to it, which is why `ollama` is a
+launcher rather than an agent (whether the `ollama` binary is installed is one
+fact, not one per harness). `agents list` renders that as a row per agent and a
+column per launcher, with `*` on the selected cell.
+
+The model is stored per selection key, so `claude` and `ollama:claude` keep
+separate models. **Leaving it empty is a real choice**: it means the harness
+picks its own default, which ATM does not know and does not invent — such a
+session stamps its ledger writes as `developer@claude:unset`. Set one and the
+actor becomes truthful (`developer@ollama:qwen3:8b`). `atm agents models
+<name>` lists what the launcher can serve where the launcher has a list verb
+(`ollama list`, `opencode models`); `claude` and `codex` have none, so their
+model names are typed by hand.
 
 ### Dispatching Sessions From The TUI
 

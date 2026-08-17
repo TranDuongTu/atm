@@ -21,9 +21,22 @@ type Dispatcher interface {
 }
 
 type agentOption struct {
-	name  string
+	name string
+	// model is the model configured for this selection key, empty when the
+	// harness picks its own default. Filled from the store by loadFor, not by
+	// agentOptions: readiness is a PATH fact, the model is a stored one.
+	model string
 	ready bool
 	hint  string
+}
+
+// label is the option as the dialog shows it: the selection key, plus the
+// model it will launch with when one is configured.
+func (a agentOption) label() string {
+	if a.model == "" {
+		return a.name
+	}
+	return a.name + " · " + a.model
 }
 
 // agentOptions snapshots the catalog with readiness; swapped in tests via
@@ -168,6 +181,11 @@ func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle, capa
 		}
 	}
 	d.agents = d.m.agentOptionsFn()
+	if cfg, err := d.m.store.GetAgentsConfig(); err == nil {
+		for i := range d.agents {
+			d.agents[i].model = cfg.Models[d.agents[i].name]
+		}
+	}
 	d.cursor = 0
 	for i, a := range d.agents { // preselect the first ready agent
 		if a.ready {
@@ -370,7 +388,7 @@ func (d *dispatchModel) previewBody(w int) string {
 	if len(d.agents) > 0 {
 		a = d.agents[d.cursor]
 	}
-	b.WriteString("Agent:  ‹ " + a.name + " ›\n")
+	b.WriteString("Agent:  ‹ " + a.label() + " ›\n")
 	if a.ready || d.persona() == "admin" {
 		b.WriteString(styles.Success.Render("        ready") + "\n\n")
 	} else {

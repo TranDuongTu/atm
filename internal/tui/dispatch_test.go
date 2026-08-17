@@ -768,3 +768,39 @@ func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
 		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
 	}
 }
+
+// Once the model is part of the selection, a dialog that hides it is lying by
+// omission about what will start.
+func TestDispatchAgentRowShowsConfiguredModel(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	sizeDispatchModel(m)
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = testAgents
+	if err := m.store.SetAgentModel("claude", "glm-5.2", "admin@tui:unset"); err != nil {
+		t.Fatalf("SetAgentModel: %v", err)
+	}
+
+	d := &m.dispatchDlg
+	d.m = m
+	d.loadFor("developer", "ATM", "", "", "")
+
+	var claude agentOption
+	for _, a := range d.agents {
+		if a.name == "claude" {
+			claude = a
+		}
+	}
+	if claude.model != "glm-5.2" {
+		t.Fatalf("claude model = %q, want glm-5.2", claude.model)
+	}
+	for _, a := range d.agents {
+		if a.name == "codex" && a.model != "" {
+			t.Fatalf("codex model = %q; models are per selection key", a.model)
+		}
+	}
+	d.cursor = 0
+	if view := d.renderOverlay(); !strings.Contains(view, "glm-5.2") {
+		t.Fatalf("overlay hides the model that will actually launch:\n%s", view)
+	}
+}
