@@ -43,7 +43,7 @@ atm
 
 The whole loop is select-and-dispatch — you pick a row, press `D`, and an agent session does the work:
 
-- **Get ready**: press `W` for the setup & readiness wizard — which harnesses are ready, which of this project's channels each one can reach, which starter checklists are missing, and the fix for each, one key away (see "Setup And Readiness" below). A store with no projects opens on it; a status-line `⚠ setup [W]` says when something is unready.
+- **Get ready**: press `W` for the setup & readiness wizard — which harnesses are ready, which of this project's channels each one can reach, which starter checklists are missing, and the fix for each, one key away (see "Setup And Readiness" below). A store with no projects opens on it; a status-line `⚠ setup [W]` says when the agent you would dispatch with is not ready.
 - **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
 - **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
 - **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
@@ -266,7 +266,11 @@ view rather than an overlay — it replaces the workspace and keeps the status
 line — and it answers one question: what is ready, and what is the fix for
 what is not. `Tab` cycles the sections, `↑/↓` move within one, `Enter` drills
 into the focused section and `Esc` peels the drill before closing the view,
-`r` re-probes, and `Esc` on the top level closes it.
+`r` re-probes, and `Esc` on the top level closes it. The drill keeps the
+section's rows on screen — `↑/↓` still move, and the detail follows the cursor
+— and shows what the table has no column for: an agent's **MCP servers and
+each one's health**, a channel's **per-agent coverage**, a persona's **missing
+and customised starters**.
 
 **AGENTS** is always there: a row per harness with a readiness glyph — `●`
 ready, `◐` fixable right here, `○` the fix is outside ATM (ATM can install its
@@ -279,10 +283,14 @@ do). **CHANNELS** and
 wizard is honestly global and those sections are absent rather than empty.
 
 The view opens instantly and fills in. Everything reachable without a
-subprocess — PATH lookups, plugin files on disk, the stored selection, the
-project's channels and checklists — is on screen immediately; the cells that
-cost a `--version` or an `mcp list` per harness (1.6–3s each) render as `…`
-until their probe lands, so a pending answer never reads as a known-empty one.
+subprocess — PATH lookups, plugin files on disk, the stored selection — is on
+screen immediately; the cells that cost a `--version` or an `mcp list` per
+harness (1.6–3s each) render as `…` until their probe lands, so a pending
+answer never reads as a known-empty one. The project's channels and checklists
+are read at the same moment, and a wired repo channel costs a few local `git`
+calls to grade — which is why that half is read when the wizard is open (and
+on `r`, and after a fix writes), never from the background refresh that keeps
+the status-line nudge honest.
 
 Each section carries its own fix ladder, advertised in the footer:
 
@@ -308,9 +316,15 @@ Two more places the wizard shows up on its own:
   nothing else to press, so the wizard *is* the TUI until an agent is ready,
   at which point it points at creating your first project. It never creates
   one itself.
-- **The status line carries `⚠ setup [W]`** whenever any agent is unready —
-  from the moment you launch, without ever opening the wizard, and it
-  disappears entirely the moment nothing is unready.
+- **The status line carries `⚠ setup [W]`** while the agent you would actually
+  dispatch with is not ready — from the moment you launch, without ever
+  opening the wizard, and it disappears entirely once it is. Concretely: with
+  an agent selected as the default, the nudge is about *that* agent; with none
+  selected, it is raised only when no agent is ready at all. It is deliberately
+  not "any row that is not `●`" — ATM cannot install a harness, so on a machine
+  that runs only one of the three the other two stay `○` forever, and a warning
+  that can never be cleared is a warning nobody reads. There is no greyed-out
+  or "all good" variant: when there is nothing to say, nothing is shown.
 
 The same picture is available headless, and never writes to the store:
 
