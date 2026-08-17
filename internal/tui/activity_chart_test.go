@@ -2,10 +2,13 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"atm/internal/activity"
 	"atm/internal/core"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestActivityBucketCountsDailyWindow(t *testing.T) {
@@ -78,5 +81,92 @@ func TestRelDayLabel(t *testing.T) {
 		if got := relDayLabel(days); got != want {
 			t.Errorf("relDayLabel(%d) = %q, want %q", days, got, want)
 		}
+	}
+}
+
+func TestPersonaIcons(t *testing.T) {
+	tests := map[string]string{
+		"developer": "\U0001F6E0",
+		"concierge": "\U0001F9ED",
+		"manager":   "\U0001F4BC",
+		"admin":     "\u2699",
+		"":          "\u2733",
+		"custom":    "\U0001F464",
+	}
+	for key, want := range tests {
+		if got := personaIcon(key); got != want {
+			t.Errorf("personaIcon(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestCarouselEntriesPutAllFirstWithTotalCount(t *testing.T) {
+	groups := []activity.Group{
+		{Key: "manager", Count: 3},
+		{Key: "developer", Count: 2},
+	}
+	want := []carouselEntry{
+		{key: "", count: 5},
+		{key: "manager", count: 3},
+		{key: "developer", count: 2},
+	}
+	if got := carouselEntries(groups); !reflect.DeepEqual(got, want) {
+		t.Fatalf("carouselEntries() = %#v, want %#v", got, want)
+	}
+}
+
+func TestCarouselSelectionNavigationAndFallback(t *testing.T) {
+	entries := []carouselEntry{{key: "", count: 5}, {key: "manager", count: 3}, {key: "developer", count: 2}}
+	if got := carouselSelected(entries, "missing"); got != "" {
+		t.Fatalf("carouselSelected(missing) = %q, want All", got)
+	}
+	if got := carouselStep(entries, "", -1); got != "developer" {
+		t.Fatalf("carouselStep(All, left) = %q, want developer", got)
+	}
+	if got := carouselStep(entries, "developer", 1); got != "" {
+		t.Fatalf("carouselStep(developer, right) = %q, want All", got)
+	}
+	if got := carouselIndex(entries, "manager"); got != 1 {
+		t.Fatalf("carouselIndex(manager) = %d, want 1", got)
+	}
+}
+
+func TestCarouselNames(t *testing.T) {
+	if got := carouselName(""); got != "All" {
+		t.Fatalf("carouselName(All) = %q, want All", got)
+	}
+	if got := carouselName("developer"); got != "developer" {
+		t.Fatalf("carouselName(developer) = %q, want developer", got)
+	}
+}
+
+func TestRenderCarouselLinesSelectedAllAndEqualWidth(t *testing.T) {
+	entries := []carouselEntry{{key: "", count: 5}, {key: "developer", count: 2}}
+	lines := renderCarouselLines(entries, "", 30, buildStyles(themeGraphite))
+	if len(lines) != 3 {
+		t.Fatalf("renderCarouselLines() returned %d lines, want 3", len(lines))
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 30 {
+			t.Errorf("line %d display width = %d, want 30", i, got)
+		}
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "All") || !strings.Contains(joined, "developer") {
+		t.Fatalf("carousel lines = %q, want selected All and developer neighbor", joined)
+	}
+	if !strings.Contains(joined, "╭") || !strings.Contains(joined, "╰") {
+		t.Fatalf("carousel lines = %q, want rounded selected box", joined)
+	}
+}
+
+func TestRenderCarouselCompactBracketsSelectedLabel(t *testing.T) {
+	entries := []carouselEntry{{key: "", count: 5}, {key: "developer", count: 2}}
+	got := renderCarouselCompact(entries, "developer", 30, buildStyles(themeGraphite))
+	if !strings.Contains(got, "[developer]") {
+		t.Fatalf("renderCarouselCompact() = %q, want bracketed selected label", got)
+	}
+	if lipgloss.Width(got) > 30 {
+		t.Fatalf("compact carousel display width = %d, want <= 30", lipgloss.Width(got))
 	}
 }
