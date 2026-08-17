@@ -36,7 +36,9 @@ func (p *personaActivityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "esc":
 		p.open = false
 	case "j", "down":
-		p.offset++
+		if p.offset < p.maxOffset() {
+			p.offset++
+		}
 	case "k", "up":
 		if p.offset > 0 {
 			p.offset--
@@ -45,6 +47,40 @@ func (p *personaActivityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		p.offset = 0
 	}
 	return nil
+}
+
+func (p *personaActivityModel) overlayHeight() int {
+	height := p.m.height - 8
+	if height < 8 {
+		return 8
+	}
+	return height
+}
+
+func (p *personaActivityModel) activityLines(width int) []string {
+	lines := []string{fmt.Sprintf("%d events", p.group.Count), ""}
+	lines = append(lines, breakdown("models", p.group.Models, width)...)
+	lines = append(lines, breakdown("agents", p.group.Agents, width)...)
+	lines = append(lines, breakdown("actions", p.group.Actions, width)...)
+	return lines
+}
+
+func (p *personaActivityModel) visibleRows() int {
+	// titledBoxHeight supplies height-2 interior rows; reserve two of those
+	// for the blank separator and navigation footer below the activity body.
+	rows := p.overlayHeight() - 4
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func (p *personaActivityModel) maxOffset() int {
+	max := len(p.activityLines(0)) - p.visibleRows()
+	if max < 0 {
+		return 0
+	}
+	return max
 }
 
 func (p *personaActivityModel) renderOverlay() string {
@@ -59,28 +95,16 @@ func (p *personaActivityModel) renderOverlay() string {
 	if bw < 3 {
 		bw = 3
 	}
-	height := p.m.height - 8
-	if height < 8 {
-		height = 8
-	}
+	height := p.overlayHeight()
 
 	innerW := bw - 4
 	if innerW < 1 {
 		innerW = 1
 	}
-	lines := []string{fmt.Sprintf("%d events", p.group.Count), ""}
-	lines = append(lines, breakdown("models", p.group.Models, innerW)...)
-	lines = append(lines, breakdown("agents", p.group.Agents, innerW)...)
-	lines = append(lines, breakdown("actions", p.group.Actions, innerW)...)
+	lines := p.activityLines(innerW)
 
-	visible := height - 3 // border rows plus the navigation footer
-	if visible < 1 {
-		visible = 1
-	}
-	maxOffset := len(lines) - visible
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	visible := p.visibleRows()
+	maxOffset := p.maxOffset()
 	offset := p.offset
 	if offset > maxOffset {
 		offset = maxOffset

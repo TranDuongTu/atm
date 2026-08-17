@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/activity"
 	"atm/internal/core"
 )
 
@@ -77,5 +78,35 @@ func TestChartEnterOpensPersonaActivityOverlayForAllAndCurrentRange(t *testing.T
 	}
 	if got := m.personaAct.spec.key; got != "1m" {
 		t.Fatalf("overlay range = %q, want 1m", got)
+	}
+}
+
+func TestPersonaActivityOverlayClampsOverscrollAndKeepsFooter(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 16)
+	m.personaAct = personaActivityModel{
+		m:    m,
+		open: true,
+		key:  "developer",
+		spec: chartRanges[0],
+		group: activity.Group{
+			Count:   3,
+			Models:  map[string]int{"gpt-5": 1},
+			Agents:  map[string]int{"codex": 1},
+			Actions: map[string]int{"task.created": 1},
+		},
+	}
+
+	for range 20 {
+		m.personaAct.handleKey(keyMsg("j"))
+	}
+	bottom := stripANSI(m.personaAct.renderOverlay())
+	if !strings.Contains(bottom, "[j/k]scroll  [g]top  [Esc]close") {
+		t.Errorf("overlay footer is truncated:\n%s", bottom)
+	}
+
+	m.personaAct.handleKey(keyMsg("k"))
+	if up := stripANSI(m.personaAct.renderOverlay()); up == bottom {
+		t.Fatalf("up after overscroll must reveal an earlier window:\n%s", up)
 	}
 }
