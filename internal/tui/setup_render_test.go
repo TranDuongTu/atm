@@ -80,10 +80,43 @@ func TestSetupRenderNarrowDropsColumnsRightToLeft(t *testing.T) {
 
 func TestSetupRenderShowsEllipsisBeforeAsyncTierLands(t *testing.T) {
 	m := newTestModel(t)
-	m.setup.open() // async has not resolved
-	if !strings.Contains(m.setup.render(120, 30), "…") {
-		t.Fatal("pending async facts render as …, never as blank or as a guess")
+	m.setup.run = func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("harness 4.5.6\n"), nil
 	}
+	cmd := m.setup.open() // async has not resolved
+	pending := agentVerCell(t, m.setup.render(120, 30), "claude")
+	if pending != "…" {
+		t.Fatalf("claude's VER cell = %q before the probe landed, want …", pending)
+	}
+
+	m.Update(cmd())
+	landed := agentVerCell(t, m.setup.render(120, 30), "claude")
+	if landed == pending {
+		t.Fatalf("VER cell is %q both before and after the probe landed; this assertion cannot fail", landed)
+	}
+	if landed != "4.5.6" {
+		t.Fatalf("claude's VER cell = %q after the probe landed, want 4.5.6", landed)
+	}
+}
+
+// agentVerCell pulls one agent row's VER cell out of a render. The header
+// carries its own "probing…" ellipsis, so asserting on the frame as a whole
+// says nothing about the cells — this reads the cell the async tier fills.
+func agentVerCell(t *testing.T, frame, agent string) string {
+	t.Helper()
+	for _, line := range strings.Split(frame, "\n") {
+		fields := strings.Fields(stripANSI(line))
+		// A row is "<glyph> <agent> <ver> …"; the header line's first field is
+		// "AGENT", never a glyph.
+		for i, f := range fields {
+			if f != agent || i == 0 || i+1 >= len(fields) {
+				continue
+			}
+			return fields[i+1]
+		}
+	}
+	t.Fatalf("no %s row in the frame:\n%s", agent, frame)
+	return ""
 }
 
 // Enter has to open something. The MCP server list is the reason this level
