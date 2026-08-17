@@ -183,6 +183,54 @@ func TestSpotlightSearchSurfacesAStoreErrorAsARow(t *testing.T) {
 	t.Errorf("rows = %v, want the store error reported in one of them", labels)
 }
 
+// An error describes the query that produced it, so it must not outlive that
+// query. Clearing sm.searchErr only on the next SUCCESS pinned the launcher on
+// "search error: …" through every later query, level change and reopen — hiding
+// good hits behind a failure the user had already typed past. Both of
+// scheduleSearch's paths retire it: the one that schedules a tick, and the
+// early return for a cleared query.
+//
+// Driven the same way TestSpotlightSearchSurfacesAStoreErrorAsARow drives it,
+// and for the same reason: runSearch sends no vector, so no query can provoke a
+// store error from the outside.
+func TestSpotlightSearchStaleErrorDoesNotSurviveANewQuery(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "ind") // a real search, with a real hit behind it
+	m.spotlight.searchErr = "cache.db is unreadable"
+	m.spotlight.buildRows()
+	mustContain(t, strings.Join(rowLabels(m), "\n"), "cache.db is unreadable")
+
+	// The scheduling path: the next keystroke retires the error with the query
+	// it described, so the rebuild beneath it shows the new query's state and
+	// the landed search shows its hits.
+	cmd := typeQuery(t, m, "e") // "inde"
+	if m.spotlight.searchErr != "" {
+		t.Errorf("searchErr = %q after a new keystroke, want it retired with its query", m.spotlight.searchErr)
+	}
+	mustNotContain(t, strings.Join(rowLabels(m), "\n"), "search error")
+	flushSpotSearch(t, m, cmd)
+	if len(m.spotlight.hits) != 1 {
+		t.Fatalf("hits = %d, want the matching task once the error is gone; rows = %v", len(m.spotlight.hits), rowLabels(m))
+	}
+
+	// The early-return path: clearing the query retires it too, so a launcher
+	// peeled back and typed into afresh never starts on last time's failure.
+	m.spotlight.searchErr = "cache.db is unreadable"
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // peels the query
+	if m.spotlight.searchErr != "" {
+		t.Errorf("searchErr = %q after the query was cleared, want it retired", m.spotlight.searchErr)
+	}
+	mustNotContain(t, strings.Join(rowLabels(m), "\n"), "search error")
+}
+
 // The section is what the spec asks for: one labelled block of content rows,
 // with a comment hit indented under the task that owns it — including when the
 // task itself did not match, which is the case that would otherwise orphan the

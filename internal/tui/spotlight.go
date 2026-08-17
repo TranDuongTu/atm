@@ -168,6 +168,15 @@ func (sm *spotlightModel) snapshot() spotlightSnapshot {
 // a position, and the store behind it may have changed while the dialog was
 // open.
 //
+// The cursor is the one part a content search overrides. A Task-group snapshot
+// carrying a query re-runs that search, and the tick that lands homes onto the
+// first result exactly as a keystroke's rebuild does (applySearchTick's
+// queryHome), so Add task → form → Esc comes back to the top result rather than
+// to the Add-task row the form was activated from. That is the rule every other
+// query-driven rebuild follows; the alternative — holding a row index against
+// results the store may have changed meanwhile — would point at the wrong task
+// as often as the right one.
+//
 // The level is resolved against the world as it is now (restorableLevel), so a
 // snapshot whose target is gone lands on the nearest level that can still be
 // built. A fallback drops the query and the cursor with the level they
@@ -395,7 +404,7 @@ func (sm *spotlightModel) taskHint() string {
 
 // searchable reports whether the current level supports type-to-filter.
 // levelGroup(groupTask) is excluded on purpose: there the query searches
-// tasks, not registry entries — appendTaskRows owns that surface.
+// tasks, not registry entries — appendContentRows owns that surface.
 func (sm *spotlightModel) searchable() bool {
 	switch sm.level {
 	case levelRoot, levelTaskActions:
@@ -956,8 +965,15 @@ func (sm *spotlightModel) contentSearchable() bool {
 // Bumping the generation unconditionally is what makes invalidation total: a
 // level change, a cleared query and a new keystroke all retire the pending
 // tick through the same counter.
+//
+// The last error is retired through the same counter, on both paths: it
+// described the query that produced it, and that query is gone. Clearing it
+// only on the next SUCCESS pinned the launcher on "search error: …" across
+// every later query, level change and reopen — hiding good hits behind a
+// failure the user had already typed past.
 func (sm *spotlightModel) scheduleSearch() tea.Cmd {
 	sm.searchGen++
+	sm.searchErr = ""
 	if !sm.contentSearchable() || sm.m.projectScope == "" || strings.TrimSpace(sm.query) == "" {
 		sm.hits = nil
 		sm.searchQuery = ""
@@ -1019,6 +1035,12 @@ func (sm *spotlightModel) runSearch(q string) []spotRow {
 // orphaned at the top level and the row above it always names what it is a
 // comment on. Group order is best-hit-first: a group takes the position of its
 // highest-scoring member, which is the order store.Search already returns.
+//
+// Which means spotSearchK caps HITS, not rows: a synthesized parent is a row
+// the store never returned, so the real bound on the section is 2K+1 rows (K
+// comment hits on K distinct non-matching tasks, plus the header) rather than
+// K. The list scrolls, so the wider bound costs the layout nothing — but the
+// cap is not a row budget and must not be read as one.
 //
 // Every hit is re-read from the store before it becomes a row, for the same
 // reason activateTaskAction re-reads its target: the index and the cache are a
