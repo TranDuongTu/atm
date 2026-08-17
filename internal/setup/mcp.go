@@ -37,6 +37,33 @@ type MCPAdapter interface {
 
 var errParseFailed = errors.New("mcp list: could not parse output")
 
+// mcpEmptyCatalogBanner is the phrase claude and opencode BOTH print when they
+// have no MCP server configured at all:
+//
+//	claude:   No MCP servers configured. Use `claude mcp add` to add a server.
+//	opencode: ▲  No MCP servers configured
+//
+// It exists because "I could not tell" and "the harness told me: zero" are
+// different facts, and the row-parsers cannot tell them apart on their own —
+// neither harness prints a parseable row for an empty catalog, so the
+// format-change rule below would report a clean, explicit answer as unknown.
+// That is not a cosmetic misgrade: mcpTarget refuses every MCP write while the
+// state is unknown, so `[a] mcp add` — the rung that ENDS the bootstrap — used
+// to dead-end on a machine with no servers configured, which is precisely the
+// machine the wizard exists for.
+//
+// The match is deliberately narrow (this exact phrase, and only when no row
+// parsed) rather than a heuristic over "no"/"none"/"empty": if a harness ever
+// rewords it, this stops matching and the answer falls back to unknown, which
+// is the safe direction to fail in.
+const mcpEmptyCatalogBanner = "No MCP servers configured"
+
+// saysEmptyCatalog reports whether output is a harness stating outright that it
+// has no servers, as opposed to output this parser merely failed to read.
+func saysEmptyCatalog(out []byte) bool {
+	return bytes.Contains(out, []byte(mcpEmptyCatalogBanner))
+}
+
 // MCPAdapterFor returns the adapter for a harness name, or false if no
 // adapter is registered for it.
 func MCPAdapterFor(agent string) (MCPAdapter, bool) {
@@ -103,8 +130,10 @@ func (claudeMCPAdapter) ParseList(out []byte) ([]MCPServer, error) {
 	}
 	// Zero matched lines against non-empty output means the format changed,
 	// not that there are no servers — that distinction is the whole point
-	// of returning an error here instead of an empty slice.
-	if matched == 0 && len(bytes.TrimSpace(out)) > 0 {
+	// of returning an error here instead of an empty slice. The one
+	// exception is the harness saying so itself (see mcpEmptyCatalogBanner),
+	// which is an answer, not a failure to read one.
+	if matched == 0 && len(bytes.TrimSpace(out)) > 0 && !saysEmptyCatalog(out) {
 		return nil, errParseFailed
 	}
 	return servers, nil
@@ -189,9 +218,10 @@ func (opencodeMCPAdapter) ParseList(out []byte) ([]MCPServer, error) {
 		}
 		servers = append(servers, MCPServer{Name: name, Connected: connected})
 	}
-	// Same rule as the claude adapter: non-empty output with zero
-	// recognized server lines is a format change, not an empty catalog.
-	if matched == 0 && len(bytes.TrimSpace(out)) > 0 {
+	// Same rule as the claude adapter, and the same single exception: non-empty
+	// output with zero recognized server lines is a format change, UNLESS the
+	// harness said outright that there is nothing to list.
+	if matched == 0 && len(bytes.TrimSpace(out)) > 0 && !saysEmptyCatalog(out) {
 		return nil, errParseFailed
 	}
 	return servers, nil

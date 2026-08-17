@@ -497,6 +497,51 @@ func TestMCPAddConfiguresOnlyTheServersTheAgentLacks(t *testing.T) {
 	}
 }
 
+// realEmptyMCPLists is what `mcp list` REALLY prints on a machine with no MCP
+// server configured at all, captured live from claude 2.1.233, opencode
+// 1.18.18 and codex 0.145.0 under an isolated $HOME. Note how little it
+// resembles the "" that the fixtures above use for an empty opencode: two of
+// the three harnesses answer in prose, which is why the parsers need
+// setup.mcpEmptyCatalogBanner to tell that answer apart from output they
+// simply could not read.
+var realEmptyMCPLists = map[string]string{
+	"claude":   "No MCP servers configured. Use `claude mcp add` to add a server.\n",
+	"codex":    "[]",
+	"opencode": "┌  MCP Servers\n│\n▲  No MCP servers configured\n│\n└  Add servers with: opencode mcp add\n",
+}
+
+// The bootstrap rung, on the machine it exists for. A fresh machine has no MCP
+// server anywhere, and `[a]` is what fixes that — but `[a]` refuses while the
+// mcp state is unknown, so a harness's empty-catalog answer being MISREAD as
+// unknown made this rung dead-end permanently for claude and opencode
+// (re-probing cannot change the answer). This drives the real key against the
+// real captured output.
+func TestMCPAddWorksOnAMachineWithNoServersConfiguredAtAll(t *testing.T) {
+	m := setupActionsModel(t)
+	seedActionProject(t, m, "ATM")
+	seedNotionChannel(t, m, "ATM", "specs")
+	run := &recordingRun{mcpList: realEmptyMCPLists}
+	m.setup.run = run.run
+	probeOnce(t, m)
+
+	for _, ag := range []string{"claude", "codex", "opencode"} {
+		if got := agentRow(t, m, ag).MCPState; got != setup.FactPresent {
+			t.Fatalf("%s: mcp state = %v — the harness answered, and its answer was 'none'", ag, got)
+		}
+	}
+	for _, ag := range []string{"claude", "opencode"} {
+		run.calls = nil
+		focusAgent(t, m, ag)
+		m.setup.handleKey(keyMsg("a"))
+		adapter, _ := setup.MCPAdapterFor(ag)
+		recipe, _ := setup.RecipeFor(core.ChannelTypeNotion)
+		want := append([]string{ag}, adapter.AddArgv(recipe)...)
+		if !run.ranWith(want...) {
+			t.Fatalf("%s: calls = %v, want %v — [a] must configure the server on a machine that has none", ag, run.calls, want)
+		}
+	}
+}
+
 // A probe that could not answer is unknown, never missing: `mcp add` must not
 // "repair" a configuration it was never able to read.
 func TestMCPAddRefusesWhenTheProbeCouldNotAnswer(t *testing.T) {

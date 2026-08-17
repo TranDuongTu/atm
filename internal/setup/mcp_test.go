@@ -27,6 +27,31 @@ const opencodeMCPOut = "┌  MCP Servers\n" +
 
 const codexMCPOut = `[{"name":"notion","url":"https://mcp.notion.com/mcp"}]`
 
+// The three EMPTY-catalog outputs, captured live under an isolated $HOME from
+// claude 2.1.233, opencode 1.18.18 and codex 0.145.0. Only codex answers in a
+// shape the row-parsers can read; the other two say it in prose, which is why
+// mcpEmptyCatalogBanner exists. These are the fixtures a fresh machine really
+// produces — the state the wizard exists to get a user out of — and inventing
+// a plausible empty output instead (an empty string, say, which parses fine
+// and proves nothing) is exactly how this stayed broken.
+const claudeMCPOutEmpty = "No MCP servers configured. Use `claude mcp add` to add a server.\n"
+
+const opencodeMCPOutEmpty = "┌  MCP Servers\n" +
+	"│\n" +
+	"▲  No MCP servers configured\n" +
+	"│\n" +
+	"└  Add servers with: opencode mcp add\n"
+
+const codexMCPOutEmpty = `[]`
+
+// mcpOutRewordedRows is neither parseable rows NOR an explicit empty-catalog
+// banner: a harness that changed its output format. It must still be unknown
+// after the banner exception above, for both row-parsers — the exception is a
+// new CASE, not a loosening of the rule.
+const mcpOutRewordedRows = "┌  MCP Servers\n" +
+	"│\n" +
+	"◆  notion, reworded beyond recognition\n"
+
 func namesOf(t *testing.T, ag, out string) []string {
 	t.Helper()
 	a, ok := MCPAdapterFor(ag)
@@ -64,6 +89,42 @@ func TestParseCodexJSON(t *testing.T) {
 	}
 	if got := namesOf(t, "codex", "[]"); len(got) != 0 {
 		t.Fatalf("empty catalog = %v", got)
+	}
+}
+
+// The other half of the unknown-not-missing rule, and the one that was
+// missing: a harness that ANSWERED — and whose answer was "none" — must land
+// as a clean, empty catalog, not as unknown. Unknown is for "could not tell";
+// reporting it here makes the wizard refuse the very `mcp add` that would fix
+// the machine, forever, because re-probing cannot change the answer.
+func TestExplicitEmptyCatalogIsAnAnswerNotAnUnknown(t *testing.T) {
+	fixtures := map[string]string{
+		"claude":   claudeMCPOutEmpty,
+		"opencode": opencodeMCPOutEmpty,
+		"codex":    codexMCPOutEmpty,
+	}
+	for ag, out := range fixtures {
+		run := func(context.Context, string, ...string) ([]byte, error) { return []byte(out), nil }
+		servers, state := ProbeMCP(context.Background(), ag, run)
+		if state != FactPresent {
+			t.Fatalf("%s: state = %v, want present — the harness said there are none", ag, state)
+		}
+		if len(servers) != 0 {
+			t.Fatalf("%s: servers = %v, want none", ag, servers)
+		}
+	}
+}
+
+// The banner is a new CASE, not a loosening: output that is neither readable
+// rows nor an explicit "none" is still a format change, and still unknown.
+func TestRewordedOutputIsStillUnknownAfterTheEmptyCatalogException(t *testing.T) {
+	for _, ag := range []string{"claude", "opencode"} {
+		run := func(context.Context, string, ...string) ([]byte, error) {
+			return []byte(mcpOutRewordedRows), nil
+		}
+		if _, state := ProbeMCP(context.Background(), ag, run); state != FactUnknown {
+			t.Fatalf("%s: state = %v, want unknown — no rows parsed and the harness never said 'none'", ag, state)
+		}
 	}
 }
 
