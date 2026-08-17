@@ -449,12 +449,24 @@ func selectProject(t *testing.T, m *Model, code string) {
 }
 
 // typeQuery types q into the launcher one rune at a time — the real keystroke
-// path, which is the only way a per-keystroke rebuild bug shows up.
-func typeQuery(t *testing.T, m *Model, q string) {
+// path, which is the only way a per-keystroke rebuild bug shows up. The
+// returned Cmd is the debounced store search the LAST keystroke scheduled, or
+// nil at a level that searches the registry in memory.
+func typeQuery(t *testing.T, m *Model, q string) tea.Cmd {
 	t.Helper()
+	var cmd tea.Cmd
 	for _, r := range q {
-		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		cmd = m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
+	return cmd
+}
+
+// searchQuery types q and lands its debounced store search, which is where the
+// Task group's content rows now come from. Every task-group assertion about
+// rows goes through this rather than typeQuery.
+func searchQuery(t *testing.T, m *Model, q string) {
+	t.Helper()
+	flushSpotSearch(t, m, typeQuery(t, m, q))
 }
 
 // walkTo moves the cursor onto the row for a menu entry's label, drilling
