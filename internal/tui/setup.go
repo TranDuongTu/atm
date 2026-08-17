@@ -448,21 +448,38 @@ func (s *setupModel) setModelFor(agentName, model string) {
 	s.m.showToast(fmt.Sprintf("%s model: %s", key, model))
 }
 
-// setupUnready reports whether any agent has not cleared every fact ATM
-// tracks for it. AgentRow.Glyph() is the single readiness authority — ●
-// only when Binary and Plugin are both present — so this never re-derives
-// readiness from the individual Fact fields itself. An agent whose facts
-// are FactUnknown (a probe that could not answer) still glyphs ◐ or ○, so it
-// correctly counts as unready here too: "we could not tell" must not read
-// as "nothing to see". Used by the status-bar nudge, which must appear
-// while — and only while — something is genuinely unready.
+// setupUnready reports whether the status-bar nudge has something to say. It
+// asks about what the user can ACT on, which is not the same as "every row is
+// ●":
+//
+//	a row is the selected default -> nudge iff THAT row is not ready. It is
+//	                                 the agent ATM will actually launch; if it
+//	                                 works, there is nothing to warn about.
+//	no row is the default         -> nudge iff nothing is ready at all, since
+//	                                 there is then no agent to dispatch with.
+//
+// The old rule — any row not ● — was right in spirit and cried wolf in
+// practice: ATM cannot install a harness by design, so a machine that
+// deliberately runs only claude glyphs ○ for the other two forever, and the
+// warning became permanent, undismissable, and therefore unread.
+//
+// AgentRow.Glyph() stays the single readiness authority — ● only when Binary
+// and Plugin are both present — so readiness is never re-derived from the
+// individual Fact fields here. An agent whose facts are FactUnknown (a probe
+// that could not answer) still glyphs ◐ or ○, so it correctly counts as
+// unready: "we could not tell" must not read as "nothing to see". And an
+// empty slice raises nothing: no rows means the snapshot has not been built
+// yet, and a warning drawn from no facts is a claim ATM cannot support.
 func setupUnready(agents []atmsetup.AgentRow) bool {
+	if len(agents) == 0 {
+		return false
+	}
 	for _, row := range agents {
-		if row.Glyph() != "●" {
-			return true
+		if row.IsDefault {
+			return row.Glyph() != "●"
 		}
 	}
-	return false
+	return !setupAnyReady(agents)
 }
 
 // setupAnyReady reports whether at least one agent is fully ready. The

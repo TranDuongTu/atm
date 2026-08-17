@@ -60,6 +60,64 @@ func TestNudgeAppearsOnlyWhileSomethingIsUnready(t *testing.T) {
 	}
 }
 
+// The case the single-agent fixture above could never expose: ATM cannot
+// install a harness, so a machine that deliberately runs only claude glyphs ○
+// for codex and opencode forever. Nudging on that made the warning permanent
+// and undismissable — so the rule is what the user can act on, not what is
+// merely not ●.
+func TestNudgeIgnoresHarnessesTheUserDoesNotUse(t *testing.T) {
+	ready := setup.AgentRow{Agent: "claude", Binary: setup.FactPresent, Plugin: setup.FactPresent}
+	notInstalled := func(name string) setup.AgentRow {
+		return setup.AgentRow{Agent: name, Binary: setup.FactAbsent, Plugin: setup.FactAbsent}
+	}
+	withDefault := func(row setup.AgentRow) setup.AgentRow {
+		row.IsDefault, row.DefaultVia = true, "native"
+		return row
+	}
+	unready := setup.AgentRow{Agent: "claude", Binary: setup.FactPresent, Plugin: setup.FactAbsent}
+
+	for _, tc := range []struct {
+		name   string
+		agents []setup.AgentRow
+		want   bool
+	}{
+		{
+			name:   "no selection, one harness ready and two not installed",
+			agents: []setup.AgentRow{ready, notInstalled("codex"), notInstalled("opencode")},
+			want:   false,
+		},
+		{
+			name:   "no selection, nothing ready anywhere",
+			agents: []setup.AgentRow{unready, notInstalled("codex"), notInstalled("opencode")},
+			want:   true,
+		},
+		{
+			name:   "the selected default is ready; the other two are not installed",
+			agents: []setup.AgentRow{withDefault(ready), notInstalled("codex"), notInstalled("opencode")},
+			want:   false,
+		},
+		{
+			name:   "the selected default is unready even though another agent is ready",
+			agents: []setup.AgentRow{withDefault(unready), {Agent: "codex", Binary: setup.FactPresent, Plugin: setup.FactPresent}},
+			want:   true,
+		},
+		{
+			name:   "no rows at all: nothing probed yet is not a warning",
+			agents: nil,
+			want:   false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(t)
+			m.setup.model = setup.Model{Agents: tc.agents}
+			got := strings.Contains(m.renderStatusLine(), "setup")
+			if got != tc.want {
+				t.Fatalf("nudge = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // installFakeAgentsOnPath writes stub "claude"/"opencode"/"codex" executables
 // into a fresh bin dir and puts it on PATH, so exec.LookPath finds all three
 // deterministically regardless of what is actually installed on the machine
