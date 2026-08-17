@@ -28,6 +28,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectSetNameCmd(st))
 	cmd.AddCommand(newProjectRemoveCmd(st))
 	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
+	cmd.AddCommand(newProjectSetChatCmd(st))
 	cmd.AddCommand(newProjectCapabilityCmd(st))
 	cmd.AddCommand(newProjectBoardsCmd(st))
 	cmd.AddCommand(newProjectRepoCmd(st))
@@ -264,6 +265,7 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 			pj := projectToJSON(p, hv)
 			if cfg, _ := s.GetProjectConfig(code); cfg != nil {
 				pj.Embedding = cfg.Embedding
+				pj.Chat = cfg.Chat
 			}
 			return st.emit(st.stdout(), map[string]any{"project": pj}, func() {
 				fmt.Fprintln(os.Stdout, renderProjectText(pj))
@@ -378,6 +380,61 @@ func newProjectSetEmbeddingCmd(st *cliState) *cobra.Command {
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("model")
 	_ = cmd.MarkFlagRequired("endpoint")
+	return cmd
+}
+
+// newProjectSetChatCmd declares the project's chat model. Optional by
+// design: with none set, search works exactly as before and answers degrade
+// to hits (ATM-66a6d2).
+func newProjectSetChatCmd(st *cliState) *cobra.Command {
+	var project, model, endpoint string
+	cmd := &cobra.Command{
+		Use:   "set-chat",
+		Short: "Declare the project's chat model + endpoint (enables answers over search hits)",
+		Long: "Declares the local chat model that answers questions over this project's own tasks " +
+			"and comments. --endpoint defaults to the embedding endpoint, because ollama serves " +
+			"both from one place. Optional: with no chat model configured, search is unaffected " +
+			"and answers degrade to hits only.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if _, err := s.GetProject(project); err != nil {
+				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
+			}
+			if endpoint == "" {
+				cfg, err := s.GetProjectConfig(project)
+				if err != nil {
+					return err
+				}
+				if cfg != nil && cfg.Embedding != nil {
+					endpoint = cfg.Embedding.Endpoint
+				}
+			}
+			if endpoint == "" {
+				return fmt.Errorf("%w: --endpoint is required until the project has an embedding endpoint to borrow; run 'atm project set-embedding' first", ErrUsage)
+			}
+			cfg := core.ChatConfig{Model: model, Endpoint: endpoint}
+			if err := s.SetChatConfig(project, cfg, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{
+				"project": project, "chat": cfg, "actor": actor,
+			}, func() {
+				fmt.Fprintf(os.Stdout, "set chat for %s: model=%s endpoint=%s\n", project, model, endpoint)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().StringVar(&model, "model", "", "chat model slug (e.g. qwen3:8b)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OpenAI-compatible base URL serving /chat/completions (default: the embedding endpoint)")
+	_ = cmd.MarkFlagRequired("project")
+	_ = cmd.MarkFlagRequired("model")
 	return cmd
 }
 

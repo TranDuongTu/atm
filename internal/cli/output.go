@@ -49,6 +49,7 @@ type jsonProject struct {
 	UpdatedAt    string                `json:"updated_at"`
 	UpdatedBy    string                `json:"updated_by"`
 	Embedding    *core.EmbeddingConfig `json:"embedding,omitempty"`
+	Chat         *core.ChatConfig      `json:"chat,omitempty"`
 	Capabilities []string              `json:"capabilities,omitempty"`
 }
 
