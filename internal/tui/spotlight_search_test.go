@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -157,7 +158,6 @@ func TestSpotlightSearchLevelChangeDropsAnInFlightTick(t *testing.T) {
 // The write comes AFTER the level transition on purpose: setLevel rebuilds, so
 // an error set before it would be describing a search that had not run.
 func TestSpotlightSearchSurfacesAStoreErrorAsARow(t *testing.T) {
-	t.Skip("appendContentRows lands in Task 3")
 	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -180,4 +180,156 @@ func TestSpotlightSearchSurfacesAStoreErrorAsARow(t *testing.T) {
 		}
 	}
 	t.Errorf("rows = %v, want the store error reported in one of them", labels)
+}
+
+// The section is what the spec asks for: one labelled block of content rows,
+// with a comment hit indented under the task that owns it — including when the
+// task itself did not match, which is the case that would otherwise orphan the
+// comment at the top level.
+func TestSpotlightSearchNestsCommentsUnderTheirTask(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "wire the indexer")
+	if _, err := m.store.CreateComment(tk.ID, "the debounce interval is 150ms", nil, "", testActor); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	m.refreshAll()
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "debounce") // matches the comment only
+
+	rows := m.spotlight.rows
+	if len(rows) != 4 {
+		t.Fatalf("rows = %v, want Add task / section / task / comment", rowLabels(m))
+	}
+	if rows[1].kind != rowSection || rows[1].text != spotContentSection {
+		t.Errorf("row 1 = %+v, want the %q header", rows[1], spotContentSection)
+	}
+	if rows[2].kind != rowTask || rows[2].task.ID != tk.ID {
+		t.Errorf("row 2 = %q, want the parent task synthesized above its comment", rows[2].label())
+	}
+	if rows[3].kind != rowComment || rows[3].comment == nil || rows[3].task.ID != tk.ID {
+		t.Errorf("row 3 = %+v, want the comment carrying its parent task", rows[3])
+	}
+	if !strings.Contains(rows[3].label(), "debounce") {
+		t.Errorf("comment row label = %q, want its snippet", rows[3].label())
+	}
+}
+
+// Criterion 6: the arrows traverse every section, and the section header is
+// copy rather than a choice — the cursor steps over it.
+func TestSpotlightSearchArrowsTraverseAllSections(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "wire the indexer")
+	if _, err := m.store.CreateComment(tk.ID, "indexer notes", nil, "", testActor); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	m.refreshAll()
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+
+	// Homed on the top result, never on the header.
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask {
+		t.Fatalf("selection = %q, want the top task row", m.spotlight.selectedLabel())
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowComment {
+		t.Fatalf("down = %q, want the comment row", m.spotlight.selectedLabel())
+	}
+	// Back up past the header and onto the ACTIONS entry above it.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if got := m.spotlight.selectedLabel(); got != "Add task" {
+		t.Errorf("up past the section = %q, want the Add task entry", got)
+	}
+}
+
+// Enter on a comment row drills into its TASK's actions: a comment is how you
+// found the task, not a thing with actions of its own.
+func TestSpotlightSearchCommentRowDrillsIntoItsTask(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "wire the indexer")
+	if _, err := m.store.CreateComment(tk.ID, "the debounce interval is 150ms", nil, "", testActor); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	m.refreshAll()
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "debounce")
+	moveCursorToComment(t, m)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.spotlight.level != levelTaskActions || m.spotlight.taskID != tk.ID {
+		t.Errorf("level=%v taskID=%q, want the comment's task actions", m.spotlight.level, m.spotlight.taskID)
+	}
+}
+
+// A brand-new task is findable before anything has embedded it: the text path
+// reads live store entities, which is the whole reason this sub-task needs no
+// ollama.
+func TestSpotlightSearchFindsATaskCreatedSecondsAgo(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	fresh := seedTask(t, m, "ATM", "just created")
+	searchQuery(t, m, "created")
+
+	if len(m.spotlight.hits) != 1 || m.spotlight.hits[0].task.ID != fresh.ID {
+		t.Errorf("hits = %v, want the unembedded task", rowLabels(m))
+	}
+}
+
+// A pasted ID still finds its task — through the store now, not through a
+// matcher of the launcher's own. This is the behavior Task 1 exists to keep.
+func TestSpotlightSearchFindsATaskByPastedID(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "placeholder one")
+	target := seedTask(t, m, "ATM", "no keyword here")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, target.ID)
+
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask || r.task.ID != target.ID {
+		t.Errorf("a pasted ID selected %q, want the named task", m.spotlight.selectedLabel())
+	}
+}
+
+// The launcher owns no matcher of its own any more. A grep-style pin: the
+// deleted symbols must not come back, because the moment they do the ACTIONS
+// and content paths diverge again.
+func TestSpotlightHasNoInMemoryContentMatcher(t *testing.T) {
+	src, err := os.ReadFile("spotlight.go")
+	if err != nil {
+		t.Fatalf("read spotlight.go: %v", err)
+	}
+	for _, gone := range []string{"taskMatches", "spotTaskMatches"} {
+		if strings.Contains(string(src), gone) {
+			t.Errorf("%s is back: content rows must come from store.Search alone", gone)
+		}
+	}
 }

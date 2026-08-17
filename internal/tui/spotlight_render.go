@@ -330,8 +330,9 @@ func (sm *spotlightModel) listPaneLines(bodyH, w int) []string {
 // renderListRow draws one list row, padded to w. A group drills in rather than
 // running a key, so it renders "▤ Project ›" with no key column; a keyed entry
 // renders "[a] + Add project", its icon aligned after the key column; a task
-// renders "ATM-1a2b3c  wire the indexer ›"; a hint is dim copy at the label
-// column with no cursor.
+// renders "ATM-1a2b3c  wire the indexer ›", with its matched comments indented
+// under it as "  ↳ the debounce interval is 150ms ›"; a hint is dim copy at the
+// label column with no cursor, and so is a section label.
 func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 	glyph, glyphStyle := "  ", sm.m.styles.Body
 	if cursor && r.selectable() {
@@ -339,7 +340,12 @@ func (sm *spotlightModel) renderListRow(r spotRow, cursor bool, w int) string {
 	}
 	text := sm.rowText(r)
 	style := sm.m.styles.Body
-	if r.kind == rowHint {
+	switch r.kind {
+	case rowHint:
+		style = sm.m.styles.KeyMenuDim
+	case rowSection:
+		// The same quiet weight as the ACTIONS header the renderer draws above
+		// the list: both label a block rather than offering a choice.
 		style = sm.m.styles.KeyMenuDim
 	}
 	text = fitLine(text, w-lipgloss.Width(glyph))
@@ -385,6 +391,14 @@ func (sm *spotlightModel) rowText(r spotRow) string {
 		if tk := r.task; tk != nil {
 			text = tk.ID + "  " + tk.Title + " ›"
 		}
+	case rowComment:
+		// Indented under its task and marked as a quotation of it: the row
+		// above names what this is a comment on, so the snippet is all this
+		// row has to add. It wears the same › marker as a task row because
+		// Enter does the same thing — drill into that task's actions.
+		text = "  ↳ " + r.text + " ›"
+	case rowSection:
+		text = r.text
 	case rowHint:
 		text = spaces(spotKeyCol) + r.text
 	}
