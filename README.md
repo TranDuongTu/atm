@@ -43,6 +43,7 @@ atm
 
 The whole loop is select-and-dispatch — you pick a row, press `D`, and an agent session does the work:
 
+- **Get ready**: press `W` for the setup & readiness wizard — which harnesses are ready, which of this project's channels each one can reach, which starter checklists are missing, and the fix for each, one key away (see "Setup And Readiness" below). A store with no projects opens on it; a status-line `⚠ setup [W]` says when something is unready.
 - **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
 - **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
 - **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
@@ -257,6 +258,88 @@ actor becomes truthful (`developer@ollama:qwen3:8b`). `atm agents models
 <name>` lists what the launcher can serve where the launcher has a list verb
 (`ollama list`, `opencode models`); `claude` and `codex` have none, so their
 model names are typed by hand.
+
+### Setup And Readiness (`W`)
+
+`W` opens the **setup & readiness wizard** from any pane. It is a full-screen
+view rather than an overlay — it replaces the workspace and keeps the status
+line — and it answers one question: what is ready, and what is the fix for
+what is not. `Tab` cycles the sections, `↑/↓` move within one, `Enter` drills
+into the focused section and `Esc` peels the drill before closing the view,
+`r` re-probes, and `Esc` on the top level closes it.
+
+**AGENTS** is always there: a row per harness with a readiness glyph — `●`
+ready, `◐` fixable right here, `○` the fix is outside ATM (ATM can install its
+own plugin for a harness, but it cannot install the harness) — plus the
+installed version, the plugin state, which launchers can start it, its model,
+and how many of the scoped project's channels it covers (the optional columns
+drop from the right as the terminal narrows; the glyph and the agent name never
+do). **CHANNELS** and
+**PERSONAS** appear only when a project is in scope; with none selected the
+wizard is honestly global and those sections are absent rather than empty.
+
+The view opens instantly and fills in. Everything reachable without a
+subprocess — PATH lookups, plugin files on disk, the stored selection, the
+project's channels and checklists — is on screen immediately; the cells that
+cost a `--version` or an `mcp list` per harness (1.6–3s each) render as `…`
+until their probe lands, so a pending answer never reads as a known-empty one.
+
+Each section carries its own fix ladder, advertised in the footer:
+
+| Section | Keys |
+| --- | --- |
+| AGENTS | `i` install ATM's plugin · `d` make this the default agent · `m` set its model · `a` add this project's MCP servers via the harness's own `mcp add` · `l` authorize one (`mcp login`/`mcp auth`) · `u` run the harness's own update verb |
+| CHANNELS | `w` wire this machine's path · `s` stamp it verified |
+| PERSONAS | `e` enable the `checklist` capability · `s` author the shipped starter checklists this project is missing |
+| Anywhere | `c` dispatch a concierge session, scoped to the section you are in |
+
+Most of those are done by ATM itself and work with **no agent ready at all** —
+which matters, because on a fresh store nothing is ready and the action that
+ends that bootstrap (`i`) must not require what it is there to produce. The
+three that need a terminal of their own — `l`, `u`, `c` — are handed to the
+same dispatcher `D` uses; only the concierge waits for a ready agent. When
+there is no dispatch target (no herdr, no tmux, no `terminal_cmd` — plausibly
+the first-run case) ATM shows the literal command to paste instead of
+dead-ending.
+
+Two more places the wizard shows up on its own:
+
+- **A store with no projects lands on it.** There is nothing else to show and
+  nothing else to press, so the wizard *is* the TUI until an agent is ready,
+  at which point it points at creating your first project. It never creates
+  one itself.
+- **The status line carries `⚠ setup [W]`** whenever any agent is unready —
+  from the moment you launch, without ever opening the wizard, and it
+  disappears entirely the moment nothing is unready.
+
+The same picture is available headless, and never writes to the store:
+
+```sh
+atm setup status                          # agents only
+atm setup status --project ATM            # + that project's channels and checklists
+atm setup status --project ATM --output json
+```
+
+`--project` falls back to `ATM_PROJECT`, so a session already scoped to a
+project gets the project sections without repeating the code.
+
+Two things this surface will not do, in the TUI and in `setup status` alike:
+
+- **Unknown is not missing.** Every fact is tri-state. A probe that could not
+  answer — the harness is not installed, its verb failed, the call timed out,
+  or its output did not parse — reports `unknown`, never `absent`. Reporting a
+  timeout as "missing" would send you to fix something that is not broken, so
+  the writes refuse too: `a` will not "repair" an MCP configuration ATM never
+  managed to read. The rule cuts both ways: a harness that *answers* — "no MCP
+  servers configured", or a server listed with no health to report — has told
+  ATM something, and it is reported as what it is (`absent` for the first,
+  `unknown` for the second) rather than collapsed into either extreme.
+- **No "update available" claims.** ATM shows the version a harness reports
+  and offers to run that harness's own update verb (`claude update`, `codex
+  update`, `opencode upgrade`). It does not compare that against a latest
+  release, because nothing available to it knows one without running the
+  update — so it says what is installed and offers the action, and claims
+  nothing more.
 
 ### Dispatching Sessions From The TUI
 
