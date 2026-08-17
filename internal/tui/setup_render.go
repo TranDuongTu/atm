@@ -4,8 +4,27 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	atmsetup "atm/internal/setup"
 )
+
+// setupMaxWidth caps the wizard's box. It replaces the workspace rather than
+// overlaying it, but it is a dialog, not a pane: stretched across a wide
+// terminal the eye has to travel from a glyph on the far left to a count on
+// the far right, and the whole point is reading a row at a glance. Capped and
+// centred, it reads as the one thing being asked about.
+const setupMaxWidth = 100
+
+// setupBoxWidth is the width the wizard LAYS OUT at — the column-drop ladder
+// measures against this, not the terminal, so the table drops columns to fit
+// the box the user actually sees.
+func setupBoxWidth(width int) int {
+	if width < setupMaxWidth {
+		return width
+	}
+	return setupMaxWidth
+}
 
 // Column widths for the AGENTS table. Fixed rather than measured against
 // content so the header and every data row — whatever setupColumns dropped —
@@ -53,8 +72,9 @@ func asyncCell(value string, landed bool) string {
 // ollama versions, a probing indicator), the AGENTS table, then — with a
 // project selected — CHANNELS and PERSONAS. Pure formatting over s.model; it
 // reads nothing and spawns nothing, so it is safe to call every frame.
-func (s *setupModel) render(width, height int) string {
+func (s *setupModel) render(termWidth, height int) string {
 	styles := s.m.styles
+	width := setupBoxWidth(termWidth)
 	var b strings.Builder
 
 	head := fmt.Sprintf("atm %s · ollama %s", s.model.ATMVersion, s.model.Ollama)
@@ -76,19 +96,48 @@ func (s *setupModel) render(width, height int) string {
 		} else if setupAnyReady(s.model.Agents) {
 			// The wizard hands off; it never creates projects itself. Once at
 			// least one agent can dispatch there is nothing left for THIS view
-			// to do — pointing at project creation is more useful than an empty
-			// CHANNELS/PERSONAS section that can't exist without a project.
-			b.WriteString("\n" + styles.Muted.Render(fitLine(
-				"  ready — press [Esc] then [a] on Projects to create your first project", width-4)) + "\n")
+			// to do — pointing at the Projects pane is more useful than an
+			// empty CHANNELS/PERSONAS section that can't exist without one.
+			//
+			// FIRST project only when the store genuinely has none. This
+			// branch is also reached whenever no project is SELECTED, which on
+			// a populated store is the common case — telling someone with five
+			// projects to create their first one is simply false.
+			hand := "  ready — press [Esc], then [s] on Projects to select one"
+			if len(s.m.projects.list) == 0 {
+				hand = "  ready — press [Esc], then [a] on Projects to create your first project"
+			}
+			b.WriteString("\n" + styles.Muted.Render(fitLine(hand, width-4)) + "\n")
 		}
 	}
 
-	// The fixes the focused section offers, above the navigation keys every
-	// section shares. The text belongs to the ladder itself (setup_actions.go)
-	// so a key can never be advertised here without being bound there.
-	b.WriteString("\n" + styles.KeyMenuDim.Render(fitLine(s.actionHints(), width-4)) + "\n")
+	// Two footer lines, deliberately unalike. The top one is what this view
+	// can DO for the focused section — the reason the wizard exists — so it
+	// carries the bold accent. The bottom one is navigation, identical in
+	// every section and every other overlay, so it stays dim and recedes.
+	// Same-weight lines read as one run-on list of keys where nothing looks
+	// more worth pressing than anything else.
+	//
+	// The action text belongs to the ladder itself (setup_actions.go) so a key
+	// can never be advertised here without being bound there.
+	b.WriteString("\n" + styles.KeyMenu.Render(fitLine(s.actionHints(), width-4)) + "\n")
 	b.WriteString(styles.KeyMenuDim.Render(setupNavHints(s.drilled)))
-	return titledBoxHeight(styles.PaneActive, width, s.title(), b.String(), height)
+
+	// Sized to its content and centred on both axes, the way every overlay in
+	// this TUI sits. Stretching the box to the full content height left the
+	// sections pinned to the top of a mostly-empty frame; a dialog that is as
+	// tall as it needs to be, floating in the middle, is the same shape the
+	// user already knows from the channels and personas overlays.
+	//
+	// It only falls back to a height-clamped box when the content genuinely
+	// does not fit, because titledBoxHeight truncates from the BOTTOM — the
+	// navigation footer is the first thing lost, so pay that cost only when a
+	// short terminal forces it.
+	box := titledBox(styles.PaneActive, width, s.title(), b.String())
+	if height > 0 && lipgloss.Height(box) > height {
+		box = titledBoxHeight(styles.PaneActive, width, s.title(), b.String(), height)
+	}
+	return lipgloss.Place(termWidth, height, lipgloss.Center, lipgloss.Center, box)
 }
 
 // setupNavHints is the navigation half of the footer. It differs by level for
@@ -220,7 +269,7 @@ func (s *setupModel) agentDetail(row atmsetup.AgentRow) []string {
 		// never managed to read is not a list of no servers.
 		out = append(out, "  the server list is unknown — press [r] to probe again")
 	case len(s.servers[row.Agent]) == 0:
-		out = append(out, "  no servers configured — press [a] to add this project's")
+		out = append(out, "  no servers configured — press [a] to add this project's servers")
 	default:
 		for _, sv := range s.servers[row.Agent] {
 			out = append(out, fmt.Sprintf("  %-24s %s", sv.Name, setupConnectedWord(sv.Connected)))
