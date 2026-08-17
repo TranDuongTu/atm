@@ -1557,6 +1557,24 @@ func TestSpotlightTaskSearchRanksBeforeCapping(t *testing.T) {
 	moveCursorToGroup(t, m, "Task")
 	searchQuery(t, m, target.ID)
 	moveCursorToTask(t, m, target.ID) // Fatalf if the cut dropped it
+
+	// Surviving the cut is not the whole property: the cap must still fall where
+	// the ranking put it. Every task here matches the query, so the section
+	// carries exactly the cap's worth of them — and the one the query NAMED is
+	// the first of them, which is what capping before ranking would break.
+	var got []*store.Task
+	for _, r := range m.spotlight.rows {
+		if r.kind == rowTask {
+			got = append(got, r.task)
+		}
+	}
+	if len(got) != spotSearchK {
+		t.Fatalf("task rows = %d, want the %d-hit cap; rows = %v", len(got), spotSearchK, rowLabels(m))
+	}
+	if got[0].ID != target.ID {
+		t.Errorf("first match = %q (%q), want the named task %q — K must cut after the ranking",
+			got[0].ID, got[0].Title, target.ID)
+	}
 }
 
 // ID matches rank above title matches: a user who pastes an ID means that
@@ -1622,9 +1640,13 @@ func retitle(t *testing.T, m *Model, tk *store.Task, title string) {
 // The search is case-insensitive and matches each of the query's words as the
 // PREFIX of a word anywhere in the task — the store's rule, not a substring
 // scan. "the index" finds "Wire The Indexer" because "the" is one of its words
-// and "index" starts "Indexer", not because the two strings share a run of
-// characters; a query whose words start none of the task's matches nothing, and
-// says so rather than leaving the group looking empty.
+// and "index" starts "Indexer"; "indexer wire" finds it too, which is the query
+// that establishes the rule rather than merely being consistent with it —
+// lowercased, "wire the indexer" does contain the run "the index", so that
+// query alone would match under substring semantics as well, while a reversed
+// word order can only match per-token. A query whose words start none of the
+// task's matches nothing, and says so rather than leaving the group looking
+// empty.
 func TestSpotlightTaskSearchMatchesPrefixPerToken(t *testing.T) {
 	withInstantSpotSearch(t)
 	m := newTestModel(t)
@@ -1641,8 +1663,13 @@ func TestSpotlightTaskSearchMatchesPrefixPerToken(t *testing.T) {
 	if got := rowLabels(m); !equalStrings(got, want) {
 		t.Errorf("rows for %q = %v, want %v", "the index", got, want)
 	}
-	// Esc clears the query, so the second search is typed fresh rather than
-	// onto the end of the first.
+	// Esc clears the query, so each later search is typed fresh rather than onto
+	// the end of the one before it.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	searchQuery(t, m, "indexer wire") // the task's own words, out of order
+	if got := rowLabels(m); !equalStrings(got, want) {
+		t.Errorf("rows for %q = %v, want %v — a reversed word order is a per-token match", "indexer wire", got, want)
+	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	searchQuery(t, m, "nothing here")
 
