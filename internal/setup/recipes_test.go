@@ -22,6 +22,25 @@ func TestRepoChannelCountsForEveryAgent(t *testing.T) {
 	}
 }
 
+// core.ChannelStatus buckets "unwired" and "path missing" under the same
+// not-ready glyph "○" — a wired path that no longer exists on this machine
+// is not reachable, so it must not count toward coverage either, even
+// though Wiring != nil.
+func TestRepoChannelWithMissingPathCountsForNoAgent(t *testing.T) {
+	views := []core.ChannelView{{
+		ChannelRecord: core.ChannelRecord{Name: "atm", Type: core.ChannelTypeRepo},
+		Wiring:        &core.ChannelWiring{Path: "/tmp/gone"},
+		Probe:         &core.ChannelProbe{PathExists: false},
+	}}
+	ps := BuildProject("ATM", views, map[string][]MCPServer{}, map[string]Fact{}, time.Now())
+	row := ps.Channels[0]
+	for _, ag := range []string{"claude", "codex", "opencode"} {
+		if row.PerAgent[ag] != FactAbsent {
+			t.Fatalf("%s: a wired repo channel whose path is missing is not reachable, want FactAbsent, got %v", ag, row.PerAgent[ag])
+		}
+	}
+}
+
 func TestNotionChannelCountsOnlyForAgentsWithTheServer(t *testing.T) {
 	views := []core.ChannelView{{
 		ChannelRecord: core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion},

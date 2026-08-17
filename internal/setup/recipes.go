@@ -65,12 +65,16 @@ func BuildProject(code string, views []core.ChannelView, servers map[string][]MC
 		if v.Wiring != nil && v.Wiring.MCPServer != "" {
 			row.MCPServer = v.Wiring.MCPServer
 		}
-		// "wired" is exactly what core.ChannelStatus calls wired: Wiring !=
-		// nil. Finer health (dirty, stale, path missing) is already carried
-		// by the row's own glyph/note — the per-agent count is a coarser
-		// "is this channel configured on this machine" question, not a
-		// re-judgment of its health.
-		wired := v.Wiring != nil
+		// A repo channel counts only when it is actually reachable on this
+		// machine. core.ChannelStatus buckets both "unwired" and "path
+		// missing" under the same not-ready glyph "○" — so coverage must
+		// track that same boundary: Wiring == nil is never present, and
+		// neither is a wired path that no longer exists. Everything past
+		// that (dirty, not-a-git-repo, ahead/behind, a stale verification
+		// stamp) is a ◐-grade health nuance, not a reachability failure —
+		// the channel is still there, so it still counts. A nil Probe means
+		// there was nothing to probe (not a negative answer), so it counts.
+		wired := v.Wiring != nil && (v.Probe == nil || v.Probe.PathExists)
 		for _, h := range agents {
 			switch v.Type {
 			case core.ChannelTypeRepo:
