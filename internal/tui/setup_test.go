@@ -93,20 +93,37 @@ func TestSetupWithoutProjectHasNoProjectSections(t *testing.T) {
 	}
 }
 
-// A disabled checklist capability is not an empty personas section: there is
-// nothing to account for until it is on.
-func TestSetupChecklistCapabilityDisabled(t *testing.T) {
+// A project the store cannot read is NOT a project whose checklist capability
+// is off. Reporting the read failure as an absent fact is the exact shape the
+// cardinal rule exists to prevent: it offered [e] for a problem [e] cannot
+// fix — [e] reads the same record and fails the same way — and said nothing
+// about the read having failed at all.
+func TestSetupUnreadableProjectIsNotADisabledCapability(t *testing.T) {
 	m := newTestModel(t)
-	m.projectScope = "ATM" // capability NOT enabled
+	m.projectScope = "GHOST" // never created: GetProject fails
 	m.setup.open()
+
 	if m.setup.model.Project.ChecklistCapEnabled {
-		t.Fatal("capability is off")
+		t.Fatal("an unreadable project must not read as enabled either — the CLI would refuse the ladder")
 	}
-	if len(m.setup.model.Project.Personas) != 0 {
-		t.Fatal("no starter accounting until the capability is enabled")
+	if m.setup.checklistErr == "" {
+		t.Fatal("the read failure must be recorded, not swallowed")
 	}
-	if !strings.Contains(m.setup.render(100, 30), "enable") {
-		t.Fatal("offer to enable it instead of rendering an empty section")
+	if m.setup.loadErr == "" {
+		t.Fatal("a failed store read is reported on the error line like every other one")
+	}
+	out := stripANSI(m.setup.render(100, 30))
+	if !strings.Contains(out, "cannot tell whether checklists are on") {
+		t.Fatalf("the section must say the state could not be read, got:\n%s", out)
+	}
+	if strings.Contains(out, "press [e] to enable") {
+		t.Fatalf("a read failure must not be offered the enable fix, got:\n%s", out)
+	}
+
+	// And the write path says the same honest thing.
+	m.setup.seedStarters("GHOST")
+	if !strings.Contains(m.toastMsg, "read project") {
+		t.Fatalf("seedStarters toast = %q; a read failure is not 'the capability is off'", m.toastMsg)
 	}
 }
 

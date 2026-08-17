@@ -97,6 +97,12 @@ type setupModel struct {
 	// failure is reported, never rendered as an absent fact.
 	loadErr string
 
+	// checklistErr records that the checklist capability's state could not be
+	// READ, which is a different thing from the capability being off — one is
+	// fixed by [e], the other is not a problem with the capability at all.
+	// The PERSONAS section has to say which, so it needs the two apart.
+	checklistErr string
+
 	// formTarget is the agent or channel a wizard form is editing, captured
 	// when the form opens rather than re-read from the cursor on submit: a
 	// refresh tick can reload the model (and clamp the cursor) while the form
@@ -169,7 +175,7 @@ func (s *setupModel) reloadAgents() {
 // instant takes the subprocess-free agent snapshot both reload paths start
 // from, so the two can never read the store differently.
 func (s *setupModel) instant() {
-	s.loadErr = ""
+	s.loadErr, s.checklistErr = "", ""
 	cfg, err := s.m.store.GetAgentsConfig()
 	if err != nil {
 		s.loadErr = "read agents config: " + err.Error()
@@ -239,7 +245,15 @@ func (s *setupModel) buildProject() *atmsetup.ProjectSetup {
 		s.loadErr = "read channels: " + err.Error()
 	}
 	ps := atmsetup.BuildProject(code, views, s.servers, s.states, s.model.ProbedAt)
-	ps.ChecklistCapEnabled = s.checklistEnabled(code)
+	enabled, err := s.checklistEnabled(code)
+	if err != nil {
+		// A read that failed is reported as a read that failed — on the error
+		// line like every other one, and again in the section itself, which
+		// would otherwise offer [e] for a problem [e] cannot fix.
+		s.loadErr = "read project: " + err.Error()
+		s.checklistErr = err.Error()
+	}
+	ps.ChecklistCapEnabled = enabled
 	// A disabled capability is not an empty personas section: there is
 	// nothing to account for until it is on, so the rows stay absent and the
 	// renderer offers to enable it instead.
@@ -258,23 +272,30 @@ func (s *setupModel) buildProject() *atmsetup.ProjectSetup {
 // enabled — so the wizard and `atm setup status` say the same thing about
 // the same project. It reads the project record rather than the injected
 // registry because the question is what the CLI would allow, not which
-// capabilities this binary happens to have compiled in. A project that
-// cannot be read reads as NOT enabled: claiming it is on would offer a fix
-// ladder that the CLI would then refuse.
-func (s *setupModel) checklistEnabled(code string) bool {
+// capabilities this binary happens to have compiled in.
+//
+// The error is returned rather than folded into the bool because the two
+// answers need different words. A project that cannot be READ is not a
+// project whose capability is off: swallowing the error would render
+// "checklists are off — press [e] to enable the capability" and refuse
+// seeding with the same line, offering a fix for a problem that is not the
+// problem. It still reports NOT enabled alongside the error — claiming it is
+// on would offer a ladder the CLI would then refuse — but the callers must
+// say which of the two they are looking at.
+func (s *setupModel) checklistEnabled(code string) (bool, error) {
 	p, err := s.m.store.GetProject(code)
 	if err != nil {
-		return false
+		return false, err
 	}
 	if p.Capabilities == nil {
-		return true
+		return true, nil
 	}
 	for _, n := range p.Capabilities {
 		if n == "checklist" {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // setupPersonaNames flattens the persona catalog to the names BuildPersonas

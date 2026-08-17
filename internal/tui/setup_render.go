@@ -123,7 +123,14 @@ func (s *setupModel) personasSection(ps *atmsetup.ProjectSetup, width int) strin
 	styles := s.m.styles
 	var b strings.Builder
 	b.WriteString("\n" + styles.HeaderLabel.Render("PERSONAS · "+ps.Code) + "\n")
-	if !ps.ChecklistCapEnabled {
+	switch {
+	case s.checklistErr != "":
+		// The capability's state could not be read, which is NOT the same as
+		// the capability being off — and [e] would not fix it, so it is not
+		// offered here.
+		b.WriteString(styles.Error.Render(fitLine(
+			"  cannot tell whether checklists are on for "+ps.Code+": "+s.checklistErr, width-4)) + "\n")
+	case !ps.ChecklistCapEnabled:
 		b.WriteString(styles.Muted.Render(fitLine(
 			"  checklists are off for "+ps.Code+" — press [e] to enable the capability", width-4)) + "\n")
 	}

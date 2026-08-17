@@ -380,7 +380,15 @@ func (s *setupModel) seedStarters(code string) {
 	// Re-read the capability rather than trusting the snapshot: a CLI can have
 	// disabled it since the wizard was opened, and `atm checklist` would then
 	// refuse to work with what the wizard had just written.
-	if !s.checklistEnabled(code) {
+	enabled, err := s.checklistEnabled(code)
+	if err != nil {
+		// Say what actually happened. Reporting an unreadable project as "the
+		// capability is off" would send the user to press [e], which reads the
+		// same record and would fail the same way.
+		s.m.showToast("read project " + code + ": " + err.Error())
+		return
+	}
+	if !enabled {
 		s.m.showToast("checklists are off for " + code + " — press [e] first")
 		return
 	}
