@@ -253,6 +253,40 @@ func TestNoDispatchTargetShowsTheCommandInstead(t *testing.T) {
 	}
 }
 
+// The fallback is only worth anything if the command it shows can be PASTED.
+// Harnesses really do return server names with spaces in them — `claude mcp
+// list` reports "claude.ai Google Drive", which is why the parser splits on
+// the first ": " — and a bare join would turn that into three arguments. The
+// other extreme (quoting everything, as dispatch.ShellCommand does) is noise
+// on the common case AND fails the plain-command assertion above, so the rule
+// is: quote only what a shell would otherwise mangle.
+func TestNoDispatchTargetQuotesOnlyWhatNeedsIt(t *testing.T) {
+	m := newTestModel(t)
+	m.dispatcher = &fakeDispatcher{spawnErr: errors.New("no dispatch target")}
+	m.setup.open()
+	m.setup.runSpawnAction("claude", []string{"mcp", "login", "claude.ai Google Drive"})
+	if !strings.Contains(m.toastMsg, `claude mcp login 'claude.ai Google Drive'`) {
+		t.Fatalf("toast = %q, want the space-containing server quoted as ONE argument", m.toastMsg)
+	}
+}
+
+func TestShellArgQuotesOnlyWhatNeedsIt(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"notion", "notion"},
+		{"claude.ai Google Drive", `'claude.ai Google Drive'`},
+		{"--transport", "--transport"},
+		{"https://mcp.notion.com/mcp", "https://mcp.notion.com/mcp"},
+		{"it's", `'it'\''s'`},
+		{"a;rm -rf b", `'a;rm -rf b'`},
+		{"~/x", `'~/x'`}, // bare, a shell would expand it to somewhere else
+		{"", "''"},       // an empty argument must survive as an argument
+	} {
+		if got := setupShellArg(tc.in); got != tc.want {
+			t.Errorf("setupShellArg(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A build with no dispatcher at all is the same dead end, and must not panic.
 func TestNoDispatcherAtAllShowsTheCommandInstead(t *testing.T) {
 	m := newTestModel(t)
@@ -692,12 +726,20 @@ func TestSeedStartersResolvesTheProjectCode(t *testing.T) {
 	}
 }
 
-// The personas section's seed key routes to the same action.
+// The personas section's seed key routes to the same action — and the key
+// matcher is CASE-SENSITIVE, so a shifted key is a different key entirely and
+// never a second way to trigger a write.
 func TestSeedKeySeedsTheScopedProject(t *testing.T) {
 	m := setupActionsModel(t)
 	seedActionProject(t, m, "ATM")
 	m.setup.open()
 	m.setup.section, m.setup.cursor = setupSectionPersonas, 0
+
+	m.setup.handleKey(keyMsg("S"))
+	if _, err := m.store.GetChecklist("ATM", "concierge", "empty-project"); err == nil {
+		t.Fatal("[S] is not [s]: an uppercase key must not run the lowercase action")
+	}
+
 	m.setup.handleKey(keyMsg("s"))
 	if _, err := m.store.GetChecklist("ATM", "concierge", "empty-project"); err != nil {
 		t.Fatalf("the personas section's [s] must seed: %v (toast %q)", err, m.toastMsg)

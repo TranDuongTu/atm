@@ -586,16 +586,44 @@ func (s *setupModel) conciergeAction() string {
 	return "interview"
 }
 
+// setupShellCommand renders argv as a command a stranded user can PASTE. Both
+// obvious answers are wrong for that job: dispatch.ShellCommand quotes every
+// argument ('claude' 'mcp' 'login' 'notion'), which is noise to read past on
+// the overwhelmingly common case, while a plain join breaks outright on the
+// names harnesses really return — `claude mcp list` reports servers such as
+// "claude.ai Google Drive" (Task 3's parser splits on the first ": " precisely
+// to preserve them), and joined bare that becomes three arguments, not one.
+// So: quote only what a shell would otherwise mangle.
+func setupShellCommand(argv []string) string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		out[i] = setupShellArg(a)
+	}
+	return strings.Join(out, " ")
+}
+
+// setupShellArgUnsafe are the characters that make an argument need quoting:
+// whitespace, both quotes, and the POSIX shell metacharacters. The set is
+// deliberately generous — quoting something that did not need it is cosmetic,
+// while missing one produces a command that does something ELSE when pasted.
+const setupShellArgUnsafe = " \t\n\r'\"\\$`&|;<>()*?[]{}~!#"
+
+func setupShellArg(a string) string {
+	if a != "" && !strings.ContainsAny(a, setupShellArgUnsafe) {
+		return a
+	}
+	// Single quotes, so nothing inside is expanded; an embedded single quote
+	// uses the '\'' idiom (the same one dispatch.ShellCommand uses).
+	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+}
+
 // runSpawnAction hands an interactive or long-running command to the same
 // dispatcher the D dialog uses. When there is no dispatch target — no herdr,
 // no tmux, no terminal_cmd, which is plausibly the first-run case — it shows
 // the literal command rather than dead-ending.
 func (s *setupModel) runSpawnAction(binary string, args []string) {
 	argv := append([]string{binary}, args...)
-	// Deliberately NOT dispatch.ShellCommand: this string is for a human to
-	// read and retype, and ShellCommand single-quotes every argument for a
-	// shell that is not going to run here.
-	cmdline := strings.Join(argv, " ")
+	cmdline := setupShellCommand(argv)
 	// os.Getwd, mirroring the dispatch dialog (dispatch.go). There is no repo
 	// override here: these commands configure the HARNESS, not a checkout, so
 	// the directory is incidental to them.
