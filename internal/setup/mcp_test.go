@@ -14,8 +14,10 @@ const claudeMCPOut = "Checking MCP server health…\n" +
 // Captured live from `opencode mcp list` on this machine: opencode dims the
 // status word and the URL with an ANSI SGR code even when stdout isn't a
 // TTY, so the fixture keeps the escape bytes to prove the parser tolerates
-// them (it matches on the glyph and "connected" substring, both untouched
-// by the surrounding \x1b[90m).
+// them. The parser decides Connected from the ✓/✗ glyph alone — never from
+// the trailing status word — precisely because that word sits right next to
+// the escape code here, and "disconnected" would otherwise substring-match
+// "connected" and report a down server as up.
 const opencodeMCPOut = "┌  MCP Servers\n" +
 	"│\n" +
 	"●  ✓ notion \x1b[90mconnected\n" +
