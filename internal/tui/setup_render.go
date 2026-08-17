@@ -66,42 +66,250 @@ func (s *setupModel) render(width, height int) string {
 		b.WriteString(styles.Error.Render(fitLine(s.loadErr, width-4)) + "\n")
 	}
 
-	b.WriteString("\n" + styles.HeaderLabel.Render("AGENTS") + "\n")
-	b.WriteString(s.agentTable(width))
-
-	if ps := s.model.Project; ps != nil {
-		b.WriteString("\n" + styles.HeaderLabel.Render("CHANNELS · "+ps.Code) + "\n")
-		if len(ps.Channels) == 0 {
-			b.WriteString(styles.Muted.Render(fitLine("  no channels yet", width-4)) + "\n")
+	if s.drilled {
+		b.WriteString(s.drill(width))
+	} else {
+		b.WriteString(s.agentsSection(width))
+		if ps := s.model.Project; ps != nil {
+			b.WriteString(s.channelsSection(ps, width))
+			b.WriteString(s.personasSection(ps, width))
+		} else if setupAnyReady(s.model.Agents) {
+			// The wizard hands off; it never creates projects itself. Once at
+			// least one agent can dispatch there is nothing left for THIS view
+			// to do — pointing at project creation is more useful than an empty
+			// CHANNELS/PERSONAS section that can't exist without a project.
+			b.WriteString("\n" + styles.Muted.Render(fitLine(
+				"  ready — press [Esc] then [a] on Projects to create your first project", width-4)) + "\n")
 		}
-		for i, ch := range ps.Channels {
-			b.WriteString(s.row(setupSectionChannels, i, fmt.Sprintf("%s %-14s %-8s %s", ch.Glyph, ch.Name, ch.Type, ch.Note), width) + "\n")
-		}
-
-		b.WriteString("\n" + styles.HeaderLabel.Render("PERSONAS · "+ps.Code) + "\n")
-		if !ps.ChecklistCapEnabled {
-			b.WriteString(styles.Muted.Render(fitLine(
-				"  checklists are off for "+ps.Code+" — press [e] to enable the capability", width-4)) + "\n")
-		}
-		for i, p := range ps.Personas {
-			b.WriteString(s.row(setupSectionPersonas, i, fmt.Sprintf("%-16s %d checklists · starters %d/%d",
-				p.Persona, p.Checklists, p.StartersSeeded, p.StartersTotal), width) + "\n")
-		}
-	} else if setupAnyReady(s.model.Agents) {
-		// The wizard hands off; it never creates projects itself. Once at
-		// least one agent can dispatch there is nothing left for THIS view
-		// to do — pointing at project creation is more useful than an empty
-		// CHANNELS/PERSONAS section that can't exist without a project.
-		b.WriteString("\n" + styles.Muted.Render(fitLine(
-			"  ready — press [Esc] then [a] on Projects to create your first project", width-4)) + "\n")
 	}
 
 	// The fixes the focused section offers, above the navigation keys every
 	// section shares. The text belongs to the ladder itself (setup_actions.go)
 	// so a key can never be advertised here without being bound there.
 	b.WriteString("\n" + styles.KeyMenuDim.Render(fitLine(s.actionHints(), width-4)) + "\n")
-	b.WriteString(styles.KeyMenuDim.Render("[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"))
+	b.WriteString(styles.KeyMenuDim.Render(setupNavHints(s.drilled)))
 	return titledBoxHeight(styles.PaneActive, width, s.title(), b.String(), height)
+}
+
+// setupNavHints is the navigation half of the footer. It differs by level for
+// one reason: the top level offers [Enter]detail, and the drill offers the way
+// back out. Every key it names works at that level — advertising one that
+// silently does nothing is how a user concludes the arrows are broken.
+func setupNavHints(drilled bool) string {
+	if drilled {
+		return "[Tab]section  [↑/↓]move  [r]refresh  [Esc]back"
+	}
+	return "[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"
+}
+
+func (s *setupModel) agentsSection(width int) string {
+	return "\n" + s.m.styles.HeaderLabel.Render("AGENTS") + "\n" + s.agentTable(width)
+}
+
+func (s *setupModel) channelsSection(ps *atmsetup.ProjectSetup, width int) string {
+	styles := s.m.styles
+	var b strings.Builder
+	b.WriteString("\n" + styles.HeaderLabel.Render("CHANNELS · "+ps.Code) + "\n")
+	if len(ps.Channels) == 0 {
+		b.WriteString(styles.Muted.Render(fitLine("  no channels yet", width-4)) + "\n")
+	}
+	for i, ch := range ps.Channels {
+		b.WriteString(s.row(setupSectionChannels, i, fmt.Sprintf("%s %-14s %-8s %s", ch.Glyph, ch.Name, ch.Type, ch.Note), width) + "\n")
+	}
+	return b.String()
+}
+
+func (s *setupModel) personasSection(ps *atmsetup.ProjectSetup, width int) string {
+	styles := s.m.styles
+	var b strings.Builder
+	b.WriteString("\n" + styles.HeaderLabel.Render("PERSONAS · "+ps.Code) + "\n")
+	if !ps.ChecklistCapEnabled {
+		b.WriteString(styles.Muted.Render(fitLine(
+			"  checklists are off for "+ps.Code+" — press [e] to enable the capability", width-4)) + "\n")
+	}
+	for i, p := range ps.Personas {
+		b.WriteString(s.row(setupSectionPersonas, i, fmt.Sprintf("%-16s %d checklists · starters %d/%d",
+			p.Persona, p.Checklists, p.StartersSeeded, p.StartersTotal), width) + "\n")
+	}
+	return b.String()
+}
+
+// drill renders the level Enter opens: the focused section's rows, and under
+// them the detail for the row the cursor is on. Only the focused section is
+// drawn — the box is height-clipped (titledBoxHeight), so carrying all three
+// plus a body would push the footer off the bottom on a normal terminal — and
+// keeping the rows means the cursor keys still have something to move, with
+// the detail following them.
+func (s *setupModel) drill(width int) string {
+	styles := s.m.styles
+	var b strings.Builder
+	ps := s.model.Project
+	switch {
+	case s.section == setupSectionChannels && ps != nil:
+		b.WriteString(s.channelsSection(ps, width))
+	case s.section == setupSectionPersonas && ps != nil:
+		b.WriteString(s.personasSection(ps, width))
+	default:
+		b.WriteString(s.agentsSection(width))
+	}
+	b.WriteString("\n" + styles.HeaderLabel.Render("DETAIL") + "\n")
+	lines := s.detailLines()
+	if len(lines) == 0 {
+		// A section with nothing in it still has a detail: what is absent, and
+		// what would end that.
+		lines = []string{"nothing to detail yet — this section has no rows"}
+	}
+	for _, line := range lines {
+		b.WriteString(styles.Body.Render(fitLine("  "+line, width-4)) + "\n")
+	}
+	return b.String()
+}
+
+// detailLines is the drill's body for the row under the cursor. It is pure
+// formatting over facts the model ALREADY holds — no probe of its own, so the
+// drill can never report something the table above it does not.
+func (s *setupModel) detailLines() []string {
+	switch s.section {
+	case setupSectionChannels:
+		ch, ok := s.currentChannel()
+		if !ok {
+			return nil
+		}
+		return s.channelDetail(ch)
+	case setupSectionPersonas:
+		p, ok := s.currentPersona()
+		if !ok {
+			return nil
+		}
+		return setupPersonaDetail(p)
+	default:
+		if s.cursor < 0 || s.cursor >= len(s.model.Agents) {
+			return nil
+		}
+		return s.agentDetail(s.model.Agents[s.cursor])
+	}
+}
+
+// agentDetail is the AGENTS drill body. Its reason to exist is the MCP server
+// list: apply() computes it and `atm setup status` prints it, but no column in
+// the table is wide enough to carry it, so this is the only place the wizard
+// can answer "which servers does this harness actually have".
+func (s *setupModel) agentDetail(row atmsetup.AgentRow) []string {
+	landed := !s.probing
+	out := []string{
+		"version    " + asyncCell(row.Version, landed),
+		"binary     " + row.Binary.String() + "     plugin  " + row.Plugin.String(),
+		"launchers  " + setupLaunchersCell(row),
+	}
+	if missing := setupMissingFacts(row); missing != "" {
+		out = append(out, "missing    "+missing)
+	}
+	out = append(out, "mcp        "+asyncCell(row.MCPState.String(), landed))
+	switch {
+	case !landed:
+		out = append(out, "  the server list is still probing…")
+	case row.MCPState != atmsetup.FactPresent:
+		// The cardinal rule at the finest grain the wizard has: a list ATM
+		// never managed to read is not a list of no servers.
+		out = append(out, "  the server list is unknown — press [r] to probe again")
+	case len(s.servers[row.Agent]) == 0:
+		out = append(out, "  no servers configured — press [a] to add this project's")
+	default:
+		for _, sv := range s.servers[row.Agent] {
+			out = append(out, fmt.Sprintf("  %-24s %s", sv.Name, setupConnectedWord(sv.Connected)))
+		}
+	}
+	return out
+}
+
+// setupConnectedWord says what a server's health fact IS. An unknown health —
+// codex's list reports configuration but not health — must never read as
+// disconnected: offering [l] is honest, claiming the server is down is not.
+func setupConnectedWord(f atmsetup.Fact) string {
+	switch f {
+	case atmsetup.FactPresent:
+		return "connected"
+	case atmsetup.FactAbsent:
+		return "not connected — press [l] to authorize"
+	default:
+		return "health unknown"
+	}
+}
+
+// setupMissingFacts names what stands between this row and ●. Absent and
+// unknown are kept apart even though Glyph() grades them the same, because
+// the fix is not the same: one is a thing to install, the other a probe to
+// re-run.
+func setupMissingFacts(row atmsetup.AgentRow) string {
+	var parts []string
+	for _, f := range []struct {
+		name string
+		fact atmsetup.Fact
+	}{
+		{"binary", row.Binary},
+		{"plugin", row.Plugin},
+	} {
+		switch f.fact {
+		case atmsetup.FactAbsent:
+			parts = append(parts, f.name+" absent")
+		case atmsetup.FactUnknown:
+			parts = append(parts, f.name+" unknown")
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// channelDetail is the CHANNELS drill body: the per-agent coverage map, which
+// the table can only summarise as one glyph.
+func (s *setupModel) channelDetail(ch atmsetup.ChannelRow) []string {
+	out := []string{
+		"type       " + ch.Type,
+		"status     " + ch.Glyph + " " + ch.Note,
+	}
+	if ch.MCPServer != "" {
+		out = append(out, "server     "+ch.MCPServer)
+	} else {
+		out = append(out, "server     — reached by path on this machine, not by an MCP server")
+	}
+	out = append(out, "coverage")
+	// Ordered by the agent rows rather than by map iteration: a detail that
+	// reshuffles between frames is unreadable.
+	for _, row := range s.model.Agents {
+		out = append(out, fmt.Sprintf("  %-24s %s", row.Agent, setupCoverageWord(ch.PerAgent[row.Agent])))
+	}
+	return out
+}
+
+// setupCoverageWord reports one agent's coverage of one channel, keeping the
+// third state: an agent whose mcp probe could not answer does not cover this
+// channel and does not fail to — ATM does not know.
+func setupCoverageWord(f atmsetup.Fact) string {
+	switch f {
+	case atmsetup.FactPresent:
+		return "covered"
+	case atmsetup.FactAbsent:
+		return "not covered"
+	default:
+		return "unknown"
+	}
+}
+
+// setupPersonaDetail is the PERSONAS drill body: which shipped starters this
+// persona is missing, and which have been edited since they were seeded.
+func setupPersonaDetail(p atmsetup.PersonaRow) []string {
+	out := []string{
+		fmt.Sprintf("checklists %d · %d steps", p.Checklists, p.Steps),
+		fmt.Sprintf("starters   %d of %d seeded", p.StartersSeeded, p.StartersTotal),
+	}
+	if len(p.MissingStarters) > 0 {
+		out = append(out, "missing    "+strings.Join(p.MissingStarters, ", ")+"  — press [s] to author them")
+	}
+	if len(p.Customised) > 0 {
+		// Informational, never actionable: a seeded starter is MEANT to be
+		// edited (see setup.BuildPersonas).
+		out = append(out, "customised "+strings.Join(p.Customised, ", "))
+	}
+	return out
 }
 
 // agentTable renders the AGENTS section's header and rows. setupColumns picks

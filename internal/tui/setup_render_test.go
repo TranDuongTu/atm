@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -82,5 +83,181 @@ func TestSetupRenderShowsEllipsisBeforeAsyncTierLands(t *testing.T) {
 	m.setup.open() // async has not resolved
 	if !strings.Contains(m.setup.render(120, 30), "…") {
 		t.Fatal("pending async facts render as …, never as blank or as a guess")
+	}
+}
+
+// Enter has to open something. The MCP server list is the reason this level
+// exists: apply() computes it and `atm setup status` prints it, but the
+// AGENTS table has no column for it, so without the drill the wizard cannot
+// answer "which servers does this harness have" at all.
+func TestSetupDrillShowsTheMCPServersNoColumnCarries(t *testing.T) {
+	m := newTestModel(t)
+	m.setup.run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("harness 1.0.0\n"), nil
+		}
+		if name == "claude" {
+			return []byte("notion: https://mcp.notion.com/mcp (HTTP) - ✓ Connected\n"), nil
+		}
+		return nil, errProbeUnavailable
+	}
+	cmd := m.setup.open()
+	m.Update(cmd())
+	focusAgent(t, m, "claude")
+
+	if top := m.setup.render(120, 40); strings.Contains(top, "notion") {
+		t.Fatal("the top level has no MCP column; it must not claim one")
+	}
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, "DETAIL") {
+		t.Fatalf("enter must open a detail body, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "notion") {
+		t.Fatalf("the drill must list the agent's MCP servers, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "connected") {
+		t.Fatalf("the drill must report each server's connected state, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "1.0.0") {
+		t.Fatalf("the drill must report the probed version, got:\n%s", detail)
+	}
+}
+
+// codex's `mcp list --json` reports configuration but not health, so its
+// servers land with FactUnknown. The drill must say so — reporting an unknown
+// health as "not connected" is the manufactured negative the whole tri-state
+// exists to prevent.
+func TestSetupDrillReportsUnknownServerHealthAsUnknown(t *testing.T) {
+	m := newTestModel(t)
+	m.setup.run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("harness 1.0.0\n"), nil
+		}
+		if name == "codex" {
+			return []byte(`[{"name":"notion"}]`), nil
+		}
+		return nil, errProbeUnavailable
+	}
+	cmd := m.setup.open()
+	m.Update(cmd())
+	focusAgent(t, m, "codex")
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, "notion") {
+		t.Fatalf("codex's configured server must be listed, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "health unknown") {
+		t.Fatalf("an unknown health must read as unknown, got:\n%s", detail)
+	}
+	if strings.Contains(detail, "not connected") {
+		t.Fatalf("an unknown health must never read as disconnected, got:\n%s", detail)
+	}
+}
+
+// A probe that could not answer leaves the list unknown, and the drill must
+// not present that as "this agent has no servers".
+func TestSetupDrillSaysUnknownRatherThanEmptyWhenTheProbeFailed(t *testing.T) {
+	m := newTestModel(t)
+	m.setup.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("harness 1.0.0\n"), nil
+		}
+		return nil, errProbeUnavailable
+	}
+	cmd := m.setup.open()
+	m.Update(cmd())
+	focusAgent(t, m, "claude")
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, "unknown") {
+		t.Fatalf("an unanswerable probe leaves the server list unknown, got:\n%s", detail)
+	}
+	if strings.Contains(detail, "no servers configured") {
+		t.Fatalf("unknown is not empty, got:\n%s", detail)
+	}
+}
+
+// The drill keeps the focused section's rows on screen, so the movement keys
+// the footer advertises must still move. They silently stopped working before
+// — which reads as the arrow keys having broken.
+func TestSetupDrillKeepsCursorMovementWorking(t *testing.T) {
+	m := newTestModel(t)
+	m.setup.open()
+	if len(m.setup.model.Agents) < 2 {
+		t.Fatalf("need at least two harnesses to move between, got %d", len(m.setup.model.Agents))
+	}
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m.setup.cursor != 1 {
+		t.Fatalf("cursor = %d after j inside the drill; movement must not go quiet", m.setup.cursor)
+	}
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, m.setup.model.Agents[1].Agent) {
+		t.Fatalf("the detail must follow the cursor, got:\n%s", detail)
+	}
+	if !strings.Contains(detail, "[Esc]back") {
+		t.Fatalf("the drill's footer must name the way back out, got:\n%s", detail)
+	}
+}
+
+// The CHANNELS drill is where a channel's per-agent coverage lives: the table
+// row can only carry one glyph for the whole channel.
+func TestSetupChannelDrillShowsPerAgentCoverage(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedWiredRepoChannel(t, m, "ATM", "atm-repo")
+	m.projectScope = "ATM"
+	m.setup.open()
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> CHANNELS
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, "coverage") {
+		t.Fatalf("the channel drill must show the per-agent coverage map, got:\n%s", detail)
+	}
+	for _, row := range m.setup.model.Agents {
+		if !strings.Contains(detail, row.Agent) {
+			t.Fatalf("coverage must name every agent; %s is missing from:\n%s", row.Agent, detail)
+		}
+	}
+	if !strings.Contains(detail, "covered") {
+		t.Fatalf("a wired repo channel is covered for every agent, got:\n%s", detail)
+	}
+}
+
+// The PERSONAS drill names the starters this project is missing — the table
+// row only counts them.
+func TestSetupPersonaDrillNamesMissingStarters(t *testing.T) {
+	m := newTestModel(t)
+	if _, err := m.store.CreateProject("ATM", "Acme", testActor); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := m.store.EnableProjectCapability("ATM", "checklist", testActor); err != nil {
+		t.Fatalf("EnableProjectCapability: %v", err)
+	}
+	m.projectScope = "ATM"
+	m.setup.open()
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> CHANNELS
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> PERSONAS
+	// Not every persona ships starters (admin does not), so move to one that
+	// does rather than assuming the first row is the interesting one.
+	for i, p := range m.setup.model.Project.Personas {
+		if len(p.MissingStarters) > 0 {
+			m.setup.cursor = i
+			break
+		}
+	}
+	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	row, ok := m.setup.currentPersona()
+	if !ok || len(row.MissingStarters) == 0 {
+		t.Fatalf("fixture must have a persona with missing starters, got %+v (ok=%v)", row, ok)
+	}
+	detail := stripANSI(m.setup.render(120, 40))
+	if !strings.Contains(detail, row.MissingStarters[0]) {
+		t.Fatalf("the persona drill must name the missing starters, got:\n%s", detail)
 	}
 }

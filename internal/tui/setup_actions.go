@@ -159,6 +159,16 @@ func (s *setupModel) currentChannel() (atmsetup.ChannelRow, bool) {
 	return s.model.Project.Channels[s.cursor], true
 }
 
+// currentPersona is the persona row under the cursor. The bool is false when
+// the section is empty — with the checklist capability off there is nothing
+// to account for, so there is nothing to detail either.
+func (s *setupModel) currentPersona() (atmsetup.PersonaRow, bool) {
+	if s.model.Project == nil || s.cursor < 0 || s.cursor >= len(s.model.Project.Personas) {
+		return atmsetup.PersonaRow{}, false
+	}
+	return s.model.Project.Personas[s.cursor], true
+}
+
 // rowFor returns the snapshot row for a harness.
 func (s *setupModel) rowFor(agentName string) (atmsetup.AgentRow, bool) {
 	for _, r := range s.model.Agents {

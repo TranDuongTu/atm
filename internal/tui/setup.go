@@ -392,17 +392,19 @@ func (s *setupModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		// body under another's heading.
 		s.section, s.cursor, s.drilled = secs[idx%len(secs)], 0, false
 	case "j", "down":
-		if !s.drilled && s.cursor < s.rowCount()-1 {
+		// Movement works at BOTH levels: the drill keeps the focused
+		// section's rows on screen (see render's drill) and its detail body
+		// follows the cursor, so a key that moved a moment ago must not go
+		// quiet just because Enter was pressed.
+		if s.cursor < s.rowCount()-1 {
 			s.cursor++
 		}
 	case "k", "up":
-		if !s.drilled && s.cursor > 0 {
+		if s.cursor > 0 {
 			s.cursor--
 		}
 	case "g":
-		if !s.drilled {
-			s.cursor = 0
-		}
+		s.cursor = 0
 	case "enter":
 		// The drill is a level of the VIEW, not a property of a row: a
 		// section with nothing in it still has a detail to show (what is
