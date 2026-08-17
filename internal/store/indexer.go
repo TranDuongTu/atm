@@ -77,6 +77,19 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 	return pending, nil
 }
 
+// PendingIndexCount is the instant staleness number: how many entities are
+// waiting to be embedded for this model. The answer engine renders it as
+// "sources may lag" (ATM-66a6d2). Only the count crosses the boundary —
+// IndexDoc is a store type with no core counterpart, and a consumer that
+// wants documents can still call PendingIndex.
+func (s *Store) PendingIndexCount(code, slug string) (int, error) {
+	pending, err := s.PendingIndex(code, slug)
+	if err != nil {
+		return 0, err
+	}
+	return len(pending), nil
+}
+
 func (s *Store) ReindexOnce(ctx context.Context, code string, embed EmbedFunc, log ProgressFunc) (IndexResult, error) {
 	if err := ctx.Err(); err != nil {
 		return IndexResult{}, err

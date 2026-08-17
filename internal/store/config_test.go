@@ -2,6 +2,7 @@ package store
 
 import (
 	"atm/internal/core"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -562,5 +563,65 @@ func TestSetProjectArtOn(t *testing.T) {
 	// Invalid actor is rejected.
 	if err := s.SetProjectArtOn("ATM", true, []string{"galaxy", "matrix"}, "not-an-actor"); err == nil {
 		t.Fatal("invalid actor must be rejected")
+	}
+}
+
+func TestSetChatConfigRoundTrips(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	cfg := core.ChatConfig{Model: "qwen3:8b", Endpoint: "http://localhost:11434/v1"}
+	if err := s.SetChatConfig("ATM", cfg, testActor); err != nil {
+		t.Fatalf("SetChatConfig: %v", err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A chat-only config must not read back as no config at all: the
+	// all-empty guard in GetProjectConfig has to know about Chat.
+	if got == nil || got.Chat == nil {
+		t.Fatalf("config = %+v, want a chat config read back", got)
+	}
+	if got.Chat.Model != "qwen3:8b" || got.Chat.Endpoint != "http://localhost:11434/v1" {
+		t.Errorf("chat = %+v", got.Chat)
+	}
+}
+
+// The two configs are siblings, not alternatives: setting one must not drop
+// the other, since both live in the same config.json.
+func TestSetChatConfigKeepsEmbedding(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEmbeddingConfig("ATM", core.EmbeddingConfig{Model: "nomic-embed-text", Endpoint: "http://localhost:11434/v1", Dim: 768}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetChatConfig("ATM", core.ChatConfig{Model: "qwen3:8b", Endpoint: "http://localhost:11434/v1"}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Embedding == nil || got.Embedding.Model != "nomic-embed-text" {
+		t.Errorf("embedding = %+v, want it preserved", got.Embedding)
+	}
+	if got.Chat == nil || got.Chat.Model != "qwen3:8b" {
+		t.Errorf("chat = %+v", got.Chat)
+	}
+}
+
+func TestSetChatConfigRequiresModelAndEndpoint(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	for _, cfg := range []core.ChatConfig{{Endpoint: "http://x"}, {Model: "m"}} {
+		if err := s.SetChatConfig("ATM", cfg, testActor); !errors.Is(err, core.ErrUsage) {
+			t.Errorf("SetChatConfig(%+v) err = %v, want ErrUsage", cfg, err)
+		}
 	}
 }
