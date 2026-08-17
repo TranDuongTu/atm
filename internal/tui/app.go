@@ -88,7 +88,11 @@ type Model struct {
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
 	channelsOv     channelsModel
-	spotlight      spotlightModel
+	// setup is the setup & readiness wizard. Unlike every model above it, it
+	// is NOT an overlay: while active it replaces the workspace in View and
+	// consumes keys, so it is also one of workspaceIdle()'s gates.
+	setup     setupModel
+	spotlight spotlightModel
 	// spotlightReturn is the spotlight position to restore when a
 	// spotlight-spawned overlay, form, or confirm is dismissed, or nil when
 	// nothing is pending. It is set by spotlightModel.activate for kindDialog
@@ -187,6 +191,8 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.channelsOv.m = m
+	m.setup.m = m
+	m.setup.run = setupRun
 	m.spotlight = spotlightModel{m: m}
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
@@ -334,7 +340,7 @@ func (m *Model) canMutate() bool { return true }
 // workspaceIdle reports whether the plain two-pane workspace is what View
 // shows — no overlay, form, confirm, plugin, capability switcher, dispatch
 // dialog, personas overlay, or channels overlay layered over it (see View's
-// overlay chain).
+// overlay chain), and not the setup wizard, which replaces it outright.
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
@@ -345,7 +351,8 @@ func (m *Model) workspaceIdle() bool {
 		!m.capability.open &&
 		!m.dispatchDlg.active &&
 		!m.personasOv.open &&
-		!m.channelsOv.open
+		!m.channelsOv.open &&
+		!m.setup.active
 }
 
 // completeAction clears a pending spotlight return: spec decision 5 requires
@@ -433,6 +440,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
+	case setupProbedMsg:
+		// The wizard's async tier landing. Applied even if the view has since
+		// been closed: the answers are cached for the next open, and dropping
+		// them would make a reopen pay for the same 1.6-3s per agent again.
+		m.setup.applyProbed(msg)
+		return m, nil
 	case reindexResultMsg:
 		im := m.indexer
 		if im == nil {
@@ -569,6 +582,19 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// `c` hands off to the dispatch dialog.
 	if m.channelsOv.open {
 		return m.channelsOv.handleKey(k)
+	}
+
+	// The setup wizard consumes keys until closed (Esc peels the drill, then
+	// the view). It is checked AFTER the overlays above because those can be
+	// opened from inside it and must take over routing while they are up, and
+	// BEFORE `q`: inside a full-screen mode a stray `q` must not quit the app
+	// out from under the user (ctrl+c still does).
+	if m.setup.active {
+		if k.String() == "T" {
+			m.cycleTheme()
+			return nil
+		}
+		return m.setup.handleKey(k)
 	}
 
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
@@ -909,7 +935,15 @@ func (m *Model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.renderWorkspace())
+	// The setup wizard is a full-screen MODE, not a modal: it replaces the
+	// workspace rather than layering over it, and the status line stays — a
+	// readiness view that hid the store/actor bar would hide half of what the
+	// user came to check.
+	if m.setup.active {
+		b.WriteString(m.setup.render(m.width, m.contentHeight))
+	} else {
+		b.WriteString(m.renderWorkspace())
+	}
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
@@ -918,11 +952,12 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below are exactly the
-	// states in which View renders something over the plain workspace, and
-	// workspaceIdle() is their negation (it gates the background-art animation
-	// tick). Adding an overlay here without adding it to workspaceIdle() would
-	// let art animate underneath the new overlay.
+	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below plus the setup
+	// branch above are exactly the states in which View renders something
+	// other than the plain workspace, and workspaceIdle() is their negation
+	// (it gates the background-art animation tick). Adding an overlay here
+	// without adding it to workspaceIdle() would let art animate underneath
+	// the new overlay.
 	out := b.String()
 	if m.spotlight.open {
 		out = m.placeOverlay(out, m.spotlight.renderOverlay())
