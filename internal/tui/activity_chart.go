@@ -8,6 +8,8 @@ import (
 	"atm/internal/activity"
 	"atm/internal/actor"
 	"atm/internal/core"
+	"github.com/NimbleMarkets/ntcharts/linechart"
+	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -107,6 +109,54 @@ func relDayLabel(days int) string {
 		return fmt.Sprintf("%dw ago", days/7)
 	}
 	return fmt.Sprintf("%dd ago", days)
+}
+
+func relXLabelFormatter(end time.Time) linechart.LabelFormatter {
+	endDay := end.UTC().Truncate(24 * time.Hour)
+	return func(_ int, value float64) string {
+		day := time.Unix(int64(value), 0).UTC().Truncate(24 * time.Hour)
+		return relDayLabel(int(endDay.Sub(day) / (24 * time.Hour)))
+	}
+}
+
+func renderActivityPulse(counts []int, spec chartRangeSpec, width, height int, end time.Time, graph, axis, label lipgloss.Style) string {
+	if width < 12 || height < 2 || len(counts) == 0 {
+		return ""
+	}
+
+	start, endDay := chartWindow(spec, end)
+	maxCount := 0
+	for _, count := range counts {
+		if count > maxCount {
+			maxCount = count
+		}
+	}
+	if maxCount == 0 {
+		maxCount = 1
+	}
+	displayEnd := endDay
+	if spec.bucketDays > 0 {
+		displayEnd = displayEnd.AddDate(0, 0, spec.bucketDays)
+	}
+
+	chart := timeserieslinechart.New(
+		width,
+		height,
+		timeserieslinechart.WithTimeRange(start, displayEnd),
+		timeserieslinechart.WithYRange(0, float64(maxCount)),
+		timeserieslinechart.WithXYSteps(4, 2),
+		timeserieslinechart.WithXLabelFormatter(relXLabelFormatter(end)),
+		timeserieslinechart.WithAxesStyles(axis, label),
+		timeserieslinechart.WithStyle(graph),
+	)
+	for i, count := range counts {
+		chart.Push(timeserieslinechart.TimePoint{
+			Time:  start.AddDate(0, 0, i*spec.bucketDays),
+			Value: float64(count),
+		})
+	}
+	chart.DrawBraille()
+	return chart.View()
 }
 
 type carouselEntry struct {

@@ -185,3 +185,39 @@ func TestRenderCarouselCompactBracketsSelectedLabel(t *testing.T) {
 		t.Fatalf("compact carousel display width = %d, want <= 30", lipgloss.Width(got))
 	}
 }
+
+func TestRenderActivityPulse(t *testing.T) {
+	end := time.Date(2026, 8, 17, 18, 30, 0, 0, time.FixedZone("ICT", 7*60*60))
+	got := renderActivityPulse(
+		[]int{0, 2, 1, 4, 0, 3, 1},
+		chartRanges[0],
+		64,
+		6,
+		end,
+		lipgloss.NewStyle(),
+		lipgloss.NewStyle(),
+		lipgloss.NewStyle(),
+	)
+	if got == "" {
+		t.Fatal("renderActivityPulse() returned empty output for sample counts")
+	}
+	if lines := strings.Count(got, "\n") + 1; lines != 6 {
+		t.Fatalf("renderActivityPulse() returned %d lines, want 6: %q", lines, got)
+	}
+	if !strings.Contains(got, "Today") {
+		t.Fatalf("renderActivityPulse() = %q, want Today label", got)
+	}
+	for _, r := range got {
+		if r >= '\u2800' && r <= '\u28ff' {
+			return
+		}
+	}
+	t.Fatalf("renderActivityPulse() = %q, want at least one braille rune", got)
+}
+
+func TestRenderActivityPulseNilCountsReturnsEmpty(t *testing.T) {
+	got := renderActivityPulse(nil, chartRanges[0], 64, 6, time.Now(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
+	if got != "" {
+		t.Fatalf("renderActivityPulse(nil) = %q, want empty output", got)
+	}
+}
