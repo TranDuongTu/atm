@@ -77,6 +77,15 @@ type setupModel struct {
 	// and the view has to be able to say which.
 	probing bool
 
+	// gen numbers the tier-2 firings so a late one cannot overwrite a newer
+	// one. The realistic case is not a narrow race: a hung harness sits on
+	// the 10s timeouts, the user presses `r`, the second probe returns fast
+	// and correct — and then the first lands and reverts every row to the
+	// timed-out `unknown`, permanently, with `probing` cleared so the stale
+	// answers read as settled. A view whose whole job is reporting accurate
+	// facts must drop the older snapshot instead.
+	gen int
+
 	// versions/servers/states cache the last tier-2 answers. A reload (after
 	// an action writes, or after the project scope changes) rebuilds tier 1
 	// from scratch, and without this cache it would blank the async columns
@@ -99,8 +108,10 @@ func setupRun(ctx context.Context, name string, args ...string) ([]byte, error) 
 // setupProbedMsg carries the async tier home. It is a whole-tier snapshot
 // rather than one message per agent so the columns swap atomically: a
 // half-applied tier would leave some rows probed and some still pending with
-// nothing in the model to tell them apart.
+// nothing in the model to tell them apart. gen is the firing it belongs to;
+// see setupModel.gen for why a message from an older firing is dropped.
 type setupProbedMsg struct {
+	gen      int
 	versions map[string]string
 	servers  map[string][]atmsetup.MCPServer
 	states   map[string]atmsetup.Fact
@@ -121,6 +132,7 @@ func (s *setupModel) open() tea.Cmd {
 func (s *setupModel) refresh() tea.Cmd {
 	s.reload()
 	s.probing = true
+	s.gen++
 	return s.probeCmd()
 }
 
@@ -167,8 +179,13 @@ func (s *setupModel) apply() {
 }
 
 // applyProbed lands the async tier: it caches the answers so later reloads
-// keep them, then rebuilds the model around them.
+// keep them, then rebuilds the model around them. A message from a superseded
+// firing is dropped whole — including its claim that the probing is over,
+// since the firing that IS current has not answered yet.
 func (s *setupModel) applyProbed(msg setupProbedMsg) {
+	if msg.gen != s.gen {
+		return
+	}
 	s.versions, s.servers, s.states = msg.versions, msg.servers, msg.states
 	s.probing = false
 	s.apply()
@@ -235,17 +252,19 @@ func setupPersonaNames(ps []*core.Persona) []string {
 	return names
 }
 
-// probeCmd runs tier 2 off the render path. It closes over the agent names
-// and the runner ONLY — never over s — because Bubble Tea runs a Cmd on its
-// own goroutine, where touching the model would race with Update.
+// probeCmd runs tier 2 off the render path. It closes over the agent names,
+// the runner and the generation ONLY — never over s — because Bubble Tea runs
+// a Cmd on its own goroutine, where touching the model would race with
+// Update.
 func (s *setupModel) probeCmd() tea.Cmd {
 	agents := make([]string, 0, len(s.model.Agents))
 	for _, row := range s.model.Agents {
 		agents = append(agents, row.Agent)
 	}
-	run := s.run
+	run, gen := s.run, s.gen
 	return func() tea.Msg {
 		msg := setupProbedMsg{
+			gen:      gen,
 			versions: make(map[string]string, len(agents)),
 			servers:  make(map[string][]atmsetup.MCPServer, len(agents)),
 			states:   make(map[string]atmsetup.Fact, len(agents)),

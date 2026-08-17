@@ -112,17 +112,26 @@ func TestSetupChecklistCapabilityDisabled(t *testing.T) {
 
 // A CLI in another terminal can change agents.json underneath us. Every
 // action re-reads first, so a fix never writes over a stale read.
+//
+// The out-of-band selection is `ollama:claude` rather than another agent
+// deliberately: the model is keyed by (agent, launcher), so a re-read
+// resolves claude's key to "ollama:claude" while a write from the snapshot
+// taken at open() would resolve it to "claude". Any selection that left both
+// paths agreeing would make this test unable to fail.
 func TestSetupActionRereadsBeforeWriting(t *testing.T) {
 	m := newTestModel(t)
 	m.setup.open()
-	writeAgentsConfigOutOfBand(t, m, `{"selected":"codex"}`)
+	writeAgentsConfigOutOfBand(t, m, `{"selected":"ollama:claude"}`)
 	m.setup.setModelFor("claude", "opus-5")
 	cfg := readAgentsConfig(t, m)
-	if cfg.Selected != "codex" {
+	if cfg.Selected != "ollama:claude" {
 		t.Fatalf("selected = %q; the out-of-band selection was clobbered", cfg.Selected)
 	}
-	if cfg.Models["claude"] != "opus-5" {
-		t.Fatalf("models = %+v", cfg.Models)
+	if cfg.Models["ollama:claude"] != "opus-5" {
+		t.Fatalf("models = %+v; the model was keyed off a stale read", cfg.Models)
+	}
+	if cfg.Models["claude"] != "" {
+		t.Fatalf("models = %+v; the native key is not the selection's key", cfg.Models)
 	}
 }
 
@@ -216,6 +225,54 @@ func TestSetupProbeCmdLandsAsyncFacts(t *testing.T) {
 		if row.MCPState != setup.FactUnknown {
 			t.Fatalf("%s mcp state = %v; an unanswerable probe is unknown", row.Agent, row.MCPState)
 		}
+	}
+}
+
+// A hung harness sits on the 10s timeouts, the user presses `r`, and the
+// second probe answers first. When the first finally lands it must be
+// dropped: applying it would revert every row to the timed-out answer for
+// good — nothing lands afterwards to correct it — and would clear `probing`,
+// presenting the stale facts as settled.
+func TestSetupStaleProbeIsDropped(t *testing.T) {
+	m := newTestModel(t)
+	m.setup.run = func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("harness 1.1.1\n"), nil
+	}
+	slow := m.setup.open()
+	// The command captured the runner (and the generation) when it was
+	// built, so swapping the runner now only affects the next firing.
+	m.setup.run = func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("harness 2.2.2\n"), nil
+	}
+	fast := m.setup.refresh()
+	slowMsg, fastMsg := slow(), fast()
+
+	// The superseded firing lands first: dropped whole, probing untouched.
+	m.Update(slowMsg)
+	if !m.setup.probing {
+		t.Fatal("a dropped message must not clear probing; the current firing has not answered")
+	}
+	for _, row := range m.setup.model.Agents {
+		if row.Version != "" {
+			t.Fatalf("%s version = %q from a superseded probe", row.Agent, row.Version)
+		}
+	}
+
+	m.Update(fastMsg)
+	if m.setup.probing {
+		t.Fatal("the current firing landed")
+	}
+
+	// And again after it landed: the late answer must not win by arriving
+	// last.
+	m.Update(slowMsg)
+	for _, row := range m.setup.model.Agents {
+		if row.Version != "2.2.2" {
+			t.Fatalf("%s version = %q; a late probe overwrote the newer facts", row.Agent, row.Version)
+		}
+	}
+	if m.setup.probing {
+		t.Fatal("a dropped message must not reopen probing either")
 	}
 }
 
