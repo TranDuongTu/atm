@@ -61,3 +61,41 @@ ok  	atm/internal/tui	0.004s
 - No new dependencies were introduced.
 - No project view integration was added.
 - Focused tests cover non-empty output, requested line count, `Today`, braille output, and nil counts.
+
+## Fix Report: Real Chart Window Boundary
+
+### Finding Addressed
+
+Removed the future-bucket display extension from `renderActivityPulse`. The ntcharts time range now uses the `start` and `endDay` returned directly by `chartWindow`; the earlier implementation note about display padding is superseded by this correction.
+
+Added regression coverage for the formatter at the exact chart-window end, plus empty non-nil counts and width/height guard cases.
+
+### Changed Files
+
+- `internal/tui/activity_chart.go`
+- `internal/tui/activity_chart_test.go`
+- This report file
+
+### Verification
+
+Commands:
+
+```text
+go test ./internal/tui/ -run TestRenderActivityPulse -v
+go test ./internal/tui/ -run 'Test(RenderActivityPulse|RelXLabelFormatter)' -count=1 -v
+```
+
+Output:
+
+```text
+=== RUN   TestRenderActivityPulse
+--- PASS: TestRenderActivityPulse (0.00s)
+=== RUN   TestRenderActivityPulseNilCountsReturnsEmpty
+--- PASS: TestRenderActivityPulseNilCountsReturnsEmpty (0.00s)
+=== RUN   TestRenderActivityPulseEmptyAndTooSmallReturnsEmpty
+--- PASS: TestRenderActivityPulseEmptyAndTooSmallReturnsEmpty (0.00s)
+PASS
+ok  	atm/internal/tui	0.003s
+```
+
+The uncached broader focused command also passed with the same renderer results plus `TestRelXLabelFormatterUsesChartWindowBoundary`; `git diff --check` passed.

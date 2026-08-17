@@ -191,7 +191,7 @@ func TestRenderActivityPulse(t *testing.T) {
 	got := renderActivityPulse(
 		[]int{0, 2, 1, 4, 0, 3, 1},
 		chartRanges[0],
-		64,
+		80,
 		6,
 		end,
 		lipgloss.NewStyle(),
@@ -204,9 +204,6 @@ func TestRenderActivityPulse(t *testing.T) {
 	if lines := strings.Count(got, "\n") + 1; lines != 6 {
 		t.Fatalf("renderActivityPulse() returned %d lines, want 6: %q", lines, got)
 	}
-	if !strings.Contains(got, "Today") {
-		t.Fatalf("renderActivityPulse() = %q, want Today label", got)
-	}
 	for _, r := range got {
 		if r >= '\u2800' && r <= '\u28ff' {
 			return
@@ -216,8 +213,38 @@ func TestRenderActivityPulse(t *testing.T) {
 }
 
 func TestRenderActivityPulseNilCountsReturnsEmpty(t *testing.T) {
-	got := renderActivityPulse(nil, chartRanges[0], 64, 6, time.Now(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
+	got := renderActivityPulse(nil, chartRanges[0], 80, 6, time.Now(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
 	if got != "" {
 		t.Fatalf("renderActivityPulse(nil) = %q, want empty output", got)
+	}
+}
+
+func TestRelXLabelFormatterUsesChartWindowBoundary(t *testing.T) {
+	end := time.Date(2026, 8, 17, 18, 30, 0, 0, time.FixedZone("ICT", 7*60*60))
+	_, endDay := chartWindow(chartRanges[0], end)
+	format := relXLabelFormatter(end)
+	if got := format(0, float64(endDay.Unix())); got != "Today" {
+		t.Fatalf("relXLabelFormatter(end)(window end) = %q, want Today", got)
+	}
+}
+
+func TestRenderActivityPulseEmptyAndTooSmallReturnsEmpty(t *testing.T) {
+	end := time.Date(2026, 8, 17, 18, 30, 0, 0, time.UTC)
+	style := lipgloss.NewStyle()
+	tests := []struct {
+		name          string
+		counts        []int
+		width, height int
+	}{
+		{name: "empty non-nil counts", counts: []int{}, width: 80, height: 6},
+		{name: "width below minimum", counts: []int{1}, width: 11, height: 6},
+		{name: "height below minimum", counts: []int{1}, width: 12, height: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := renderActivityPulse(test.counts, chartRanges[0], test.width, test.height, end, style, style, style); got != "" {
+				t.Fatalf("renderActivityPulse() = %q, want empty output", got)
+			}
+		})
 	}
 }

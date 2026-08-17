@@ -134,15 +134,11 @@ func renderActivityPulse(counts []int, spec chartRangeSpec, width, height int, e
 	if maxCount == 0 {
 		maxCount = 1
 	}
-	displayEnd := endDay
-	if spec.bucketDays > 0 {
-		displayEnd = displayEnd.AddDate(0, 0, spec.bucketDays)
-	}
 
 	chart := timeserieslinechart.New(
 		width,
 		height,
-		timeserieslinechart.WithTimeRange(start, displayEnd),
+		timeserieslinechart.WithTimeRange(start, endDay),
 		timeserieslinechart.WithYRange(0, float64(maxCount)),
 		timeserieslinechart.WithXYSteps(4, 2),
 		timeserieslinechart.WithXLabelFormatter(relXLabelFormatter(end)),
