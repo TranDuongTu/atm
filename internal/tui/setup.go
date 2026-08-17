@@ -405,6 +405,36 @@ func (s *setupModel) setModelFor(agentName, model string) {
 	s.m.showToast(fmt.Sprintf("%s model: %s", key, model))
 }
 
+// setupUnready reports whether any agent has not cleared every fact ATM
+// tracks for it. AgentRow.Glyph() is the single readiness authority — ●
+// only when Binary and Plugin are both present — so this never re-derives
+// readiness from the individual Fact fields itself. An agent whose facts
+// are FactUnknown (a probe that could not answer) still glyphs ◐ or ○, so it
+// correctly counts as unready here too: "we could not tell" must not read
+// as "nothing to see". Used by the status-bar nudge, which must appear
+// while — and only while — something is genuinely unready.
+func setupUnready(agents []atmsetup.AgentRow) bool {
+	for _, row := range agents {
+		if row.Glyph() != "●" {
+			return true
+		}
+	}
+	return false
+}
+
+// setupAnyReady reports whether at least one agent is fully ready. The
+// wizard's footer uses it to hand off to project creation the moment there
+// is anything to dispatch with, rather than waiting for every row to clear
+// — the wizard's job is readiness, not completeness.
+func setupAnyReady(agents []atmsetup.AgentRow) bool {
+	for _, row := range agents {
+		if row.Glyph() == "●" {
+			return true
+		}
+	}
+	return false
+}
+
 // render, row, and title live in setup_render.go: the column-drop ladder,
 // the async cell logic, and the real AGENTS table need the file to
 // themselves (see setupColumns/asyncCell there).

@@ -87,6 +87,13 @@ func (s *setupModel) render(width, height int) string {
 			b.WriteString(s.row(setupSectionPersonas, i, fmt.Sprintf("%-16s %d checklists · starters %d/%d",
 				p.Persona, p.Checklists, p.StartersSeeded, p.StartersTotal), width) + "\n")
 		}
+	} else if setupAnyReady(s.model.Agents) {
+		// The wizard hands off; it never creates projects itself. Once at
+		// least one agent can dispatch there is nothing left for THIS view
+		// to do — pointing at project creation is more useful than an empty
+		// CHANNELS/PERSONAS section that can't exist without a project.
+		b.WriteString("\n" + styles.Muted.Render(fitLine(
+			"  ready — press [Esc] then [a] on Projects to create your first project", width-4)) + "\n")
 	}
 
 	b.WriteString("\n" + styles.KeyMenuDim.Render("[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"))

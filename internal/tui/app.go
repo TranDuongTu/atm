@@ -145,6 +145,12 @@ type Model struct {
 	artPhase int
 	artOn    map[string]bool
 	artPair  map[string][]string
+
+	// initCmd carries a command that must run once the Bubble Tea runtime
+	// exists to execute it, but was produced before that runtime is up
+	// (currently: applyLandingRule's setup.open() tier-2 probe, set by Run
+	// right after NewModel returns). Init() batches it in and clears it.
+	initCmd tea.Cmd
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -199,6 +205,14 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.supervisor = newPluginSupervisor()
 	m.SetSize(m.width, m.height)
 	m.refreshAll()
+	// The empty-store landing rule is NOT applied here. NewModel is also the
+	// constructor every internal/tui unit test uses to build a bare fixture
+	// for testing one pane in isolation, and most of those never seed a
+	// project (nor should they have to, just to see their own pane render
+	// normally). Auto-opening the wizard inside NewModel would hijack every
+	// one of those. Real program startup calls applyLandingRule explicitly
+	// (see Run in run.go); so does the dedicated landing-rule test fixture
+	// (newTestModelEmptyStore in setup_landing_test.go).
 	// Defensive: NewModel never sets projectScope before launch (a fresh
 	// launch always starts with no project selected), so this is a no-op in
 	// practice — the real entry point is the project-select handler in
@@ -211,6 +225,21 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 		m.boards.selectDefault()
 	}
 	return m, nil
+}
+
+// applyLandingRule opens the setup wizard when the store has no projects: a
+// store with nothing in it has nothing to show and nothing to press, so the
+// wizard IS the TUI there — once. It never reopens once a project exists
+// (see setup_landing_test.go's TestStoreWithProjectsDoesNotAutoOpen). It is
+// a separate step from NewModel — see the comment above the projectScope
+// block in NewModel for why — called by Run right after construction, and
+// by the empty-store test fixture. The returned Cmd (open()'s tier-2 probe,
+// or nil once a project exists) is meant for Init(); see Model.initCmd.
+func (m *Model) applyLandingRule() tea.Cmd {
+	if len(m.projects.list) != 0 {
+		return nil
+	}
+	return m.setup.open()
 }
 
 // SetSize sets the terminal dimensions and propagates to sub-panes.
@@ -371,8 +400,17 @@ func (m *Model) completeAction() {
 // tick that re-runs refreshAll so external mutations (CLI writes in another
 // process) surface in the TUI without a manual key. The tick is cheap: with
 // the O(1) LastLogSeq staleness check, refreshAll skips rebuilds when the
-// cache is fresh. It also starts the background-art animation tick.
-func (m *Model) Init() tea.Cmd { return tea.Batch(refreshTickCmd(), artTickCmd()) }
+// cache is fresh. It also starts the background-art animation tick and, if
+// Run's applyLandingRule call landed on the setup wizard (the empty-store
+// landing rule), fires its stashed tier-2 probe exactly once.
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{refreshTickCmd(), artTickCmd()}
+	if m.initCmd != nil {
+		cmds = append(cmds, m.initCmd)
+		m.initCmd = nil
+	}
+	return tea.Batch(cmds...)
+}
 
 // refreshTickMsg is the periodic message that triggers a refreshAll to pick
 // up external mutations (a CLI invocation in another process appending to
@@ -1023,6 +1061,15 @@ func (m *Model) renderStatusLine() string {
 	}
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
+	// The setup nudge is conditional, not decorative: it appears ONLY while
+	// something tracked by the wizard is unready (setupUnready asks
+	// AgentRow.Glyph(), the readiness authority — never the raw Fact
+	// fields), and is entirely absent the moment nothing is. This is a pure
+	// read of the already-probed snapshot, so it costs nothing extra on a
+	// render that runs every frame.
+	if setupUnready(m.setup.model.Agents) {
+		rightSegments = append(rightSegments, m.styles.Warning.Render("⚠ setup [W]"))
+	}
 	rightSegments = append(rightSegments,
 		m.styles.KeyMenu.Render("[\\]spotlight"),
 		m.styles.KeyMenuDim.Render("atm "+version.Version),
