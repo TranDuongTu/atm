@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
+
+	atmsetup "atm/internal/setup"
 )
 
 // runSetupJSON runs `setup status` in JSON mode and decodes the payload into
@@ -59,5 +63,110 @@ func TestSetupStatusUnknownProjectIsUsageError(t *testing.T) {
 	st := newTestCLI(t)
 	if _, _, code := runArgs(st, "setup", "status", "--project", "NOPE"); code != ExitUsage {
 		t.Fatalf("exit = %d", code)
+	}
+}
+
+// TestSetupStatusTextModeRendersAgentsAndProject exercises the default
+// (text) output, which the three JSON-mode tests above never touch.
+// Assertions are on stable anchors — the table header, a harness name that
+// agent.Harnesses() always contributes (regardless of whether that binary
+// happens to be on this machine's PATH), and a persona name that ships
+// built-in (skills.Personas(), independent of store content) — not on exact
+// column widths, so a reflow of writeSetupText's format string doesn't turn
+// this into a brittle golden file.
+func TestSetupStatusTextModeRendersAgentsAndProject(t *testing.T) {
+	t.Setenv("ATM_PROJECT", "")
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	out := runArgsOut(t, st, "setup", "status", "--project", "ATM")
+	mustContain(t, out, "AGENT")
+	mustContain(t, out, "GLYPH")
+	mustContain(t, out, "claude")
+	mustContain(t, out, "project ATM")
+	// "MCP SERVER" (not "CHANNEL" alone: the agent table's own coverage
+	// column is headed "CHANNELS" and would match regardless of whether the
+	// project's channel table rendered at all).
+	mustContain(t, out, "MCP SERVER")
+	mustContain(t, out, "PERSONA")
+	mustContain(t, out, "developer")
+}
+
+// TestSetupStatusTextModeNoProjectOmitsProjectSection pins the early-return
+// at the bottom of writeSetupText: with no project selected there is no
+// "project" header, no CHANNEL table, no PERSONA table — the agent table is
+// the whole picture, honestly, rather than an empty/misleading section.
+func TestSetupStatusTextModeNoProjectOmitsProjectSection(t *testing.T) {
+	t.Setenv("ATM_PROJECT", "")
+	st := newTestCLI(t)
+	out := runArgsOut(t, st, "setup", "status")
+	mustContain(t, out, "AGENT")
+	mustNotContain(t, out, "PERSONA")
+	// Not "CHANNEL" alone: the agent table's own coverage column is headed
+	// "CHANNELS" and is always present, so that substring would false-fail.
+	// "checklist capability" only appears in the project header line.
+	mustNotContain(t, out, "checklist capability")
+}
+
+// TestUpdateArgvContractPresentAndAbsent pins setup.UpdateArgv's contract at
+// the two call sites this command owns (JSON's update_argv, text's UPDATE
+// column): claude/codex/opencode — the only agents setup.Instant ever rows —
+// always have an update verb, so the "absent" case can only be exercised
+// with a name outside that set. ollama is the correct one to use: it really
+// has no update verb (installed out of band), so asserting its absence here
+// is asserting a true fact, not manufacturing a test double.
+func TestUpdateArgvContractPresentAndAbsent(t *testing.T) {
+	present := setupAgentToJSON(atmsetup.AgentRow{Agent: "claude"})
+	if len(present.UpdateArgv) == 0 || present.UpdateArgv[0] != "update" {
+		t.Fatalf("claude update_argv = %v, want [update ...]", present.UpdateArgv)
+	}
+	absent := setupAgentToJSON(atmsetup.AgentRow{Agent: "ollama"})
+	if absent.UpdateArgv != nil {
+		t.Fatalf("ollama update_argv = %v, want nil (no update verb)", absent.UpdateArgv)
+	}
+
+	// omitempty must actually omit it on the wire, not just leave the Go
+	// value nil in memory — that is the part a bolted-on "latest version"
+	// lookup could break without any of the field-level checks above
+	// noticing.
+	data, err := json.Marshal(absent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "update_argv") {
+		t.Fatalf("ollama JSON must omit update_argv entirely, got %s", data)
+	}
+	data, err = json.Marshal(present)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"update_argv":["update"]`) {
+		t.Fatalf("claude JSON must carry update_argv, got %s", data)
+	}
+
+	// Text mode: the UPDATE column renders the verb for an agent that has
+	// one, and a plain "-" (never "update available") for one that does not.
+	var buf bytes.Buffer
+	writeSetupText(&buf, atmsetup.Model{Agents: []atmsetup.AgentRow{
+		{Agent: "claude"},
+		{Agent: "ollama"},
+	}})
+	lines := strings.Split(buf.String(), "\n")
+	var claudeLine, ollamaLine string
+	for _, l := range lines {
+		if strings.Contains(l, "claude") {
+			claudeLine = l
+		}
+		if strings.Contains(l, "ollama") {
+			ollamaLine = l
+		}
+	}
+	if claudeLine == "" || !strings.HasSuffix(claudeLine, "update") {
+		t.Fatalf("claude row = %q, want it to end with the update verb", claudeLine)
+	}
+	if ollamaLine == "" || !strings.HasSuffix(ollamaLine, "-") {
+		t.Fatalf("ollama row = %q, want it to end with the empty-update dash", ollamaLine)
+	}
+	if strings.Contains(ollamaLine, "update") || strings.Contains(ollamaLine, "upgrade") {
+		t.Fatalf("ollama row = %q, must not claim an update verb it doesn't have", ollamaLine)
 	}
 }
