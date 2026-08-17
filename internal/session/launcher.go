@@ -12,6 +12,9 @@ type Launcher interface {
 	// BuildArgvPrompt launches the host with an initial message pointing at
 	// the rendered context file (launch: prompt personas).
 	BuildArgvPrompt(contextPath string) []string
+	// ModelArgv is the flag pair selecting a model, or nil for an empty
+	// model (meaning: let the harness pick its own default).
+	ModelArgv(model string) []string
 }
 
 const (
@@ -37,6 +40,8 @@ func (l staticLauncher) BuildArgv() []string  { return []string{l.name} }
 func (l staticLauncher) BuildArgvPrompt(contextPath string) []string {
 	return append([]string{l.name}, msgArgv(l.usePromptFlag, PromptMessage(contextPath))...)
 }
+
+func (staticLauncher) ModelArgv(model string) []string { return modelArgv(model) }
 
 func msgArgv(usePromptFlag bool, msg string) []string {
 	if usePromptFlag {
@@ -73,4 +78,20 @@ func (l OllamaLauncher) BuildArgv() []string {
 
 func (l OllamaLauncher) BuildArgvPrompt(contextPath string) []string {
 	return append(l.BuildArgv(), msgArgv(l.Integration == "opencode", PromptMessage(contextPath))...)
+}
+
+// OllamaLauncher.ModelArgv returns ollama's own --model flag pair, in the bare
+// model-name form (verified on this machine: `ollama launch opencode --model
+// qwen3:0.6b -- ...` launches with that model). The argv assembler must place
+// this segment BEFORE the -- separator that BuildArgv emits: `ollama launch
+// opencode -- --model ...` is rejected in headless mode because ollama launch
+// needs its own --model to know which model to serve.
+func (OllamaLauncher) ModelArgv(model string) []string { return modelArgv(model) }
+
+// modelArgv is shared because all three harnesses spell it --model.
+func modelArgv(model string) []string {
+	if model == "" {
+		return nil
+	}
+	return []string{"--model", model}
 }

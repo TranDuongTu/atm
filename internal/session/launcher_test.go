@@ -1,6 +1,7 @@
 package session
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -35,5 +36,30 @@ func TestBuildArgvPrompt(t *testing.T) {
 	olArgv := ol.BuildArgvPrompt("/tmp/ctx.md")
 	if olArgv[0] != "ollama" || olArgv[1] != "launch" || !strings.Contains(strings.Join(olArgv, " "), "--prompt") {
 		t.Fatalf("ollama argv = %v", olArgv)
+	}
+}
+
+func TestModelArgvNative(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "opencode"} {
+		l, ok := LauncherFor(name)
+		if !ok {
+			t.Fatalf("no launcher for %q", name)
+		}
+		if got := l.ModelArgv("some-model"); !reflect.DeepEqual(got, []string{"--model", "some-model"}) {
+			t.Fatalf("%s ModelArgv = %v", name, got)
+		}
+		if got := l.ModelArgv(""); len(got) != 0 {
+			t.Fatalf("%s empty model must add no flag, got %v", name, got)
+		}
+	}
+}
+
+func TestModelArgvOllama(t *testing.T) {
+	l := OllamaLauncher{Integration: "opencode"}
+	if got := l.ModelArgv("qwen3:8b"); !reflect.DeepEqual(got, []string{"--model", "qwen3:8b"}) {
+		t.Fatalf("ollama ModelArgv = %v", got)
+	}
+	if got := l.ModelArgv(""); len(got) != 0 {
+		t.Fatalf("empty model must add no flag, got %v", got)
 	}
 }
