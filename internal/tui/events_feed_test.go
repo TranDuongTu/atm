@@ -593,7 +593,7 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "Fix cache")
 	body := m.projects.View()
 	mustContain(t, body, "Recent Events  [Shift-↑↓]")
-	// The events box and the persona chart box must share left and right edges.
+	// The events box and the combined activity box must share left and right edges.
 	lines := strings.Split(body, "\n")
 	edgesOf := func(marker string) (int, int) {
 		t.Helper()
@@ -625,13 +625,13 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 		return -1, -1
 	}
 	el, er := edgesOf("Recent Events")
-	pl, pr := edgesOf("activity by persona")
+	pl, pr := edgesOf("activity · 1w")
 	if el != pl || er != pr {
-		t.Fatalf("events box edges (%d,%d) != persona box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
+		t.Fatalf("events box edges (%d,%d) != activity box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
 	}
 }
 
-// TestEventsFeedFramingMatchesPersonaChart pins the I1 review fix: the feed
+// TestEventsFeedFramingMatchesActivityChart pins the I1 review fix: the feed
 // must not decide boxed-vs-compact independently of the summary section, or
 // the pane goes back to reading as sections in two visual languages — the
 // original motivation for boxing the feed at all, just inverted.
@@ -642,7 +642,7 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 // it, and either could move it) — rather than pinning two heights either
 // side of it, because a threshold move that lands between two pinned heights
 // would pass unnoticed. summaryChartsBoxed itself re-derives, rather than
-// reuses, renderSummary's and renderPersonaActivityChart's framing rules (see
+// reuses renderSummary's framing rule (see
 // the doc comment on summaryChartsBoxed), so nothing at compile time catches
 // those rules drifting out of sync with this one; only a render-level check
 // like this one does. At each height both sections' framing is read off the
@@ -655,9 +655,9 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 // fixed at 9, events at its own ~35% share, leaving nothing for summary —
 // e.g. total 13 gives (9,0,4,0)) even while the events slot still renders:
 // that state is skipped the same way, keyed off projectPaneSplitHeights
-// rather than the rendered body, since a collapsed summary has no persona
+// rather than the rendered body, since a collapsed summary has no activity
 // chart to compare framing against either.
-func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
+func TestEventsFeedFramingMatchesActivityChart(t *testing.T) {
 	findLine := func(body, marker string) string {
 		for _, line := range strings.Split(body, "\n") {
 			if strings.Contains(line, marker) {
@@ -685,25 +685,25 @@ func TestEventsFeedFramingMatchesPersonaChart(t *testing.T) {
 			// Events slot collapsed at this height — nothing to compare.
 			continue
 		}
-		personaLine := findLine(body, "activity by persona")
-		if personaLine == "" {
+		activityLine := findLine(body, "activity · 1w")
+		if activityLine == "" {
 			_, _, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
 			if summaryH == 0 {
 				// Summary slot collapsed at this height — nothing to compare.
 				continue
 			}
-			t.Fatalf("height %d: events feed rendered but persona chart section is missing\n--- body ---\n%s", h, body)
+			t.Fatalf("height %d: events feed rendered but activity chart section is missing\n--- body ---\n%s", h, body)
 		}
 
-		feedBoxed, personaBoxed := isBoxed(feedLine), isBoxed(personaLine)
+		feedBoxed, activityBoxed := isBoxed(feedLine), isBoxed(activityLine)
 		if feedBoxed {
 			sawBoxed = true
 		} else {
 			sawUnboxed = true
 		}
-		if feedBoxed != personaBoxed {
-			t.Fatalf("height %d: framing mismatch — events feed boxed=%v (%q), persona chart boxed=%v (%q)",
-				h, feedBoxed, feedLine, personaBoxed, personaLine)
+		if feedBoxed != activityBoxed {
+			t.Fatalf("height %d: framing mismatch — events feed boxed=%v (%q), activity chart boxed=%v (%q)",
+				h, feedBoxed, feedLine, activityBoxed, activityLine)
 		}
 	}
 	if !sawBoxed || !sawUnboxed {

@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"atm/internal/activity"
 	"atm/internal/core"
 	"atm/internal/tui/art"
-	"github.com/NimbleMarkets/ntcharts/canvas"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -32,15 +30,11 @@ type projectsModel struct {
 	// key handler that moves it.
 	logsOffset int
 
-	// personaCursor indexes into personaGroups for the inline "activity by
-	// persona" chart navigation. ctrl+up/down move it modelessly (like the
-	// events feed's shift+arrows); ctrl+right drills into the hovered
-	// persona's breakdown; D dispatches it directly.
-	// personaDetailOffset scrolls the drilled-in breakdown body.
-	personaCursor       int
-	personaDrilled      bool
-	personaGroups       []activity.Group
-	personaDetailOffset int
+	// Combined activity chart state. Rendering consumes the refresh-time
+	// summary snapshot; only keys and project-scope writes mutate this state.
+	chartPersona string
+	chartRange   int
+	chartFocused bool
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -76,11 +70,6 @@ type detailState struct {
 	project *core.Project
 	lines   []string // rendered detail lines (for scroll)
 	offset  int
-}
-
-type activityStripeDay struct {
-	day   string
-	count int
 }
 
 func newProjectsModel(m *Model) projectsModel {
@@ -123,65 +112,6 @@ func projectPaneSplitHeights(total int) (listH, artH, eventsH, summaryH int) {
 	return listH, artH, eventsH, summaryH
 }
 
-func computeStripDays(width int) int {
-	const gap = 1
-	const maxDays = 14
-	const minDays = 7
-	const minCellW = 9 // widest label "Yesterday"
-	if width < 1 {
-		return minDays
-	}
-	days := (width + gap) / (minCellW + gap)
-	if days < minDays {
-		return minDays
-	}
-	if days > maxDays {
-		return maxDays
-	}
-	return days
-}
-
-func activityStripeDayCounts(entries []core.LogEntry, days int) []activityStripeDay {
-	return activityStripeDayCountsEnding(entries, days, core.Now())
-}
-
-func activityStripeDayCountsEnding(entries []core.LogEntry, days int, end time.Time) []activityStripeDay {
-	if days <= 0 {
-		return nil
-	}
-	counts := map[string]int{}
-	for _, e := range entries {
-		if e.At.IsZero() {
-			continue
-		}
-		day := e.At.UTC().Format("2006-01-02")
-		counts[day]++
-	}
-	end = end.UTC()
-	start := end.AddDate(0, 0, -(days - 1))
-	out := make([]activityStripeDay, 0, days)
-	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
-		key := day.Format("2006-01-02")
-		out = append(out, activityStripeDay{day: key, count: counts[key]})
-	}
-	return out
-}
-
-func activityDensityGlyph(count int) string {
-	switch {
-	case count <= 0:
-		return "·"
-	case count <= 2:
-		return "░"
-	case count <= 5:
-		return "▒"
-	case count <= 9:
-		return "▓"
-	default:
-		return "█"
-	}
-}
-
 func (p *projectsModel) SetSize(w, h int) {
 	if w < 1 {
 		w = 1
@@ -219,22 +149,10 @@ func (p *projectsModel) refresh() {
 }
 
 func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
-	// Persona-chart navigation is modeless (like the events feed's
-	// shift+arrows): ctrl+up/down move the persona cursor, ctrl+right
-	// drills in, ctrl+left/Esc backs out, D dispatches.
-	// These take precedence over list/detail keys only in the list view
-	// (where the chart is visible).
 	if p.view == pViewList {
-		if cmd, handled := p.handlePersonaChartKey(k); handled {
+		if cmd, handled := p.handleChartKey(k); handled {
 			return cmd
 		}
-	}
-	switch k.String() {
-	case "P":
-		// No-op: P no longer opens an overlay or toggles a focus mode.
-		// Kept in keymap for backwards discoverability; the chart is
-		// always navigable via ctrl+arrows.
-		return nil
 	}
 	switch p.view {
 	case pViewList:
@@ -245,89 +163,44 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handlePersonaChartKey handles the modeless persona-chart navigation keys.
-// Returns (cmd, true) if the key was claimed, (nil, false) otherwise so the
-// caller falls through to normal list/detail routing.
-func (p *projectsModel) handlePersonaChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
-	// If drilled into a persona detail, ctrl+up/down scroll the breakdown
-	// body, ctrl+left/Esc back out, D dispatches the hovered persona.
-	if p.personaDrilled {
-		switch k.String() {
-		case "ctrl+left", "esc":
-			p.personaDrilled = false
-			p.personaDetailOffset = 0
-			return nil, true
-		case "ctrl+up":
-			if p.personaDetailOffset > 0 {
-				p.personaDetailOffset--
-			}
-			return nil, true
-		case "ctrl+down":
-			p.personaDetailOffset++
-			return nil, true
-		case "d", "D":
-			if p.personaCursor < len(p.personaGroups) {
-				return p.openDispatchForPersona(p.personaGroups[p.personaCursor].Key), true
-			}
-			return nil, true
-		}
-		// While drilled, list keys (j/k/etc) still work on the project list
-		// above — fall through.
-		return nil, false
-	}
+func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
+	case "ctrl+left", "ctrl+right":
+		p.chartFocused = true
+		entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
+		direction := -1
+		if k.String() == "ctrl+right" {
+			direction = 1
+		}
+		p.chartPersona = carouselStep(entries, p.chartPersona, direction)
+		return nil, true
 	case "ctrl+up":
-		p.ensurePersonaGroups()
-		if p.personaCursor > 0 {
-			p.personaCursor--
+		p.chartFocused = true
+		if p.chartRange < len(chartRanges)-1 {
+			p.chartRange++
 		}
 		return nil, true
 	case "ctrl+down":
-		p.ensurePersonaGroups()
-		if p.personaCursor < len(p.personaGroups)-1 {
-			p.personaCursor++
+		p.chartFocused = true
+		if p.chartRange > 0 {
+			p.chartRange--
 		}
 		return nil, true
-	case "ctrl+right":
-		p.ensurePersonaGroups()
-		if p.personaCursor < len(p.personaGroups) {
-			p.personaDrilled = true
-			p.personaDetailOffset = 0
+	case "enter":
+		return nil, p.chartFocused
+	case "esc":
+		if p.chartFocused {
+			p.chartFocused = false
+			return nil, true
 		}
-		return nil, true
 	}
 	return nil, false
 }
 
-// ensurePersonaGroups lazily loads the persona groups from the current
-// project's event log if not yet loaded (the chart is always navigable).
-func (p *projectsModel) ensurePersonaGroups() {
-	if p.personaGroups != nil {
-		return
-	}
-	p.refreshPersonaGroups()
-}
-
-func (p *projectsModel) refreshPersonaGroups() {
-	p.personaGroups = nil
-	p.personaCursor = 0
-	code := p.m.projectScope
-	if code == "" {
-		return
-	}
-	entries, err := p.m.store.ReadLogCached(code)
-	if err != nil {
-		return
-	}
-	p.personaGroups = activity.Aggregate(activity.Build(entries), "persona")
-}
-
-// openDispatchForPersona opens the dispatch dialog with the given persona
-// preselected over the current project scope. Unknown personas fall back to
-// concierge inside the dialog.
-func (p *projectsModel) openDispatchForPersona(persona string) tea.Cmd {
-	p.m.dispatchDlg.open(persona, p.m.projectScope, "", "", "")
-	return nil
+func (p *projectsModel) resetChart() {
+	p.chartPersona = ""
+	p.chartRange = 0
+	p.chartFocused = false
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -392,6 +265,7 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			p.m.capability.current = "" // re-resolve for the new project
 			p.logsOffset = 0            // fresh project: viewport back to the newest event
+			p.resetChart()
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
 				p.m.showToast("ensure workflow boards: " + err.Error())
 			}
@@ -697,387 +571,59 @@ func (p *projectsModel) renderSummary(height int) string {
 	_ = project
 	_ = tasks
 
-	remaining := height
-	if remaining <= 0 {
+	if height <= 0 {
 		return padToHeight("", height)
 	}
-
-	var lines []string
-	if remaining >= 6 {
-		actorH, stripeH := chartBoxHeights(remaining)
-		lines = append(lines, p.renderPersonaActivityChart(entries, actorH)...)
-		lines = append(lines, strings.Split(p.renderChartBox("activity stripe", p.renderActivityStripeChart(entries, stripeH-2), stripeH), "\n")...)
-		return padToHeight(strings.Join(lines, "\n"), height)
-	}
-
-	if remaining == 3 {
-		// persona chart + a one-line stripe row.
-		lines = append(lines, p.renderPersonaActivityChart(entries, 2)...)
-		lines = append(lines, dashboardLine(p.width, fmt.Sprintf("activity stripe %s", p.renderActivityStripeChart(entries, 2))))
-		return padToHeight(strings.Join(lines, "\n"), height)
-	}
-
-	actorMax := remaining
-	if remaining > 6 {
-		actorMax = remaining - 4
-	} else if remaining > 3 {
-		actorMax = remaining - 2
-	}
-	if actorMax > 0 {
-		lines = append(lines, p.renderPersonaActivityChart(entries, actorMax)...)
-	}
-	if height-len(lines) >= 2 {
-		lines = append(lines,
-			dashboardLine(p.width, "activity stripe"),
-			dashboardLine(p.width, p.renderActivityStripeChart(entries, 2)),
-		)
-	}
-	return padToHeight(strings.Join(lines, "\n"), height)
+	return padToHeight(p.renderCombinedActivityChart(entries, height), height)
 }
 
-func chartBoxHeights(total int) (int, int) {
-	if total < 6 {
-		return total, 0
-	}
-	actor := total / 2
-	stripe := total - actor
-	if actor < 3 {
-		actor = 3
-	}
-	if stripe < 3 {
-		stripe = 3
-	}
-	return actor, stripe
-}
-
-// summaryChartsBoxed reports whether renderSummary will draw its persona
-// chart as a bordered box at the given summary-section height, without
-// duplicating renderSummary's own rendering: it repeats only the arithmetic
-// that decides the frame — no fixed header lines above the charts now (the
-// "Project Summary" heading was removed), so the full summaryH is available,
-// then renderPersonaActivityChart's own boxed-from-4-lines-up rule applied
-// to the actor split chartBoxHeights returns. renderEventsFeed keys its own
-// compact-vs-boxed choice off this (ATM-793b19 revision-2 review, I1) so the
-// feed and the persona chart never disagree about which visual language the
-// pane is speaking, even though the activity stripe chart below it can still
-// box on its own at a smaller height than the persona chart does — that
-// pre-existing wrinkle inside the summary section is unchanged here; this
-// keys off the persona chart specifically because that is the section the
-// feed is being compared against.
 func summaryChartsBoxed(summaryH int) bool {
-	remaining := summaryH
-	if remaining < 6 {
-		return false
-	}
-	actorH, _ := chartBoxHeights(remaining)
-	return actorH >= 4
+	return summaryH >= 7
 }
 
-func (p *projectsModel) renderPersonaActivityChart(entries []core.LogEntry, maxLines int) []string {
-	if maxLines <= 0 {
-		return nil
-	}
-	// Drilled-in detail view: render the hovered persona's breakdown inside
-	// the chart box.
-	if p.personaDrilled && p.personaCursor < len(p.personaGroups) {
-		return p.renderPersonaDetailChart(p.personaGroups[p.personaCursor], maxLines)
-	}
-
-	// 1 line genuinely cannot fit a bar row alongside a label, so the
-	// title is the only legible content there. 2-3 lines render a compact
-	// title + bar rows (no border). From 4 up the bordered chart box takes
-	// over (its title lives in the top border).
-	const title = "activity by persona  [Ctrl+↑/↓]"
-	if maxLines == 1 {
-		return []string{dashboardLine(p.width, title)}
-	}
+func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, height int) string {
 	groups := activity.Aggregate(activity.Build(entries), "persona")
-	// Keep the cursor in sync with the rendered groups so ctrl+up/down
-	// always highlight a visible row.
-	p.personaGroups = groups
-	if p.personaCursor >= len(groups) {
-		p.personaCursor = len(groups) - 1
+	carousel := carouselEntries(groups)
+	selected := carouselSelected(carousel, p.chartPersona)
+	spec := chartRanges[0]
+	if p.chartRange >= 0 && p.chartRange < len(chartRanges) {
+		spec = chartRanges[p.chartRange]
 	}
-	if p.personaCursor < 0 {
-		p.personaCursor = 0
+	title := fmt.Sprintf("activity \u00b7 %s  [Ctrl+\u2190/\u2192] [Ctrl+\u2191/\u2193]", spec.key)
+	if p.chartFocused {
+		title = "\u25b8 " + title
 	}
+	now := core.Now()
+
+	if !summaryChartsBoxed(height) {
+		lines := []string{dashboardLine(p.width, title), dashboardLine(p.width, renderCarouselCompact(carousel, selected, p.width, p.m.styles))}
+		if len(groups) == 0 {
+			lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("no activity yet")))
+			return strings.Join(lines, "\n")
+		}
+		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, p.width, height-len(lines), now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		if pulse != "" {
+			for _, line := range strings.Split(pulse, "\n") {
+				lines = append(lines, dashboardLine(p.width, line))
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	body := renderCarouselLines(carousel, selected, chartBoxInnerWidth(p.width), p.m.styles)
 	if len(groups) == 0 {
-		body := p.m.styles.Muted.Render("no activity yet")
-		if maxLines < 4 {
-			return []string{
-				dashboardLine(p.width, title),
-				dashboardLine(p.width, body),
-			}[:maxLines]
-		}
-		return strings.Split(p.renderChartBox(title, body, maxLines), "\n")
-	}
-	nameW := longestPersonaKeyWidth(groups)
-	meterW := chartBoxInnerWidth(p.width) - nameW - 12
-	if meterW < 10 {
-		meterW = 10
-	}
-	total := 0
-	for _, g := range groups {
-		total += g.Count
-	}
-	// barRow renders one persona row. The cursor highlights the persona
-	// name text only (not the bar) via reverse style on the name segment.
-	barRow := func(g activity.Group, idx int) string {
-		percent := 0
-		if total > 0 {
-			percent = (g.Count*100 + total/2) / total
-		}
-		name := fmt.Sprintf("%-*s", nameW, g.Key)
-		if idx == p.personaCursor {
-			name = p.m.styles.RowCursor.Render(name)
-		}
-		return fmt.Sprintf(" %s %s %3d%% %4d", name, meterBar(percent, meterW), percent, g.Count)
-	}
-	if maxLines < 4 {
-		// Compact: title row + as many bar rows as fit.
-		rows := []string{dashboardLine(p.width, title)}
-		cap := maxLines - 1
-		visible := groups
-		if len(visible) > cap {
-			visible = visible[:cap]
-		}
-		for i, g := range visible {
-			rows = append(rows, dashboardLine(p.width, barRow(g, i)))
-		}
-		return rows
-	}
-	// Boxed: renderChartBox draws the title in the border; emit bar rows
-	// only, capped to the box's inner height (maxLines - 2).
-	cap := maxLines - 2
-	visible := groups
-	if len(visible) > cap {
-		visible = visible[:cap]
-	}
-	var body []string
-	for i, g := range visible {
-		body = append(body, barRow(g, i))
-	}
-	return strings.Split(p.renderChartBox(title, strings.Join(body, "\n"), maxLines), "\n")
-}
-
-// renderPersonaDetailChart renders the drilled-in persona breakdown inside
-// the chart box. The border title names the persona and carries the key
-// hints; the body shows the agents/models/actions breakdown bars.
-func (p *projectsModel) renderPersonaDetailChart(g activity.Group, maxLines int) []string {
-	title := fmt.Sprintf("persona: %s  [Ctrl+↑/↓] [D]dispatch [Ctrl+←]back", g.Key)
-	if maxLines < 4 {
-		return []string{dashboardLine(p.width, title)}[:maxLines]
-	}
-	// Shared label width across all three breakdowns so bars align.
-	nameW := 0
-	for _, counts := range []map[string]int{g.Agents, g.Models, g.Actions} {
-		for k := range counts {
-			if w := lipgloss.Width(k); w > nameW {
-				nameW = w
-			}
-		}
-	}
-	innerW := chartBoxInnerWidth(p.width)
-	meterW := innerW - nameW - 8
-	if meterW < 8 {
-		meterW = 8
-	}
-	writeBreakdownLine := func(label string, counts map[string]int) []string {
-		var out []string
-		out = append(out, p.m.styles.Muted.Render(label))
-		if len(counts) == 0 {
-			out = append(out, "  (none)")
-			return out
-		}
-		var rows []kvRow
-		t := 0
-		for k, v := range counts {
-			rows = append(rows, kvRow{k, v})
-			t += v
-		}
-		sortKV(rows)
-		for _, r := range rows {
-			percent := 0
-			if t > 0 {
-				percent = (r.v*100 + t/2) / t
-			}
-			out = append(out, fmt.Sprintf("  %-*s %s %4d", nameW, r.k, meterBar(percent, meterW), r.v))
-		}
-		return out
-	}
-	bodyLines := writeBreakdownLine("agents", g.Agents)
-	bodyLines = append(bodyLines, writeBreakdownLine("models", g.Models)...)
-	bodyLines = append(bodyLines, writeBreakdownLine("actions", g.Actions)...)
-	// Scroll the body by personaDetailOffset, clamped to the available
-	// content so ctrl+down can never walk it past the last visible window.
-	cap := maxLines - 2
-	max := len(bodyLines) - cap
-	if max < 0 {
-		max = 0
-	}
-	if p.personaDetailOffset > max {
-		p.personaDetailOffset = max
-	}
-	if p.personaDetailOffset < 0 {
-		p.personaDetailOffset = 0
-	}
-	start := p.personaDetailOffset
-	end := start + cap
-	if end > len(bodyLines) {
-		end = len(bodyLines)
-	}
-	return strings.Split(p.renderChartBox(title, strings.Join(bodyLines[start:end], "\n"), maxLines), "\n")
-}
-
-func longestPersonaKeyWidth(groups []activity.Group) int {
-	width := 0
-	for _, g := range groups {
-		if w := lipgloss.Width(g.Key); w > width {
-			width = w
-		}
-	}
-	return width
-}
-
-func (p *projectsModel) renderActivityStripeChart(entries []core.LogEntry, bodyHeight int) string {
-	innerW := chartBoxInnerWidth(p.width)
-	numDays := computeStripDays(innerW)
-	days := activityStripeDayCounts(entries, numDays)
-	if len(days) == 0 {
-		return p.m.styles.Muted.Render("no activity yet")
-	}
-	return renderActivityStripeCanvas(days, innerW, bodyHeight)
-}
-
-func renderActivityStripe(days []activityStripeDay) string {
-	if len(days) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, day := range days {
-		b.WriteString(activityDensityGlyph(day.count))
-	}
-	return b.String()
-}
-
-func renderActivityStripeCanvas(days []activityStripeDay, width int, heights ...int) string {
-	if len(days) == 0 || width <= 0 {
-		return ""
-	}
-	height := 2
-	if len(heights) > 0 && heights[0] > 0 {
-		height = heights[0]
-	}
-	if height < 2 {
-		height = 2
-	}
-	axisH := 1
-	bodyH := height - axisH
-	if bodyH < 1 {
-		bodyH = 1
-	}
-	const gap = 1
-	cellW := (width - (len(days)-1)*gap) / len(days)
-	if cellW < 1 {
-		cellW = 1
-	}
-	canvasW := cellW*len(days) + (len(days)-1)*gap
-
-	maxCount := 0
-	for _, day := range days {
-		if day.count > maxCount {
-			maxCount = day.count
-		}
-	}
-
-	c := canvas.New(canvasW, height)
-	for i, day := range days {
-		x0 := i * (cellW + gap)
-		barH := bodyH
-		if maxCount > 0 {
-			if day.count > 0 {
-				barH = day.count * bodyH / maxCount
-				if barH < 1 {
-					barH = 1
-				}
-			} else {
-				barH = 1
-			}
-		}
-		fill := densityFillRune(day.count)
-		style := activityCanvasStyle(day.count)
-		emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-		for col := 0; col < cellW; col++ {
-			for row := 0; row < bodyH; row++ {
-				if row >= bodyH-barH {
-					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, fill, style)
-				} else {
-					c.SetRuneWithStyle(canvas.Point{X: x0 + col, Y: row}, '·', emptyStyle)
-				}
-			}
-		}
-	}
-	axis := activityStripeAxis(days, canvasW, cellW, gap)
-	c.SetStringWithStyle(canvas.Point{X: 0, Y: height - 1}, axis, lipgloss.NewStyle().Foreground(lipgloss.Color("244")))
-	return c.View()
-}
-
-func activityStripeAxis(days []activityStripeDay, width, cellW, gap int) string {
-	if len(days) == 0 || width <= 0 {
-		return ""
-	}
-	n := len(days)
-	line := []rune(repeat(" ", width))
-	putLabel := func(label string, colIdx int) {
-		labelRunes := []rune(label)
-		colStart := colIdx * (cellW + gap)
-		pos := colStart + (cellW-len(labelRunes))/2
-		if pos < 0 {
-			pos = 0
-		}
-		for i, r := range labelRunes {
-			if pos+i < len(line) {
-				line[pos+i] = r
-			}
-		}
-	}
-	if n >= 14 {
-		putLabel("14d ago", 0)
-		putLabel("7d ago", n-8)
+		body = append(body, p.m.styles.Muted.Render("no activity yet"))
 	} else {
-		putLabel("7d ago", 0)
+		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, chartBoxInnerWidth(p.width), height-2-len(body), now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		if pulse != "" {
+			body = append(body, strings.Split(pulse, "\n")...)
+		}
 	}
-	if n >= 2 {
-		putLabel("Yesterday", n-2)
-		putLabel("Today", n-1)
+	border := p.m.styles.Muted
+	if p.chartFocused {
+		border = p.m.styles.HeaderLabel
 	}
-	return string(line)
-}
-
-func activityCanvasStyle(count int) lipgloss.Style {
-	switch {
-	case count <= 0:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	case count <= 2:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	case count <= 5:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	}
-}
-
-func densityFillRune(count int) rune {
-	switch {
-	case count <= 0:
-		return '·'
-	case count <= 2:
-		return '▂'
-	case count <= 5:
-		return '▅'
-	default:
-		return '█'
-	}
+	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, border)
 }
 
 func chartBoxWidth(width int) int {
@@ -1103,6 +649,10 @@ func chartBoxInnerWidth(width int) int {
 }
 
 func (p *projectsModel) renderChartBox(title, body string, maxLines int) string {
+	return p.renderChartBoxWithBorder(title, body, maxLines, p.m.styles.Muted)
+}
+
+func (p *projectsModel) renderChartBoxWithBorder(title, body string, maxLines int, border lipgloss.Style) string {
 	boxW := chartBoxWidth(p.width)
 	if boxW < 3 || maxLines < 3 {
 		return dashboardLine(p.width, title)
@@ -1126,7 +676,6 @@ func (p *projectsModel) renderChartBox(title, body string, maxLines int) string 
 	for len(bodyLines) < innerH {
 		bodyLines = append(bodyLines, "")
 	}
-	border := p.m.styles.Muted
 	content := p.m.styles.Body
 	label := " " + title + " "
 	if lipgloss.Width(label) > innerW {
@@ -1321,6 +870,7 @@ func (m *Model) doProjectCreate(vals map[string]string) tea.Cmd {
 	// to strand, so this isn't user-visible today, but the invariant applies
 	// uniformly regardless.
 	m.projects.logsOffset = 0
+	m.projects.resetChart()
 	m.refreshAll()
 	return nil
 }
@@ -1358,6 +908,7 @@ func (m *Model) confirmYes() tea.Cmd {
 			// The removed project's viewport position is meaningless for
 			// whatever gets selected next.
 			m.projects.logsOffset = 0
+			m.projects.resetChart()
 			if m.indexer != nil {
 				resetIndexer(m)
 			}

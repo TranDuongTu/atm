@@ -481,7 +481,7 @@ func (p *projectsModel) readEventLog() (entries []core.LogEntry, ok bool) {
 }
 
 // eventsFeedTitle is the box title: the key hint appended the same shape as
-// the persona chart's "activity by persona  [P]expand". Shift-↑↓ scrolls the
+// the combined activity chart. Shift-↑↓ scrolls the
 // feed one line; Shift-←→ (not shown in the title — the box is narrow) pages
 // it (ATM-793b19 revision 2, R2-2).
 const eventsFeedTitle = "Recent Events  [Shift-↑↓]"

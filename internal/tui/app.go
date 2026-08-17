@@ -741,11 +741,9 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// Esc at pane level: back from detail to list, or cancel task filter.
 	// If a per-detail overlay (comment peek) is open, defer to the pane's
 	// overlay Esc handler so Esc returns to the detail rather than leaping
-	// out to the list and leaving the overlay state stale. Persona-chart
-	// drill-in Esc (back from detail) is handled by the projects pane's own
-	// key handler.
+	// out to the list and leaving the overlay state stale.
 	if k.String() == "esc" {
-		if m.focused == paneProjects && m.projects.personaDrilled {
+		if m.focused == paneProjects && m.projects.chartFocused {
 			return m.projects.handleKey(k)
 		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
@@ -774,13 +772,10 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// overlayProject is the project a project-wide overlay should open on. It
-// mirrors the project openDispatch resolves — the highlighted Projects row
-// when that pane is focused and not drilled into the persona chart (the
-// drill-in has no row of its own, so dispatch keeps the scope there too) —
-// and falls back to the current scope everywhere else.
+// overlayProject is the project a project-wide overlay should open on: the
+// highlighted Projects row when that pane is focused, otherwise current scope.
 func (m *Model) overlayProject() string {
-	if m.focused == paneProjects && !(m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups)) {
+	if m.focused == paneProjects {
 		if row, ok := m.projects.selected(); ok {
 			return row.code
 		}
@@ -805,8 +800,6 @@ func (m *Model) openDispatch() {
 func (m *Model) dispatchDefaults() (persona, project, taskID, taskTitle string) {
 	persona, project = "concierge", m.projectScope
 	switch {
-	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
-		persona = m.projects.personaGroups[m.projects.personaCursor].Key
 	case m.focused == paneProjects:
 		if row, ok := m.projects.selected(); ok {
 			persona, project = "manager", row.code

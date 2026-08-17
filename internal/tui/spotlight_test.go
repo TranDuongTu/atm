@@ -168,11 +168,11 @@ func TestSpotlightTabTogglesFocusAndBackslashCloses(t *testing.T) {
 
 // The defining property of the redesign: the launcher is identical from every
 // context. The old menu filtered Actions through currentScopes(), so the
-// Projects pane, the Tasks pane, a task detail, and the persona drill showed
+// Projects pane, the Tasks pane, a task detail, and a focused activity chart showed
 // disjoint sets. These are the four currentScopes() states the spec's
 // Testing section names; the two most likely to reintroduce contextual
-// filtering (a task detail's tasks.view, and the persona drill's
-// personaDrilled) are exactly the two a two-state guard would miss.
+// filtering (a task detail's tasks.view, and the activity chart focus) are
+// exactly the two a two-state guard would miss.
 func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 	states := []struct {
 		name  string
@@ -204,17 +204,17 @@ func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 			m.tasks.openDetail(tk.ID)
 			return m
 		}},
-		{"persona drill", func(t *testing.T) *Model {
+		{"focused activity chart", func(t *testing.T) *Model {
 			m := mkActorsOverlayTestModel(t)
 			m.SetSize(120, 40)
 			m.projectScope = "ATM"
 			m.focused = paneProjects
 			// The chart renders from the refresh-time snapshot, so a directly
-			// assigned scope needs a refresh before ctrl+right can drill in.
+			// assigned scope needs a refresh before it can be focused.
 			m.refreshAll()
 			update(t, m, "ctrl+right")
-			if !m.projects.personaDrilled {
-				t.Fatalf("setup: ctrl+right must drill into persona detail")
+			if !m.projects.chartFocused {
+				t.Fatalf("setup: ctrl+right must focus activity chart")
 			}
 			return m
 		}},

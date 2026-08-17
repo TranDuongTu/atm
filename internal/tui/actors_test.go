@@ -41,125 +41,109 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-// TestPersonaChartCtrlArrowsScroll verifies ctrl+down/up move the persona
-// cursor modelessly (no P toggle needed) and the cursor highlights the
-// persona name text.
-func TestPersonaChartCtrlArrowsScroll(t *testing.T) {
+func TestChartCtrlArrowsFocusWrapAndClampRange(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	// Seed a second persona so the cursor can move.
+	// Seed a second persona so carousel traversal can wrap.
 	seedTaskAsActor(t, m, "ATM", "task two", "developer@claude:opus-4.8")
 	m.refreshAll()
 
-	// The chart renders with a cursor on persona 0.
-	view := m.View()
-	if !strings.Contains(view, "activity by persona") {
-		t.Fatalf("persona chart missing:\n%s", view)
+	if m.projects.chartFocused {
+		t.Fatal("chart starts focused")
 	}
-	// ctrl+down moves the cursor (no panic, no focus toggle needed).
-	update(t, m, "ctrl+down")
-	update(t, m, "ctrl+up")
+	update(t, m, "ctrl+left")
+	if !m.projects.chartFocused {
+		t.Fatal("ctrl+left should focus chart")
+	}
+	if got := m.projects.chartPersona; got != "developer" {
+		t.Fatalf("ctrl+left from All selected %q, want developer", got)
+	}
+	update(t, m, "ctrl+right")
+	if got := m.projects.chartPersona; got != "" {
+		t.Fatalf("ctrl+right should wrap developer to All, got %q", got)
+	}
+	for range chartRanges {
+		update(t, m, "ctrl+up")
+	}
+	if got, want := m.projects.chartRange, len(chartRanges)-1; got != want {
+		t.Fatalf("chartRange after ctrl+up = %d, want %d", got, want)
+	}
+	for range chartRanges {
+		update(t, m, "ctrl+down")
+	}
+	if got := m.projects.chartRange; got != 0 {
+		t.Fatalf("chartRange after ctrl+down = %d, want 0", got)
+	}
 }
 
-// TestPersonaChartCtrlRightDrills verifies ctrl+right drills into the hovered
-// persona's detail and ctrl+left backs out.
-func TestPersonaChartCtrlRightDrills(t *testing.T) {
+func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	// The chart renders from the refresh-time snapshot (ATM-4c476c), so a
-	// directly-assigned scope needs a refresh — same as the sibling tests.
 	m.refreshAll()
 
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); handled {
+		t.Fatal("enter should reach the project list while chart is unfocused")
+	}
+	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
+		t.Fatal("esc should reach normal pane handling while chart is unfocused")
+	}
 	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill into persona detail")
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); !handled {
+		t.Fatal("enter should be claimed while chart is focused")
 	}
-	view := m.View()
-	if !strings.Contains(view, "persona: ") {
-		t.Fatalf("drilled detail should show persona title:\n%s", view)
+	if _, handled := m.projects.handleChartKey(keyMsg("esc")); !handled {
+		t.Fatal("esc should be claimed while chart is focused")
 	}
-	// No centered dispatch help text in the detail.
-	if strings.Contains(view, "dispatch") {
-		// The breakdown itself shouldn't contain the word "dispatch" —
-		// only the status hint (outside the box) may. Check the box body
-		// doesn't have a centered dispatch action.
-		if strings.Contains(view, "[D] dispatch") {
-			t.Fatalf("detail should not contain centered dispatch help:\n%s", view)
-		}
-	}
-	// ctrl+left backs out.
-	update(t, m, "ctrl+left")
-	if m.projects.personaDrilled {
-		t.Fatal("ctrl+left should leave persona detail")
+	if m.projects.chartFocused {
+		t.Fatal("esc should defocus chart")
 	}
 }
 
-// TestPersonaChartEscFromDetailBacksOut verifies Esc from the drilled detail
-// returns to the chart.
-func TestPersonaChartEscFromDetailBacksOut(t *testing.T) {
+func TestChartStateResetsOnProjectSwitch(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
-	m.projectScope = "ATM"
+	seedProject(t, m, "SCY", "Scylla")
 	m.focused = paneProjects
+	update(t, m, "s")
 	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
-	}
-	update(t, m, "esc")
-	if m.projects.personaDrilled {
-		t.Fatal("Esc should leave detail")
-	}
-}
-
-// TestPersonaChartDDispatchesWhenDrilled verifies the D key dispatches the
-// drilled-in persona.
-func TestPersonaChartDDispatchesWhenDrilled(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 40)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	fd := &fakeDispatcher{preview: "tmux · new window"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-
-	update(t, m, "ctrl+right") // drill into persona 0
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
-	}
-	update(t, m, "d")
-	if !m.dispatchDlg.active {
-		t.Fatal("D should open the dispatch dialog")
-	}
-	if got := m.dispatchDlg.persona(); got != "staff" {
-		t.Fatalf("D should preselect the drilled persona (staff), got %q", got)
-	}
-}
-
-// TestPersonaChartDetailScroll verifies ctrl+down/up scroll the drilled-in
-// breakdown body when it overflows the box.
-func TestPersonaChartDetailScroll(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 40)
-	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
-	}
-	// Scrolling down then up must not panic and offset stays in range.
-	update(t, m, "ctrl+down")
-	update(t, m, "ctrl+down")
-	if m.projects.personaDetailOffset < 0 {
-		t.Fatalf("offset should not go negative: %d", m.projects.personaDetailOffset)
-	}
 	update(t, m, "ctrl+up")
-	update(t, m, "ctrl+up")
-	if m.projects.personaDetailOffset != 0 {
-		t.Fatalf("offset should clamp at 0: %d", m.projects.personaDetailOffset)
+	if !m.projects.chartFocused || m.projects.chartRange == 0 {
+		t.Fatal("setup failed to change chart state")
+	}
+	m.projects.cursor = 1
+	update(t, m, "s")
+	if m.projectScope != "SCY" {
+		t.Fatalf("projectScope = %q, want SCY", m.projectScope)
+	}
+	if m.projects.chartPersona != "" || m.projects.chartRange != 0 || m.projects.chartFocused {
+		t.Fatalf("chart state after project switch = (%q, %d, %t), want zero state", m.projects.chartPersona, m.projects.chartRange, m.projects.chartFocused)
+	}
+}
+
+func TestRenderSummaryCombinedChart(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.refreshAll()
+
+	body := m.projects.renderSummary(12)
+	mustContain(t, body, "activity \u00b7 1w")
+	mustContain(t, body, "All")
+	mustNotContain(t, body, "activity by persona")
+	mustNotContain(t, body, "activity stripe")
+
+	m.projects.chartFocused = true
+	focused := m.projects.renderSummary(12)
+	mustContain(t, focused, "\u25b8 activity")
+
+	m.projects.summaryEntries = nil
+	empty := m.projects.renderSummary(12)
+	if !strings.Contains(empty, "no activity yet") {
+		t.Fatalf("empty summary missing activity placeholder:\n%s", empty)
 	}
 }
 
