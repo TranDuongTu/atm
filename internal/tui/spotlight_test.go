@@ -49,7 +49,7 @@ func TestSpotlightEnterDrillsAndEscPeels(t *testing.T) {
 		t.Fatalf("Enter on Project must drill in: level=%v group=%v", m.spotlight.level, m.spotlight.group)
 	}
 	got := rowLabels(m)
-	if !equalStrings(got, []string{"Add project", "Select project", "Remove project", "Set project name", "Dispatch this persona"}) {
+	if !equalStrings(got, []string{"Add project", "Select project", "Remove project", "Set project name"}) {
 		t.Errorf("Project group rows = %v", got)
 	}
 
@@ -256,7 +256,7 @@ func TestSpotlightOmitsBorderHintedAndHiddenRows(t *testing.T) {
 		labels = append(labels, rowLabels(m)...)
 	}
 	joined := strings.Join(labels, "\n")
-	for _, gone := range []string{"Projects pane", "Tasks pane", "Drill into persona activity", "Quit"} {
+	for _, gone := range []string{"Projects pane", "Tasks pane", "Activity chart: prev/next persona", "Activity chart: time range", "Open detail / confirm / persona activity overlay", "Dispatch this persona", "Quit"} {
 		if strings.Contains(joined, gone) {
 			t.Errorf("border-hinted/hidden entry %q must not be a spotlight row:\n%s", gone, joined)
 		}

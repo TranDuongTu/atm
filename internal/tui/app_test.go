@@ -1770,7 +1770,10 @@ func TestParityReferenceRenders(t *testing.T) {
 	mustContain(t, content, "atm project create")
 	mustContain(t, content, "atm task create")
 	mustContain(t, content, "atm conventions")
+	mustContain(t, content, "activity chart")
+	mustContain(t, content, "carousel, range, Enter overlay")
 	mustNotContain(t, content, "Help tab")
+	mustNotContain(t, content, "Dispatch this persona")
 }
 
 func TestConventionsReferenceRenders(t *testing.T) {
@@ -1803,7 +1806,12 @@ func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	mustContain(t, content, "tasks")
 	mustContain(t, content, "Cycle theme")
 	mustContain(t, content, "Add project")
+	mustContain(t, content, "Activity chart: prev/next persona")
+	mustContain(t, content, "Activity chart: time range")
+	mustContain(t, content, "persona activity overlay")
 	mustNotContain(t, content, "switch tab")
+	mustNotContain(t, content, "Dispatch this persona")
+	mustNotContain(t, content, "persona drill")
 	// Conventions-only content is NOT present in the keymap reference.
 	mustNotContain(t, content, "Suggested seed namespaces")
 	mustNotContain(t, content, "advisory")

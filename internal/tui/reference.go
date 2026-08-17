@@ -70,6 +70,7 @@ atm project list                      Projects pane  (list)
 atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [n]
 atm project remove --code             Projects pane  [x]
+atm activity --project --group-by persona  Projects pane activity chart: carousel, range, Enter overlay
 
 atm label add --name --desc           Tasks pane [a]dd / [d]esc
 atm label remove --name               Tasks pane [l]
@@ -107,7 +108,8 @@ atm tui                                (you are here)`
 
 // keymapReferenceText renders the menu entry table flat: one row per keyed
 // entry, columns Key | Where | Action. Global/views entries come first, then
-// each scope's actions in table order, then the hidden navigation pairs.
+// each scope's actions in table order, then the hidden navigation and chart
+// controls.
 func keymapReferenceText() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-18s %-18s %s\n", "Key", "Where", "Action")
@@ -137,8 +139,6 @@ func keymapScopeName(e menuEntry) string {
 			return "projects"
 		case scopeProjectsDetail:
 			return "projects detail"
-		case scopeProjectsDrill:
-			return "persona drill"
 		case scopeTasksList:
 			return "tasks"
 		case scopeTasksDetail:
