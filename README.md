@@ -55,6 +55,13 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 
 Dashboard view: projects with recent events and persona activity on the left, tasks grouped by the active capability on the right, and the pinned-board strip below.
 
+The Projects pane combines activity into one chart box. Its persona carousel starts
+on **All** activity; `Ctrl+Left/Right` moves between All and individual personas,
+while `Ctrl+Up/Down` changes the time range: `1w`, `1m`, `3m`, `6m`, or `1y`.
+The chart renders a braille pulse for the selected view. With the chart focused,
+`Enter` opens a read-only drill-in overlay with model, agent, and action usage;
+`Esc` closes it.
+
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 
 The universal dispatch dialog: pick a persona with `p`, an agent with `←/→`, a repo with `↑/↓` (when a project is in scope), a spawn target with `t`, then `Enter` launches it.
@@ -62,10 +69,6 @@ The universal dispatch dialog: pick a persona with `p`, an agent with `←/→`,
 ![Manager dispatch dialog with agent and spawn target](docs/assets/screenshots/atm-dispatch-manager.png)
 
 Dispatching a manager session for the selected project.
-
-![ATM persona drilldown showing agent and model breakdowns](docs/assets/screenshots/atm-persona-drilldown.png)
-
-Persona drilldown (here: concierge) with agent, model, and action breakdowns — `D` dispatches a session for the drilled persona.
 
 ## Store
 
@@ -357,7 +360,7 @@ Two things this surface will not do, in the TUI and in `setup status` alike:
 
 ### Dispatching Sessions From The TUI
 
-The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project — or, when the persona chart is drilled in, a session for the drilled persona (concierge and admin launch without a project). From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's wired repo channels (see Channels, below); when none are wired it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out); `E` opens a read-only **channels** overlay (every channel with its wiring and stamp status, `Enter` for detail, `Esc` backs out).
+The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project. From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's wired repo channels (see Channels, below); when none are wired it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out); `E` opens a read-only **channels** overlay (every channel with its wiring and stamp status, `Enter` for detail, `Esc` backs out).
 
 A developer session can equally be handed a task from the shell with the new
 `--task <id>` flag — it is validated against `--project`'s store, exported to
