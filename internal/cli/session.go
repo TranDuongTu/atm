@@ -76,6 +76,17 @@ func validateCapabilityScope(capabilityName string, enabled, registered []string
 	return nil
 }
 
+// sessionActor renders the actor the session stamps its ledger writes with.
+// The middle segment is the LAUNCHER (ollama for ollama-launched harnesses),
+// matching the pre-existing convention. An empty model yields :unset, which
+// is honest: ATM does not know the harness's own default.
+func sessionActor(persona, launcher, model string) string {
+	if model == "" {
+		model = "unset"
+	}
+	return persona + "@" + launcher + ":" + model
+}
+
 // launchSession renders the persona's session prompt, writes it to the cache
 // file, emits the launch header, execs the host agent, and emits the tail.
 // It is the single launch path for every persona (developer/manager/custom).
@@ -141,7 +152,9 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		return err
 	}
 
-	actor := spec.Name + "@" + l.Name() + ":unset"
+	sel := e.Selection()
+	sel.Model = cfg.Models[sel.Key()]
+	actor := sessionActor(spec.Name, l.Name(), sel.Model)
 
 	if _, err := st.lookPath("atm"); err != nil {
 		return fmt.Errorf("%w: atm is not on PATH; the session prompt assumes `atm` resolves on PATH. Either add the directory containing the `atm` binary to PATH, or invoke atm from a shell where it resolves.", ErrUsage)
@@ -180,10 +193,10 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	var base []string
 	role := spec.Name
 	if spec.Launch == "hook" {
-		base = l.BuildArgv()
+		base = l.BuildArgv(sel.Model)
 		role = "developing"
 	} else {
-		base = l.BuildArgvPrompt(contextPath)
+		base = l.BuildArgvPrompt(contextPath, sel.Model)
 	}
 	envArgs := agentEnvArgs(e.Launcher, e.Integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)

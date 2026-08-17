@@ -3,18 +3,20 @@
 // internal/developing and internal/manager packages.
 package session
 
+// Launcher builds the argv that starts a host agent. Both builders take the
+// model because WHERE the model flag goes is the launcher's own knowledge:
+// ollama needs it before its `--` separator, natives just take it as a flag.
+// An empty model means "let the harness pick its own default" and yields an
+// argv byte-identical to the pre-model shape.
 type Launcher interface {
 	Name() string
 	NotFoundHint() string
 	// BuildArgv launches the host bare (launch: hook personas — a session
 	// plugin hook loads the context file from ATM_CONTEXT_FILE).
-	BuildArgv() []string
+	BuildArgv(model string) []string
 	// BuildArgvPrompt launches the host with an initial message pointing at
 	// the rendered context file (launch: prompt personas).
-	BuildArgvPrompt(contextPath string) []string
-	// ModelArgv is the flag pair selecting a model, or nil for an empty
-	// model (meaning: let the harness pick its own default).
-	ModelArgv(model string) []string
+	BuildArgvPrompt(contextPath, model string) []string
 }
 
 const (
@@ -35,13 +37,14 @@ type staticLauncher struct {
 
 func (l staticLauncher) Name() string         { return l.name }
 func (l staticLauncher) NotFoundHint() string { return l.hint }
-func (l staticLauncher) BuildArgv() []string  { return []string{l.name} }
 
-func (l staticLauncher) BuildArgvPrompt(contextPath string) []string {
-	return append([]string{l.name}, msgArgv(l.usePromptFlag, PromptMessage(contextPath))...)
+func (l staticLauncher) BuildArgv(model string) []string {
+	return append([]string{l.name}, modelArgv(model)...)
 }
 
-func (staticLauncher) ModelArgv(model string) []string { return modelArgv(model) }
+func (l staticLauncher) BuildArgvPrompt(contextPath, model string) []string {
+	return append(l.BuildArgv(model), msgArgv(l.usePromptFlag, PromptMessage(contextPath))...)
+}
 
 func msgArgv(usePromptFlag bool, msg string) []string {
 	if usePromptFlag {
@@ -72,21 +75,21 @@ type OllamaLauncher struct {
 
 func (l OllamaLauncher) Name() string         { return "ollama" }
 func (l OllamaLauncher) NotFoundHint() string { return "https://ollama.com" }
-func (l OllamaLauncher) BuildArgv() []string {
-	return []string{"ollama", "launch", l.Integration, "--"}
+
+// BuildArgv places --model BEFORE the `--` separator, because it is ollama's
+// own flag: ollama launch needs to know which model to serve. Verified on a
+// real host — `ollama launch opencode --model qwen3:0.6b -- ...` launches with
+// that model, while the same flag after the separator is rejected headless
+// ("model selection requires an interactive terminal"). The value is the bare
+// ollama model name, with no provider prefix.
+func (l OllamaLauncher) BuildArgv(model string) []string {
+	argv := append([]string{"ollama", "launch", l.Integration}, modelArgv(model)...)
+	return append(argv, "--")
 }
 
-func (l OllamaLauncher) BuildArgvPrompt(contextPath string) []string {
-	return append(l.BuildArgv(), msgArgv(l.Integration == "opencode", PromptMessage(contextPath))...)
+func (l OllamaLauncher) BuildArgvPrompt(contextPath, model string) []string {
+	return append(l.BuildArgv(model), msgArgv(l.Integration == "opencode", PromptMessage(contextPath))...)
 }
-
-// OllamaLauncher.ModelArgv returns ollama's own --model flag pair, in the bare
-// model-name form (verified on this machine: `ollama launch opencode --model
-// qwen3:0.6b -- ...` launches with that model). The argv assembler must place
-// this segment BEFORE the -- separator that BuildArgv emits: `ollama launch
-// opencode -- --model ...` is rejected in headless mode because ollama launch
-// needs its own --model to know which model to serve.
-func (OllamaLauncher) ModelArgv(model string) []string { return modelArgv(model) }
 
 // modelArgv is shared because all three harnesses spell it --model.
 func modelArgv(model string) []string {

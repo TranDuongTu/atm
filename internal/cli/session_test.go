@@ -440,6 +440,95 @@ func TestSessionOllamaLaunch(t *testing.T) {
 	}
 }
 
+func TestSessionActorCarriesTheSelectedModel(t *testing.T) {
+	if got := sessionActor("developer", "ollama", "glm-5.2"); got != "developer@ollama:glm-5.2" {
+		t.Fatalf("actor = %q", got)
+	}
+}
+
+// No model chosen means the harness default, which ATM does not know.
+// :unset is the honest answer, not a placeholder to fill in.
+func TestSessionActorFallsBackToUnset(t *testing.T) {
+	if got := sessionActor("developer", "claude", ""); got != "developer@claude:unset" {
+		t.Fatalf("actor = %q", got)
+	}
+}
+
+// TestSessionLaunchesWithTheConfiguredModel verifies the model stored for a
+// selection key reaches both the argv and the actor the session stamps with.
+func TestSessionLaunchesWithTheConfiguredModel(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	if err := h.store.SetAgentModel("codex", "gpt-5-codex", "admin@cli:unset"); err != nil {
+		t.Fatalf("SetAgentModel: %v", err)
+	}
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	want := []string{"codex", "--model", "gpt-5-codex"}
+	if !reflect.DeepEqual(c.argv, want) {
+		t.Fatalf("argv = %v, want %v", c.argv, want)
+	}
+	if joined := strings.Join(c.env, "\n"); !strings.Contains(joined, "ATM_ACTOR=developer@codex:gpt-5-codex") {
+		t.Fatalf("actor env missing the model:\n%s", joined)
+	}
+}
+
+// TestSessionOllamaLaunchWithModel pins the placement ollama actually requires:
+// --model is ollama's OWN flag, before the `--` separator. After the separator
+// it is rejected headless, so a naive append would break every launch.
+func TestSessionOllamaLaunchWithModel(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	if err := h.store.SetAgentModel("ollama:codex", "qwen3:8b", "admin@cli:unset"); err != nil {
+		t.Fatalf("SetAgentModel: %v", err)
+	}
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code := h.run("--persona", "developer", "--agent", "ollama:codex", "--project", "FOO", "--", "--yolo")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	want := []string{"ollama", "launch", "codex", "--model", "qwen3:8b", "--", "--yolo"}
+	if !reflect.DeepEqual(c.argv, want) {
+		t.Fatalf("argv = %v, want %v", c.argv, want)
+	}
+	if joined := strings.Join(c.env, "\n"); !strings.Contains(joined, "ATM_ACTOR=developer@ollama:qwen3:8b") {
+		t.Fatalf("actor env missing the model:\n%s", joined)
+	}
+}
+
+// TestSessionModelIsPerSelectionKey verifies an ollama-launched model does not
+// leak into the native launch of the same harness.
+func TestSessionModelIsPerSelectionKey(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	if err := h.store.SetAgentModel("ollama:codex", "qwen3:8b", "admin@cli:unset"); err != nil {
+		t.Fatalf("SetAgentModel: %v", err)
+	}
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if want := []string{"codex"}; !reflect.DeepEqual(c.argv, want) {
+		t.Fatalf("argv = %v, want %v", c.argv, want)
+	}
+	if joined := strings.Join(c.env, "\n"); !strings.Contains(joined, "ATM_ACTOR=developer@codex:unset") {
+		t.Fatalf("native codex must stay :unset:\n%s", joined)
+	}
+}
+
 // TestSessionCodexEnvArgs verifies ATM_<AGENT>_ARGS env args pass through.
 func TestSessionCodexEnvArgs(t *testing.T) {
 	h := newGoldenHarness(t)
