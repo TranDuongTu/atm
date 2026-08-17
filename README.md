@@ -60,7 +60,7 @@ on **All** activity; `Ctrl+Left/Right` moves between All and individual personas
 while `Ctrl+Up/Down` changes the time range: `1w`, `1m`, `3m`, `6m`, or `1y`.
 The chart renders a braille pulse for the selected view. With the chart focused,
 `Enter` opens a read-only drill-in overlay with model, agent, and action usage;
-`Esc` closes it.
+`Esc` closes the overlay, or defocuses the chart when no overlay is open.
 
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 
