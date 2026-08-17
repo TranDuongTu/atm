@@ -125,8 +125,12 @@ func (sm *spotlightModel) previewWidth() int {
 // list and its preview both have room.
 func (sm *spotlightModel) spotlightHeight() int {
 	// the block, plus two outer borders, the search box's three rows, and the
-	// footer
-	return sm.blockHeight() + 6
+	// footer — and one more row when the Ask band is pinned under them.
+	h := sm.blockHeight() + 6
+	if sm.askRowVisible() {
+		h++
+	}
+	return h
 }
 
 // previewHeight is the body region's height — the full inner height less the
@@ -433,8 +437,12 @@ func (sm *spotlightModel) previewPaneLines(bodyH, w int) []string {
 //	│ ▸ ▤ Project ›        │ Create, select, rename, …    │
 //	│   ☰ Task ›           │                              │
 //	│   [D] ↯ Dispatch …   │ + Add project — Create a …   │
+//	│ Ask ATM: "…"                                        │
 //	│ [↑↓] move · [Enter] open · [Tab] preview · [Esc] …  │
 //	╰─────────────────────────────────────────────────────╯
+//
+// The Ask row is pinned there only once askRowEnabled is on and the query is
+// non-empty; gated off, the block runs straight into the footer as before.
 //
 // Exactly one element is bright at a time, and every cue moves together: the
 // focused pane's header, the divider segment running alongside that pane's
@@ -457,9 +465,37 @@ func (sm *spotlightModel) renderOverlay() string {
 	for i := 0; i < blockH; i++ {
 		body.WriteString(" " + left[i] + spaces(spotPaneGap) + panel[i] + "\n")
 	}
+	if row := sm.askRow(sm.innerWidth()); row != "" {
+		body.WriteString(" " + row + "\n")
+	}
 	body.WriteString(" " + st.KeyMenuDim.Render(fitLine(sm.footerHint(), sm.innerWidth())))
 
 	return titledBoxHeight(st.DialogBody, sm.menuBoxWidth(), sm.breadcrumb(), body.String(), sm.spotlightHeight())
+}
+
+// askRowVisible reports whether the pinned Ask row renders: only with
+// something to ask about, and only once an engine exists to answer.
+// askRowEnabled is false throughout this sub-task — the row's layout is
+// defined here (spec sub-task 1) and sub-task 4 (ATM-f71b81) turns it on,
+// which is what keeps a row that cannot answer off the user's screen.
+func (sm *spotlightModel) askRowVisible() bool {
+	return sm.askRowEnabled && strings.TrimSpace(sm.query) != ""
+}
+
+// askRow is the conversational entry point, pinned across the bottom of the
+// box rather than filed in the left column: it acts on the query itself, not
+// on any row, so it belongs to the whole launcher.
+//
+// No key hint yet. The spec's key for it is tab, which currently focuses the
+// preview pane (handleKey); advertising tab here before that is resolved would
+// document a binding that does something else. Sub-task 4 owns the rebinding.
+func (sm *spotlightModel) askRow(w int) string {
+	if !sm.askRowVisible() {
+		return ""
+	}
+	st := sm.m.styles
+	label := `Ask ATM: "` + sm.query + `"`
+	return st.KeyMenuDim.Render(fitLine(label, w))
 }
 
 // groupPreviewLines is a group row's preview: the group's hint, a blank line,

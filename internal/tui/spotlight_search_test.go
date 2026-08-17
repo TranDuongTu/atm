@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // withInstantSpotSearch collapses the debounce for the duration of one test.
@@ -332,4 +333,80 @@ func TestSpotlightHasNoInMemoryContentMatcher(t *testing.T) {
 			t.Errorf("%s is back: content rows must come from store.Search alone", gone)
 		}
 	}
+}
+
+// The Ask row's layout, pinned now so sub-task 4 inherits it rather than
+// inventing it: one band across the bottom of the box, below both columns and
+// above the footer, quoting the query it would ask about.
+func TestSpotlightAskRowLayout(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	m.spotlight.askRowEnabled = true // sub-task 4 (ATM-f71b81) flips this for real
+	searchQuery(t, m, "indexer")
+
+	view := stripANSI(m.spotlight.renderOverlay())
+	mustContain(t, view, `Ask ATM: "indexer"`)
+
+	lines := strings.Split(view, "\n")
+	ask, footer := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "Ask ATM:") {
+			ask = i
+		}
+		if strings.Contains(l, "[Enter] open") {
+			footer = i
+		}
+	}
+	if ask < 0 || footer < 0 {
+		t.Fatalf("ask=%d footer=%d in:\n%s", ask, footer, view)
+	}
+	if ask >= footer {
+		t.Errorf("the Ask row (line %d) must sit above the footer (line %d)", ask, footer)
+	}
+	// It spans the box rather than sitting in the left column.
+	if got := lipgloss.Width(strings.TrimRight(lines[ask], " ")); got <= m.spotlight.leftPaneWidth() {
+		t.Errorf("the Ask row is %d wide, want it spanning past the %d-column list",
+			got, m.spotlight.leftPaneWidth())
+	}
+}
+
+// An empty query has nothing to ask about, so the row does not render even
+// when the gate is open.
+func TestSpotlightAskRowNeedsANonEmptyQuery(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	m.spotlight.askRowEnabled = true
+
+	mustNotContain(t, stripANSI(m.spotlight.renderOverlay()), "Ask ATM:")
+}
+
+// The gate is shut in this sub-task: the launcher a user opens today shows no
+// Ask row, because nothing behind it can answer yet (sub-task 2, ATM-66a6d2).
+func TestSpotlightAskRowIsGatedOffByDefault(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	if m.spotlight.askRowEnabled {
+		t.Fatal("askRowEnabled must default to false until an answer engine exists")
+	}
+	searchQuery(t, m, "indexer")
+	mustNotContain(t, stripANSI(m.spotlight.renderOverlay()), "Ask ATM:")
 }
