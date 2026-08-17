@@ -219,3 +219,95 @@ func TestPreviewScrollClampsToLastScreenful(t *testing.T) {
 		t.Errorf("renderOverlay changed offset to %d, want %d", m.spotlight.offset, want)
 	}
 }
+
+// A highlighted comment row previews the comment: the task it belongs to
+// first (a comment out of context is unidentifiable), then who wrote it, then
+// the body. Never the "(no preview)" empty pane.
+func TestSpotlightCommentPreviewShowsBodyAndItsTask(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "wire the indexer")
+	if _, err := m.store.CreateComment(tk.ID, "the debounce interval is 150ms", nil, "", testActor); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	m.refreshAll()
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "debounce")
+	moveCursorToComment(t, m)
+
+	preview := stripANSI(strings.Join(m.spotlight.lines, "\n"))
+	if preview == "" {
+		t.Fatal("a comment row must preview its comment, not an empty pane")
+	}
+	for _, want := range []string{tk.ID, tk.Title, "the debounce interval is 150ms", testActor} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("comment preview is missing %q:\n%s", want, preview)
+		}
+	}
+}
+
+// The pane tracks the highlight across kinds in BOTH directions: a task row's
+// preview is the task's, history included — never the comment's; the comment
+// row below it previews the comment; and stepping back onto the task row
+// restores the task's preview rather than leaving the comment's behind. The
+// round trip is the substance of it — a pane that only ever changed on the way
+// in would satisfy half the criterion, and one query selecting one task row
+// would satisfy none of it.
+//
+// The comment body carries the query too, so a single search produces both
+// kinds of row.
+func TestSpotlightPreviewTracksAcrossRowKinds(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	tk := seedTask(t, m, "ATM", "wire the indexer")
+	if _, err := m.store.CreateComment(tk.ID, "the indexer needs a distinctive comment body", nil, "", testActor); err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	m.refreshAll()
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer") // matches the task AND its comment
+
+	const commentBody = "distinctive comment body"
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask {
+		t.Fatalf("setup: selection = %q, want the task row", m.spotlight.selectedLabel())
+	}
+	taskPreview := stripANSI(strings.Join(m.spotlight.lines, "\n"))
+	if !strings.Contains(taskPreview, tk.Title) {
+		t.Fatalf("task preview is missing its title:\n%s", taskPreview)
+	}
+	if strings.Contains(taskPreview, commentBody) {
+		t.Error("the task preview must not be the comment's")
+	}
+
+	moveCursorToComment(t, m)
+	commentPreview := stripANSI(strings.Join(m.spotlight.lines, "\n"))
+	if !strings.Contains(commentPreview, commentBody) {
+		t.Errorf("the comment row's preview is missing its body:\n%s", commentPreview)
+	}
+
+	// Back onto the task the comment hangs under: one row up, because every
+	// cursor helper here only walks downward. Asserted rather than assumed, so a
+	// change to the section's shape fails here instead of quietly moving the
+	// rest of this test onto some other row.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask || r.task == nil || r.task.ID != tk.ID {
+		t.Fatalf("up from the comment = %q, want its own task row", m.spotlight.selectedLabel())
+	}
+	back := stripANSI(strings.Join(m.spotlight.lines, "\n"))
+	if strings.Contains(back, commentBody) {
+		t.Errorf("the comment's preview outlived the highlight leaving its row:\n%s", back)
+	}
+	if !strings.Contains(back, tk.Title) || !strings.Contains(back, "History") {
+		t.Errorf("the task's own preview did not come back:\n%s", back)
+	}
+}

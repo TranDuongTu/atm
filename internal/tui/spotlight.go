@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"atm/internal/core"
@@ -33,6 +34,21 @@ type spotlightModel struct {
 	focus     spotFocus // focusList / focusPreview as today
 	offset    int       // preview scroll (focusPreview only)
 	lines     []string  // preview content, one string per line
+
+	// The content search's state. hits is what store.Search last returned for
+	// searchQuery, grouped into rows; searchGen is bumped by every query change
+	// so a debounce tick that lands after a newer keystroke can be recognised
+	// and dropped. Holding the previous hits while a new search is in flight is
+	// deliberate: blanking them makes the list flash empty between keystrokes.
+	hits        []spotRow
+	searchQuery string // the query sm.hits were produced for
+	searchGen   int
+	searching   bool   // a debounce tick is in flight
+	searchErr   string // the last store error, surfaced as a row rather than swallowed
+	// askRowEnabled gates the pinned Ask row. False here and flipped by
+	// sub-task 4 (ATM-f71b81), which is what makes the row's layout land now
+	// without shipping a row that does nothing.
+	askRowEnabled bool
 }
 
 // spotLevel is which layer of the tree is on screen.
@@ -58,22 +74,32 @@ type spotRowKind int
 const (
 	rowGroup spotRowKind = iota
 	rowEntry
-	rowTask // one matched task in the Task group's search
-	rowHint // non-selectable helper line
+	rowTask    // one matched task, from the store's search
+	rowComment // one matched comment, indented under the task that owns it
+	rowSection // non-selectable section label ("TASKS · COMMENTS")
+	rowHint    // non-selectable helper line
 )
 
-// spotRow is one line of the current level. Exactly one of group/entry/task
-// is set, except for rowHint, which carries only its copy.
+// spotContentSection labels the store-backed half of the list. The ACTIONS
+// header is drawn by the renderer above the rows; this one is a row, because
+// it sits in the middle of them.
+const spotContentSection = "TASKS · COMMENTS"
+
+// spotRow is one line of the current level. Exactly one of group/entry/task is
+// set, except for rowHint and rowSection, which carry only their copy — and
+// rowComment, which carries the comment AND the task it belongs to, because
+// Enter on a comment drills into its task's actions.
 type spotRow struct {
-	kind  spotRowKind
-	group *menuGroup
-	entry *menuEntry
-	task  *core.Task
-	text  string // rowHint copy
+	kind    spotRowKind
+	group   *menuGroup
+	entry   *menuEntry
+	task    *core.Task
+	comment *core.Comment
+	text    string // rowHint/rowSection copy, and a comment row's snippet
 }
 
 // label is the row's display text: a group's name, an entry's label, a task's
-// title, or the hint copy itself.
+// title, a comment's snippet, or the hint/section copy itself.
 func (r spotRow) label() string {
 	switch r.kind {
 	case rowGroup:
@@ -88,15 +114,17 @@ func (r spotRow) label() string {
 		if r.task != nil {
 			return r.task.Title
 		}
-	case rowHint:
+	case rowComment:
+		return r.text
+	case rowSection, rowHint:
 		return r.text
 	}
 	return ""
 }
 
-// selectable reports whether the cursor may land on the row. Hint lines are
-// copy, not choices, so navigation skips over them.
-func (r spotRow) selectable() bool { return r.kind != rowHint }
+// selectable reports whether the cursor may land on the row. Hint lines and
+// section labels are copy, not choices, so navigation skips over them.
+func (r spotRow) selectable() bool { return r.kind != rowHint && r.kind != rowSection }
 
 // openSpotlight opens the launcher at its root: no group, no query, cursor on
 // the first row, list focus.
@@ -140,12 +168,21 @@ func (sm *spotlightModel) snapshot() spotlightSnapshot {
 // a position, and the store behind it may have changed while the dialog was
 // open.
 //
+// The cursor is the one part a content search overrides. A Task-group snapshot
+// carrying a query re-runs that search, and the tick that lands homes onto the
+// first result exactly as a keystroke's rebuild does (applySearchTick's
+// queryHome), so Add task → form → Esc comes back to the top result rather than
+// to the Add-task row the form was activated from. That is the rule every other
+// query-driven rebuild follows; the alternative — holding a row index against
+// results the store may have changed meanwhile — would point at the wrong task
+// as often as the right one.
+//
 // The level is resolved against the world as it is now (restorableLevel), so a
 // snapshot whose target is gone lands on the nearest level that can still be
 // built. A fallback drops the query and the cursor with the level they
 // belonged to — both describe a list this level is not showing — except for
 // the task search, which describes the Task group's list exactly (see below).
-func (sm *spotlightModel) openAt(s spotlightSnapshot) {
+func (sm *spotlightModel) openAt(s spotlightSnapshot) tea.Cmd {
 	sm.open = true
 	level, group := sm.restorableLevel(s)
 	if level == levelTaskActions {
@@ -166,18 +203,23 @@ func (sm *spotlightModel) openAt(s spotlightSnapshot) {
 		// to retype into after a step they never took. Every other fallback
 		// ends at the root, where neither query nor cursor means anything.
 		if s.level == levelTaskActions && level == levelGroup && s.taskQuery != "" {
-			sm.setQuery(s.taskQuery)
+			return sm.setQuery(s.taskQuery)
 		}
-		return
+		return nil
 	}
 	sm.query = s.query
 	sm.cursor = s.cursor
+	// The restored query owes the user its rows just as a typed one does —
+	// otherwise a reopened launcher shows a query with nothing under it until
+	// the next keystroke.
+	cmd := sm.scheduleSearch()
 	// clampCursor (inside buildRows) is what makes a stale cursor safe: an
 	// out-of-range index or one landing on a hint rehomes to the first
 	// selectable row, and to the -1 no-selection sentinel when the restored
 	// query now matches nothing.
 	sm.buildRows()
 	sm.refreshPreview()
+	return cmd
 }
 
 // restorableLevel is the level a snapshot can still be restored to, with the
@@ -231,6 +273,9 @@ func (sm *spotlightModel) setLevel(l spotLevel, g menuGroupID) {
 		sm.taskQuery = ""
 	}
 	sm.query = ""
+	// Retires any in-flight content search: the level it belonged to is gone.
+	// Always nil (the query is empty), so nothing is dropped by ignoring it.
+	sm.scheduleSearch()
 	sm.cursor = 0
 	sm.focus = focusList
 	sm.buildRows()
@@ -277,7 +322,7 @@ func (sm *spotlightModel) buildRows() {
 			sm.rows = append(sm.rows, spotRow{kind: rowEntry, entry: e})
 		}
 		if sm.group == groupTask {
-			sm.appendTaskRows()
+			sm.appendContentRows()
 		}
 	case levelTaskActions:
 		// The per-task actions for sm.taskID: the group's entries that act on
@@ -294,70 +339,41 @@ func (sm *spotlightModel) buildRows() {
 	sm.clampCursor()
 }
 
-// appendTaskRows is the Task group's contextual half: the live search over the
-// scoped project's tasks that follows the static Add-task row. Every state
-// ends in either task rows or exactly one hint, so the group can never look
-// like it lost its rows — and the hint says which state it is in.
+// appendContentRows is the Task group's contextual half: the store-backed
+// search results that follow the static Add-task row. Every state ends in
+// either content rows or exactly one hint, so the group can never look like it
+// lost its rows — and the hint says which state it is in.
 //
-// "Empty query" is trimmed here for the same reason taskMatches trims it:
-// space is a real keystroke inside the launcher, and the two must agree about
-// what an empty query is — otherwise one space replaces the invitation to
-// type with "no tasks match".
-func (sm *spotlightModel) appendTaskRows() {
+// "Empty query" is trimmed here because space is a real keystroke inside the
+// launcher: without the trim, one space replaces the invitation to type with
+// "no tasks match".
+//
+// The previous hits survive an in-flight search on purpose. Blanking them on
+// every keystroke made the list flash empty through the debounce; holding them
+// means the rows only ever change to newer rows.
+func (sm *spotlightModel) appendContentRows() {
 	if sm.m.projectScope == "" || strings.TrimSpace(sm.query) == "" {
 		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: sm.taskHint()})
 		return
 	}
-	hits := sm.taskMatches(sm.query)
-	if len(hits) == 0 {
+	if sm.searchErr != "" {
+		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: "search error: " + sm.searchErr})
+		return
+	}
+	if len(sm.hits) == 0 {
+		// Nothing yet vs nothing at all: only a landed search for THIS query
+		// can say "no tasks match".
+		if sm.searching || sm.searchQuery != strings.TrimSpace(sm.query) {
+			sm.rows = append(sm.rows, spotRow{kind: rowHint, text: "searching…"})
+			return
+		}
 		sm.rows = append(sm.rows, spotRow{kind: rowHint, text: "no tasks match"})
 		return
 	}
-	for _, tk := range hits {
-		sm.rows = append(sm.rows, spotRow{kind: rowTask, task: tk})
-	}
-}
-
-// spotTaskMatches caps the Task group's result list. The rows share the left
-// pane with the static Add-task entry and the launcher is a launcher, not a
-// task list: five is enough to recognise the task you meant and short enough
-// that refining the query is the obvious next move.
-const spotTaskMatches = 5
-
-// taskMatches is the Task group's search: the scoped project's tasks whose ID
-// or title contains q, case-insensitively, ID matches ranked first — a user
-// who pastes an ID means that one task. Substring only: no fuzzy matching, no
-// recency, and never across projects (an unscoped launcher has nothing to
-// search, which is what the group's hint says).
-func (sm *spotlightModel) taskMatches(q string) []*core.Task {
-	q = strings.ToLower(strings.TrimSpace(q))
-	if q == "" || sm.m.projectScope == "" {
-		return nil
-	}
-	type hit struct {
-		task *core.Task
-		rank int
-	}
-	var hits []hit
-	for _, tk := range sm.m.store.ListTasks(core.QueryFilters{Project: sm.m.projectScope}) {
-		switch {
-		case strings.Contains(strings.ToLower(tk.ID), q):
-			hits = append(hits, hit{tk, 0})
-		case strings.Contains(strings.ToLower(tk.Title), q):
-			hits = append(hits, hit{tk, 1})
-		}
-	}
-	// Stable over a store-ordered list, so ties inside a rank keep the order
-	// the Tasks pane would list them in.
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].rank < hits[j].rank })
-	if len(hits) > spotTaskMatches {
-		hits = hits[:spotTaskMatches]
-	}
-	out := make([]*core.Task, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, h.task)
-	}
-	return out
+	// The header labels a section that exists; the empty and no-match states
+	// say enough on their own.
+	sm.rows = append(sm.rows, spotRow{kind: rowSection, text: spotContentSection})
+	sm.rows = append(sm.rows, sm.hits...)
 }
 
 // entryAvailable reports whether an entry may become a row at all: hidden
@@ -388,7 +404,7 @@ func (sm *spotlightModel) taskHint() string {
 
 // searchable reports whether the current level supports type-to-filter.
 // levelGroup(groupTask) is excluded on purpose: there the query searches
-// tasks, not registry entries — appendTaskRows owns that surface.
+// tasks, not registry entries — appendContentRows owns that surface.
 func (sm *spotlightModel) searchable() bool {
 	switch sm.level {
 	case levelRoot, levelTaskActions:
@@ -556,8 +572,7 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	if sm.focus == focusPreview {
-		sm.handlePreviewKey(k)
-		return nil
+		return sm.handlePreviewKey(k)
 	}
 	switch k.String() {
 	case "down":
@@ -581,14 +596,14 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "pgdown":
 		sm.scrollPreview(sm.previewHeight())
 	case "esc":
-		sm.escPeel()
+		return sm.escPeel()
 	case "backspace":
 		if r := []rune(sm.query); len(r) > 0 {
-			sm.setQuery(string(r[:len(r)-1]))
+			return sm.setQuery(string(r[:len(r)-1]))
 		}
 	default:
 		if r, ok := printableRune(k); ok {
-			sm.setQuery(sm.query + string(r))
+			return sm.setQuery(sm.query + string(r))
 		}
 	}
 	return nil
@@ -598,7 +613,7 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 // line, PgUp/PgDn a screenful (both advertised in the footer); Tab and Esc —
 // the only two exits — hand focus back to the list. Printable keys do not type
 // here: the query belongs to the list.
-func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) {
+func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "j", "down":
 		sm.scrollPreview(1)
@@ -609,8 +624,9 @@ func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) {
 	case "pgup":
 		sm.scrollPreview(-sm.previewHeight())
 	case "tab", "esc":
-		sm.escPeel()
+		return sm.escPeel()
 	}
+	return nil
 }
 
 // printableRune is the single-rune key a printable keypress carries, or
@@ -632,26 +648,31 @@ func printableRune(k tea.KeyMsg) (rune, bool) {
 // setQuery replaces the query and rebuilds around it, then rehomes the
 // cursor: a changed match set makes wherever the old cursor pointed
 // meaningless, and clearing the query must land back on the tree's first
-// selectable row exactly.
-func (sm *spotlightModel) setQuery(q string) {
+// selectable row exactly. Scheduling the search before the rebuild is what
+// lets buildRows see the in-flight state (sm.searching) rather than a stale
+// one.
+func (sm *spotlightModel) setQuery(q string) tea.Cmd {
 	sm.query = q
 	sm.cursor = 0
+	cmd := sm.scheduleSearch()
 	sm.buildRows()
 	sm.cursor = sm.queryHome()
 	sm.clampCursor()
 	sm.refreshPreview()
+	return cmd
 }
 
 // queryHome is the row a query-driven rebuild selects. Row 0 everywhere the
 // list is nothing but matches (clampCursor bumps off it when it is a hint) —
-// but the Task group's row 0 is the static Add-task entry, which no query
-// ever matches, so a task search homes onto its top result instead. Homing on
-// Add task there would mean every keystroke selected (and previewed)
-// something unrelated to what the user was typing, and undid their arrow keys
-// on the very next character.
+// but the Task group's row 0 is the static Add-task entry, which no query ever
+// matches, so a content search homes onto its first result instead — either
+// kind of content row, so the home does not depend on which kind of hit the
+// query produced. Homing on Add task there would mean every keystroke selected
+// (and previewed) something unrelated to what the user was typing, and undid
+// their arrow keys on the very next character.
 func (sm *spotlightModel) queryHome() int {
 	for i, r := range sm.rows {
-		if r.kind == rowTask {
+		if r.kind == rowTask || r.kind == rowComment {
 			return i
 		}
 	}
@@ -669,28 +690,30 @@ func (sm *spotlightModel) queryHome() int {
 // point keeps its one meaning (reset everything), and the one rung that owes
 // the user something back says so where it happens. The next Esc then peels
 // the restored query, exactly as if it had never been left.
-func (sm *spotlightModel) escPeel() {
+func (sm *spotlightModel) escPeel() tea.Cmd {
 	switch {
 	case sm.focus == focusPreview:
 		sm.focus = focusList
 		sm.offset = 0
 	case sm.query != "":
-		sm.setQuery("")
+		return sm.setQuery("")
 	case sm.level == levelTaskActions:
 		q := sm.taskQuery // setLevel clears it; read it first
 		sm.setLevel(levelGroup, groupTask)
 		if q != "" {
-			sm.setQuery(q)
+			return sm.setQuery(q)
 		}
 	case sm.level == levelGroup:
 		sm.setLevel(levelRoot, groupNone)
 	default:
 		sm.open = false
 	}
+	return nil
 }
 
 // activate is Enter: a group row drills in, an entry row runs (or focuses its
-// reference preview), a task row drills into that task's actions.
+// reference preview), a task row drills into that task's actions — and so does
+// a comment row, into the actions of the task it belongs to.
 func (sm *spotlightModel) activate() tea.Cmd {
 	r := sm.selectedRow()
 	if r == nil {
@@ -705,7 +728,10 @@ func (sm *spotlightModel) activate() tea.Cmd {
 		if r.entry != nil {
 			return sm.activateEntry(r.entry)
 		}
-	case rowTask:
+	case rowTask, rowComment:
+		// A comment row carries the task it belongs to for exactly this: a
+		// comment is how the user found the task, not a thing with actions of
+		// its own, so Enter lands on the same action list either way.
 		if r.task != nil {
 			// Recorded before setLevel, which builds the action rows around
 			// them; setLevel keeps the target precisely because the level it
@@ -832,6 +858,9 @@ func (sm *spotlightModel) refreshPreview() {
 		// history is read now.
 		sm.lines = taskPreviewLines(sm.m, r.task, w)
 		return
+	case rowComment:
+		sm.lines = commentPreviewLines(sm.m, r.comment, r.task, w)
+		return
 	}
 	e := r.entry
 	if e == nil {
@@ -900,4 +929,163 @@ func (sm *spotlightModel) clampOffset() {
 func (sm *spotlightModel) scrollPreview(delta int) {
 	sm.offset += delta
 	sm.clampOffset()
+}
+
+// spotSearchDebounce is how long the launcher waits after the last keystroke
+// before querying the store. A var rather than a const so tests can collapse
+// it to zero instead of sleeping it out per keystroke (tea.Tick's Cmd blocks
+// for its interval when invoked); nothing in production writes it.
+var spotSearchDebounce = 150 * time.Millisecond
+
+// spotSearchK is how many hits the launcher asks the store for. The rows share
+// the left pane with the ACTIONS section and a launcher is a launcher, not a
+// task list: enough to recognise what you meant, short enough that refining
+// the query is the obvious next move.
+const spotSearchK = 8
+
+// spotSearchTickMsg is a debounced search coming due. It carries the
+// generation and query it was scheduled for, so applySearchTick can tell its
+// own landing from a superseded one — the launcher may have been typed into,
+// peeled, or drilled out of during the wait.
+type spotSearchTickMsg struct {
+	gen   int
+	query string
+}
+
+// contentSearchable reports whether the current level's query searches store
+// content rather than the menu registry. The Task group is the launcher's one
+// content surface; every other level filters entries in memory and must never
+// reach the store.
+func (sm *spotlightModel) contentSearchable() bool {
+	return sm.level == levelGroup && sm.group == groupTask
+}
+
+// scheduleSearch invalidates any in-flight search and, when the current level
+// searches content and has something to search, schedules the debounced one.
+// Bumping the generation unconditionally is what makes invalidation total: a
+// level change, a cleared query and a new keystroke all retire the pending
+// tick through the same counter.
+//
+// The last error is retired through the same counter, on both paths: it
+// described the query that produced it, and that query is gone. Clearing it
+// only on the next SUCCESS pinned the launcher on "search error: …" across
+// every later query, level change and reopen — hiding good hits behind a
+// failure the user had already typed past.
+func (sm *spotlightModel) scheduleSearch() tea.Cmd {
+	sm.searchGen++
+	sm.searchErr = ""
+	if !sm.contentSearchable() || sm.m.projectScope == "" || strings.TrimSpace(sm.query) == "" {
+		sm.hits = nil
+		sm.searchQuery = ""
+		sm.searching = false
+		return nil
+	}
+	sm.searching = true
+	gen, q := sm.searchGen, sm.query
+	return tea.Tick(spotSearchDebounce, func(time.Time) tea.Msg {
+		return spotSearchTickMsg{gen: gen, query: q}
+	})
+}
+
+// applySearchTick publishes a landed search, or drops it. The cursor rehomes
+// onto the top result exactly as a keystroke's rebuild does: the row set has
+// just changed under it, so where it pointed no longer means anything.
+func (sm *spotlightModel) applySearchTick(msg spotSearchTickMsg) {
+	if !sm.open || msg.gen != sm.searchGen {
+		return
+	}
+	sm.searching = false
+	sm.searchQuery = strings.TrimSpace(msg.query)
+	sm.hits = sm.runSearch(msg.query)
+	sm.buildRows()
+	sm.cursor = sm.queryHome()
+	sm.clampCursor()
+	sm.refreshPreview()
+}
+
+// runSearch is the one place the launcher reads store content. QueryText only,
+// no vector: that takes store.Search's token-overlap text path over live store
+// entities, so a task created seconds ago is findable before anything has
+// embedded it — and the launcher never depends on an endpoint being up.
+func (sm *spotlightModel) runSearch(q string) []spotRow {
+	if sm.m.projectScope == "" || strings.TrimSpace(q) == "" {
+		return nil
+	}
+	hits, _, err := sm.m.store.Search(core.SearchParams{
+		Project:   sm.m.projectScope,
+		QueryText: q,
+		Kind:      "all",
+		K:         spotSearchK,
+	})
+	if err != nil {
+		// Reported as a row, never as "no tasks match": the store's
+		// never-swallow rule reaches the surface the user is looking at.
+		sm.searchErr = err.Error()
+		return nil
+	}
+	sm.searchErr = ""
+	return sm.groupHits(hits)
+}
+
+// groupHits turns store.Search's flat hit list into the section's rows: one row
+// per matched task, each followed by the matched comments that belong to it.
+//
+// A comment whose task did not match itself still renders under its task — the
+// task row is synthesized rather than skipped, so a comment hit is never
+// orphaned at the top level and the row above it always names what it is a
+// comment on. Group order is best-hit-first: a group takes the position of its
+// highest-scoring member, which is the order store.Search already returns.
+//
+// Which means spotSearchK caps HITS, not rows: a synthesized parent is a row
+// the store never returned, so the real bound on the section is 2K+1 rows (K
+// comment hits on K distinct non-matching tasks, plus the header) rather than
+// K. The list scrolls, so the wider bound costs the layout nothing — but the
+// cap is not a row budget and must not be read as one.
+//
+// Every hit is re-read from the store before it becomes a row, for the same
+// reason activateTaskAction re-reads its target: the index and the cache are a
+// snapshot of a store another process can write to, and a hit whose entity is
+// gone is dropped rather than rendered as a row that cannot be opened.
+func (sm *spotlightModel) groupHits(hits []core.Hit) []spotRow {
+	var order []string
+	tasks := map[string]*core.Task{}
+	comments := map[string][]*core.Comment{}
+	snippets := map[string]string{}
+	remember := func(tk *core.Task) {
+		if _, seen := tasks[tk.ID]; !seen {
+			order = append(order, tk.ID)
+			tasks[tk.ID] = tk
+		}
+	}
+	for _, h := range hits {
+		switch h.Kind {
+		case "task":
+			tk, err := sm.m.store.GetTask(h.ID)
+			if err != nil {
+				continue
+			}
+			remember(tk)
+		case "comment":
+			c, err := sm.m.store.GetComment(h.ID)
+			if err != nil {
+				continue
+			}
+			tk, err := sm.m.store.GetTask(c.TaskID)
+			if err != nil {
+				continue
+			}
+			remember(tk)
+			comments[tk.ID] = append(comments[tk.ID], c)
+			snippets[c.ID] = h.Snippet
+		}
+	}
+	var out []spotRow
+	for _, id := range order {
+		tk := tasks[id]
+		out = append(out, spotRow{kind: rowTask, task: tk})
+		for _, c := range comments[id] {
+			out = append(out, spotRow{kind: rowComment, task: tk, comment: c, text: snippets[c.ID]})
+		}
+	}
+	return out
 }

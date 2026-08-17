@@ -240,6 +240,7 @@ func TestNoReturnWithoutSpotlightActivation(t *testing.T) {
 // action list — same task, same row — and not at the root, which is all a row
 // index could ever describe.
 func TestSpotlightReturnRestoresTaskDrill(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -249,7 +250,7 @@ func TestSpotlightReturnRestoresTaskDrill(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // drill into the task's actions
 	moveCursorToLabel(t, m, "Add comment")
@@ -290,6 +291,7 @@ func TestSpotlightReturnRestoresTaskDrill(t *testing.T) {
 // the user lands back on their (now shorter) results rather than on an empty
 // group they must retype into after a step they never took.
 func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -299,7 +301,7 @@ func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	moveCursorToLabel(t, m, "Add comment")
@@ -309,7 +311,9 @@ func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 	if err := m.store.RemoveTask(target.ID, testActor); err != nil {
 		t.Fatalf("RemoveTask: %v", err)
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	// The fallback's re-run of the inherited search is debounced like any
+	// other, so it is landed before the rows are read.
+	flushSpotSearch(t, m, m.handleKey(tea.KeyMsg{Type: tea.KeyEsc}))
 
 	if !m.spotlight.open {
 		t.Fatal("a stale return must still reopen the spotlight")
@@ -325,7 +329,7 @@ func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 	if m.spotlight.query != "indexer" {
 		t.Errorf("query after the fallback = %q, want the search that found the task", m.spotlight.query)
 	}
-	if got := rowLabels(m); !equalStrings(got, []string{"Add task", survivor.Title}) {
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", spotContentSection, survivor.Title}) {
 		t.Errorf("rows after the fallback = %v, want the search re-run against the surviving tasks", got)
 	}
 	if r := m.spotlight.selectedRow(); r == nil || r.kind != rowTask || r.task.ID != survivor.ID {
@@ -341,6 +345,7 @@ func TestSpotlightReturnFallsBackWhenTheTaskIsGone(t *testing.T) {
 // it to whatever happens to still be on the closed launcher would make a spec
 // behavior depend on an accident.
 func TestSpotlightReturnKeepsTheTaskQueryAcrossADialog(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -351,7 +356,7 @@ func TestSpotlightReturnKeepsTheTaskQueryAcrossADialog(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "alpha")
+	searchQuery(t, m, "alpha")
 	before := rowLabels(m)
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -363,7 +368,8 @@ func TestSpotlightReturnKeepsTheTaskQueryAcrossADialog(t *testing.T) {
 	if m.spotlight.level != levelTaskActions {
 		t.Fatalf("setup: the return must land on the action list, level=%v", m.spotlight.level)
 	}
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // peel the action level
+	// Peel the action level; the restored search lands through its tick.
+	flushSpotSearch(t, m, m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}))
 
 	if m.spotlight.query != "alpha" {
 		t.Errorf("query after Esc = %q, want the search intact", m.spotlight.query)
@@ -379,6 +385,7 @@ func TestSpotlightReturnKeepsTheTaskQueryAcrossADialog(t *testing.T) {
 // The search is carried by the snapshot, not by residual state: openAt restores
 // a launcher that knows nothing about the drill it is being put back into.
 func TestSpotlightOpenAtRestoresTheTaskQueryFromTheSnapshot(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -397,7 +404,9 @@ func TestSpotlightOpenAtRestoresTheTaskQueryFromTheSnapshot(t *testing.T) {
 		t.Errorf("taskQuery = %q, want the snapshot's search", m.spotlight.taskQuery)
 	}
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	// The Esc restores the snapshot's search, which lands through its tick like
+	// any other.
+	flushSpotSearch(t, m, m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}))
 	if m.spotlight.query != "alpha" {
 		t.Errorf("query after Esc = %q, want the snapshot's search restored", m.spotlight.query)
 	}
