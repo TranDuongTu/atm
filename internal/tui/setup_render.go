@@ -96,7 +96,11 @@ func (s *setupModel) render(width, height int) string {
 			"  ready — press [Esc] then [a] on Projects to create your first project", width-4)) + "\n")
 	}
 
-	b.WriteString("\n" + styles.KeyMenuDim.Render("[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"))
+	// The fixes the focused section offers, above the navigation keys every
+	// section shares. The text belongs to the ladder itself (setup_actions.go)
+	// so a key can never be advertised here without being bound there.
+	b.WriteString("\n" + styles.KeyMenuDim.Render(fitLine(s.actionHints(), width-4)) + "\n")
+	b.WriteString(styles.KeyMenuDim.Render("[Tab]section  [↑/↓]move  [Enter]detail  [r]refresh  [Esc]close"))
 	return titledBoxHeight(styles.PaneActive, width, s.title(), b.String(), height)
 }
 

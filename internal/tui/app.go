@@ -43,6 +43,8 @@ const (
 	formPersonaCreate     // Projects pane / overlay: add persona
 	formBoardEditor       // Boards pane: new/edit a board (live-validated expr)
 	formNamespaceDescribe // Boards pane: edit a namespace descriptor (description-only)
+	formSetupAgentModel   // Setup wizard: the model an agent's selection launches with
+	formSetupChannelWire  // Setup wizard: where this machine reaches a repo channel
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -876,6 +878,10 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doBoardEdit(vals)
 	case formNamespaceDescribe:
 		return m.doNamespaceDescribe(vals)
+	case formSetupAgentModel:
+		return m.setup.doSetModel(vals)
+	case formSetupChannelWire:
+		return m.setup.doWire(vals)
 	}
 	return nil
 }

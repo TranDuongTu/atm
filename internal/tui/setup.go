@@ -96,6 +96,12 @@ type setupModel struct {
 	// loadErr records a failed store read from the last reload. A read
 	// failure is reported, never rendered as an absent fact.
 	loadErr string
+
+	// formTarget is the agent or channel a wizard form is editing, captured
+	// when the form opens rather than re-read from the cursor on submit: a
+	// refresh tick can reload the model (and clamp the cursor) while the form
+	// is up, and a write must land on the row the user actually chose.
+	formTarget string
 }
 
 // setupRun is the production tier-2 runner: run the harness's own verb and
@@ -375,6 +381,11 @@ func (s *setupModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		s.drilled = true
 	case "r":
 		return s.refresh()
+	default:
+		// Everything else is a fix: the ladder is section-scoped and lives in
+		// setup_actions.go. It is reached through the default arm so the
+		// navigation keys above can never be shadowed by an action key.
+		return s.action(k.String())
 	}
 	return nil
 }
