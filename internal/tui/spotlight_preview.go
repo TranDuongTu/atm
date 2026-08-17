@@ -45,6 +45,30 @@ func taskPreviewLines(m *Model, tk *core.Task, w int) []string {
 	return append(out, taskHistoryLines(m, tk.ProjectCode, tk.ID, w)...)
 }
 
+// commentPreviewLines is a hovered comment row's preview: the task it belongs
+// to, its own identity line, its label chips, then the body. The task comes
+// first because a comment read out of context cannot be identified — the row
+// itself shows only a snippet, and the pane is what makes it recognisable.
+//
+// The body is wrapped rather than capped: a comment IS its body, so there is
+// nothing below it that a long one could push off the pane (unlike a task's
+// description, which sits above its history).
+func commentPreviewLines(m *Model, c *core.Comment, tk *core.Task, w int) []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	if tk != nil {
+		out = append(out, fitLineTail("on "+tk.ID+"  "+tk.Title, w))
+	}
+	out = append(out, fitLineTail(c.ID+"  "+c.CreatedBy, w))
+	if chips := renderLabelChips(m.styles, c.Labels, w); chips != "" {
+		out = append(out, chips)
+	}
+	out = append(out, "")
+	return append(out, strings.Split(wordwrap.String(strings.TrimSpace(c.Body), w), "\n")...)
+}
+
 // previewFunc renders an entry's live preview at the region's dimensions.
 type previewFunc func(m *Model, w, h int) string
 

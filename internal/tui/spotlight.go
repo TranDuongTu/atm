@@ -849,6 +849,9 @@ func (sm *spotlightModel) refreshPreview() {
 		// history is read now.
 		sm.lines = taskPreviewLines(sm.m, r.task, w)
 		return
+	case rowComment:
+		sm.lines = commentPreviewLines(sm.m, r.comment, r.task, w)
+		return
 	}
 	e := r.entry
 	if e == nil {
