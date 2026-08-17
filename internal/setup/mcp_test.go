@@ -27,6 +27,62 @@ const opencodeMCPOut = "┌  MCP Servers\n" +
 
 const codexMCPOut = `[{"name":"notion","url":"https://mcp.notion.com/mcp"}]`
 
+// Captured live from `codex mcp list --json` against a populated store: one
+// OAuth-authorized HTTP server and one stdio server that takes no auth. The
+// shape matters — an earlier comment in mcp.go claimed codex reported
+// configuration WITHOUT health, and this output is what disproved it.
+const codexMCPOutReal = `[
+  {
+    "name": "notion",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {"type": "streamable_http", "url": "https://mcp.notion.com/mcp"},
+    "auth_status": "o_auth"
+  },
+  {
+    "name": "localstdio",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {"type": "stdio"},
+    "auth_status": "unsupported"
+  },
+  {
+    "name": "turnedoff",
+    "enabled": false,
+    "disabled_reason": "disabled by config",
+    "transport": {"type": "stdio"},
+    "auth_status": "unsupported"
+  }
+]`
+
+func TestCodexReportsTheHealthItActuallyCarries(t *testing.T) {
+	a, _ := MCPAdapterFor("codex")
+	servers, err := a.ParseList([]byte(codexMCPOutReal))
+	if err != nil {
+		t.Fatalf("ParseList: %v", err)
+	}
+	got := map[string]Fact{}
+	for _, s := range servers {
+		got[s.Name] = s.Connected
+	}
+	// auth is not applicable to a stdio transport, so enabled IS as connected
+	// as codex can report.
+	if got["localstdio"] != FactPresent {
+		t.Fatalf("localstdio = %v, want present", got["localstdio"])
+	}
+	// codex says outright that this one is off — a known negative.
+	if got["turnedoff"] != FactAbsent {
+		t.Fatalf("turnedoff = %v, want absent", got["turnedoff"])
+	}
+	// "o_auth" is NOT evidence of a live connection: nothing here can tell an
+	// authorized OAuth server from one merely told to use OAuth, and codex
+	// runs no health check. Unknown is the honest answer, and coverage counts
+	// it anyway because the server IS configured.
+	if got["notion"] != FactUnknown {
+		t.Fatalf("notion = %v, want unknown — o_auth is not a verified connection", got["notion"])
+	}
+}
+
 // The three EMPTY-catalog outputs, captured live under an isolated $HOME from
 // claude 2.1.233, opencode 1.18.18 and codex 0.145.0. Only codex answers in a
 // shape the row-parsers can read; the other two say it in prose, which is why

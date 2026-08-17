@@ -156,18 +156,50 @@ func (codexMCPAdapter) ListArgv() []string { return []string{"mcp", "list", "--j
 
 func (codexMCPAdapter) ParseList(out []byte) ([]MCPServer, error) {
 	var entries []struct {
-		Name string `json:"name"`
+		Name       string  `json:"name"`
+		Enabled    *bool   `json:"enabled"`
+		AuthStatus *string `json:"auth_status"`
 	}
 	if err := json.Unmarshal(out, &entries); err != nil {
 		return nil, err
 	}
 	servers := make([]MCPServer, len(entries))
 	for i, e := range entries {
-		// codex's --json list doesn't report per-server connection health,
-		// only configuration — unknown, not a guess either way.
-		servers[i] = MCPServer{Name: e.Name, Connected: FactUnknown}
+		servers[i] = MCPServer{Name: e.Name, Connected: codexConnected(e.Enabled, e.AuthStatus)}
 	}
 	return servers, nil
+}
+
+// codexConnected reads the health codex DOES report. An earlier comment here
+// claimed `codex mcp list --json` carried configuration without health; real
+// output disproves it — every entry carries `enabled`, `disabled_reason` and
+// `auth_status`.
+//
+// The mapping is deliberately conservative, because codex runs no connection
+// check the way `claude mcp list` does:
+//
+//	enabled: false           -> ABSENT. codex says it is off, and
+//	                            disabled_reason says why. A known negative.
+//	auth_status "unsupported"-> PRESENT. Observed on a stdio server: the
+//	                            transport takes no auth, so configured and
+//	                            enabled is as connected as it can be.
+//	anything else            -> UNKNOWN, including "o_auth". Observed on an
+//	                            authorized server — but nothing here can tell
+//	                            an authorized OAuth server from one that has
+//	                            merely been told to use OAuth, and guessing
+//	                            PRESENT would claim a connection nobody
+//	                            verified. Coverage does not depend on this
+//	                            (see notionCoverage): a configured server
+//	                            counts either way, so unknown costs the user
+//	                            nothing and claims nothing.
+func codexConnected(enabled *bool, authStatus *string) Fact {
+	if enabled != nil && !*enabled {
+		return FactAbsent
+	}
+	if authStatus != nil && *authStatus == "unsupported" {
+		return FactPresent
+	}
+	return FactUnknown
 }
 
 func (codexMCPAdapter) AddArgv(r Recipe) []string {

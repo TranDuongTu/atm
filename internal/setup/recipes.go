@@ -118,17 +118,24 @@ func notionCoverage(mcpServer string, agentServers []MCPServer, state Fact) Fact
 	if state == FactUnknown {
 		return FactUnknown
 	}
-	covered := FactAbsent
 	for _, s := range agentServers {
 		if s.Name != mcpServer {
 			continue
 		}
-		if s.Connected == FactPresent {
-			return FactPresent
+		// A harness that explicitly reports the server as not working (an
+		// opencode ✗, a codex `enabled: false`) is a known negative, and `[l]`
+		// or `[a]` is its fix.
+		if s.Connected == FactAbsent {
+			return FactAbsent
 		}
-		if s.Connected == FactUnknown {
-			covered = FactUnknown
-		}
+		// Otherwise the server IS configured, and that is what coverage asks:
+		// the rule is that the agent's `mcp list` CONTAINS the channel's
+		// server. Health is a separate, finer fact — claude runs a real check
+		// and codex runs none — and gating the count on it made a codex the
+		// user had authorized read 1/2 forever, because codex reports no
+		// health for an OAuth server and never can. The detail pane still
+		// shows the health honestly, including "unknown".
+		return FactPresent
 	}
-	return covered
+	return FactAbsent
 }

@@ -69,6 +69,39 @@ func TestNotionChannelCountsOnlyForAgentsWithTheServer(t *testing.T) {
 // because `codex mcp list --json` carries no connection state — must not have
 // "configured, cannot tell" folded into "not configured". The three outcomes
 // are distinct, and only the third is a reason to go fix something.
+// The count rule is "the agent's mcp list CONTAINS the channel's server".
+// Health is a finer, separate fact: claude runs a real connection check,
+// codex runs none and reports none for an OAuth server. Gating the COUNT on
+// health made a codex the user had just authorized read 1/2 forever, with no
+// action available that could ever change it.
+func TestConfiguredServerCountsEvenWhenHealthIsUnreported(t *testing.T) {
+	views := []core.ChannelView{{
+		ChannelRecord: core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion},
+		Wiring:        &core.ChannelWiring{MCPServer: "notion"},
+	}}
+	servers := map[string][]MCPServer{
+		"codex":    {{Name: "notion", Connected: FactUnknown}},
+		"claude":   {{Name: "notion", Connected: FactPresent}},
+		"opencode": {},
+	}
+	states := map[string]Fact{"claude": FactPresent, "codex": FactPresent, "opencode": FactPresent}
+	m := Model{Agents: []AgentRow{{Agent: "claude"}, {Agent: "codex"}, {Agent: "opencode"}}}
+	ps := BuildProject("ATM", views, servers, states, time.Now())
+	if got := ps.Channels[0].PerAgent["codex"]; got != FactPresent {
+		t.Fatalf("codex = %v, want present — it HAS the server; codex simply reports no health", got)
+	}
+	Fill(&m, ps)
+	for _, r := range m.Agents {
+		want := 1
+		if r.Agent == "opencode" {
+			want = 0
+		}
+		if r.ChannelsOK != want {
+			t.Fatalf("%s coverage = %d/%d, want %d/1", r.Agent, r.ChannelsOK, r.ChannelsAll, want)
+		}
+	}
+}
+
 func TestConfiguredServerWithUnknownHealthIsUnknownNotAbsent(t *testing.T) {
 	views := []core.ChannelView{{
 		ChannelRecord: core.ChannelRecord{Name: "specs", Type: core.ChannelTypeNotion},
@@ -87,21 +120,22 @@ func TestConfiguredServerWithUnknownHealthIsUnknownNotAbsent(t *testing.T) {
 	m := Model{Agents: []AgentRow{{Agent: "claude"}, {Agent: "codex"}, {Agent: "opencode"}}}
 	ps := BuildProject("ATM", views, servers, states, time.Now())
 	row := ps.Channels[0]
-	if row.PerAgent["codex"] != FactUnknown {
-		t.Fatalf("codex = %v, want unknown — it HAS the server, we just cannot tell if it is connected", row.PerAgent["codex"])
-	}
 	if row.PerAgent["claude"] != FactAbsent {
 		t.Fatalf("claude = %v, want absent — the harness reported it as not connected", row.PerAgent["claude"])
 	}
 	if row.PerAgent["opencode"] != FactAbsent {
 		t.Fatalf("opencode = %v, want absent — nothing configured", row.PerAgent["opencode"])
 	}
-	// The count rule is unaffected: ChannelsOK counts only present, so a cell
-	// moving from absent to unknown must not change any agent's coverage.
+	// An explicit negative is the ONLY thing that stops a configured server
+	// counting, so only the two absent agents miss the channel.
 	Fill(&m, ps)
 	for _, r := range m.Agents {
-		if r.ChannelsOK != 0 || r.ChannelsAll != 1 {
-			t.Fatalf("%s coverage = %d/%d, want 0/1 — only a present cell counts", r.Agent, r.ChannelsOK, r.ChannelsAll)
+		want := 0
+		if r.Agent == "codex" {
+			want = 1
+		}
+		if r.ChannelsOK != want || r.ChannelsAll != 1 {
+			t.Fatalf("%s coverage = %d/%d, want %d/1", r.Agent, r.ChannelsOK, r.ChannelsAll, want)
 		}
 	}
 }
