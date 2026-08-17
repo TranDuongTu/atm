@@ -97,14 +97,38 @@ func BuildProject(code string, views []core.ChannelView, servers map[string][]MC
 // regardless of what its (necessarily empty) server list holds — the
 // distinction between "asked and got nothing" and "never asked" must
 // survive here.
+//
+// Within a probe that DID answer there are three outcomes, not two, and the
+// third is not optional:
+//
+//	configured and connected      -> present
+//	configured, health unknown    -> UNKNOWN
+//	not configured at all         -> absent
+//
+// The middle case is codex, every time: codexMCPAdapter.ParseList sets
+// Connected: FactUnknown for every server because `codex mcp list --json`
+// reports configuration without health. Folding that into absent made the
+// cell say "codex is missing the notion server" about a codex that HAS it —
+// the cardinal rule broken in the exact place it was written for, and worse
+// than reporting a real gap, because it sends the user to repair a setup that
+// was never broken. A server the harness reports as ✗ is genuinely not
+// reachable, so that one stays absent: it is a known negative, and `[l]` is
+// its fix.
 func notionCoverage(mcpServer string, agentServers []MCPServer, state Fact) Fact {
 	if state == FactUnknown {
 		return FactUnknown
 	}
+	covered := FactAbsent
 	for _, s := range agentServers {
-		if s.Name == mcpServer && s.Connected == FactPresent {
+		if s.Name != mcpServer {
+			continue
+		}
+		if s.Connected == FactPresent {
 			return FactPresent
 		}
+		if s.Connected == FactUnknown {
+			covered = FactUnknown
+		}
 	}
-	return FactAbsent
+	return covered
 }
