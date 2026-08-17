@@ -38,6 +38,22 @@ func (p Probes) on(binary string) Fact {
 	return FactPresent
 }
 
+// pluginFact translates developing.PluginStatus's four states into a Fact.
+// "unknown" means PluginInstallRoot did not recognize the agent — the probe
+// could not answer, so it maps to FactUnknown, never a guessed miss. A
+// "partial" install is genuinely not installed (and fixable inside ATM), so
+// it joins "missing" as FactAbsent.
+func pluginFact(state string) Fact {
+	switch state {
+	case "installed":
+		return FactPresent
+	case "unknown":
+		return FactUnknown
+	default: // "partial", "missing"
+		return FactAbsent
+	}
+}
+
 // Instant computes every fact reachable without a subprocess: PATH lookups,
 // plugin files on disk, and the stored selection. Versions and MCP servers
 // are deliberately absent — they cost 1.6-3s each and belong to the async
@@ -51,11 +67,8 @@ func Instant(cfg core.AgentsConfig, p Probes) Model {
 			Binary:   p.on(h.Name),
 			NativeOK: p.on(h.Name),
 			OllamaOK: m.Ollama,
-			Plugin:   FactAbsent,
 		}
-		if developing.PluginStatus(h.Plugin, p.Home).State == "installed" {
-			row.Plugin = FactPresent
-		}
+		row.Plugin = pluginFact(developing.PluginStatus(h.Plugin, p.Home).State)
 		if selErr == nil && sel.Agent == h.Name {
 			row.IsDefault = true
 			row.DefaultVia = string(sel.Launcher)
@@ -64,4 +77,26 @@ func Instant(cfg core.AgentsConfig, p Probes) Model {
 		m.Agents = append(m.Agents, row)
 	}
 	return m
+}
+
+// Fill derives each AgentRow's ChannelsOK/ChannelsAll from a built project.
+// It is a separate pass rather than an Instant parameter because a
+// project's channels require store reads and (for notion coverage) async
+// mcp probes that Instant's cheap, subprocess-free contract must not carry.
+// A nil project leaves every row's counts at zero — the wizard is honestly
+// global when no project is selected.
+func Fill(m *Model, ps *ProjectSetup) {
+	if ps == nil {
+		return
+	}
+	for i := range m.Agents {
+		row := &m.Agents[i]
+		row.ChannelsAll = len(ps.Channels)
+		row.ChannelsOK = 0
+		for _, ch := range ps.Channels {
+			if ch.PerAgent[row.Agent] == FactPresent {
+				row.ChannelsOK++
+			}
+		}
+	}
 }
