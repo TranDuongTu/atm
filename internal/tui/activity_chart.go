@@ -223,24 +223,43 @@ func renderCarouselLines(entries []carouselEntry, selected string, width int, st
 
 func carouselNeighbors(entries []carouselEntry, selected string, leftWidth, rightWidth int, st Styles) (string, string) {
 	idx := carouselIndex(entries, selected)
-	left := spaces(leftWidth)
-	right := ""
+	leftParts := []string{}
+	rightParts := []string{}
+	seen := map[int]bool{idx: true}
 	for distance := 1; distance < len(entries); distance++ {
-		if distance%2 == 1 {
-			key := entries[(idx-distance+len(entries))%len(entries)].key
-			label := st.Muted.Render(carouselName(key))
-			if lipgloss.Width(label) < leftWidth {
-				left = spaces(leftWidth-lipgloss.Width(label)) + label
+		leftIdx := (idx - distance + len(entries)) % len(entries)
+		if !seen[leftIdx] {
+			seen[leftIdx] = true
+			label := st.Muted.Render(carouselName(entries[leftIdx].key))
+			if neighborWidth(leftParts)+lipgloss.Width(label)+len(leftParts) <= leftWidth {
+				leftParts = append(leftParts, label)
 			}
-		} else {
-			key := entries[(idx+distance)%len(entries)].key
-			label := st.Muted.Render(carouselName(key))
-			if lipgloss.Width(right)+lipgloss.Width(label) < rightWidth {
-				right += label
+		}
+
+		rightIdx := (idx + distance) % len(entries)
+		if !seen[rightIdx] {
+			seen[rightIdx] = true
+			label := st.Muted.Render(carouselName(entries[rightIdx].key))
+			if neighborWidth(rightParts)+lipgloss.Width(label)+len(rightParts) <= rightWidth {
+				rightParts = append(rightParts, label)
 			}
 		}
 	}
-	return left, right
+
+	for i, j := 0, len(leftParts)-1; i < j; i, j = i+1, j-1 {
+		leftParts[i], leftParts[j] = leftParts[j], leftParts[i]
+	}
+	left := strings.Join(leftParts, " ")
+	left = spaces(leftWidth-lipgloss.Width(left)) + left
+	return left, strings.Join(rightParts, " ")
+}
+
+func neighborWidth(parts []string) int {
+	width := 0
+	for _, part := range parts {
+		width += lipgloss.Width(part)
+	}
+	return width
 }
 
 func renderCarouselCompact(entries []carouselEntry, selected string, width int, st Styles) string {

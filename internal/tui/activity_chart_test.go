@@ -160,6 +160,21 @@ func TestRenderCarouselLinesSelectedAllAndEqualWidth(t *testing.T) {
 	}
 }
 
+func TestRenderCarouselLinesIncludesBothAdjacentNeighbors(t *testing.T) {
+	entries := []carouselEntry{
+		{key: "", count: 6},
+		{key: "developer", count: 3},
+		{key: "manager", count: 2},
+	}
+	joined := strings.Join(renderCarouselLines(entries, "", 40, buildStyles(themeGraphite)), "\n")
+	if !strings.Contains(joined, "developer") {
+		t.Fatalf("carousel lines = %q, want right-adjacent developer", joined)
+	}
+	if got := strings.Count(joined, "manager"); got != 1 {
+		t.Fatalf("carousel lines contain manager %d times, want once: %q", got, joined)
+	}
+}
+
 func TestRenderCarouselCompactBracketsSelectedLabel(t *testing.T) {
 	entries := []carouselEntry{{key: "", count: 5}, {key: "developer", count: 2}}
 	got := renderCarouselCompact(entries, "developer", 30, buildStyles(themeGraphite))
