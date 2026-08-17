@@ -128,6 +128,38 @@ func TestRewordedOutputIsStillUnknownAfterTheEmptyCatalogException(t *testing.T)
 	}
 }
 
+// The gate that makes the banner exception safe: saysEmptyCatalog is only
+// ever consulted when NO row parsed. Output can carry both — a trailer, a
+// warning about another scope, a summary line — and a refactor that hoisted
+// the banner check above the `matched == 0` guard would then report a list of
+// servers as an empty catalog, with the servers right there in the output.
+// That is the false negative that made `[a] mcp add` refuse forever on a
+// fresh machine, and it already broke once in production, so it is pinned
+// here rather than left to the guard's placement being noticed in review.
+func TestEmptyCatalogBannerNeverOverridesParsedRows(t *testing.T) {
+	cases := []struct{ agent, out string }{
+		{"claude", claudeMCPOut + "\n" + claudeMCPOutEmpty},
+		{"opencode", opencodeMCPOut + "▲  No MCP servers configured\n"},
+	}
+	for _, tc := range cases {
+		run := func(context.Context, string, ...string) ([]byte, error) { return []byte(tc.out), nil }
+		servers, state := ProbeMCP(context.Background(), tc.agent, run)
+		if state != FactPresent {
+			t.Fatalf("%s: state = %v, want present", tc.agent, state)
+		}
+		found := false
+		for _, s := range servers {
+			if s.Name == "notion" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s: servers = %v — a banner alongside parsed rows must not swallow them; "+
+				"saysEmptyCatalog belongs BEHIND the matched == 0 guard", tc.agent, servers)
+		}
+	}
+}
+
 // THE most important test in this package. Every failure mode must produce
 // unknown. A surface that reports "missing" because a probe timed out tells
 // the user to fix something that is not broken.
