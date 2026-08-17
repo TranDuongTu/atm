@@ -141,10 +141,34 @@ func (s *setupModel) refresh() tea.Cmd {
 	return s.probeCmd()
 }
 
-// reload rebuilds the tier-1 snapshot: the stored agents config, PATH
+// reload rebuilds the whole tier-1 snapshot: the stored agents config, PATH
 // lookups, plugin files on disk, and the selected project's channels and
-// checklists. No subprocess, so it is safe to call from a key handler.
+// checklists. It spawns no subprocess ITSELF, but buildProject reaches
+// store.ProjectChannels, which shells out to `git` for every wired repo
+// channel — so this is for the paths where the project half is actually
+// wanted (open, `r`, and the re-read after an action writes), never for the
+// background refresh. See reloadAgents.
 func (s *setupModel) reload() {
+	s.instant()
+	s.apply()
+}
+
+// reloadAgents rebuilds ONLY the agent half of tier 1. It exists for
+// refreshAll, which runs every 10s and after every mutation whether or not
+// the wizard was ever opened, and whose only consumer of this model is the
+// status-bar nudge — and the nudge reads Agents alone. Everything here is a
+// store read or a PATH lookup; nothing on this path can spawn a process, so
+// a project whose repo channel sits on a stale network mount cannot wedge the
+// event loop from a background tick.
+func (s *setupModel) reloadAgents() {
+	s.instant()
+	s.applyAgents()
+	s.clampCursor()
+}
+
+// instant takes the subprocess-free agent snapshot both reload paths start
+// from, so the two can never read the store differently.
+func (s *setupModel) instant() {
 	s.loadErr = ""
 	cfg, err := s.m.store.GetAgentsConfig()
 	if err != nil {
@@ -158,7 +182,6 @@ func (s *setupModel) reload() {
 		Now:      core.Now,
 	})
 	s.model.ATMVersion = version.Version
-	s.apply()
 }
 
 // apply folds the cached tier-2 answers into the tier-1 snapshot and rebuilds
@@ -166,6 +189,16 @@ func (s *setupModel) reload() {
 // is an MCP fact). Both the reload path and the probe-landed path go through
 // it, so the two can never assemble the model differently.
 func (s *setupModel) apply() {
+	s.applyAgents()
+	s.model.Project = s.buildProject()
+	atmsetup.Fill(&s.model, s.model.Project)
+	s.clampCursor()
+}
+
+// applyAgents folds the cached tier-2 answers into the agent rows. It is the
+// half of apply() that needs nothing project-shaped, which is exactly the
+// half reloadAgents wants.
+func (s *setupModel) applyAgents() {
 	for i := range s.model.Agents {
 		row := &s.model.Agents[i]
 		row.Version = s.versions[row.Agent]
@@ -178,9 +211,6 @@ func (s *setupModel) apply() {
 			row.MCPServers = append(row.MCPServers, sv.Name)
 		}
 	}
-	s.model.Project = s.buildProject()
-	atmsetup.Fill(&s.model, s.model.Project)
-	s.clampCursor()
 }
 
 // applyProbed lands the async tier: it caches the answers so later reloads

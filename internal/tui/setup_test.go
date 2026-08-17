@@ -308,6 +308,92 @@ func TestSetupActiveFreezesBackgroundArt(t *testing.T) {
 	}
 }
 
+// stubGitOnPath puts a `git` at the front of PATH that logs every invocation
+// and answers `rev-parse --is-inside-work-tree` with "true", so a probed path
+// runs the WHOLE repo probe (rev-parse, status, rev-list) instead of stopping
+// at the first check. A real t.TempDir() is not a git repo, so a fixture wired
+// to one stops after a single call — which is why the existing suite could not
+// see the difference this test is about. It returns the log's path.
+func stubGitOnPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "git-calls.log")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> '" + log + "'\n" +
+		"case \"$*\" in *is-inside-work-tree*) echo true ;; esac\n" +
+		"exit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub git: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// gitCalls counts the invocations the stub recorded, and forgets them, so each
+// assertion measures one action rather than the whole test.
+func gitCalls(t *testing.T, log string) int {
+	t.Helper()
+	body, err := os.ReadFile(log)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0
+		}
+		t.Fatalf("read git call log: %v", err)
+	}
+	if err := os.Remove(log); err != nil {
+		t.Fatalf("reset git call log: %v", err)
+	}
+	n := 0
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// seedWiredRepoChannel gives the project a repo channel wired to a directory
+// on this machine, which is what makes store.ProjectChannels shell out to git.
+func seedWiredRepoChannel(t *testing.T, m *Model, code, name string) {
+	t.Helper()
+	if _, err := m.store.CreateChannel(code, core.ChannelRecord{Name: name, Type: core.ChannelTypeRepo}, testActor); err != nil {
+		t.Fatalf("CreateChannel %s: %v", name, err)
+	}
+	if err := m.store.SetChannelWiring(code, name, t.TempDir(), "", testActor); err != nil {
+		t.Fatalf("SetChannelWiring %s: %v", name, err)
+	}
+}
+
+// refreshAll runs on every 10s tick and after every mutation, whether or not
+// the wizard was ever opened, and its only consumer of this model is the
+// status-bar nudge — which reads Agents alone. Reloading the project half
+// there would put three untimed `git` calls per wired repo channel behind a
+// background timer forever, and a path on a stale mount would wedge Update.
+func TestRefreshAllSkipsRepoProbesWhileTheWizardIsClosed(t *testing.T) {
+	log := stubGitOnPath(t)
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedWiredRepoChannel(t, m, "ATM", "atm-repo")
+	m.projectScope = "ATM"
+	gitCalls(t, log) // forget whatever the seeding itself did
+
+	m.refreshAll()
+	if n := gitCalls(t, log); n != 0 {
+		t.Fatalf("refreshAll ran %d git calls with the wizard closed; the background path must probe no repos", n)
+	}
+	// Skipping the project half must not skip the half the nudge needs.
+	if len(m.setup.model.Agents) == 0 {
+		t.Fatal("refreshAll must still populate the agent rows; the nudge reads them")
+	}
+
+	// And the fixture has to be one where the difference is visible at all:
+	// opening the wizard is exactly when the project data is wanted.
+	m.setup.open()
+	if n := gitCalls(t, log); n == 0 {
+		t.Fatal("open() probed no repo — this fixture cannot tell the two reloads apart, so the assertion above proves nothing")
+	}
+}
+
 // The render path must never block on a subprocess.
 func TestSetupOpenRunsNoSubprocess(t *testing.T) {
 	m := newTestModel(t)

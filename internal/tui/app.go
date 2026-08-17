@@ -323,16 +323,29 @@ func (m *Model) refreshAll() {
 	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
-	// Tier 1 only (setup.Instant is subprocess-free by construction — see
-	// setupModel.reload's doc). This is what makes the status-bar nudge mean
+	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
 	// something on a normal launch: without it, m.setup.model stays at its
 	// zero value until the user has opened the wizard at least once, so an
 	// agent that has been broken all along would report nothing wrong until
-	// after the user already found out for themselves. reload() re-applies
-	// the cached tier-2 answers (see apply()) rather than clearing them, and
-	// never touches probing/gen, so this cannot fire a subprocess or clobber
-	// an in-flight or already-landed probe.
-	m.setup.reload()
+	// after the user already found out for themselves. Both reloads re-apply
+	// the cached tier-2 answers (see applyAgents()) rather than clearing them,
+	// and neither touches probing/gen, so this cannot clobber an in-flight or
+	// already-landed probe.
+	//
+	// Which reload, though, matters: refreshAll runs on every 10s tick and
+	// after every mutation, and the nudge — its only consumer here — reads
+	// m.setup.model.Agents alone. reload()'s project half reaches
+	// store.ProjectChannels, which runs up to three `git` calls per wired repo
+	// channel with no timeout, so paying for it from a background tick would
+	// put a dozen-plus subprocesses a minute behind a view nobody opened, and
+	// a path on a stale mount could wedge Update outright. So: the full
+	// snapshot only while the wizard is on screen, which is exactly when the
+	// project data is wanted.
+	if m.setup.active {
+		m.setup.reload()
+	} else {
+		m.setup.reloadAgents()
+	}
 	m.refreshStoreStats()
 	m.lastRefreshAt = core.Now()
 }
