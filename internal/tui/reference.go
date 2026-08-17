@@ -100,6 +100,9 @@ atm agents select <name> [--model M]  — (CLI only)
 atm agents models <name>              — (CLI only)
 atm agents args <name> [-- args...]   — (CLI only)
 
+atm setup status                      W Setup & readiness
+atm setup status --project <CODE>     W Setup & readiness (project sections)
+
 atm tui                                (you are here)`
 
 // keymapReferenceText renders the menu entry table flat: one row per keyed

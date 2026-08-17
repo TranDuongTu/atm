@@ -281,6 +281,13 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
+		"W|views": {
+			check: func(t *testing.T, m *Model) {
+				if !m.setup.active {
+					t.Error("W must open the setup & readiness wizard")
+				}
+			},
+		},
 
 		// Actions — projects list.
 		probeID("a", scopeProjectsList): {

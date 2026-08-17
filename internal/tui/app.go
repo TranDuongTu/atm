@@ -43,6 +43,8 @@ const (
 	formPersonaCreate     // Projects pane / overlay: add persona
 	formBoardEditor       // Boards pane: new/edit a board (live-validated expr)
 	formNamespaceDescribe // Boards pane: edit a namespace descriptor (description-only)
+	formSetupAgentModel   // Setup wizard: the model an agent's selection launches with
+	formSetupChannelWire  // Setup wizard: where this machine reaches a repo channel
 )
 
 // confirmAction identifies what a confirm overlay is for.
@@ -88,7 +90,11 @@ type Model struct {
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
 	channelsOv     channelsModel
-	spotlight      spotlightModel
+	// setup is the setup & readiness wizard. Unlike every model above it, it
+	// is NOT an overlay: while active it replaces the workspace in View and
+	// consumes keys, so it is also one of workspaceIdle()'s gates.
+	setup     setupModel
+	spotlight spotlightModel
 	// spotlightReturn is the spotlight position to restore when a
 	// spotlight-spawned overlay, form, or confirm is dismissed, or nil when
 	// nothing is pending. It is set by spotlightModel.activate for kindDialog
@@ -141,6 +147,12 @@ type Model struct {
 	artPhase int
 	artOn    map[string]bool
 	artPair  map[string][]string
+
+	// initCmd carries a command that must run once the Bubble Tea runtime
+	// exists to execute it, but was produced before that runtime is up
+	// (currently: applyLandingRule's setup.open() tier-2 probe, set by Run
+	// right after NewModel returns). Init() batches it in and clears it.
+	initCmd tea.Cmd
 }
 
 // NewModelOpts are the inputs to NewModel.
@@ -187,12 +199,22 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.channelsOv.m = m
+	m.setup.m = m
+	m.setup.run = setupRun
 	m.spotlight = spotlightModel{m: m}
 	m.plugins = []plugin{newIndexerPlugin()}
 	m.pluginOverlay = -1
 	m.supervisor = newPluginSupervisor()
 	m.SetSize(m.width, m.height)
 	m.refreshAll()
+	// The empty-store landing rule is NOT applied here. NewModel is also the
+	// constructor every internal/tui unit test uses to build a bare fixture
+	// for testing one pane in isolation, and most of those never seed a
+	// project (nor should they have to, just to see their own pane render
+	// normally). Auto-opening the wizard inside NewModel would hijack every
+	// one of those. Real program startup calls applyLandingRule explicitly
+	// (see Run in run.go); so does the dedicated landing-rule test fixture
+	// (newTestModelEmptyStore in setup_landing_test.go).
 	// Defensive: NewModel never sets projectScope before launch (a fresh
 	// launch always starts with no project selected), so this is a no-op in
 	// practice — the real entry point is the project-select handler in
@@ -205,6 +227,21 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 		m.boards.selectDefault()
 	}
 	return m, nil
+}
+
+// applyLandingRule opens the setup wizard when the store has no projects: a
+// store with nothing in it has nothing to show and nothing to press, so the
+// wizard IS the TUI there — once. It never reopens once a project exists
+// (see setup_landing_test.go's TestStoreWithProjectsDoesNotAutoOpen). It is
+// a separate step from NewModel — see the comment above the projectScope
+// block in NewModel for why — called by Run right after construction, and
+// by the empty-store test fixture. The returned Cmd (open()'s tier-2 probe,
+// or nil once a project exists) is meant for Init(); see Model.initCmd.
+func (m *Model) applyLandingRule() tea.Cmd {
+	if len(m.projects.list) != 0 {
+		return nil
+	}
+	return m.setup.open()
 }
 
 // SetSize sets the terminal dimensions and propagates to sub-panes.
@@ -286,6 +323,29 @@ func (m *Model) refreshAll() {
 	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
+	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
+	// something on a normal launch: without it, m.setup.model stays at its
+	// zero value until the user has opened the wizard at least once, so an
+	// agent that has been broken all along would report nothing wrong until
+	// after the user already found out for themselves. Both reloads re-apply
+	// the cached tier-2 answers (see applyAgents()) rather than clearing them,
+	// and neither touches probing/gen, so this cannot clobber an in-flight or
+	// already-landed probe.
+	//
+	// Which reload, though, matters: refreshAll runs on every 10s tick and
+	// after every mutation, and the nudge — its only consumer here — reads
+	// m.setup.model.Agents alone. reload()'s project half reaches
+	// store.ProjectChannels, which runs up to three `git` calls per wired repo
+	// channel with no timeout, so paying for it from a background tick would
+	// put a dozen-plus subprocesses a minute behind a view nobody opened, and
+	// a path on a stale mount could wedge Update outright. So: the full
+	// snapshot only while the wizard is on screen, which is exactly when the
+	// project data is wanted.
+	if m.setup.active {
+		m.setup.reload()
+	} else {
+		m.setup.reloadAgents()
+	}
 	m.refreshStoreStats()
 	m.lastRefreshAt = core.Now()
 }
@@ -334,7 +394,7 @@ func (m *Model) canMutate() bool { return true }
 // workspaceIdle reports whether the plain two-pane workspace is what View
 // shows — no overlay, form, confirm, plugin, capability switcher, dispatch
 // dialog, personas overlay, or channels overlay layered over it (see View's
-// overlay chain).
+// overlay chain), and not the setup wizard, which replaces it outright.
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
@@ -345,7 +405,8 @@ func (m *Model) workspaceIdle() bool {
 		!m.capability.open &&
 		!m.dispatchDlg.active &&
 		!m.personasOv.open &&
-		!m.channelsOv.open
+		!m.channelsOv.open &&
+		!m.setup.active
 }
 
 // completeAction clears a pending spotlight return: spec decision 5 requires
@@ -364,8 +425,17 @@ func (m *Model) completeAction() {
 // tick that re-runs refreshAll so external mutations (CLI writes in another
 // process) surface in the TUI without a manual key. The tick is cheap: with
 // the O(1) LastLogSeq staleness check, refreshAll skips rebuilds when the
-// cache is fresh. It also starts the background-art animation tick.
-func (m *Model) Init() tea.Cmd { return tea.Batch(refreshTickCmd(), artTickCmd()) }
+// cache is fresh. It also starts the background-art animation tick and, if
+// Run's applyLandingRule call landed on the setup wizard (the empty-store
+// landing rule), fires its stashed tier-2 probe exactly once.
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{refreshTickCmd(), artTickCmd()}
+	if m.initCmd != nil {
+		cmds = append(cmds, m.initCmd)
+		m.initCmd = nil
+	}
+	return tea.Batch(cmds...)
+}
 
 // refreshTickMsg is the periodic message that triggers a refreshAll to pick
 // up external mutations (a CLI invocation in another process appending to
@@ -433,6 +503,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
+	case setupProbedMsg:
+		// The wizard's async tier landing. Applied even if the view has since
+		// been closed: the answers are cached for the next open, and dropping
+		// them would make a reopen pay for the same 1.6-3s per agent again.
+		m.setup.applyProbed(msg)
+		return m, nil
 	case reindexResultMsg:
 		im := m.indexer
 		if im == nil {
@@ -571,6 +647,19 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return m.channelsOv.handleKey(k)
 	}
 
+	// The setup wizard consumes keys until closed (Esc peels the drill, then
+	// the view). It is checked AFTER the overlays above because those can be
+	// opened from inside it and must take over routing while they are up, and
+	// BEFORE `q`: inside a full-screen mode a stray `q` must not quit the app
+	// out from under the user (ctrl+c still does).
+	if m.setup.active {
+		if k.String() == "T" {
+			m.cycleTheme()
+			return nil
+		}
+		return m.setup.handleKey(k)
+	}
+
 	// `q` quits the app when no overlay/form/confirm is active (mirrors the
 	// common TUI convention; ctrl+c also quits anywhere).
 	if k.String() == "q" {
@@ -636,6 +725,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		// project-wide status view and must not chase the task cursor.
 		m.channelsOv.openOverlay(m.overlayProject())
 		return nil
+	case "W":
+		// The wizard is global (menuEntries' W row sets needsProject: false),
+		// so — unlike C — this case never checks m.projectScope: it must open
+		// with no project selected, same as D and V.
+		return m.setup.open()
 	case "T":
 		m.cycleTheme()
 		return nil
@@ -797,6 +891,10 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doBoardEdit(vals)
 	case formNamespaceDescribe:
 		return m.doNamespaceDescribe(vals)
+	case formSetupAgentModel:
+		return m.setup.doSetModel(vals)
+	case formSetupChannelWire:
+		return m.setup.doWire(vals)
 	}
 	return nil
 }
@@ -909,7 +1007,15 @@ func (m *Model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.renderWorkspace())
+	// The setup wizard is a full-screen MODE, not a modal: it replaces the
+	// workspace rather than layering over it, and the status line stays — a
+	// readiness view that hid the store/actor bar would hide half of what the
+	// user came to check.
+	if m.setup.active {
+		b.WriteString(m.setup.render(m.width, m.contentHeight))
+	} else {
+		b.WriteString(m.renderWorkspace())
+	}
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusLine())
 
@@ -918,11 +1024,12 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below are exactly the
-	// states in which View renders something over the plain workspace, and
-	// workspaceIdle() is their negation (it gates the background-art animation
-	// tick). Adding an overlay here without adding it to workspaceIdle() would
-	// let art animate underneath the new overlay.
+	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below plus the setup
+	// branch above are exactly the states in which View renders something
+	// other than the plain workspace, and workspaceIdle() is their negation
+	// (it gates the background-art animation tick). Adding an overlay here
+	// without adding it to workspaceIdle() would let art animate underneath
+	// the new overlay.
 	out := b.String()
 	if m.spotlight.open {
 		out = m.placeOverlay(out, m.spotlight.renderOverlay())
@@ -983,6 +1090,15 @@ func (m *Model) renderStatusLine() string {
 	}
 	left := strings.Join(parts, "  ")
 	rightSegments := dockSegments(m)
+	// The setup nudge is conditional, not decorative: it appears ONLY while
+	// something tracked by the wizard is unready (setupUnready asks
+	// AgentRow.Glyph(), the readiness authority — never the raw Fact
+	// fields), and is entirely absent the moment nothing is. This is a pure
+	// read of the already-probed snapshot, so it costs nothing extra on a
+	// render that runs every frame.
+	if setupUnready(m.setup.model.Agents) {
+		rightSegments = append(rightSegments, m.styles.Warning.Render("⚠ setup [W]"))
+	}
 	rightSegments = append(rightSegments,
 		m.styles.KeyMenu.Render("[\\]spotlight"),
 		m.styles.KeyMenuDim.Render("atm "+version.Version),
