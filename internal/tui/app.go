@@ -89,6 +89,7 @@ type Model struct {
 	agentOptionsFn func() []agentOption
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
+	personaAct     personaActivityModel
 	channelsOv     channelsModel
 	// setup is the setup & readiness wizard. Unlike every model above it, it
 	// is NOT an overlay: while active it replaces the workspace in View and
@@ -198,6 +199,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.agentOptionsFn = agentOptions
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
+	m.personaAct.m = m
 	m.channelsOv.m = m
 	m.setup.m = m
 	m.setup.run = setupRun
@@ -393,8 +395,9 @@ func (m *Model) canMutate() bool { return true }
 
 // workspaceIdle reports whether the plain two-pane workspace is what View
 // shows — no overlay, form, confirm, plugin, capability switcher, dispatch
-// dialog, personas overlay, or channels overlay layered over it (see View's
-// overlay chain), and not the setup wizard, which replaces it outright.
+// dialog, personas overlay, persona activity overlay, or channels overlay
+// layered over it (see View's overlay chain), and not the setup wizard, which
+// replaces it outright.
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
@@ -405,6 +408,7 @@ func (m *Model) workspaceIdle() bool {
 		!m.capability.open &&
 		!m.dispatchDlg.active &&
 		!m.personasOv.open &&
+		!m.personaAct.open &&
 		!m.channelsOv.open &&
 		!m.setup.active
 }
@@ -639,6 +643,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// Personas overlay (read-only) consumes keys until closed (Esc).
 	if m.personasOv.open {
 		return m.personasOv.handleKey(k)
+	}
+
+	// Persona activity is a read-only snapshot opened from the focused chart.
+	if m.personaAct.open {
+		return m.personaAct.handleKey(k)
 	}
 
 	// Channels overlay (read-only) consumes keys until closed (Esc) or until
@@ -1017,7 +1026,7 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below plus the setup
+	// KEEP IN SYNC WITH workspaceIdle(): the nine gates below plus the setup
 	// branch above are exactly the states in which View renders something
 	// other than the plain workspace, and workspaceIdle() is their negation
 	// (it gates the background-art animation tick). Adding an overlay here
@@ -1044,6 +1053,9 @@ func (m *Model) View() string {
 	}
 	if m.personasOv.open {
 		out = m.placeOverlay(out, m.personasOv.renderOverlay())
+	}
+	if m.personaAct.open {
+		out = m.placeOverlay(out, m.personaAct.renderOverlay())
 	}
 	if m.channelsOv.open {
 		out = m.placeOverlay(out, m.channelsOv.renderOverlay())

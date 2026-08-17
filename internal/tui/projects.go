@@ -187,7 +187,11 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case "enter":
-		return nil, p.chartFocused
+		if p.chartFocused {
+			p.openPersonaActivity()
+			return nil, true
+		}
+		return nil, false
 	case "esc":
 		if p.chartFocused {
 			p.chartFocused = false
@@ -195,6 +199,14 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (p *projectsModel) openPersonaActivity() {
+	spec := chartRanges[0]
+	if p.chartRange >= 0 && p.chartRange < len(chartRanges) {
+		spec = chartRanges[p.chartRange]
+	}
+	p.m.personaAct.openFor(p.chartPersona, spec, p.summaryEntries)
 }
 
 func (p *projectsModel) resetChart() {
