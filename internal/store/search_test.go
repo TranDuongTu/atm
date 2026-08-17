@@ -3,6 +3,7 @@ package store
 import (
 	"atm/internal/core"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -248,6 +249,69 @@ func TestSearchTextAppliesKAfterRanking(t *testing.T) {
 	}
 	if hits[0].ID != target.ID {
 		t.Errorf("first hit = %q, want the named task — K must cut after the ranking", hits[0].ID)
+	}
+}
+
+// Every ID in a project starts with the project code, so a query that matches
+// nothing beyond that shared prefix names no particular entity and must not
+// reach the ID tier. Measured before the guard: `atm search --project ATM a`
+// returned every task at score 1 — the tier and the score reserved for a
+// pasted ID — even though not one title carries a word starting with "a".
+func TestSearchTextProjectCodePrefixNamesNoEntity(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Acme", testActor); err != nil {
+		t.Fatal(err)
+	}
+	// No title here carries a token starting with "a", so a hit for any of the
+	// queries below could only have come from the ID tier.
+	for _, title := range []string{"wire the indexer", "no keyword here", "second decoy"} {
+		if _, err := s.CreateTask("ATM", title, "", nil, testActor); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, q := range []string{"a", "atm", "atm-", "ATM-"} {
+		hits, _, err := s.Search(SearchParams{Project: "ATM", QueryText: q, Kind: "all", K: 10})
+		if err != nil {
+			t.Fatalf("Search(%q): %v", q, err)
+		}
+		if len(hits) != 0 {
+			t.Errorf("Search(%q) = %+v, want no hits — matching only the project code names nobody", q, hits)
+		}
+	}
+}
+
+// The guard is narrow on purpose: anything that identifies a particular entity
+// still ranks at the ID tier. A pasted ID does, and so does a fragment of one
+// — the ID's hex tail, which is what a partially pasted or hand-typed ID looks
+// like. The decoy carries the target's ID in its own title, so it is a real
+// document match at tier 1: only the tier sort can put the named task first.
+func TestSearchTextAnIDFragmentStillNamesItsEntity(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Acme", testActor); err != nil {
+		t.Fatal(err)
+	}
+	decoy, err := s.CreateTask("ATM", "placeholder one", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := s.CreateTask("ATM", "no keyword here", "", nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle(decoy.ID, "decoy mentions "+target.ID+" in its title", testActor); err != nil {
+		t.Fatalf("SetTitle: %v", err)
+	}
+
+	tail := strings.TrimPrefix(target.ID, "ATM-")
+	for _, q := range []string{target.ID, tail, tail[:5]} {
+		hits, _, err := s.Search(SearchParams{Project: "ATM", QueryText: q, Kind: "all", K: 10})
+		if err != nil {
+			t.Fatalf("Search(%q): %v", q, err)
+		}
+		if len(hits) == 0 || hits[0].ID != target.ID {
+			t.Errorf("Search(%q) = %+v, want the named task %q first", q, hits, target.ID)
+		}
 	}
 }
 

@@ -79,6 +79,10 @@ func cosineSimilarity(a, b []float64) float64 {
 // pasted ID would otherwise find nothing at all. A comment's ID carries its
 // task's ID as a prefix, so pasting a task ID surfaces the task and its
 // comments together, task first.
+//
+// Tier 0 is guarded against the project-code prefix every ID in the project
+// shares (see namesEntity below): "names an entity" has to mean more than
+// "starts the way they all do".
 func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	qtokens := tokenize(query)
 	if len(qtokens) == 0 {
@@ -104,6 +108,13 @@ func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 		}
 		return nil, nil
 	}
+	// A query that matches nothing but the project-code prefix names no
+	// particular entity: every ID in the project starts with it, so treating
+	// that as "the user pasted an ID" ranks the whole project at the tier
+	// reserved for a named entity. `atm search --project ATM a` returned every
+	// task at score 1 before this guard.
+	prefix := strings.ToLower(code) + "-"
+	namesEntity := needle != "" && !strings.Contains(prefix, needle)
 	// tier 0 = the query names this entity, tier 1 = a document match.
 	type ranked struct {
 		hit  Hit
@@ -111,7 +122,7 @@ func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	}
 	var scored []ranked
 	add := func(id string, hit Hit, overlap int) {
-		named := needle != "" && strings.Contains(strings.ToLower(id), needle)
+		named := namesEntity && strings.Contains(strings.ToLower(id), needle)
 		if overlap == 0 && !named {
 			return
 		}
