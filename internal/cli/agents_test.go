@@ -134,6 +134,26 @@ func TestAgentsSelectRejectsUnknownAgent(t *testing.T) {
 	}
 }
 
+func TestAgentsModelsUnknownAgentIsUsageError(t *testing.T) {
+	h := newGoldenHarness(t)
+	if _, _, code := h.run("agents", "models", "pi"); code != ExitUsage {
+		t.Fatalf("exit = %d, want ExitUsage", code)
+	}
+}
+
+// claude has no list verb. That is a clear, actionable message — not a crash
+// and not an empty list, which would read as "claude has no models".
+func TestAgentsModelsNoListerExplainsItself(t *testing.T) {
+	h := newGoldenHarness(t)
+	_, stderr, code := h.run("agents", "models", "claude")
+	if code == ExitSuccess {
+		t.Fatal("expected non-zero exit")
+	}
+	if !strings.Contains(stderr, "manually") {
+		t.Fatalf("stderr = %q, want the manual-entry hint", stderr)
+	}
+}
+
 // Text mode is a row per AGENT with a column per LAUNCHER: whether ollama is
 // installed is one global fact, so it must not be repeated as three rows.
 func TestAgentsListTextIsAnAgentByLauncherTable(t *testing.T) {

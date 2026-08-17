@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"atm/internal/agent"
 
@@ -20,7 +22,38 @@ func newAgentsCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newAgentsListCmd(st))
 	cmd.AddCommand(newAgentsSelectCmd(st))
 	cmd.AddCommand(newAgentsArgsCmd(st))
+	cmd.AddCommand(newAgentsModelsCmd(st))
 	return cmd
+}
+
+// execRun is the production RunFunc: it runs the lister and returns stdout.
+func execRun(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+func newAgentsModelsCmd(st *cliState) *cobra.Command {
+	return &cobra.Command{
+		Use:   "models <name>",
+		Short: "List the models the selection's launcher can serve",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sel, err := agent.ParseSelectionKey(args[0])
+			if err != nil {
+				return fmt.Errorf("%w: %v (see `atm agents list`)", ErrUsage, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			models, err := agent.ListModels(ctx, sel, execRun)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"name": args[0], "models": models}, func() {
+				for _, m := range models {
+					fmt.Fprintln(st.stdout(), m)
+				}
+			})
+		},
+	}
 }
 
 // agentRow is one SELECTION KEY (agent × launcher), which is the shape scripts
