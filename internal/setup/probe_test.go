@@ -77,6 +77,50 @@ func TestInstantSurvivesUnknownSelection(t *testing.T) {
 	}
 }
 
+// A model set on a NON-default agent is still configured and still used the
+// moment that agent is selected. Showing it only for the default row made the
+// wizard and `atm agents list` disagree about the same agents.json — the user
+// set claude's model, saw it in the CLI, and saw an empty MODEL cell here.
+func TestInstantShowsEachRowsOwnModel(t *testing.T) {
+	cfg := core.AgentsConfig{
+		Selected: "codex",
+		Models:   map[string]string{"claude": "opus5", "ollama:claude": "glm-5.2"},
+	}
+	m := Instant(cfg, Probes{LookPath: lookPathWith("claude", "codex"), Home: t.TempDir()})
+	for _, r := range m.Agents {
+		switch r.Agent {
+		case "claude":
+			// Not the default, so the bare-name key is the one it was stored
+			// under and the one to show.
+			if r.Model != "opus5" {
+				t.Fatalf("claude model = %q, want opus5 — a non-default row shows its own model", r.Model)
+			}
+		case "opencode":
+			if r.Model != "" {
+				t.Fatalf("opencode model = %q, want empty — nothing is configured for it", r.Model)
+			}
+		}
+	}
+}
+
+// The default row prefers the launcher-qualified key, because that is what
+// SetAgentModel writes once a launcher is chosen.
+func TestInstantDefaultRowPrefersTheLauncherQualifiedModel(t *testing.T) {
+	cfg := core.AgentsConfig{
+		Selected: "ollama:claude",
+		Models:   map[string]string{"claude": "opus5", "ollama:claude": "glm-5.2"},
+	}
+	m := Instant(cfg, Probes{LookPath: lookPathWith("ollama", "claude"), Home: t.TempDir()})
+	for _, r := range m.Agents {
+		if r.Agent != "claude" {
+			continue
+		}
+		if r.Model != "glm-5.2" {
+			t.Fatalf("claude model = %q, want glm-5.2", r.Model)
+		}
+	}
+}
+
 // Version is an async fact. Tier 1 must leave it blank, not guess.
 func TestInstantLeavesVersionsBlank(t *testing.T) {
 	m := Instant(core.AgentsConfig{}, Probes{LookPath: lookPathWith("claude"), Home: t.TempDir()})

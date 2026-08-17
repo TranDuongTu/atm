@@ -69,10 +69,19 @@ func Instant(cfg core.AgentsConfig, p Probes) Model {
 			OllamaOK: m.Ollama,
 		}
 		row.Plugin = pluginFact(developing.PluginStatus(h.Plugin, p.Home).State)
+		// Every row shows ITS OWN model, not just the default's. A model set
+		// on a non-default agent is still configured and still used the moment
+		// that agent is selected, so hiding it made `atm agents list` and this
+		// view disagree about the same agents.json. The bare agent name is the
+		// key `SetAgentModel` writes for a non-default row; the default row
+		// upgrades to the launcher-qualified key when one is stored there.
+		row.Model = cfg.Models[h.Name]
 		if selErr == nil && sel.Agent == h.Name {
 			row.IsDefault = true
 			row.DefaultVia = string(sel.Launcher)
-			row.Model = cfg.Models[sel.Key()]
+			if m := cfg.Models[sel.Key()]; m != "" {
+				row.Model = m
+			}
 		}
 		m.Agents = append(m.Agents, row)
 	}
