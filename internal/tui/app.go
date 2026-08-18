@@ -712,6 +712,13 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.focused == paneProjects && m.projects.view == pViewList && m.projects.chartDrill {
+		switch k.String() {
+		case "j", "down", "k", "up", "g":
+			return m.projects.handleKey(k)
+		}
+	}
+
 	// Tab switching works in list/detail panes (not inside form/confirm).
 	switch k.String() {
 	case "1":

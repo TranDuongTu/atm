@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -164,6 +165,142 @@ func TestChartCtrlEnterOpensInlinePersonaDrillWithoutOverlay(t *testing.T) {
 		"[Esc] back",
 	} {
 		mustContain(t, body, want)
+	}
+}
+
+func TestChartInlineDrillUsesOriginalBreakdownBars(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.updated"},
+		{At: now, Actor: "developer@codex:o3", Action: "task.updated"},
+		{At: now, Actor: "developer@claude:opus", Action: "project.reviewed"},
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(22))
+	for _, want := range []string{
+		"4 events",
+		"models",
+		"gpt-5",
+		"o3",
+		"opus",
+		"agents",
+		"codex",
+		"claude",
+		"actions",
+		"task.updated",
+		"project.reviewed",
+		"█",
+		"[j/k]scroll",
+		"[g]top",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
+	}
+}
+
+func TestChartInlineDrillScrollsOriginalBreakdown(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: fmt.Sprintf("task.action.%02d", i),
+		})
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	before := stripANSI(m.projects.renderSummary(12))
+	update(t, m, "j")
+	after := stripANSI(m.projects.renderSummary(12))
+
+	if before == after {
+		t.Fatalf("j should scroll the inline drill\n%s", before)
+	}
+	mustContain(t, after, "[j/k]scroll")
+	update(t, m, "g")
+	if top := stripANSI(m.projects.renderSummary(12)); top != before {
+		t.Fatalf("g should return inline drill to top\n--- top ---\n%s\n--- before ---\n%s", top, before)
+	}
+}
+
+func TestChartInlineDrillCtrlUpDownScrollsInsteadOfChangingRange(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: fmt.Sprintf("task.action.%02d", i),
+		})
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+	m.projects.chartRange = 1
+
+	before := stripANSI(m.projects.renderSummary(12))
+	update(t, m, "ctrl+down")
+	after := stripANSI(m.projects.renderSummary(12))
+
+	if got := m.projects.chartRange; got != 1 {
+		t.Fatalf("ctrl+down in inline drill changed range to %d, want 1", got)
+	}
+	if before == after {
+		t.Fatalf("ctrl+down should scroll the inline drill\n%s", before)
+	}
+	update(t, m, "ctrl+up")
+	if got := m.projects.chartRange; got != 1 {
+		t.Fatalf("ctrl+up in inline drill changed range to %d, want 1", got)
+	}
+	if top := stripANSI(m.projects.renderSummary(12)); top != before {
+		t.Fatalf("ctrl+up should scroll back toward top\n--- top ---\n%s\n--- before ---\n%s", top, before)
+	}
+}
+
+func TestChartInlineDrillKeepsCarouselPinnedToTop(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	lines := strings.Split(stripANSI(m.projects.renderSummary(20)), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("summary rendered too few lines: %q", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[1], "╭") {
+		t.Fatalf("carousel should start directly under chart border, got line 1 %q\n%s", lines[1], strings.Join(lines, "\n"))
 	}
 }
 

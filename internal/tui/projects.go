@@ -36,6 +36,7 @@ type projectsModel struct {
 	chartRange   int
 	chartFocused bool
 	chartDrill   bool
+	chartDrillY  int
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -166,8 +167,21 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 
 func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
+	case "j", "down":
+		if p.chartDrill {
+			p.chartDrillY++
+			return nil, true
+		}
+	case "k", "up":
+		if p.chartDrill {
+			if p.chartDrillY > 0 {
+				p.chartDrillY--
+			}
+			return nil, true
+		}
 	case "ctrl+left", "ctrl+right":
 		p.focusChart()
+		p.chartDrillY = 0
 		entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
 		direction := -1
 		if k.String() == "ctrl+right" {
@@ -176,27 +190,46 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		p.chartPersona = carouselStep(entries, p.chartPersona, direction)
 		return nil, true
 	case "ctrl+up":
+		if p.chartDrill {
+			if p.chartDrillY > 0 {
+				p.chartDrillY--
+			}
+			return nil, true
+		}
 		p.focusChart()
+		p.chartDrillY = 0
 		if p.chartRange < len(chartRanges)-1 {
 			p.chartRange++
 		}
 		return nil, true
 	case "ctrl+down":
+		if p.chartDrill {
+			p.chartDrillY++
+			return nil, true
+		}
 		p.focusChart()
+		p.chartDrillY = 0
 		if p.chartRange > 0 {
 			p.chartRange--
 		}
 		return nil, true
+	case "g":
+		if p.chartDrill {
+			p.chartDrillY = 0
+			return nil, true
+		}
 	case "enter", "ctrl+j", "ctrl+enter":
 		if k.String() == "enter" && !p.chartFocused {
 			return nil, false
 		}
 		p.focusChart()
 		p.chartDrill = true
+		p.chartDrillY = 0
 		return nil, true
 	case "esc":
 		if p.chartDrill {
 			p.chartDrill = false
+			p.chartDrillY = 0
 			return nil, true
 		}
 	}
@@ -221,6 +254,7 @@ func (p *projectsModel) resetChart() {
 	p.chartRange = 0
 	p.chartFocused = false
 	p.chartDrill = false
+	p.chartDrillY = 0
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -626,7 +660,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 		}
 		if p.chartDrill {
 			drillH := height - len(lines) - 1
-			for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), selected, p.width, drillH, p.m.styles) {
+			for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), p.width, drillH, p.chartDrillY, p.m.styles) {
 				lines = append(lines, dashboardLine(p.width, line))
 			}
 			lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
@@ -653,7 +687,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 			body = append(body, "")
 			drillH--
 		}
-		for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), selected, innerW, drillH, p.m.styles) {
+		for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), innerW, drillH, p.chartDrillY, p.m.styles) {
 			body = append(body, chartBodyLine(line, innerW))
 		}
 	} else {
@@ -673,7 +707,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 		body[i] = chartBodyLine(body[i], innerW)
 	}
 	body = append(body, chartBodyLine(renderRangeLegend(spec, innerW, p.m.styles), innerW))
-	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, p.m.styles.Muted)
+	return p.renderChartBoxWithBorderTop(title, strings.Join(body, "\n"), height, p.m.styles.Muted)
 }
 
 func renderChartPersonaRows(cards []personaCardEntry, selected string, focused bool, width, chartHeight int, st Styles) []string {
@@ -695,39 +729,84 @@ func renderRangeLegend(spec chartRangeSpec, width int, st Styles) string {
 	return st.HeaderLabel.Render(fitLine("Range: "+label+"  [Ctrl+\u2191/\u2193]", width))
 }
 
-func renderInlineActivityDrill(group activity.Group, key string, width, height int, st Styles) []string {
+func renderInlineActivityDrill(group activity.Group, width, height, offset int, st Styles) []string {
 	if height <= 0 {
 		return nil
 	}
-	header := st.HeaderLabel.Render(fitLine(personaIcon(key)+" "+carouselName(key), width))
-	events := activityEventsLabel(group.Count)
-	models := inlineBreakdownLine("models", group.Models, width)
-	agents := inlineBreakdownLine("agents", group.Agents, width)
-	actions := inlineBreakdownLine("actions", group.Actions, width)
-	back := st.KeyMenuDim.Render("[Esc] back")
+	footer := st.KeyMenuDim.Render("[j/k]scroll  [g]top  [Esc] back")
 	if height == 1 {
-		return []string{back}
+		return []string{footer}
 	}
-	if height == 2 {
-		return []string{header, back}
+	visible := height - 1
+	lines := []string{activityEventsLabel(group.Count), ""}
+	lines = append(lines, breakdown("models", group.Models, width)...)
+	lines = append(lines, breakdown("agents", group.Agents, width)...)
+	lines = append(lines, breakdown("actions", group.Actions, width)...)
+	if visible < len(lines) {
+		lines = compactInlineActivityDrillLines(group, width)
 	}
-	if height == 3 {
-		return []string{header, fitLine(models+" | "+agents+" | "+actions, width), back}
+
+	maxOffset := len(lines) - visible
+	if maxOffset < 0 {
+		maxOffset = 0
 	}
-	if height == 4 {
-		return []string{header, models, fitLine(agents+" | "+actions, width), back}
+	if offset > maxOffset {
+		offset = maxOffset
 	}
-	if height == 5 {
-		return []string{header, models, agents, actions, back}
+	if offset < 0 {
+		offset = 0
 	}
-	return []string{
-		st.HeaderLabel.Render(fitLine(personaIcon(key)+" "+carouselName(key), width)),
-		events,
-		models,
-		agents,
-		actions,
-		back,
+	end := offset + visible
+	if end > len(lines) {
+		end = len(lines)
 	}
+	body := make([]string, 0, end-offset+1)
+	for _, line := range lines[offset:end] {
+		body = append(body, fitLine(line, width))
+	}
+	body = append(body, footer)
+	return body
+}
+
+func compactInlineActivityDrillLines(group activity.Group, width int) []string {
+	lines := []string{activityEventsLabel(group.Count)}
+	lines = append(lines, compactBreakdownRows("models", group.Models, width)...)
+	lines = append(lines, compactBreakdownRows("agents", group.Agents, width)...)
+	lines = append(lines, compactBreakdownRows("actions", group.Actions, width)...)
+	return lines
+}
+
+func compactBreakdownRows(caption string, counts map[string]int, width int) []string {
+	if len(counts) == 0 {
+		return []string{fitLine(caption+"  (none)", width)}
+	}
+	rows := make([]kvRow, 0, len(counts))
+	total, nameW := 0, 0
+	for key, count := range counts {
+		rows = append(rows, kvRow{k: key, v: count})
+		total += count
+		if w := lipgloss.Width(key); w > nameW {
+			nameW = w
+		}
+	}
+	sortKV(rows)
+	out := make([]string, 0, len(rows))
+	for i, row := range rows {
+		prefix := repeat(" ", lipgloss.Width(caption)+2)
+		if i == 0 {
+			prefix = caption + "  "
+		}
+		percent := 0
+		if total > 0 {
+			percent = (row.v*100 + total/2) / total
+		}
+		meterW := width - lipgloss.Width(prefix) - nameW - 6
+		if meterW < 0 {
+			meterW = 0
+		}
+		out = append(out, fitLine(fmt.Sprintf("%s%-*s %s %4d", prefix, nameW, row.k, meterBar(percent, meterW), row.v), width))
+	}
+	return out
 }
 
 func activityEventsLabel(count int) string {
@@ -735,10 +814,6 @@ func activityEventsLabel(count int) string {
 		return "1 event"
 	}
 	return fmt.Sprintf("%d events", count)
-}
-
-func inlineBreakdownLine(caption string, counts map[string]int, width int) string {
-	return fitLine(caption+"  "+topCountLabel(counts, 3, "no "+caption), width)
 }
 
 func chartBoxWidth(width int) int {
@@ -768,6 +843,14 @@ func (p *projectsModel) renderChartBox(title, body string, maxLines int) string 
 }
 
 func (p *projectsModel) renderChartBoxWithBorder(title, body string, maxLines int, border lipgloss.Style) string {
+	return p.renderChartBoxWithBorderAligned(title, body, maxLines, border, true)
+}
+
+func (p *projectsModel) renderChartBoxWithBorderTop(title, body string, maxLines int, border lipgloss.Style) string {
+	return p.renderChartBoxWithBorderAligned(title, body, maxLines, border, false)
+}
+
+func (p *projectsModel) renderChartBoxWithBorderAligned(title, body string, maxLines int, border lipgloss.Style, center bool) string {
 	boxW := chartBoxWidth(p.width)
 	if boxW < 3 || maxLines < 3 {
 		return dashboardLine(p.width, title)
@@ -782,7 +865,7 @@ func (p *projectsModel) renderChartBoxWithBorder(title, body string, maxLines in
 		bodyLines = bodyLines[:innerH]
 	}
 	topPad := 0
-	if len(bodyLines) < innerH {
+	if center && len(bodyLines) < innerH {
 		topPad = (innerH - len(bodyLines)) / 2
 	}
 	for i := 0; i < topPad; i++ {

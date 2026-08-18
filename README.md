@@ -62,7 +62,11 @@ keeps the selected persona card highlighted until the chart state resets.
 `Ctrl+Enter` opens the selected persona's activity breakdown inline inside the
 chart box; in terminals that encode that shortcut as plain Enter, use
 `Ctrl+Left/Right` to focus the chart first, then press `Enter`. `Ctrl+J` works
-as an explicit terminal fallback. `Esc` returns to the pulse chart.
+as an explicit terminal fallback. The drill-in keeps the carousel pinned at the
+top and shows the original proportional breakdown rows for models, agents, and
+actions; scroll it with `j/k`, arrows, or `Ctrl+Up/Down`, use `g` for top, and
+`Esc` returns to the pulse chart. `Ctrl+Up/Down` changes the time range only
+when the pulse chart is visible.
 
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 

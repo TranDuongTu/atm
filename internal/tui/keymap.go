@@ -178,7 +178,7 @@ var menuEntries = []menuEntry{
 	{key: "shift+up/down", label: "Feed scroll / thumbnail cursor", hidden: true},
 	{key: "shift+right/left", label: "Feed page / thumbnail drill", hidden: true},
 	{key: "pgup/pgdown", label: "Page list / scroll detail", hidden: true},
-	{key: "ctrl+up/down", label: "Activity chart: time range", hidden: true},
+	{key: "ctrl+up/down", label: "Activity chart: time range; scroll inline drill", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
 	{key: "space", label: "Toggle capability (C overlay)", hidden: true},
 	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},

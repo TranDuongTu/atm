@@ -1812,7 +1812,7 @@ func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	mustContain(t, content, "Add project")
 	mustContain(t, content, "Activity chart: prev/next persona")
 	mustContain(t, content, "Activity chart: inline persona breakdown")
-	mustContain(t, content, "Activity chart: time range")
+	mustContain(t, content, "Activity chart: time range; scroll inline drill")
 	mustContain(t, content, "Open detail / confirm")
 	mustNotContain(t, content, "switch tab")
 	mustNotContain(t, content, "Dispatch this persona")
