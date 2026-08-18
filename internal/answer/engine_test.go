@@ -245,6 +245,34 @@ func TestAskUnreachableChatDegradesRatherThanFails(t *testing.T) {
 	}
 }
 
+// A stream that ends CLEANLY without ever producing a token is the same
+// outcome as an unreachable endpoint, and must not report success: an
+// endpoint that ignores "stream": true answers with a plain JSON body, so the
+// SSE loop matches no data: lines and returns nil having delivered nothing.
+// Without the zero-delta guard this renders as a non-degraded Done — `atm
+// ask` printing nothing and exiting 0, with no reason for the consumer to
+// show.
+func TestAskCleanStreamWithNoDeltasDegrades(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: &fakeChat{}})
+	var got []string
+	var done Done
+	if err := e.Ask(context.Background(), Query{Question: "q"}, func(ev Event) {
+		record(&got)(ev)
+		if d, ok := ev.(Done); ok {
+			done = d
+		}
+	}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if strings.Join(got, "|") != "retrieved:2:behind=0|done:cited=0:degraded=true" {
+		t.Errorf("events = %v, want retrieved then a degraded done", got)
+	}
+	if done.Reason == "" {
+		t.Error("reason = \"\", want a degraded Done to say why there is no answer")
+	}
+}
+
 // A break AFTER deltas is a real failure: the partial answer is delivered and
 // the consumer marks it interrupted.
 func TestAskMidStreamFailureKeepsTheDeltasAndFails(t *testing.T) {

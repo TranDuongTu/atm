@@ -130,6 +130,15 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 		}
 		return nil
 	}
+	if answer.Len() == 0 {
+		// The endpoint ended the stream cleanly without ever producing a token:
+		// generation did not happen, which is the same outcome as an unreachable
+		// endpoint and must not read as a finished answer. Reachable in practice
+		// — an endpoint that ignores "stream": true returns a plain JSON body
+		// with no data: lines, and the SSE loop reads it to EOF and returns nil.
+		emit(Done{Degraded: true, Reason: "the chat endpoint returned no answer"})
+		return nil
+	}
 	emit(Done{Citations: citedHits(answer.String(), hits)})
 	return nil
 }
