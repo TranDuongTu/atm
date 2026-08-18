@@ -132,6 +132,12 @@ type IndexService interface {
 	SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor string) error
 	SetChatConfig(code string, cfg ChatConfig, actor string) error
 	PendingIndexCount(code, slug string) (int, error)
+	// Documents returns full document text keyed by entity ID, for hydrating
+	// search hits whose Snippet is only an 80-rune truncation. On IndexService
+	// rather than store-local because internal/cli may not import
+	// internal/store, and core.Service is what the answer engine's Searcher is
+	// satisfied by (ATM-d4ceed).
+	Documents(code string, ids []string) (map[string]string, error)
 	Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error)
 }
 

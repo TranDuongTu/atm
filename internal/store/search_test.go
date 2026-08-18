@@ -421,3 +421,39 @@ func TestSnippetASCIIUnchanged(t *testing.T) {
 		t.Errorf("snippet = %q, want 79 a's plus an ellipsis", got)
 	}
 }
+
+func TestDocumentsReturnsFullTextByID(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("the label resolver walks the hierarchy. ", 20)
+	task, err := s.CreateTask("ATM", "label resolver", long, nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.Documents("ATM", []string{task.ID, "ATM-nosuch"})
+	if err != nil {
+		t.Fatalf("Documents: %v", err)
+	}
+	if !strings.Contains(docs[task.ID], long) {
+		t.Errorf("docs[%s] = %q, want it to carry the FULL description, not a snippet", task.ID, docs[task.ID])
+	}
+	if _, ok := docs["ATM-nosuch"]; ok {
+		t.Error("an ID naming nothing must be absent from the map, so the engine falls back to the snippet")
+	}
+}
+
+func TestDocumentsWithNoIDsIsEmptyNotNil(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.Documents("ATM", nil)
+	if err != nil {
+		t.Fatalf("Documents: %v", err)
+	}
+	if docs == nil {
+		t.Error("want an empty map, not nil")
+	}
+}
