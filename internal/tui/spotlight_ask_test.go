@@ -1257,6 +1257,49 @@ func TestAskRetryWithFewerSourcesRehomesTheCursor(t *testing.T) {
 	mustContain(t, stripANSI(p.view()), "▸ [1] ATM-0001")
 }
 
+// The ask body's line budget is exact: the box is bodyH+6 rows, titledBoxHeight
+// spends 2 on borders, and the input takes 1 where the list's search box takes
+// 3 -- so the two spare lines are precisely what the status line and the
+// staleness chip occupy when BOTH are showing. Anything that adds a row past
+// that gets eaten by titledBoxHeight's bodyLines[:innerH], and what it eats is
+// the last line: the footer, the only thing on screen naming the level's keys.
+// Drive the worst case (a full retrieval, a degraded turn WITH a reason, and a
+// non-zero behind count) down to the spotMinBlock floor.
+func TestAskFooterSurvivesTheFullLineBudget(t *testing.T) {
+	withInstantSpotSearch(t)
+	hits := make([]core.Hit, 0, spotSearchK)
+	for i := 1; i <= spotSearchK; i++ {
+		hits = append(hits, core.Hit{ID: fmt.Sprintf("ATM-%04d", i), Kind: "task"})
+	}
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: hits, Behind: 4},
+		answer.Done{Degraded: true, Reason: "the chat endpoint returned no answer"},
+	}})
+
+	for _, rows := range []int{40, 24, 18, 14, 10} {
+		m, p := openAsk(t, "indexer")
+		m.SetSize(120, rows)
+		drainAskTicks(t, m, p)
+		if p.statusLine() == "" || p.stalenessChip() == "" {
+			t.Fatalf("rows=%d: setup wants both the status line and the chip, got %q / %q",
+				rows, p.statusLine(), p.stalenessChip())
+		}
+
+		view := strings.Split(strings.TrimRight(stripANSI(p.view()), "\n"), "\n")
+		for _, want := range []string{"esc back", "the chat endpoint returned no answer", "items still indexing"} {
+			if !strings.Contains(strings.Join(view, "\n"), want) {
+				t.Errorf("rows=%d: %q was truncated out of the box:\n%s", rows, want, strings.Join(view, "\n"))
+			}
+		}
+		// And the footer is the LAST body line, not floating above the border:
+		// the status line and the chip are conditional, so without the pad in
+		// view() it drifts up by one or two rows with the turn's outcome.
+		if n := len(view); n < 2 || !strings.Contains(view[n-2], "esc back") {
+			t.Errorf("rows=%d: the footer must sit on the last body line, got %q", rows, view[len(view)-2])
+		}
+	}
+}
+
 // Every transcript line has to FIT the column it is rendered into, because
 // view fitLines whatever it gets and a line one column too wide loses its last
 // character with nothing to show it was cut. A bare wordwrap.String overshoots
