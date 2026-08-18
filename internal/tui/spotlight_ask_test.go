@@ -11,6 +11,7 @@ import (
 
 	"atm/internal/answer"
 	"atm/internal/core"
+	"atm/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -883,4 +884,122 @@ func TestAskBackspaceRemovesAWholeRuneNotAByte(t *testing.T) {
 	if !utf8.ValidString(p.input) {
 		t.Errorf("input = %q is not valid UTF-8", p.input)
 	}
+}
+
+// Enter on a source closes the spotlight and opens the task detail -- the same
+// call activateTaskAction already makes (spotlight.go:823). The ask session is
+// over; reopening the spotlight starts fresh.
+func TestAskOpenSourceClosesSpotlightAndOpensDetail(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	id := seedTask(t, m, "ATM", "wire the indexer")
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: id.ID, Kind: "task", Title: "wire the indexer"}}},
+		answer.Done{},
+	}})
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	p := m.spotlight.ask
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.spotlight.open {
+		t.Error("opening a source closes the spotlight")
+	}
+	if m.spotlight.ask != nil {
+		t.Error("the ask session ends when a source is opened")
+	}
+	if m.focused != paneTasks {
+		t.Error("focus must land on the tasks pane")
+	}
+}
+
+// The click-through is a human judgment, logged apart from any citation.
+func TestAskOpenSourceLogsTheClickThrough(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	id := seedTask(t, m, "ATM", "wire the indexer")
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: id.ID, Kind: "task"}}},
+		answer.Done{},
+	}})
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	p := m.spotlight.ask
+	drainAskTicks(t, m, p)
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	entries, err := readInquiriesForTest(t, m, "ATM")
+	if err != nil {
+		t.Fatalf("read inquiries: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("opening a source must log a click-through")
+	}
+	last := entries[len(entries)-1]
+	if last.Query != "indexer" {
+		t.Errorf("query = %q, want the question that produced the sources", last.Query)
+	}
+	if len(last.OpenedIDs) != 1 || last.OpenedIDs[0] != id.ID {
+		t.Errorf("OpenedIDs = %v, want [%s]", last.OpenedIDs, id.ID)
+	}
+	if len(last.CitedIDs) != 0 {
+		t.Errorf("CitedIDs = %v, want empty -- an open is not a citation", last.CitedIDs)
+	}
+}
+
+// A source whose task another process deleted is not openable. Same re-read
+// activateTaskAction does before replaying against a target, for the same
+// reason: rows are a snapshot of a store someone else can write to.
+func TestAskOpenSourceSurvivesADeletedTask(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-dead", Kind: "task"}}},
+		answer.Done{},
+	}})
+
+	m.spotlight.openSpotlight()
+	seedTask(t, m, "ATM", "wire the indexer")
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	p := m.spotlight.ask
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // must not panic
+	if m.spotlight.level != levelAsk {
+		t.Error("a source that is gone leaves the user where they were")
+	}
+}
+
+// readInquiriesForTest reads the click-through log back. ReadInquiries lives
+// only on the concrete *store.Store, not on core.Service -- the interface
+// deliberately carries just the writer AppendInquiry (internal/core/ask.go:9:
+// "a writer can, a reader cannot", because internal/cli must not import
+// internal/store). newTestModelWithActor opens a real *store.Store and hands
+// it to Model as the Service, so the assertion below always holds in tests.
+func readInquiriesForTest(t *testing.T, m *Model, code string) ([]store.InquiryEntry, error) {
+	t.Helper()
+	s, ok := m.store.(*store.Store)
+	if !ok {
+		t.Fatalf("m.store is %T, want *store.Store", m.store)
+	}
+	return s.ReadInquiries(code)
 }

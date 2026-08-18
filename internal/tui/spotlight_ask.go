@@ -204,8 +204,64 @@ func (p *askPane) scroll(delta int) {
 	p.follow = p.offset >= max
 }
 
-// openSelected is filled in by the click-through task.
-func (p *askPane) openSelected() tea.Cmd { return nil }
+// openSelected opens the highlighted source's task and ends the ask session.
+//
+// The same shape activateTaskAction uses (spotlight.go:823): re-read the
+// target first, then close the launcher and hand off to the tasks pane. No
+// spotlightReturn is recorded -- opening a source is the end of the ask, not
+// a detour out of it, which is why spotlightSnapshot never has to learn how
+// to carry a transcript.
+func (p *askPane) openSelected() tea.Cmd {
+	if p.cursor < 0 || p.cursor >= len(p.sources) {
+		return nil
+	}
+	hit := p.sources[p.cursor]
+	id := hit.ID
+	m := p.sm.m
+	if hit.Kind == "comment" {
+		// A comment is how the source was found, not a thing with a detail view
+		// of its own -- the same rule a comment row follows in the list.
+		c, err := m.store.GetComment(hit.ID)
+		if err != nil {
+			m.showToast(err.Error())
+			return nil
+		}
+		id = c.TaskID
+	}
+	// Re-read: the rows are a snapshot of a store another process can write
+	// to, same reason activateTaskAction re-reads before replaying.
+	if _, err := m.store.GetTask(id); err != nil {
+		m.showToast("task " + id + " is gone")
+		return nil
+	}
+	p.logClickThrough(id)
+	p.stop()
+	m.spotlight.ask = nil
+	m.spotlight.open = false
+	m.focused = paneTasks
+	return m.tasks.openDetail(id)
+}
+
+// logClickThrough records the human judgment: this question produced these
+// sources, and the user opened this one. Kept out of CitedIDs, which is the
+// model's opinion rather than a person's (ATM-028a8d weighs them differently).
+//
+// A logging failure must never cost the user their navigation, so it is
+// toasted rather than written to p.errText -- openSelected sets sm.ask = nil
+// and closes the spotlight in the same call, so p.errText would be set on a
+// pane about to be discarded and never rendered. showToast lives on the
+// Model and renders after the spotlight closes, the lifetime this path
+// needs. Either way, the open proceeds.
+func (p *askPane) logClickThrough(id string) {
+	m := p.sm.m
+	returned := make([]string, 0, len(p.sources))
+	for _, h := range p.sources {
+		returned = append(returned, h.ID)
+	}
+	if err := m.store.AppendInquiry(m.projectScope, p.question, returned, nil, []string{id}); err != nil {
+		m.showToast(err.Error())
+	}
+}
 
 // askStream is the goroutine-to-UI boundary.
 //
