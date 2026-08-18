@@ -1,9 +1,15 @@
 package tui
 
 import (
+	"context"
 	"strings"
+	"sync"
+	"time"
 
+	"atm/internal/answer"
+	"atm/internal/chat"
 	"atm/internal/core"
+	"atm/internal/embed"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -39,6 +45,25 @@ type askPane struct {
 	follow bool // pinned to the tail; dropped when the user scrolls up
 
 	errText string // a store error, surfaced rather than swallowed
+
+	// gen retires ticks belonging to a stream the user has moved on from --
+	// the same guard sm.searchGen provides on the search path. stream is the
+	// goroutine-to-UI accumulator for the generation currently running; cancel
+	// stops it.
+	gen    int
+	stream *askStream
+	cancel context.CancelFunc
+
+	// degraded means the turn completed with sources but no generated answer
+	// (no chat model configured, or one that never produced a delta).
+	// failed/canceled cover a turn that broke instead of completing --
+	// canceled distinguishes the user's own Esc/ctrl-C from an endpoint that
+	// dropped mid-answer, mirroring answer.Failed.
+	degraded       bool
+	degradedReason string
+	failed         bool
+	failedReason   string
+	canceled       bool
 
 	// snap is where the list was standing when this level was pushed. Peel
 	// replays it through openAt, which re-runs the search, rebuilds the rows,
@@ -88,7 +113,180 @@ func (p *askPane) handleKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// start and stop are filled in by the streaming task; the level pushes and
-// peels without them.
-func (p *askPane) start() tea.Cmd { return nil }
-func (p *askPane) stop()          {}
+// askStream is the goroutine-to-UI boundary.
+//
+// The indexer streams progress over a buffered channel with NON-BLOCKING sends
+// that drop on overflow (indexer.go:768-780). That is correct there -- the
+// newest progress line supersedes the last -- and wrong here: a dropped Delta
+// is a hole in the middle of the answer, invisible to the reader.
+//
+// So deltas coalesce into a builder instead. It cannot drop, it batches to the
+// frame rate rather than re-rendering per token, and its memory is bounded by
+// the length of the answer itself.
+type askStream struct {
+	mu        sync.Mutex
+	retrieved bool
+	sources   []core.Hit
+	behind    int
+	text      strings.Builder
+	terminal  answer.Event
+	done      bool
+}
+
+func (s *askStream) emit(ev answer.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		// Ask both emits a terminal event AND returns an error when the ledger
+		// itself failed; the goroutine below emits on a non-nil error too. First
+		// terminal event wins, so the second is not mistaken for a new one.
+		return
+	}
+	switch e := ev.(type) {
+	case answer.Retrieved:
+		s.retrieved, s.sources, s.behind = true, e.Hits, e.Behind
+	case answer.Delta:
+		s.text.WriteString(e.Text)
+	default:
+		s.terminal, s.done = ev, true
+	}
+}
+
+// drain hands over everything accumulated since the last call, emptying the
+// text buffer so the same bytes are never applied twice.
+func (s *askStream) drain() (retrieved bool, sources []core.Hit, behind int, text string, terminal answer.Event, done bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	text = s.text.String()
+	s.text.Reset()
+	return s.retrieved, s.sources, s.behind, text, s.terminal, s.done
+}
+
+// askAsker is answer.Engine narrowed to the one method the pane calls, so
+// tests script event sequences without an endpoint. Same injected-seam design
+// internal/setup uses for probes.
+type askAsker interface {
+	Ask(ctx context.Context, q answer.Query, emit func(answer.Event)) error
+}
+
+// askEngineFor builds the engine for a spotlight. A package var because it is
+// the test seam; production never reassigns it.
+var askEngineFor = func(sm *spotlightModel) askAsker {
+	m := sm.m
+	acfg := answer.Config{Project: m.projectScope, Searcher: m.store, K: spotSearchK}
+	if cfg, err := m.store.GetProjectConfig(m.projectScope); err == nil && cfg != nil {
+		if cfg.Embedding != nil {
+			client := embed.New(*cfg.Embedding)
+			acfg.Embed = func(ctx context.Context, text, role string) ([]float64, error) {
+				return client.Embed(ctx, text, role)
+			}
+			acfg.Model = cfg.Embedding.Model
+			acfg.Threshold = cfg.Embedding.Threshold
+		}
+		// Assigned ONLY inside the branch, exactly as cli/ask.go does it and for
+		// the same reason: declaring the client above and assigning it
+		// unconditionally puts a TYPED NIL in the interface, so Config.Chat != nil
+		// is true for a project with no chat model -- turning a clean degrade into
+		// a nil-pointer panic.
+		if cfg.Chat != nil {
+			acfg.Chat = chat.New(*cfg.Chat)
+		}
+	}
+	return answer.New(acfg)
+}
+
+var askTickInterval = 60 * time.Millisecond
+
+// askTickMsg drains the accumulator. gen retires ticks belonging to a stream
+// the user has moved on from -- the same guard searchGen provides on the
+// search path.
+type askTickMsg struct{ gen int }
+
+func askTickCmd(gen int) tea.Cmd {
+	return tea.Tick(askTickInterval, func(time.Time) tea.Msg { return askTickMsg{gen: gen} })
+}
+
+// start runs one turn. Cancellation is the user's alone: internal/chat's
+// watchdogs cancel a DERIVED context, never the caller's, so a watchdog abort
+// can never arrive here looking like an Esc.
+func (p *askPane) start() tea.Cmd {
+	p.gen++
+	gen := p.gen
+	st := &askStream{}
+	p.stream = st
+	p.streaming = true
+	p.transcript = ""
+	p.errText = ""
+	p.degraded, p.failed, p.canceled = false, false, false
+	p.offset, p.follow = 0, true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	q := answer.Query{Question: p.question, History: p.history()}
+	eng := askEngineFor(p.sm)
+	go func() {
+		if err := eng.Ask(ctx, q, st.emit); err != nil {
+			// Ask returns ErrUsage for an empty question and emits NOTHING, so a
+			// consumer driven purely by events would never see it. emit's done
+			// guard keeps this from overwriting a real terminal event.
+			st.emit(answer.Failed{Reason: err.Error()})
+		}
+	}()
+	return askTickCmd(gen)
+}
+
+// history is the conversation replayed to the model on a follow-up.
+func (p *askPane) history() []answer.Turn {
+	out := make([]answer.Turn, 0, len(p.turns))
+	for _, t := range p.turns {
+		out = append(out, answer.Turn{Question: t.question, Answer: t.answer})
+	}
+	return out
+}
+
+func (p *askPane) stop() {
+	if p.cancel != nil {
+		p.cancel()
+		p.cancel = nil
+	}
+	p.streaming = false
+}
+
+// applyTick drains one frame's worth of stream into the pane, rescheduling
+// itself while the answer is still coming.
+func (p *askPane) applyTick(msg askTickMsg) tea.Cmd {
+	if p.stream == nil || msg.gen != p.gen {
+		return nil
+	}
+	retrieved, sources, behind, text, terminal, done := p.stream.drain()
+	if retrieved {
+		p.sources, p.behind = sources, behind
+	}
+	if text != "" {
+		p.transcript += text
+		if p.follow {
+			p.scrollToBottom()
+		}
+	}
+	if !done {
+		return askTickCmd(msg.gen)
+	}
+	p.streaming = false
+	switch e := terminal.(type) {
+	case answer.Done:
+		p.degraded, p.degradedReason = e.Degraded, e.Reason
+	case answer.Failed:
+		p.failed, p.failedReason, p.canceled = true, e.Reason, e.Canceled
+		p.errText = e.Reason
+	}
+	// A broken turn is not history: replaying a partial as though it were an
+	// answer would teach the model its own truncation.
+	if !p.failed {
+		p.turns = append(p.turns, askTurn{question: p.question, answer: p.transcript})
+	}
+	return nil
+}
+
+// scrollToBottom is filled in by the rendering task; following the tail needs
+// a rendered height to know where the bottom is.
+func (p *askPane) scrollToBottom() {}
