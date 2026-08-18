@@ -151,6 +151,27 @@ func TestRenderCarouselCompactBracketsSelectedLabel(t *testing.T) {
 	}
 }
 
+func TestRenderCarouselCompactWindowsAroundSelectedPersona(t *testing.T) {
+	entries := []carouselEntry{
+		{key: "", count: 9},
+		{key: "concierge", count: 1},
+		{key: "developer", count: 2},
+		{key: "manager", count: 3},
+		{key: "reviewer", count: 4},
+		{key: "staff", count: 5},
+	}
+	got := stripANSI(renderCarouselCompact(entries, "staff", 28, buildStyles(themeGraphite)))
+	if !strings.Contains(got, "["+personaIcon("staff")+" staff]") {
+		t.Fatalf("renderCarouselCompact() = %q, want selected tail persona visible", got)
+	}
+	if strings.Contains(got, personaIcon("concierge")+" concierge") {
+		t.Fatalf("renderCarouselCompact() = %q, want bounded window instead of always starting at first persona", got)
+	}
+	if lipgloss.Width(got) > 28 {
+		t.Fatalf("compact carousel display width = %d, want <= 28", lipgloss.Width(got))
+	}
+}
+
 func TestRenderActivityPulse(t *testing.T) {
 	end := time.Date(2026, 8, 17, 18, 30, 0, 0, time.FixedZone("ICT", 7*60*60))
 	got := renderActivityPulse(
@@ -181,6 +202,19 @@ func TestRenderActivityPulseNilCountsReturnsEmpty(t *testing.T) {
 	got := renderActivityPulse(nil, chartRanges[0], 80, 6, time.Now(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
 	if got != "" {
 		t.Fatalf("renderActivityPulse(nil) = %q, want empty output", got)
+	}
+}
+
+func TestRenderActivityPulseWithYMaxKeepsAxisOriginStable(t *testing.T) {
+	end := time.Date(2026, 8, 17, 18, 30, 0, 0, time.UTC)
+	style := lipgloss.NewStyle()
+	wide := renderActivityPulseWithYMax([]int{0, 0, 0, 12, 0, 0, 0}, 12, chartRanges[0], 80, 6, end, style, style, style)
+	narrow := renderActivityPulseWithYMax([]int{0, 0, 0, 1, 0, 0, 0}, 12, chartRanges[0], 80, 6, end, style, style, style)
+	if wide == "" || narrow == "" {
+		t.Fatalf("setup: expected rendered pulse output\nwide=%q\nnarrow=%q", wide, narrow)
+	}
+	if got, want := pulseAxisOrigin(stripANSI(narrow)), pulseAxisOrigin(stripANSI(wide)); got != want {
+		t.Fatalf("axis origin changed with stable Y max: narrow=%d wide=%d\n--- narrow ---\n%s\n--- wide ---\n%s", got, want, narrow, wide)
 	}
 }
 

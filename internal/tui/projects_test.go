@@ -3,10 +3,12 @@ package tui
 import "testing"
 
 func TestSummaryChartsBoxedThreshold(t *testing.T) {
-	if summaryChartsBoxed(6) {
-		t.Fatal("summary height 6 must use compact charts")
+	for _, height := range []int{6, 7, 8, 9, 10} {
+		if summaryChartsBoxed(height) {
+			t.Fatalf("summary height %d must use compact charts", height)
+		}
 	}
-	if !summaryChartsBoxed(7) {
-		t.Fatal("summary height 7 must box the combined chart")
+	if !summaryChartsBoxed(11) {
+		t.Fatal("summary height 11 must box the combined chart")
 	}
 }

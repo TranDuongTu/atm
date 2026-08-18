@@ -121,12 +121,16 @@ func relXLabelFormatter(end time.Time) linechart.LabelFormatter {
 }
 
 func renderActivityPulse(counts []int, spec chartRangeSpec, width, height int, end time.Time, graph, axis, label lipgloss.Style) string {
+	return renderActivityPulseWithYMax(counts, maxBucketCount(counts), spec, width, height, end, graph, axis, label)
+}
+
+func renderActivityPulseWithYMax(counts []int, yMax int, spec chartRangeSpec, width, height int, end time.Time, graph, axis, label lipgloss.Style) string {
 	if width < 12 || height < 2 || len(counts) == 0 {
 		return ""
 	}
 
 	start, endDay := chartWindow(spec, end)
-	maxCount := 0
+	maxCount := yMax
 	for _, count := range counts {
 		if count > maxCount {
 			maxCount = count
@@ -154,6 +158,16 @@ func renderActivityPulse(counts []int, spec chartRangeSpec, width, height int, e
 	}
 	chart.DrawBraille()
 	return chart.View()
+}
+
+func maxBucketCount(counts []int) int {
+	maxCount := 0
+	for _, count := range counts {
+		if count > maxCount {
+			maxCount = count
+		}
+	}
+	return maxCount
 }
 
 type carouselEntry struct {
@@ -263,8 +277,12 @@ func activityCountLabel(count int) string {
 }
 
 func topModelLabel(models map[string]int, limit int) string {
-	rows := make([]kvRow, 0, len(models))
-	for key, count := range models {
+	return topCountLabel(models, limit, "no models")
+}
+
+func topCountLabel(counts map[string]int, limit int, empty string) string {
+	rows := make([]kvRow, 0, len(counts))
+	for key, count := range counts {
 		rows = append(rows, kvRow{k: key, v: count})
 	}
 	sortKV(rows)
@@ -276,7 +294,7 @@ func topModelLabel(models map[string]int, limit int) string {
 		parts = append(parts, row.k)
 	}
 	if len(parts) == 0 {
-		return "no models"
+		return empty
 	}
 	return strings.Join(parts, ", ")
 }
@@ -458,14 +476,36 @@ func renderCarouselCompact(entries []carouselEntry, selected string, width int, 
 		return ""
 	}
 	selected = carouselSelected(entries, selected)
-	parts := make([]string, 0, len(entries))
+	labels := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		label := carouselLabel(entry.key)
 		if entry.key == selected {
-			parts = append(parts, st.PaneActiveStrong.Render("["+label+"]"))
+			labels = append(labels, st.PaneActiveStrong.Render("["+label+"]"))
 		} else {
-			parts = append(parts, st.Muted.Render(label))
+			labels = append(labels, st.Muted.Render(label))
 		}
 	}
-	return fitLine(strings.Join(parts, " "), width)
+	selectedIdx := carouselIndex(entries, selected)
+	left, right := selectedIdx, selectedIdx
+	for {
+		changed := false
+		if left > 0 {
+			next := strings.Join(labels[left-1:right+1], " ")
+			if lipgloss.Width(next) <= width {
+				left--
+				changed = true
+			}
+		}
+		if right < len(labels)-1 {
+			next := strings.Join(labels[left:right+2], " ")
+			if lipgloss.Width(next) <= width {
+				right++
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return fitLine(strings.Join(labels[left:right+1], " "), width)
 }

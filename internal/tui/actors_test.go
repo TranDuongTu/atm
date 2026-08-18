@@ -127,7 +127,7 @@ func TestChartCtrlEnterOpensInlinePersonaDrillWithoutOverlay(t *testing.T) {
 	body := stripANSI(m.projects.renderSummary(16))
 	for _, want := range []string{
 		personaIcon("manager") + " manager",
-		"1 events",
+		"1 event",
 		"models",
 		"opus",
 		"agents",
@@ -244,6 +244,25 @@ func TestChartInlineDrillKeepsExitHintAtTwelveRows(t *testing.T) {
 		"[Esc] back",
 	} {
 		mustContain(t, body, want)
+	}
+}
+
+func TestChartTightPulseKeepsRangeLegendAndPulse(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	for _, height := range []int{7, 8, 9, 10, 12} {
+		body := stripANSI(m.projects.renderSummary(height))
+		mustContain(t, body, "Range: One week")
+		if height >= 8 {
+			mustContain(t, body, "└")
+		}
+		if height <= 10 {
+			mustNotContain(t, body, "╭")
+		}
 	}
 }
 
@@ -414,6 +433,43 @@ func TestRenderSummaryChartLinesKeepFixedWidthAcrossPersonaSwitch(t *testing.T) 
 	if lipgloss.Width(all[0]) != lipgloss.Width(manager[0]) {
 		t.Fatalf("chart width changed across persona switch: all=%d manager=%d", lipgloss.Width(all[0]), lipgloss.Width(manager[0]))
 	}
+}
+
+func TestRenderSummaryPulseAxisOriginStableAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(180, 44)
+	m.projectScope = "ATM"
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: "task.updated",
+		})
+	}
+	m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+		At:     now,
+		Actor:  "manager@claude:opus",
+		Action: "project.reviewed",
+	})
+
+	all := stripANSI(m.projects.renderSummary(16))
+	m.projects.chartPersona = "manager"
+	manager := stripANSI(m.projects.renderSummary(16))
+	if got, want := pulseAxisOrigin(manager), pulseAxisOrigin(all); got != want {
+		t.Fatalf("pulse axis origin changed across persona switch: manager=%d all=%d\n--- manager ---\n%s\n--- all ---\n%s", got, want, manager, all)
+	}
+}
+
+func pulseAxisOrigin(chart string) int {
+	for _, line := range strings.Split(chart, "\n") {
+		if col := strings.IndexRune(line, '└'); col >= 0 {
+			return col
+		}
+	}
+	return -1
 }
 
 // ensure lipgloss is used (silences unused-import in trim builds).

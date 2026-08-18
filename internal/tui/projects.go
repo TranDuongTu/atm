@@ -596,7 +596,7 @@ func (p *projectsModel) renderSummary(height int) string {
 }
 
 func summaryChartsBoxed(summaryH int) bool {
-	return summaryH >= 7
+	return summaryH >= 11
 }
 
 func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, height int) string {
@@ -612,6 +612,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 		title = "\u25b8 " + title
 	}
 	now := core.Now()
+	yMax := maxBucketCount(activityBucketCounts(entries, "", spec, now))
 
 	if !summaryChartsBoxed(height) {
 		lines := []string{dashboardLine(p.width, title), dashboardLine(p.width, renderCarouselCompact(carousel, selected, p.width, p.m.styles))}
@@ -628,7 +629,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 			lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
 			return strings.Join(lines, "\n")
 		}
-		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, p.width, height-len(lines)-1, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		pulse := renderActivityPulseWithYMax(activityBucketCounts(entries, selected, spec, now), yMax, spec, p.width, height-len(lines)-1, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
 			for _, line := range strings.Split(pulse, "\n") {
 				lines = append(lines, dashboardLine(p.width, line))
@@ -640,10 +641,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 
 	innerW := chartBoxInnerWidth(p.width)
 	cards := personaCardEntries(entries, groups, spec, now)
-	body := renderPersonaCardRows(cards, selected, p.chartFocused, innerW, p.m.styles)
-	if p.chartDrill && height <= 14 {
-		body = renderPersonaMiniCardRows(cards, selected, p.chartFocused, innerW, p.m.styles)
-	}
+	body := renderChartPersonaRows(cards, selected, p.chartFocused, innerW, height, p.m.styles)
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
 	} else if p.chartDrill {
@@ -661,7 +659,7 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 			body = append(body, "")
 			pulseH--
 		}
-		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, innerW, pulseH, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		pulse := renderActivityPulseWithYMax(activityBucketCounts(entries, selected, spec, now), yMax, spec, innerW, pulseH, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
 			for _, line := range strings.Split(pulse, "\n") {
 				body = append(body, chartBodyLine(line, innerW))
@@ -673,6 +671,13 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 	}
 	body = append(body, chartBodyLine(renderRangeLegend(spec, innerW, p.m.styles), innerW))
 	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, p.m.styles.Muted)
+}
+
+func renderChartPersonaRows(cards []personaCardEntry, selected string, focused bool, width, chartHeight int, st Styles) []string {
+	if chartHeight >= 16 {
+		return renderPersonaCardRows(cards, selected, focused, width, st)
+	}
+	return renderPersonaMiniCardRows(cards, selected, focused, width, st)
 }
 
 func chartBodyLine(line string, width int) string {
@@ -724,13 +729,13 @@ func renderInlineActivityDrill(group activity.Group, key string, width, height i
 
 func activityEventsLabel(count int) string {
 	if count == 1 {
-		return "1 events"
+		return "1 event"
 	}
 	return fmt.Sprintf("%d events", count)
 }
 
 func inlineBreakdownLine(caption string, counts map[string]int, width int) string {
-	return fitLine(caption+"  "+topModelLabel(counts, 3), width)
+	return fitLine(caption+"  "+topCountLabel(counts, 3, "no "+caption), width)
 }
 
 func chartBoxWidth(width int) int {
