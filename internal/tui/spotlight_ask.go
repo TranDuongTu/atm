@@ -44,7 +44,10 @@ type askPane struct {
 	offset int  // transcript scroll
 	follow bool // pinned to the tail; dropped when the user scrolls up
 
-	errText string // a store error, surfaced rather than swallowed
+	// leftW is the list's left-pane width at the instant this level was
+	// pushed, so the box does not narrow on Tab. leftPaneWidth reads it; see
+	// its comment for why the column is inherited rather than re-measured.
+	leftW int
 
 	// gen retires ticks belonging to a stream the user has moved on from --
 	// the same guard sm.searchGen provides on the search path. stream is the
@@ -88,14 +91,23 @@ type askPane struct {
 // discipline is the point: a caller needing the old query reads it into a local
 // first. escPeel and activate both do exactly this, and so does this -- rather
 // than growing an exception inside setLevel.
+//
+// The project gate repeats askRowVisible's rather than deferring to it: tab
+// reaches here from every level, including the ones that never render the row,
+// and an ask with no project in scope retrieves from nothing while reporting no
+// error at all (see askRowVisible for the whole reason).
+//
+// leftPaneWidth is read BEFORE setLevel, for the same reason the query is:
+// setLevel rebuilds, and the rows the width is measured from are gone after it.
 func (sm *spotlightModel) enterAsk() tea.Cmd {
 	q := strings.TrimSpace(sm.query)
-	if q == "" {
+	if q == "" || sm.m.projectScope == "" {
 		return nil
 	}
 	snap := sm.snapshot()
+	leftW := sm.leftPaneWidth()
 	sm.setLevel(levelAsk, groupNone)
-	sm.ask = &askPane{sm: sm, question: q, snap: snap, follow: true}
+	sm.ask = &askPane{sm: sm, question: q, snap: snap, follow: true, leftW: leftW}
 	return sm.ask.start()
 }
 
@@ -189,8 +201,7 @@ func (p *askPane) submit() tea.Cmd {
 // of a long answer must not be yanked down by every token, and a user who has
 // caught up should not have to keep pressing a key to stay caught up.
 func (p *askPane) scroll(delta int) {
-	w := p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
-	max := len(p.transcriptBody(w)) - p.transcriptHeight()
+	max := len(p.transcriptBody(p.transcriptWidth())) - p.transcriptHeight()
 	if max < 0 {
 		max = 0
 	}
@@ -258,11 +269,11 @@ func (p *askPane) openSelected() tea.Cmd {
 // them differently).
 //
 // A logging failure must never cost the user their navigation, so it is
-// toasted rather than written to p.errText -- openSelected sets sm.ask = nil
-// and closes the spotlight in the same call, so p.errText would be set on a
-// pane about to be discarded and never rendered. showToast lives on the
-// Model and renders after the spotlight closes, the lifetime this path
-// needs. Either way, the open proceeds.
+// toasted rather than kept on the pane -- openSelected sets sm.ask = nil and
+// closes the spotlight in the same call, so anything recorded here would live
+// on a pane about to be discarded and would never reach the screen. showToast
+// lives on the Model and renders after the spotlight closes, the lifetime this
+// path needs. Either way, the open proceeds.
 func (p *askPane) logClickThrough(id string) {
 	m := p.sm.m
 	returned := make([]string, 0, len(p.sources))
@@ -394,7 +405,6 @@ func (p *askPane) start() tea.Cmd {
 	p.stream = st
 	p.streaming = true
 	p.transcript = ""
-	p.errText = ""
 	p.degraded, p.failed, p.canceled = false, false, false
 	p.offset, p.follow = 0, true
 
@@ -440,6 +450,16 @@ func (p *askPane) applyTick(msg askTickMsg) tea.Cmd {
 	retrieved, sources, behind, text, terminal, done := p.stream.drain()
 	if retrieved {
 		p.sources, p.behind = sources, behind
+		// Retrieval re-runs every turn and a retry can return fewer hits than
+		// the last one, so the cursor is rehomed here rather than only in
+		// submit(): ctrl+r goes straight to start(), and a cursor left past
+		// the end renders no glyph anywhere until the user presses up or down.
+		if p.cursor >= len(p.sources) {
+			p.cursor = len(p.sources) - 1
+		}
+		if p.cursor < 0 {
+			p.cursor = 0
+		}
 	}
 	if text != "" {
 		p.transcript += text
@@ -455,8 +475,14 @@ func (p *askPane) applyTick(msg askTickMsg) tea.Cmd {
 	case answer.Done:
 		p.degraded, p.degradedReason = e.Degraded, e.Reason
 	case answer.Failed:
-		p.failed, p.failedReason, p.canceled = true, e.Reason, e.Canceled
-		p.errText = e.Reason
+		p.failed, p.failedReason = true, e.Reason
+		// A user stop is sticky. Esc sets canceled and then the goroutine's
+		// own terminal event arrives behind it, and that event does not always
+		// carry Canceled -- a hydration failure after the cancel reports its
+		// own reason (answer/engine.go). Assigning e.Canceled unconditionally
+		// therefore tells a user who pressed Esc that the answer was
+		// interrupted and offers them a retry for a stop they chose.
+		p.canceled = p.canceled || e.Canceled
 	}
 	// Recorded only when there is an answer to record, mirroring cli/ask.go's
 	// rule (ATM-d4ceed): a degraded turn generated nothing, and an empty

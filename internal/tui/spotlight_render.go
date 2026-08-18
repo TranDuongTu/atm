@@ -45,6 +45,18 @@ func (sm *spotlightModel) blockHeight() int {
 	if p := 2 + len(sm.lines); p > h {
 		h = p // the panel's two borders around its content
 	}
+	if sm.level == levelAsk {
+		// The ask level has neither rows nor preview lines — setLevel's
+		// buildRows has no levelAsk case and refreshPreview clears sm.lines —
+		// so deriving its block from content collapses it to spotMinBlock
+		// forever: a four-line window over an answer, and a SOURCES column
+		// with room for three of the eight hits retrieval returns. Nothing
+		// here is content-sized in the first place: the transcript is a scroll
+		// window over text of unknown length. So the block takes every row the
+		// chrome leaves it, via the same cap below the list level already
+		// obeys.
+		h = sm.m.height
+	}
 	if h < spotMinBlock {
 		h = spotMinBlock
 	}
@@ -78,6 +90,19 @@ func (sm *spotlightModel) innerWidth() int { return sm.menuBoxWidth() - 4 }
 // this nor previewWidth may consult menuBoxWidth: the box is derived from them.
 func (sm *spotlightModel) leftPaneWidth() int {
 	w := spotMinLeftPane
+	if sm.level == levelAsk && sm.ask != nil {
+		// The ask level has no rows to measure, so it carries the width the
+		// list was using when the level was pushed (askPane.leftW) rather than
+		// falling to the minimum — which is how the box came to visibly narrow
+		// on Tab. Inherited rather than re-measured from p.sources because the
+		// sources arrive a frame or two after the level does: measuring them
+		// would widen the box mid-turn, and the left column is showing the
+		// same kind of thing the list just showed anyway.
+		w = sm.ask.leftW
+		if w < spotMinLeftPane {
+			w = spotMinLeftPane
+		}
+	}
 	for _, r := range sm.rows {
 		// two columns for the cursor glyph, then the row's own text
 		if rw := 2 + lipgloss.Width(sm.rowText(r)); rw > w {
@@ -480,12 +505,21 @@ func (sm *spotlightModel) renderOverlay() string {
 }
 
 // askRowVisible reports whether the pinned Ask row renders: only with
-// something to ask about. The sub-task gate it also carried is gone -- hiding
-// the row when no chat model is configured would be the wrong behaviour, since
-// degraded mode plus a hint naming the wizard step is how that gets
-// communicated, and a user cannot discover a fix from a row that is not there.
+// something to ask about, and only with a project to ask it of. The chat-model
+// gate the sub-task also carried is gone -- hiding the row when no chat model
+// is configured would be the wrong behaviour, since degraded mode plus a hint
+// naming the wizard step is how that gets communicated, and a user cannot
+// discover a fix from a row that is not there.
+//
+// The project gate is different in kind, and stays. Retrieval is scoped to one
+// project: with none in scope store.Search returns no hits and no error, so an
+// ask with no project answers from nothing at all and says nothing about why.
+// The list level is already honest about this ("select a project first",
+// appendContentRows), and the two must not disagree. enterAsk repeats the gate
+// rather than trusting this one, because tab reaches enterAsk from every
+// level, not only the ones that render the row.
 func (sm *spotlightModel) askRowVisible() bool {
-	return strings.TrimSpace(sm.query) != ""
+	return sm.m.projectScope != "" && strings.TrimSpace(sm.query) != ""
 }
 
 // askRow is the conversational entry point, pinned across the bottom of the

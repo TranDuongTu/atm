@@ -6,44 +6,69 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
+	"github.com/muesli/reflow/wrap"
 )
 
 // view is the ask level's whole box: the follow-up input across the top, then
 // SOURCES beside the transcript, then the staleness chip and the footer.
 //
-// It reuses the list level's width and height helpers rather than computing its
-// own, so the box does not visibly resize when the level is pushed -- the
-// umbrella spec's "pushes a level over the same spotlight box".
+// It goes through the same width and height helpers the list level does --
+// "pushes a level over the same spotlight box" -- and those helpers now carry
+// the ask level's own cases, because the list's are content-derived and this
+// level has no rows and no preview lines to derive from. The width is the
+// list's own, carried across on push (leftPaneWidth); the height is whatever
+// the terminal leaves after the chrome (blockHeight), since the transcript is
+// a scroll window rather than a block of content with a length.
+//
+// The line budget below is exact and worth counting before adding to it. The
+// box is bodyH+6 rows, of which titledBoxHeight spends 2 on borders: bodyH+4
+// lines of body. This spends 1 on the input where the list spends 3 on its
+// search box, and those 2 spare lines are exactly what the status line and the
+// staleness chip take when both are showing. One more unconditional row and
+// titledBoxHeight's bodyLines[:innerH] silently eats the footer.
 func (p *askPane) view() string {
 	sm := p.sm
 	st := sm.m.styles
 	inner := sm.innerWidth()
 	leftW := sm.leftPaneWidth()
-	rightW := inner - leftW - spotPaneGap
+	rightW := p.transcriptWidth()
 	bodyH := sm.blockHeight()
 
-	var b strings.Builder
+	var lines []string
 	for _, line := range strings.Split(p.inputBox(inner), "\n") {
-		b.WriteString(" " + line + "\n")
+		lines = append(lines, " "+line)
 	}
 	left := p.sourceLines(bodyH, leftW)
 	right := p.transcriptLines(bodyH, rightW)
 	for i := 0; i < bodyH; i++ {
-		b.WriteString(" " + fitLine(left[i], leftW) + spaces(spotPaneGap) + fitLine(right[i], rightW) + "\n")
+		lines = append(lines, " "+fitLine(left[i], leftW)+spaces(spotPaneGap)+fitLine(right[i], rightW))
 	}
+	// The status line, the chip and the footer sit together at the bottom, and
+	// the two conditional ones must not shove the footer up off the last row
+	// when they are absent. The list level's arithmetic is exact and its
+	// footer never moves; pad to the same budget rather than letting this
+	// level's footer drift by one or two rows with how the last turn ended.
+	var tail []string
 	if s := p.statusLine(); s != "" {
-		b.WriteString(" " + st.KeyMenuDim.Render(fitLine(s, inner)) + "\n")
+		tail = append(tail, " "+st.KeyMenuDim.Render(fitLine(s, inner)))
 	}
 	if chip := p.stalenessChip(); chip != "" {
-		b.WriteString(" " + st.KeyMenuDim.Render(fitLine(chip, inner)) + "\n")
+		tail = append(tail, " "+st.KeyMenuDim.Render(fitLine(chip, inner)))
 	}
-	b.WriteString(" " + st.KeyMenuDim.Render(fitLine(p.footer(), inner)))
+	tail = append(tail, " "+st.KeyMenuDim.Render(fitLine(p.footer(), inner)))
+	for len(lines) < bodyH+4-len(tail) {
+		lines = append(lines, "")
+	}
+	lines = append(lines, tail...)
 
-	return titledBoxHeight(st.DialogBody, sm.menuBoxWidth(), "ask", b.String(), sm.spotlightHeight())
+	return titledBoxHeight(st.DialogBody, sm.menuBoxWidth(), "ask", strings.Join(lines, "\n"), sm.spotlightHeight())
 }
 
-// inputBox mirrors the list level's searchBox: a bordered field with a caret,
-// so the two levels do not disagree about what "somewhere you type" looks like.
+// inputBox is where a follow-up is typed: one unbordered line carrying the
+// list level's searchBox prompt and caret, so the two levels agree about what
+// "somewhere you type" looks like without agreeing about its height. The
+// border is deliberately absent -- searchBox's three rows would cost the two
+// spare lines the status line and the staleness chip live in (see view).
 func (p *askPane) inputBox(w int) string {
 	st := p.sm.m.styles
 	return st.DialogBody.Width(w - 2).Render(st.KeyMenuDim.Render("> ") + st.Body.Render(p.input) + "█")
@@ -62,7 +87,20 @@ func (p *askPane) sourceLines(h, w int) []string {
 	st := p.sm.m.styles
 	out := make([]string, 0, h)
 	out = append(out, st.KeyMenuDim.Render("SOURCES"))
-	for i, hit := range p.sources {
+	// The header takes a row; the rest is the sources'. blockHeight normally
+	// leaves room for all of them, but on a terminal too short for eight hits
+	// the column scrolls with the cursor rather than truncating: `down` walks
+	// the cursor onto the last hit whether or not it is on screen, and Enter
+	// opens -- and logs a click-through for -- whatever it lands on. A source
+	// the cursor can reach has to be a source the user can see.
+	start := 0
+	if room := h - 1; room > 0 && p.cursor >= room {
+		start = p.cursor - room + 1
+	}
+	for i := start; i < len(p.sources) && len(out) < h; i++ {
+		hit := p.sources[i]
+		// [n] is the hit's position in the whole retrieval, not in this
+		// window: it is the number the answer cites.
 		label := fmt.Sprintf("[%d] %s", i+1, hit.ID)
 		if hit.Title != "" {
 			label += " " + hit.Title
@@ -112,7 +150,7 @@ func (p *askPane) transcriptBody(w int) []string {
 		if s == "" {
 			return
 		}
-		out = append(out, strings.Split(wordwrap.String(s, w), "\n")...)
+		out = append(out, wrapAnswer(s, w)...)
 	}
 	for _, t := range p.turns {
 		appendWrapped(st.KeyMenuDim.Render("> " + t.question))
@@ -134,12 +172,49 @@ func (p *askPane) transcriptBody(w int) []string {
 	return out
 }
 
+// wrapAnswer wraps one paragraph of the transcript to w columns, and unlike a
+// bare wordwrap.String it guarantees every line it returns FITS in w.
+//
+// Two reasons it cannot be the bare call the rest of the launcher makes.
+//
+// wordwrap's default breakpoints are ['-'], and on a break at a breakpoint it
+// overshoots its own limit by a column. view then fitLines the line to the
+// column width and a character of the model's answer is gone with nothing to
+// say it was cut -- "…re-index on every keystroke" renders as "…re-index o"
+// above "every keystroke". A dropped delta and a dropped column are the same
+// hole to the reader, and this level already goes to some length over the
+// first one. Clearing Breakpoints removes the overshoot at its cause, and it
+// is what we want here anyway: a task id broken across two lines (`ATM-` /
+// `3aafb4`) is neither readable nor copyable, and answers cite ids constantly.
+//
+// wrap is then the hard fallback, for the one case word-wrapping genuinely
+// cannot serve: a single token longer than the column, which has to break
+// somewhere. Composing the two is what reflow intends; wrap alone would break
+// mid-word everywhere.
+func wrapAnswer(s string, w int) []string {
+	if w < 1 {
+		w = 1
+	}
+	ww := wordwrap.NewWriter(w)
+	ww.Breakpoints = nil
+	_, _ = ww.Write([]byte(s))
+	_ = ww.Close()
+	return strings.Split(wrap.String(ww.String(), w), "\n")
+}
+
 func (p *askPane) transcriptHeight() int { return p.sm.blockHeight() }
+
+// transcriptWidth is the right column's measure: the inner width less the
+// SOURCES column and the gap between them. One function because three callers
+// wrapping to three independently-derived widths is how a scroll bound comes
+// to disagree with what was actually rendered.
+func (p *askPane) transcriptWidth() int {
+	return p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
+}
 
 // scrollToBottom pins the window to the tail.
 func (p *askPane) scrollToBottom() {
-	w := p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
-	if n := len(p.transcriptBody(w)) - p.transcriptHeight(); n > 0 {
+	if n := len(p.transcriptBody(p.transcriptWidth())) - p.transcriptHeight(); n > 0 {
 		p.offset = n
 		return
 	}

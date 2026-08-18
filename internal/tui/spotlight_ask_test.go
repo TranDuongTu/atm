@@ -292,18 +292,29 @@ func TestAskIgnoresTicksFromARetiredStream(t *testing.T) {
 	if p.transcript != "" {
 		t.Errorf("transcript = %q, want a retired tick to write nothing", p.transcript)
 	}
-	_ = m
+	// The current generation must still write. Without this half the test
+	// passes against a guard that drops EVERY tick -- msg.gen >= p.gen, say --
+	// which retires the live stream along with the dead one and leaves the
+	// answer permanently blank.
+	drainAskTicks(t, m, p)
+	if p.transcript != "stale" {
+		t.Errorf("transcript = %q, want the CURRENT generation's tick to write", p.transcript)
+	}
 }
 
 // Ask returns ErrUsage for an empty question and emits NOTHING, so a consumer
-// driven purely by events would never learn. The pane must check the error.
+// driven purely by events would never learn. The pane must check the error --
+// and the constraint is that the error is never SWALLOWED, so the assertion is
+// on the rendered view. Asserting on a pane field instead let the error be
+// recorded somewhere nothing ever read, which is exactly what happened: the
+// field this used to check was write-only and has since been deleted.
 func TestAskSurfacesAskReturnedError(t *testing.T) {
 	withInstantSpotSearch(t)
 	withAsker(t, &fakeAsker{err: errors.New("ledger is corrupt")})
 	m, p := openAsk(t, "indexer")
 	drainAskTicks(t, m, p)
-	if !strings.Contains(p.errText+p.transcript, "ledger is corrupt") {
-		t.Errorf("a store error must reach the pane, got errText=%q", p.errText)
+	if view := stripANSI(p.view()); !strings.Contains(view, "ledger is corrupt") {
+		t.Errorf("a store error must reach the screen, view:\n%s", view)
 	}
 }
 
@@ -564,18 +575,37 @@ func TestAskEnterSubmitsWhenInputHasText(t *testing.T) {
 	}
 }
 
+// Enter with nothing typed means OPEN, and the test has to see the open
+// happen: asserting only that the question did not change passes just as well
+// against a handler that made empty-Enter inert, which is the other way to get
+// this wrong. The hit is a real seeded task so openSelected's re-read finds
+// it.
 func TestAskEnterWithEmptyInputDoesNotSubmit(t *testing.T) {
 	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	task := seedTask(t, m, "ATM", "wire the indexer")
 	withAsker(t, &fakeAsker{events: []answer.Event{
-		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}}, answer.Done{},
+		answer.Retrieved{Hits: []core.Hit{{ID: task.ID, Kind: "task"}}}, answer.Done{},
 	}})
-	m, p := openAsk(t, "indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	p := m.spotlight.ask
 	drainAskTicks(t, m, p)
 
 	before := p.question
 	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if p.question != before {
 		t.Errorf("question changed to %q -- empty input must open, not submit", p.question)
+	}
+	if m.spotlight.open || m.spotlight.ask != nil || m.focused != paneTasks {
+		t.Errorf("empty-input enter must open the source: open=%v ask=%v focused=%v",
+			m.spotlight.open, m.spotlight.ask != nil, m.focused)
 	}
 }
 
@@ -1061,4 +1091,224 @@ func readInquiriesForTest(t *testing.T, m *Model, code string) ([]store.InquiryE
 		t.Fatalf("m.store is %T, want *store.Store", m.store)
 	}
 	return s.ReadInquiries(code)
+}
+
+// spotSearchK is what retrieval actually asks the store for, and every other
+// test in this file scripts one or two hits -- which is how a SOURCES column
+// with room for exactly three of them survived every review. Render a full
+// retrieval and demand all of it, including the cursor's reach: `down` walks
+// onto the last hit whether or not it is drawn, and Enter opens (and logs a
+// click-through for) whatever it lands on.
+func TestAskRendersEveryRetrievedSource(t *testing.T) {
+	withInstantSpotSearch(t)
+	hits := make([]core.Hit, 0, spotSearchK)
+	for i := 1; i <= spotSearchK; i++ {
+		hits = append(hits, core.Hit{ID: fmt.Sprintf("ATM-%04d", i), Kind: "task"})
+	}
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{Hits: hits}, answer.Done{}}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	for i := 1; i <= spotSearchK; i++ {
+		mustContain(t, view, fmt.Sprintf("[%d] ATM-%04d", i, i))
+	}
+
+	for i := 0; i < spotSearchK; i++ {
+		p.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if p.cursor != spotSearchK-1 {
+		t.Fatalf("cursor = %d, want the last of %d sources", p.cursor, spotSearchK)
+	}
+	mustContain(t, stripANSI(p.view()), fmt.Sprintf("▸ [%d] ATM-%04d", spotSearchK, spotSearchK))
+}
+
+// The ask level is pushed over the same spotlight box, so tab must not resize
+// it. It used to do exactly that: at levelAsk sm.rows is empty and sm.lines is
+// nil, so the list level's content-derived helpers both fell to their floors
+// and the box narrowed AND shortened on the way in. Width must be identical;
+// height may grow (the ask block takes the terminal, because a transcript is a
+// scroll window rather than content with a length) but must never shrink.
+func TestAskBoxDoesNotShrinkWhenTheLevelIsPushed(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	seedTask(t, m, "ATM", "wire the indexer")
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	listRows, listCols := overlaySize(m)
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	drainAskTicks(t, m, m.spotlight.ask)
+	askRows, askCols := overlaySize(m)
+
+	if askCols != listCols {
+		t.Errorf("box width = %d at the ask level, %d at the list -- tab must not resize the box", askCols, listCols)
+	}
+	if askRows < listRows {
+		t.Errorf("box height = %d at the ask level, %d at the list -- the ask level must never be the shorter box", askRows, listRows)
+	}
+}
+
+// overlaySize is the rendered box's row count and widest line.
+func overlaySize(m *Model) (rows, cols int) {
+	lines := strings.Split(strings.TrimRight(stripANSI(m.spotlight.renderOverlay()), "\n"), "\n")
+	for _, l := range lines {
+		if w := len([]rune(l)); w > cols {
+			cols = w
+		}
+	}
+	return len(lines), cols
+}
+
+// A stop the user chose is sticky. Esc cancels, and the goroutine's own
+// terminal event lands behind it -- and that event does not always say
+// Canceled: a hydration failure after the cancel reports its own reason
+// (answer/engine.go). Overwriting the flag with it tells someone who pressed
+// Esc that their answer was interrupted, and offers a retry for a stop they
+// made on purpose.
+func TestAskEscStaysCanceledWhenTheTerminalEventDisagrees(t *testing.T) {
+	withInstantSpotSearch(t)
+	block := make(chan struct{})
+	withAsker(t, &fakeAsker{block: block, events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "partial"},
+		answer.Failed{Reason: "hydrating sources failed", Canceled: false},
+	}})
+	m, p := openAsk(t, "indexer")
+	for i := 0; i < 50 && p.transcript == ""; i++ {
+		p.applyTick(askTickMsg{gen: p.gen})
+		time.Sleep(time.Millisecond)
+	}
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if !p.canceled {
+		t.Fatal("setup: esc must cancel")
+	}
+	close(block)
+	for i := 0; i < 200 && !p.failed; i++ {
+		p.applyTick(askTickMsg{gen: p.gen})
+		time.Sleep(time.Millisecond)
+	}
+
+	if !p.failed {
+		t.Fatal("setup: the scripted Failed never arrived")
+	}
+	if !p.canceled {
+		t.Error("a Failed reporting Canceled:false must not un-cancel a user's own esc")
+	}
+	if got := p.statusLine(); got != "(canceled)" {
+		t.Errorf("status = %q, want the cancel to stand -- no interruption warning, no retry offer", got)
+	}
+	_ = m
+}
+
+// shrinkingAsker returns three sources on its first turn and one on every turn
+// after, the shape a retry against a store that changed underneath produces.
+type shrinkingAsker struct{ calls int }
+
+func (a *shrinkingAsker) Ask(ctx context.Context, q answer.Query, emit func(answer.Event)) error {
+	a.calls++
+	n := 3
+	if a.calls > 1 {
+		n = 1
+	}
+	hits := make([]core.Hit, 0, n)
+	for i := 1; i <= n; i++ {
+		hits = append(hits, core.Hit{ID: fmt.Sprintf("ATM-%04d", i), Kind: "task"})
+	}
+	emit(answer.Retrieved{Hits: hits})
+	emit(answer.Failed{Reason: "endpoint dropped"})
+	return nil
+}
+
+// submit() rehomes the cursor but start() does not, and ctrl+r goes straight
+// to start(). A retry that returns fewer sources than the last turn used to
+// leave the cursor past the end of the list, where no glyph renders anywhere
+// until the user presses up or down.
+func TestAskRetryWithFewerSourcesRehomesTheCursor(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &shrinkingAsker{})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	p.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if p.cursor != 2 {
+		t.Fatalf("setup: cursor = %d, want the third of three sources", p.cursor)
+	}
+
+	cmd := p.handleKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if cmd == nil {
+		t.Fatal("setup: ctrl+r must retry a failed turn")
+	}
+	drainAskTicks(t, m, p)
+
+	if len(p.sources) != 1 {
+		t.Fatalf("sources = %d, want the retry's single hit", len(p.sources))
+	}
+	if p.cursor != 0 {
+		t.Errorf("cursor = %d, want it rehomed inside the retry's shorter source list", p.cursor)
+	}
+	mustContain(t, stripANSI(p.view()), "▸ [1] ATM-0001")
+}
+
+// Every transcript line has to FIT the column it is rendered into, because
+// view fitLines whatever it gets and a line one column too wide loses its last
+// character with nothing to show it was cut. A bare wordwrap.String overshoots
+// its own limit by a column whenever the break lands on a hyphen -- which ATM
+// answers are full of, since they cite task ids -- so this pins both halves of
+// the invariant: no line over the width, and no text lost getting there.
+func TestAskTranscriptWrapsWithoutLosingText(t *testing.T) {
+	const prose = "[2], which is why a large project does not pay for a full re-index " +
+		"on every keystroke [3]. See ATM-3aafb4 for the debounce window and " +
+		"ATM-d25dd8 for the click-through log."
+	want := strings.Join(strings.Fields(prose), " ")
+
+	for w := 24; w <= 80; w++ {
+		got := wrapAnswer(prose, w)
+		for i, l := range got {
+			if n := len([]rune(l)); n > w {
+				t.Fatalf("w=%d line %d is %d columns wide: %q", w, i, n, l)
+			}
+		}
+		if flat := strings.Join(strings.Fields(strings.Join(got, " ")), " "); flat != want {
+			t.Fatalf("w=%d lost or gained text in the wrap:\n got %q\nwant %q", w, flat, want)
+		}
+	}
+}
+
+// Retrieval is scoped to one project. With none in scope store.Search returns
+// no hits and no error, so an ask answers from nothing and never says why --
+// while the list level, one keystroke away, is honest about it ("select a
+// project first"). Both gates are tested: the row must not offer the ask, and
+// tab must not take it, because tab reaches enterAsk from levels that never
+// render the row.
+func TestSpotlightAskNeedsAProjectInScope(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	if m.projectScope != "" {
+		t.Fatalf("setup: projectScope = %q, want no project in scope", m.projectScope)
+	}
+
+	m.spotlight.openSpotlight()
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if m.spotlight.query == "" {
+		t.Fatal("setup: the keystroke must reach the query")
+	}
+	if m.spotlight.askRowVisible() {
+		t.Error("the Ask row must not offer an ask with no project to ask it of")
+	}
+	if row := m.spotlight.askRow(m.spotlight.innerWidth()); row != "" {
+		t.Errorf("askRow = %q, want nothing rendered", stripANSI(row))
+	}
+
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.spotlight.level == levelAsk {
+		t.Error("tab must not enter ask mode with no project in scope")
+	}
 }
