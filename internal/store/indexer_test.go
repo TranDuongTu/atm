@@ -275,3 +275,26 @@ func TestWatchTriggersOnNewLogAppend(t *testing.T) {
 		t.Error("progress never called; watch loop did not index")
 	}
 }
+
+// PendingIndexCount is the answer engine's staleness number (ATM-66a6d2): the
+// count crosses the package boundary so IndexDoc does not have to.
+func TestPendingIndexCountMatchesPendingIndex(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask("ATM", "label resolver", "hierarchical", nil, testActor); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := s.PendingIndex("ATM", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.PendingIndexCount("ATM", "m")
+	if err != nil {
+		t.Fatalf("PendingIndexCount: %v", err)
+	}
+	if n != len(pending) || n == 0 {
+		t.Errorf("count = %d, want %d and non-zero", n, len(pending))
+	}
+}

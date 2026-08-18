@@ -115,6 +115,67 @@ func TestGoldenProjectShowEmbedding(t *testing.T) {
 	}
 }
 
+func TestGoldenProjectSetChat(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	out, _, code := h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "qwen3:8b", "--endpoint", "http://localhost:11434/v1", "--actor", "admin@cli:unset", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	compareGolden(t, "project-set-chat", out)
+}
+
+// The chat endpoint defaults to the embedding one: ollama serves both, so
+// making the user repeat the URL would be ceremony.
+func TestProjectSetChatBorrowsEmbeddingEndpoint(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("project", "set-embedding", "--store", sp, "--project", "FOO", "--model", "nomic-embed-text", "--endpoint", "http://localhost:11434/v1", "--dim", "768", "--threshold", "0.55", "--actor", "admin@cli:unset")
+	out, _, code := h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "qwen3:8b", "--actor", "admin@cli:unset", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "http://localhost:11434/v1") {
+		t.Errorf("output = %s, want the borrowed embedding endpoint", out)
+	}
+}
+
+// With no endpoint to borrow, the command says what to run rather than
+// storing a chat config that points nowhere.
+func TestProjectSetChatWithoutAnyEndpointIsUsage(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	_, stderr, code := h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "qwen3:8b", "--actor", "admin@cli:unset")
+	if code != ExitUsage {
+		t.Errorf("exit=%d, want %d", code, ExitUsage)
+	}
+	if !strings.Contains(stderr, "set-embedding") {
+		t.Errorf("stderr = %q, want it to name set-embedding", stderr)
+	}
+}
+
+func TestGoldenProjectShowChat(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "qwen3:8b", "--endpoint", "http://localhost:11434/v1", "--actor", "admin@cli:unset")
+	out, _, code := h.run("project", "show", "--store", sp, "--code", "FOO", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	compareGolden(t, "project-show-chat", out)
+	if !strings.Contains(out, "\"chat\"") {
+		t.Errorf("project show output missing chat field: %s", out)
+	}
+}
+
 // TestGoldenProjectBoardsHideShowReorder: display preferences round-trip
 // through config.json.boards; reorder materializes the effective ring order.
 func TestGoldenProjectBoardsHideShowReorder(t *testing.T) {

@@ -11,6 +11,16 @@ type EmbeddingConfig struct {
 	Threshold   float64 `json:"threshold"`
 }
 
+// ChatConfig is the project's generation endpoint: which local chat model
+// answers questions over the ledger, and where it lives. Sibling of
+// EmbeddingConfig and deliberately as small — retrieval must keep working
+// when this is absent, so nothing here is required in order to search
+// (ATM-66a6d2).
+type ChatConfig struct {
+	Model    string `json:"model"`
+	Endpoint string `json:"endpoint"`
+}
+
 // MaxBoardPins caps the pinned boards per project (Shift-1..3 slots).
 const MaxBoardPins = 3
 
@@ -62,6 +72,7 @@ type ProjectConfig struct {
 	UpdatedAt string                   `json:"updated_at,omitempty"`
 	UpdatedBy string                   `json:"updated_by,omitempty"`
 	Embedding *EmbeddingConfig         `json:"embedding,omitempty"`
+	Chat      *ChatConfig              `json:"chat,omitempty"`
 	Remotes   map[string]string        `json:"remotes,omitempty"`
 	Boards    *BoardsConfig            `json:"boards,omitempty"`
 	Repos     []RepoConfig             `json:"repos,omitempty"`
