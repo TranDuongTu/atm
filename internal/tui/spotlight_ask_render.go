@@ -26,6 +26,13 @@ import (
 // search box, and those 2 spare lines are exactly what the status line and the
 // staleness chip take when both are showing. One more unconditional row and
 // titledBoxHeight's bodyLines[:innerH] silently eats the footer.
+//
+// A row does not have to be ADDED to overrun the budget -- an existing one
+// growing does it just as well, and more quietly. The input is the one that
+// can: it is a single line only because inputBox now bounds it (a lipgloss
+// Width wraps rather than cuts, so a long enough follow-up used to render two
+// rows and cost the footer). Anything here that takes user text has to be
+// fitted to one line before it is counted.
 func (p *askPane) view() string {
 	sm := p.sm
 	st := sm.m.styles
@@ -64,14 +71,31 @@ func (p *askPane) view() string {
 	return titledBoxHeight(st.DialogBody, sm.menuBoxWidth(), "ask", strings.Join(lines, "\n"), sm.spotlightHeight())
 }
 
-// inputBox is where a follow-up is typed: one unbordered line carrying the
+// inputBox is where a follow-up is typed: ONE unbordered line carrying the
 // list level's searchBox prompt and caret, so the two levels agree about what
 // "somewhere you type" looks like without agreeing about its height. The
 // border is deliberately absent -- searchBox's three rows would cost the two
 // spare lines the status line and the staleness chip live in (see view).
+//
+// One line is a guarantee, not a hope. lipgloss's Width WRAPS what it cannot
+// fit rather than cutting it, so a follow-up longer than the box turned this
+// into two rows, pushed the body one line past its budget, and
+// titledBoxHeight dropped the last line it had -- the footer, the only thing
+// naming this level's keys. A ~100-character question did it at 120x40.
+//
+// The window scrolls to the TAIL, exactly as searchBox does it (fitLineFrom,
+// not fitLine or fitLineTail): both of those keep the HEAD, which in a field
+// someone is typing into means the caret and the characters just typed are
+// the first things to go. What you are typing has to be what you can see.
 func (p *askPane) inputBox(w int) string {
 	st := p.sm.m.styles
-	return st.DialogBody.Width(w - 2).Render(st.KeyMenuDim.Render("> ") + st.Body.Render(p.input) + "█")
+	// the style's own width, less "> " and the caret
+	room := w - 2 - 2 - 1
+	in := p.input
+	if n := lipgloss.Width(in); n > room {
+		in = fitLineFrom(in, n-room, room)
+	}
+	return st.DialogBody.Width(w - 2).Render(st.KeyMenuDim.Render("> ") + st.Body.Render(in) + "█")
 }
 
 // sourceLines is the left column: a header, then one numbered row per hit.

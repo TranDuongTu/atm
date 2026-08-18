@@ -1300,6 +1300,64 @@ func TestAskFooterSurvivesTheFullLineBudget(t *testing.T) {
 	}
 }
 
+// The budget's other half: the case where NEITHER conditional row is showing.
+// With the status line and the chip both present the pre-fix arithmetic came
+// out exactly right (1 + bodyH + 3 == innerH), so the footer was never at risk
+// there -- it was at risk of DRIFTING when they were absent, floating one or
+// two rows above the bottom border depending only on how the last turn ended.
+// A footer that moves with the outcome reads as the box being broken.
+func TestAskFooterSitsOnTheLastRowWithNoStatusOrChip(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}, Behind: 0},
+		answer.Delta{Text: "the indexer is the watcher"},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	if p.statusLine() != "" || p.stalenessChip() != "" {
+		t.Fatalf("setup wants a clean turn with no status and no chip, got %q / %q",
+			p.statusLine(), p.stalenessChip())
+	}
+
+	view := strings.Split(strings.TrimRight(stripANSI(p.view()), "\n"), "\n")
+	if n := len(view); n < 2 || !strings.Contains(view[n-2], "esc back") {
+		t.Errorf("the footer must sit flush on the last body line, above the border:\n%s",
+			strings.Join(view, "\n"))
+	}
+}
+
+// A follow-up longer than the box must not cost the footer. lipgloss's Width
+// WRAPS rather than cuts, so the input rendered as two rows, the body ran one
+// line past its budget, and titledBoxHeight dropped the last line it had. The
+// caret has to survive the fit too: a field whose head is kept and whose tail
+// is cut hides the characters you are currently typing.
+func TestAskLongFollowUpDoesNotCostTheFooter(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}}, answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	for _, n := range []int{96, 97, 120, 400} {
+		p.input = strings.Repeat("x", n-len(" tail")) + " tail"
+		view := strings.Split(strings.TrimRight(stripANSI(p.view()), "\n"), "\n")
+		if !strings.Contains(strings.Join(view, "\n"), "esc back") {
+			t.Errorf("input of %d chars truncated the footer out of the box:\n%s",
+				n, strings.Join(view, "\n"))
+		}
+		if got := len(strings.Split(stripANSI(p.inputBox(m.spotlight.innerWidth())), "\n")); got != 1 {
+			t.Errorf("input of %d chars rendered %d rows, want exactly 1", n, got)
+		}
+		// The tail of what was typed, and the caret, must both still be there.
+		if !strings.Contains(strings.Join(view, "\n"), "tail█") {
+			t.Errorf("input of %d chars: the caret and the last-typed text must stay visible:\n%s",
+				n, view[1])
+		}
+	}
+}
+
 // Every transcript line has to FIT the column it is rendered into, because
 // view fitLines whatever it gets and a line one column too wide loses its last
 // character with nothing to show it was cut. A bare wordwrap.String overshoots
