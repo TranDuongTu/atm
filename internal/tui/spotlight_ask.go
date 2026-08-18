@@ -152,8 +152,8 @@ func (p *askPane) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "pgdown", "ctrl+d":
 		p.scroll(p.transcriptHeight())
 	case "backspace":
-		if p.input != "" {
-			p.input = p.input[:len(p.input)-1]
+		if r := []rune(p.input); len(r) > 0 {
+			p.input = string(r[:len(r)-1])
 		}
 	default:
 		if r, ok := printableRune(k); ok {

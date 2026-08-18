@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"atm/internal/answer"
 	"atm/internal/core"
@@ -159,8 +160,11 @@ type fakeAsker struct {
 
 func (f *fakeAsker) Ask(ctx context.Context, q answer.Query, emit func(answer.Event)) error {
 	for _, ev := range f.events {
-		if _, terminal := ev.(answer.Done); terminal && f.block != nil {
-			<-f.block
+		switch ev.(type) {
+		case answer.Done, answer.Failed:
+			if f.block != nil {
+				<-f.block
+			}
 		}
 		emit(ev)
 	}
@@ -590,6 +594,72 @@ func TestAskEscCancelsThenPeels(t *testing.T) {
 	}
 }
 
+// ctrl+r retries a turn that broke on its own -- an endpoint drop, not the
+// user walking away from it.
+func TestAskRetryAfterInterruptionReRuns(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "partial"}, answer.Failed{Reason: "endpoint dropped"},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	if !p.failed || p.canceled {
+		t.Fatalf("setup: failed=%v canceled=%v, want failed and not canceled", p.failed, p.canceled)
+	}
+	gen := p.gen
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+
+	if p.gen == gen {
+		t.Error("ctrl+r after an interruption must start a new turn")
+	}
+	if !p.streaming {
+		t.Error("ctrl+r after an interruption must be streaming again")
+	}
+	drainAskTicks(t, m, p)
+}
+
+// The guard is the only thing standing between the UI and offering a retry
+// for an answer the user deliberately stopped -- ctrl+r after the user's own
+// Esc-cancel must be a no-op.
+func TestAskRetryAfterCancelDoesNotReRun(t *testing.T) {
+	withInstantSpotSearch(t)
+	block := make(chan struct{})
+	// Failed{Canceled: true} mirrors production: the TUI's context has no
+	// deadline, so a user Esc always produces context.Canceled and the engine
+	// emits Failed{Canceled: true} (internal/answer/engine.go:150). The block
+	// gate holds the terminal event until after Esc has run, so the pane's
+	// optimistic p.canceled = true (set by handleKey, not by this event) is
+	// confirmed rather than raced.
+	withAsker(t, &fakeAsker{block: block, events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "partial"},
+		answer.Failed{Reason: "canceled", Canceled: true},
+	}})
+	m, p := openAsk(t, "indexer")
+	for i := 0; i < 50 && p.transcript == ""; i++ {
+		p.applyTick(askTickMsg{gen: p.gen})
+		time.Sleep(time.Millisecond)
+	}
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEsc}) // first esc cancels
+	close(block)
+	drainAskTicks(t, m, p)
+
+	if !p.failed || !p.canceled {
+		t.Fatalf("setup: failed=%v canceled=%v, want both true", p.failed, p.canceled)
+	}
+	gen := p.gen
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+
+	if p.gen != gen {
+		t.Error("ctrl+r after the user's own cancel must not start a new turn")
+	}
+	if p.streaming {
+		t.Error("ctrl+r after the user's own cancel must not resume streaming")
+	}
+}
+
 // Scrolling up drops follow-the-tail; without that, a user reading the top of
 // a long answer is yanked back down by every token.
 func TestAskScrollUpDropsFollowAndBottomRestoresIt(t *testing.T) {
@@ -659,5 +729,25 @@ func TestAskBackspaceEditsTheInput(t *testing.T) {
 	}
 	if m.spotlight.level != levelAsk {
 		t.Error("backspace must not leave the level")
+	}
+}
+
+// Backspace must delete a whole RUNE, not a byte. A byte-slicing
+// implementation removes only the last byte of a multi-byte character,
+// leaving invalid UTF-8 sitting in p.input -- which then flows through
+// strings.TrimSpace into p.question if the user presses Enter before
+// noticing.
+func TestAskBackspaceRemovesAWholeRuneNotAByte(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	p.input = "café"
+	p.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	if p.input != "caf" {
+		t.Errorf("input = %q, want \"caf\"", p.input)
+	}
+	if !utf8.ValidString(p.input) {
+		t.Errorf("input = %q is not valid UTF-8", p.input)
 	}
 }
