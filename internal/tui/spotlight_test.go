@@ -168,11 +168,11 @@ func TestSpotlightTabTogglesFocusAndBackslashCloses(t *testing.T) {
 
 // The defining property of the redesign: the launcher is identical from every
 // context. The old menu filtered Actions through currentScopes(), so the
-// Projects pane, the Tasks pane, a task detail, and a focused activity chart showed
-// disjoint sets. These are the four currentScopes() states the spec's
-// Testing section names; the two most likely to reintroduce contextual
-// filtering (a task detail's tasks.view, and the activity chart focus) are
-// exactly the two a two-state guard would miss.
+// Projects pane, the Tasks pane, a task detail, and chart navigation showed
+// disjoint sets. These are the currentScopes() states the spec's Testing
+// section names; the two most likely to reintroduce contextual filtering (a
+// task detail's tasks.view, and chart navigation state) are exactly the two a
+// two-state guard would miss.
 func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 	states := []struct {
 		name  string
@@ -204,17 +204,17 @@ func TestSpotlightListIsGlobalFromEveryContext(t *testing.T) {
 			m.tasks.openDetail(tk.ID)
 			return m
 		}},
-		{"focused activity chart", func(t *testing.T) *Model {
+		{"chart navigation", func(t *testing.T) *Model {
 			m := mkActorsOverlayTestModel(t)
 			m.SetSize(120, 40)
 			m.projectScope = "ATM"
 			m.focused = paneProjects
 			// The chart renders from the refresh-time snapshot, so a directly
-			// assigned scope needs a refresh before it can be focused.
+			// assigned scope needs a refresh before ctrl navigation can move it.
 			m.refreshAll()
 			update(t, m, "ctrl+right")
-			if !m.projects.chartFocused {
-				t.Fatalf("setup: ctrl+right must focus activity chart")
+			if m.projects.chartPersona == "" {
+				t.Fatalf("setup: ctrl+right must move chart navigation state")
 			}
 			return m
 		}},
@@ -256,7 +256,7 @@ func TestSpotlightOmitsBorderHintedAndHiddenRows(t *testing.T) {
 		labels = append(labels, rowLabels(m)...)
 	}
 	joined := strings.Join(labels, "\n")
-	for _, gone := range []string{"Projects pane", "Tasks pane", "Activity chart: prev/next persona", "Activity chart: time range", "Open detail / confirm / persona activity overlay", "Dispatch this persona", "Quit"} {
+	for _, gone := range []string{"Projects pane", "Tasks pane", "Activity chart: prev/next persona", "Activity chart: time range", "Open detail / confirm", "Dispatch this persona", "Quit"} {
 		if strings.Contains(joined, gone) {
 			t.Errorf("border-hinted/hidden entry %q must not be a spotlight row:\n%s", gone, joined)
 		}

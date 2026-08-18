@@ -110,6 +110,13 @@ func fitLine(s string, w int) string {
 	return truncate.String(s, uint(w))
 }
 
+func padDisplay(s string, w int) string {
+	if pad := w - lipgloss.Width(s); pad > 0 {
+		return s + spaces(pad)
+	}
+	return s
+}
+
 // fitLineTail is fitLine for content that overflows often enough to need
 // saying so: the cut line ends in an ellipsis instead of stopping mid-word,
 // which reads as cropped rather than as broken. Still exactly w columns wide —

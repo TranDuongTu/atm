@@ -645,7 +645,7 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return m.personasOv.handleKey(k)
 	}
 
-	// Persona activity is a read-only snapshot opened from the focused chart.
+	// Persona activity is a read-only activity snapshot.
 	if m.personaAct.open {
 		return m.personaAct.handleKey(k)
 	}
@@ -752,9 +752,6 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// overlay Esc handler so Esc returns to the detail rather than leaping
 	// out to the list and leaving the overlay state stale.
 	if k.String() == "esc" {
-		if m.focused == paneProjects && m.projects.chartFocused {
-			return m.projects.handleKey(k)
-		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
 			m.projects.backToList()
 			return nil

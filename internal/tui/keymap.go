@@ -171,7 +171,7 @@ var menuEntries = []menuEntry{
 	{key: "ctrl+left/right", label: "Activity chart: prev/next persona", hidden: true},
 	{key: "j/k", label: "Move cursor / scroll (spotlight: preview focus only — arrows move its search list)", hidden: true},
 	{key: "g", label: "Top of list · plugin leader prefix", hidden: true},
-	{key: "enter", label: "Open detail / confirm / persona activity overlay", hidden: true},
+	{key: "enter", label: "Open detail / confirm", hidden: true},
 	{key: "esc", label: "Back / close overlay", hidden: true},
 	{key: "[ / ]", label: "Prev/next board or page", hidden: true},
 	{key: "shift+up/down", label: "Feed scroll / thumbnail cursor", hidden: true},

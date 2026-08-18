@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/core"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -41,7 +42,7 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-func TestChartCtrlArrowsFocusWrapAndClampRange(t *testing.T) {
+func TestChartCtrlArrowsWrapAndClampRangeWithoutStickyFocus(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
@@ -50,13 +51,7 @@ func TestChartCtrlArrowsFocusWrapAndClampRange(t *testing.T) {
 	seedTaskAsActor(t, m, "ATM", "task two", "developer@claude:opus-4.8")
 	m.refreshAll()
 
-	if m.projects.chartFocused {
-		t.Fatal("chart starts focused")
-	}
 	update(t, m, "ctrl+left")
-	if !m.projects.chartFocused {
-		t.Fatal("ctrl+left should focus chart")
-	}
 	if got := m.projects.chartPersona; got != "developer" {
 		t.Fatalf("ctrl+left from All selected %q, want developer", got)
 	}
@@ -92,14 +87,11 @@ func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 		t.Fatal("esc should reach normal pane handling while chart is unfocused")
 	}
 	update(t, m, "ctrl+right")
-	if _, handled := m.projects.handleChartKey(keyMsg("enter")); !handled {
-		t.Fatal("enter should be claimed while chart is focused")
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); handled {
+		t.Fatal("enter should still reach the project list after ctrl chart navigation")
 	}
-	if _, handled := m.projects.handleChartKey(keyMsg("esc")); !handled {
-		t.Fatal("esc should be claimed while chart is focused")
-	}
-	if m.projects.chartFocused {
-		t.Fatal("esc should defocus chart")
+	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
+		t.Fatal("esc should still reach normal pane handling after ctrl chart navigation")
 	}
 }
 
@@ -111,7 +103,7 @@ func TestChartStateResetsOnProjectSwitch(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "ctrl+right")
 	update(t, m, "ctrl+up")
-	if !m.projects.chartFocused || m.projects.chartRange == 0 {
+	if m.projects.chartRange == 0 {
 		t.Fatal("setup failed to change chart state")
 	}
 	m.projects.cursor = 1
@@ -119,8 +111,8 @@ func TestChartStateResetsOnProjectSwitch(t *testing.T) {
 	if m.projectScope != "SCY" {
 		t.Fatalf("projectScope = %q, want SCY", m.projectScope)
 	}
-	if m.projects.chartPersona != "" || m.projects.chartRange != 0 || m.projects.chartFocused {
-		t.Fatalf("chart state after project switch = (%q, %d, %t), want zero state", m.projects.chartPersona, m.projects.chartRange, m.projects.chartFocused)
+	if m.projects.chartPersona != "" || m.projects.chartRange != 0 {
+		t.Fatalf("chart state after project switch = (%q, %d), want zero state", m.projects.chartPersona, m.projects.chartRange)
 	}
 }
 
@@ -136,14 +128,47 @@ func TestRenderSummaryCombinedChart(t *testing.T) {
 	mustNotContain(t, body, "activity by persona")
 	mustNotContain(t, body, "activity stripe")
 
-	m.projects.chartFocused = true
-	focused := m.projects.renderSummary(12)
-	mustContain(t, focused, "\u25b8 activity")
-
 	m.projects.summaryEntries = nil
 	empty := m.projects.renderSummary(12)
 	if !strings.Contains(empty, "no activity yet") {
 		t.Fatalf("empty summary missing activity placeholder:\n%s", empty)
+	}
+}
+
+func TestRenderSummaryPersonaCardsShowIconsRangeTotalsAndTopModels(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
+	m.projectScope = "ATM"
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now.AddDate(0, 0, -1), Actor: "developer@codex:o3", Action: "task.updated"},
+		{At: now.AddDate(0, 0, -2), Actor: "developer@claude:sonnet", Action: "task.commented"},
+		{At: now.AddDate(0, 0, -3), Actor: "developer@codex:gpt-5", Action: "task.closed"},
+		{At: now.AddDate(0, 0, -1), Actor: "manager@claude:opus", Action: "project.reviewed"},
+		{At: now.AddDate(0, 0, -10), Actor: "developer@claude:old", Action: "outside.range"},
+	}
+
+	body := stripANSI(m.projects.renderSummary(16))
+	for _, want := range []string{
+		personaIcon("") + " All",
+		personaIcon("developer") + " developer",
+		personaIcon("manager") + " manager",
+		"5 activities",
+		"4 activities",
+		"1 activity",
+		"gpt-5, o3, opus",
+		"gpt-5, o3, sonnet",
+		"opus",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("summary missing %q\n--- body ---\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "old") {
+		t.Fatalf("summary included a model outside the selected range:\n%s", body)
 	}
 }
 

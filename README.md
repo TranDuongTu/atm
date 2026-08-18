@@ -54,9 +54,10 @@ The whole loop is select-and-dispatch — you pick a row, press `D`, and an agen
 The Projects pane combines activity into one chart box. Its persona carousel starts
 on **All** activity; `Ctrl+Left/Right` moves between All and individual personas,
 while `Ctrl+Up/Down` changes the time range: `1w`, `1m`, `3m`, `6m`, or `1y`.
-The chart renders a braille pulse for the selected view. With the chart focused,
-`Enter` opens a read-only drill-in overlay with model, agent, and action usage;
-`Esc` closes the overlay, or defocuses the chart when no overlay is open.
+The carousel renders bounded persona cards with icons, period activity totals,
+and the top three models for the selected range. The chart renders a braille
+pulse for the selected view, and Ctrl navigation does not leave a sticky chart
+focus behind.
 
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 

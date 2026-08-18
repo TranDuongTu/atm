@@ -160,6 +160,12 @@ type carouselEntry struct {
 	count int
 }
 
+type personaCardEntry struct {
+	key    string
+	count  int
+	models map[string]int
+}
+
 func carouselEntries(groups []activity.Group) []carouselEntry {
 	entries := make([]carouselEntry, 0, len(groups)+1)
 	total := 0
@@ -237,75 +243,140 @@ func carouselLabel(key string) string {
 	return personaIcon(key) + " " + carouselName(key)
 }
 
-func renderCarouselLines(entries []carouselEntry, selected string, width int, st Styles) []string {
-	if width <= 0 {
-		return []string{"", "", ""}
+func personaCardEntries(entries []core.LogEntry, groups []activity.Group, spec chartRangeSpec, end time.Time) []personaCardEntry {
+	cards := make([]personaCardEntry, 0, len(groups)+1)
+	all := aggregateWindow(entries, "", spec, end)
+	cards = append(cards, personaCardEntry{key: "", count: all.Count, models: all.Models})
+	for _, group := range groups {
+		agg := aggregateWindow(entries, group.Key, spec, end)
+		cards = append(cards, personaCardEntry{key: group.Key, count: agg.Count, models: agg.Models})
 	}
-	selected = carouselSelected(entries, selected)
-	selectedBox := st.PaneActiveStrong.
-		Border(lipgloss.RoundedBorder()).
-		Padding(0, 1).
-		Render(carouselLabel(selected))
-	boxLines := strings.Split(selectedBox, "\n")
-	for len(boxLines) < 3 {
-		boxLines = append(boxLines, "")
-	}
-	if len(boxLines) > 3 {
-		boxLines = boxLines[:3]
-	}
-	boxWidth := lipgloss.Width(boxLines[1])
-	if boxWidth > width {
-		return []string{fitLine(boxLines[0], width), fitLine(boxLines[1], width), fitLine(boxLines[2], width)}
-	}
-	leftWidth := (width - boxWidth) / 2
-	rightWidth := width - boxWidth - leftWidth
-	left, right := carouselNeighbors(entries, selected, leftWidth, rightWidth, st)
-	return []string{
-		fitLine(spaces(leftWidth)+boxLines[0]+spaces(rightWidth), width),
-		fitLine(left+boxLines[1]+right+spaces(rightWidth-lipgloss.Width(right)), width),
-		fitLine(spaces(leftWidth)+boxLines[2]+spaces(rightWidth), width),
-	}
+	return cards
 }
 
-func carouselNeighbors(entries []carouselEntry, selected string, leftWidth, rightWidth int, st Styles) (string, string) {
-	idx := carouselIndex(entries, selected)
-	leftParts := []string{}
-	rightParts := []string{}
-	seen := map[int]bool{idx: true}
-	for distance := 1; distance < len(entries); distance++ {
-		leftIdx := (idx - distance + len(entries)) % len(entries)
-		if !seen[leftIdx] {
-			seen[leftIdx] = true
-			label := st.Muted.Render(carouselName(entries[leftIdx].key))
-			if neighborWidth(leftParts)+lipgloss.Width(label)+len(leftParts) <= leftWidth {
-				leftParts = append(leftParts, label)
-			}
-		}
-
-		rightIdx := (idx + distance) % len(entries)
-		if !seen[rightIdx] {
-			seen[rightIdx] = true
-			label := st.Muted.Render(carouselName(entries[rightIdx].key))
-			if neighborWidth(rightParts)+lipgloss.Width(label)+len(rightParts) <= rightWidth {
-				rightParts = append(rightParts, label)
-			}
-		}
+func activityCountLabel(count int) string {
+	if count == 1 {
+		return "1 activity"
 	}
-
-	for i, j := 0, len(leftParts)-1; i < j; i, j = i+1, j-1 {
-		leftParts[i], leftParts[j] = leftParts[j], leftParts[i]
-	}
-	left := strings.Join(leftParts, " ")
-	left = spaces(leftWidth-lipgloss.Width(left)) + left
-	return left, strings.Join(rightParts, " ")
+	return fmt.Sprintf("%d activities", count)
 }
 
-func neighborWidth(parts []string) int {
-	width := 0
-	for _, part := range parts {
-		width += lipgloss.Width(part)
+func topModelLabel(models map[string]int, limit int) string {
+	rows := make([]kvRow, 0, len(models))
+	for key, count := range models {
+		rows = append(rows, kvRow{k: key, v: count})
 	}
-	return width
+	sortKV(rows)
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		parts = append(parts, row.k)
+	}
+	if len(parts) == 0 {
+		return "no models"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderPersonaCardRows(cards []personaCardEntry, selected string, width int, st Styles) []string {
+	if width <= 0 || len(cards) == 0 {
+		return nil
+	}
+	selected = selectedPersonaCard(cards, selected)
+	if width < 16 {
+		return []string{fitLine(carouselLabel(selected), width)}
+	}
+
+	const gap = 1
+	visible := (width + gap) / (16 + gap)
+	if visible < 1 {
+		visible = 1
+	}
+	if visible > len(cards) {
+		visible = len(cards)
+	}
+	selectedIdx := personaCardIndex(cards, selected)
+	start := selectedIdx - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if maxStart := len(cards) - visible; start > maxStart {
+		start = maxStart
+	}
+
+	cardW := (width - (visible-1)*gap) / visible
+	if cardW < 8 {
+		return []string{fitLine(carouselLabel(selected), width)}
+	}
+	used := cardW*visible + (visible-1)*gap
+	leftPad := (width - used) / 2
+	rows := make([]string, 5)
+	for i := range rows {
+		rows[i] = spaces(leftPad)
+	}
+	for i := 0; i < visible; i++ {
+		if i > 0 {
+			for row := range rows {
+				rows[row] += spaces(gap)
+			}
+		}
+		cardLines := renderPersonaCard(cards[start+i], selected, cardW, st)
+		for row := range rows {
+			rows[row] += cardLines[row]
+		}
+	}
+	for i := range rows {
+		rows[i] = fitLine(rows[i], width)
+	}
+	return rows
+}
+
+func selectedPersonaCard(cards []personaCardEntry, key string) string {
+	for _, card := range cards {
+		if card.key == key {
+			return key
+		}
+	}
+	return ""
+}
+
+func personaCardIndex(cards []personaCardEntry, key string) int {
+	for i, card := range cards {
+		if card.key == key {
+			return i
+		}
+	}
+	return 0
+}
+
+func renderPersonaCard(card personaCardEntry, selected string, width int, st Styles) []string {
+	innerW := width - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	border := st.Muted
+	body := st.Muted
+	if card.key == selected {
+		border = st.HeaderLabel
+		body = st.PaneActiveStrong
+	}
+	lines := []string{
+		"╭" + repeat("─", innerW) + "╮",
+		"│" + padDisplay(fitLine(carouselLabel(card.key), innerW), innerW) + "│",
+		"│" + padDisplay(fitLine(activityCountLabel(card.count), innerW), innerW) + "│",
+		"│" + padDisplay(fitLine(topModelLabel(card.models, 3), innerW), innerW) + "│",
+		"╰" + repeat("─", innerW) + "╯",
+	}
+	for i, line := range lines {
+		if i == 0 || i == len(lines)-1 {
+			lines[i] = border.Render(line)
+		} else {
+			lines[i] = border.Render(line[:3]) + body.Render(line[3:len(line)-3]) + border.Render(line[len(line)-3:])
+		}
+	}
+	return lines
 }
 
 func renderCarouselCompact(entries []carouselEntry, selected string, width int, st Styles) string {
@@ -315,7 +386,7 @@ func renderCarouselCompact(entries []carouselEntry, selected string, width int, 
 	selected = carouselSelected(entries, selected)
 	parts := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		label := carouselName(entry.key)
+		label := carouselLabel(entry.key)
 		if entry.key == selected {
 			parts = append(parts, st.PaneActiveStrong.Render("["+label+"]"))
 		} else {

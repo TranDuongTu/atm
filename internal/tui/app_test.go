@@ -1771,7 +1771,7 @@ func TestParityReferenceRenders(t *testing.T) {
 	mustContain(t, content, "atm task create")
 	mustContain(t, content, "atm conventions")
 	mustContain(t, content, "activity chart")
-	mustContain(t, content, "carousel, range, Enter overlay")
+	mustContain(t, content, "persona cards and range")
 	mustNotContain(t, content, "Help tab")
 	mustNotContain(t, content, "Dispatch this persona")
 }
@@ -1808,7 +1808,7 @@ func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	mustContain(t, content, "Add project")
 	mustContain(t, content, "Activity chart: prev/next persona")
 	mustContain(t, content, "Activity chart: time range")
-	mustContain(t, content, "persona activity overlay")
+	mustContain(t, content, "Open detail / confirm")
 	mustNotContain(t, content, "switch tab")
 	mustNotContain(t, content, "Dispatch this persona")
 	mustNotContain(t, content, "persona drill")

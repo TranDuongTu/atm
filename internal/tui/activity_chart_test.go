@@ -140,46 +140,11 @@ func TestCarouselNames(t *testing.T) {
 	}
 }
 
-func TestRenderCarouselLinesSelectedAllAndEqualWidth(t *testing.T) {
-	entries := []carouselEntry{{key: "", count: 5}, {key: "developer", count: 2}}
-	lines := renderCarouselLines(entries, "", 30, buildStyles(themeGraphite))
-	if len(lines) != 3 {
-		t.Fatalf("renderCarouselLines() returned %d lines, want 3", len(lines))
-	}
-	for i, line := range lines {
-		if got := lipgloss.Width(line); got != 30 {
-			t.Errorf("line %d display width = %d, want 30", i, got)
-		}
-	}
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "All") || !strings.Contains(joined, "developer") {
-		t.Fatalf("carousel lines = %q, want selected All and developer neighbor", joined)
-	}
-	if !strings.Contains(joined, "╭") || !strings.Contains(joined, "╰") {
-		t.Fatalf("carousel lines = %q, want rounded selected box", joined)
-	}
-}
-
-func TestRenderCarouselLinesIncludesBothAdjacentNeighbors(t *testing.T) {
-	entries := []carouselEntry{
-		{key: "", count: 6},
-		{key: "developer", count: 3},
-		{key: "manager", count: 2},
-	}
-	joined := strings.Join(renderCarouselLines(entries, "", 40, buildStyles(themeGraphite)), "\n")
-	if !strings.Contains(joined, "developer") {
-		t.Fatalf("carousel lines = %q, want right-adjacent developer", joined)
-	}
-	if got := strings.Count(joined, "manager"); got != 1 {
-		t.Fatalf("carousel lines contain manager %d times, want once: %q", got, joined)
-	}
-}
-
 func TestRenderCarouselCompactBracketsSelectedLabel(t *testing.T) {
 	entries := []carouselEntry{{key: "", count: 5}, {key: "developer", count: 2}}
 	got := renderCarouselCompact(entries, "developer", 30, buildStyles(themeGraphite))
-	if !strings.Contains(got, "[developer]") {
-		t.Fatalf("renderCarouselCompact() = %q, want bracketed selected label", got)
+	if !strings.Contains(got, "["+personaIcon("developer")+" developer]") {
+		t.Fatalf("renderCarouselCompact() = %q, want bracketed selected icon label", got)
 	}
 	if lipgloss.Width(got) > 30 {
 		t.Fatalf("compact carousel display width = %d, want <= 30", lipgloss.Width(got))

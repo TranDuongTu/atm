@@ -128,13 +128,13 @@ func TestActivityChartKeymapLabels(t *testing.T) {
 		"Activity chart: prev/next persona",
 		"ctrl+up/down",
 		"Activity chart: time range",
-		"Open detail / confirm / persona activity overlay",
+		"Open detail / confirm",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("keymap reference missing %q", want)
 		}
 	}
-	for _, stale := range []string{"Drill into persona activity", "Back from persona detail", "Scroll persona chart", "Dispatch this persona", "persona drill"} {
+	for _, stale := range []string{"Drill into persona activity", "Back from persona detail", "Scroll persona chart", "persona activity overlay", "Dispatch this persona", "persona drill"} {
 		if strings.Contains(content, stale) {
 			t.Errorf("keymap reference contains stale text %q", stale)
 		}

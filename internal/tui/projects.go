@@ -34,7 +34,6 @@ type projectsModel struct {
 	// summary snapshot; only keys and project-scope writes mutate this state.
 	chartPersona string
 	chartRange   int
-	chartFocused bool
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -166,7 +165,6 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "ctrl+left", "ctrl+right":
-		p.chartFocused = true
 		entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
 		direction := -1
 		if k.String() == "ctrl+right" {
@@ -175,28 +173,15 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 		p.chartPersona = carouselStep(entries, p.chartPersona, direction)
 		return nil, true
 	case "ctrl+up":
-		p.chartFocused = true
 		if p.chartRange < len(chartRanges)-1 {
 			p.chartRange++
 		}
 		return nil, true
 	case "ctrl+down":
-		p.chartFocused = true
 		if p.chartRange > 0 {
 			p.chartRange--
 		}
 		return nil, true
-	case "enter":
-		if p.chartFocused {
-			p.openPersonaActivity()
-			return nil, true
-		}
-		return nil, false
-	case "esc":
-		if p.chartFocused {
-			p.chartFocused = false
-			return nil, true
-		}
 	}
 	return nil, false
 }
@@ -213,7 +198,6 @@ func (p *projectsModel) openPersonaActivity() {
 func (p *projectsModel) resetChart() {
 	p.chartPersona = ""
 	p.chartRange = 0
-	p.chartFocused = false
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -603,9 +587,6 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 		spec = chartRanges[p.chartRange]
 	}
 	title := fmt.Sprintf("activity \u00b7 %s  [Ctrl+\u2190/\u2192] [Ctrl+\u2191/\u2193]", spec.key)
-	if p.chartFocused {
-		title = "\u25b8 " + title
-	}
 	now := core.Now()
 
 	if !summaryChartsBoxed(height) {
@@ -623,20 +604,22 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 		return strings.Join(lines, "\n")
 	}
 
-	body := renderCarouselLines(carousel, selected, chartBoxInnerWidth(p.width), p.m.styles)
+	innerW := chartBoxInnerWidth(p.width)
+	body := renderPersonaCardRows(personaCardEntries(entries, groups, spec, now), selected, innerW, p.m.styles)
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
 	} else {
-		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, chartBoxInnerWidth(p.width), height-2-len(body), now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		pulseH := height - 2 - len(body)
+		if len(body) > 0 && pulseH > 0 {
+			body = append(body, "")
+			pulseH--
+		}
+		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, innerW, pulseH, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
 			body = append(body, strings.Split(pulse, "\n")...)
 		}
 	}
-	border := p.m.styles.Muted
-	if p.chartFocused {
-		border = p.m.styles.HeaderLabel
-	}
-	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, border)
+	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, p.m.styles.Muted)
 }
 
 func chartBoxWidth(width int) int {

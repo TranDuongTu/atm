@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// personaActivityModel is the read-only activity breakdown opened from the
-// focused Projects chart. group is captured at open time so scrolling never
+// personaActivityModel is the read-only activity breakdown for a Projects
+// chart snapshot. group is captured at open time so scrolling never
 // re-aggregates or changes the activity window beneath the reader.
 type personaActivityModel struct {
 	m      *Model

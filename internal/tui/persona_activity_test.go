@@ -58,20 +58,18 @@ func TestPersonaActivityOverlayContainsNoDispatchAffordance(t *testing.T) {
 	}
 }
 
-func TestChartEnterOpensPersonaActivityOverlayForAllAndCurrentRange(t *testing.T) {
+func TestOpenPersonaActivityUsesAllAndCurrentRange(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	m.focused = paneProjects
-	m.projects.chartFocused = true
 	m.projects.chartRange = 1
 	m.projects.chartPersona = ""
 	m.projects.summaryEntries = []core.LogEntry{
 		{At: core.Now(), Actor: "developer@codex:gpt-5", Action: "task.created"},
 	}
 
-	update(t, m, "enter")
+	m.projects.openPersonaActivity()
 	if !m.personaAct.open {
-		t.Fatal("Enter while the chart is focused must open the persona activity overlay")
+		t.Fatal("openPersonaActivity must open the persona activity overlay")
 	}
 	if m.personaAct.key != "" {
 		t.Fatalf("overlay key = %q, want All", m.personaAct.key)
@@ -81,17 +79,15 @@ func TestChartEnterOpensPersonaActivityOverlayForAllAndCurrentRange(t *testing.T
 	}
 }
 
-func TestChartEnterUsesCarouselFallbackForVanishedPersona(t *testing.T) {
+func TestOpenPersonaActivityUsesCarouselFallbackForVanishedPersona(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	m.focused = paneProjects
-	m.projects.chartFocused = true
 	m.projects.chartPersona = "manager"
 	m.projects.summaryEntries = []core.LogEntry{
 		{At: core.Now(), Actor: "developer@codex:gpt-5", Action: "task.created"},
 	}
 
-	update(t, m, "enter")
+	m.projects.openPersonaActivity()
 	if got := m.personaAct.key; got != "" {
 		t.Fatalf("overlay key = %q, want All after the chart falls back", got)
 	}
