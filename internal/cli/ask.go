@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"atm/internal/answer"
 	"atm/internal/chat"
@@ -34,6 +37,7 @@ type askResult struct {
 func newAskCmd(st *cliState) *cobra.Command {
 	var project string
 	var k int
+	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "ask \"question\"",
 		Short: "Ask a question answered from this project's own tasks and comments",
@@ -55,6 +59,17 @@ func newAskCmd(st *cliState) *cobra.Command {
 			}
 			if _, err := s.GetProject(project); err != nil {
 				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
+			}
+			// SIGINT follows atm index watch's precedent — this verb streams, so
+			// ctrl-C must cancel the generation rather than kill the process
+			// mid-write. It is also what makes Failed{Canceled:true} reachable
+			// from the CLI at all.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
 			}
 			cfg, err := s.GetProjectConfig(project)
 			if err != nil {
@@ -80,14 +95,21 @@ func newAskCmd(st *cliState) *cobra.Command {
 				res.ChatModel = cfg.Chat.Model
 			}
 			eng := answer.New(acfg)
+			streamText := !st.isJSON()
 			var b strings.Builder
-			err = eng.Ask(cmd.Context(), answer.Query{Question: args[0]}, func(e answer.Event) {
+			err = eng.Ask(ctx, answer.Query{Question: args[0]}, func(e answer.Event) {
 				switch ev := e.(type) {
 				case answer.Retrieved:
 					res.Hits = hitsToJSON(ev.Hits)
 					res.Behind = ev.Behind
 				case answer.Delta:
 					b.WriteString(ev.Text)
+					if streamText {
+						// Text mode only. JSON mode buffers and emits one document:
+						// a stream of partial JSON is not parseable, and the document
+						// shape is this verb's whole contract for scripts.
+						fmt.Fprint(st.stdout(), ev.Text)
+					}
 				case answer.Done:
 					res.Citations = hitsToJSON(ev.Citations)
 					res.Degraded = ev.Degraded
@@ -120,6 +142,7 @@ func newAskCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().IntVar(&k, "k", 0, "how many sources to retrieve (default: the engine's 8)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "give up after this long (default: none; internal/chat still bounds an idle stream)")
 	return cmd
 }
 
