@@ -111,7 +111,7 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 		return nil
 	}
 	var answer strings.Builder
-	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, hits), func(text string) {
+	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, buildSources(hits, nil, 0)), func(text string) {
 		answer.WriteString(text)
 		emit(Delta{Text: text})
 	})
