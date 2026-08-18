@@ -70,7 +70,7 @@ atm project list                      Projects pane  (list)
 atm project show --code               Projects pane  [Enter] detail
 atm project set-name --code --name    Projects detail  [n]
 atm project remove --code             Projects pane  [x]
-atm activity --project --group-by persona  Projects pane activity chart: persona cards and range
+atm activity --project --group-by persona  Projects pane activity chart: persona cards, range, inline breakdown
 
 atm label add --name --desc           Tasks pane [a]dd / [d]esc
 atm label remove --name               Tasks pane [l]

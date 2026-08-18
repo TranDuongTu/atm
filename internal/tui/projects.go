@@ -35,6 +35,7 @@ type projectsModel struct {
 	chartPersona string
 	chartRange   int
 	chartFocused bool
+	chartDrill   bool
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -186,6 +187,15 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 			p.chartRange--
 		}
 		return nil, true
+	case "ctrl+j", "ctrl+enter":
+		p.focusChart()
+		p.chartDrill = true
+		return nil, true
+	case "esc":
+		if p.chartDrill {
+			p.chartDrill = false
+			return nil, true
+		}
 	}
 	return nil, false
 }
@@ -207,6 +217,7 @@ func (p *projectsModel) resetChart() {
 	p.chartPersona = ""
 	p.chartRange = 0
 	p.chartFocused = false
+	p.chartDrill = false
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -349,6 +360,7 @@ func (p *projectsModel) openDetail(code string) {
 		p.m.showToast("error: " + err.Error())
 		return
 	}
+	p.chartDrill = false
 	p.detail = detailState{code: code, project: pr}
 	p.view = pViewDetail
 	p.renderDetail()
@@ -608,6 +620,14 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 			lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
 			return strings.Join(lines, "\n")
 		}
+		if p.chartDrill {
+			drillH := height - len(lines) - 1
+			for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), selected, p.width, drillH, p.m.styles) {
+				lines = append(lines, dashboardLine(p.width, line))
+			}
+			lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
+			return strings.Join(lines, "\n")
+		}
 		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, p.width, height-len(lines)-1, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
 			for _, line := range strings.Split(pulse, "\n") {
@@ -619,9 +639,22 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 	}
 
 	innerW := chartBoxInnerWidth(p.width)
-	body := renderPersonaCardRows(personaCardEntries(entries, groups, spec, now), selected, p.chartFocused, innerW, p.m.styles)
+	cards := personaCardEntries(entries, groups, spec, now)
+	body := renderPersonaCardRows(cards, selected, p.chartFocused, innerW, p.m.styles)
+	if p.chartDrill && height <= 14 {
+		body = renderPersonaMiniCardRows(cards, selected, p.chartFocused, innerW, p.m.styles)
+	}
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
+	} else if p.chartDrill {
+		drillH := height - 3 - len(body)
+		if len(body) > 0 && drillH > 0 {
+			body = append(body, "")
+			drillH--
+		}
+		for _, line := range renderInlineActivityDrill(aggregateWindow(entries, selected, spec, now), selected, innerW, drillH, p.m.styles) {
+			body = append(body, chartBodyLine(line, innerW))
+		}
 	} else {
 		pulseH := height - 3 - len(body)
 		if len(body) > 0 && pulseH > 0 {
@@ -652,6 +685,52 @@ func renderRangeLegend(spec chartRangeSpec, width int, st Styles) string {
 		label = spec.key
 	}
 	return st.HeaderLabel.Render(fitLine("Range: "+label+"  [Ctrl+\u2191/\u2193]", width))
+}
+
+func renderInlineActivityDrill(group activity.Group, key string, width, height int, st Styles) []string {
+	if height <= 0 {
+		return nil
+	}
+	header := st.HeaderLabel.Render(fitLine(personaIcon(key)+" "+carouselName(key), width))
+	events := activityEventsLabel(group.Count)
+	models := inlineBreakdownLine("models", group.Models, width)
+	agents := inlineBreakdownLine("agents", group.Agents, width)
+	actions := inlineBreakdownLine("actions", group.Actions, width)
+	back := st.KeyMenuDim.Render("[Esc] back")
+	if height == 1 {
+		return []string{back}
+	}
+	if height == 2 {
+		return []string{header, back}
+	}
+	if height == 3 {
+		return []string{header, fitLine(models+" | "+agents+" | "+actions, width), back}
+	}
+	if height == 4 {
+		return []string{header, models, fitLine(agents+" | "+actions, width), back}
+	}
+	if height == 5 {
+		return []string{header, models, agents, actions, back}
+	}
+	return []string{
+		st.HeaderLabel.Render(fitLine(personaIcon(key)+" "+carouselName(key), width)),
+		events,
+		models,
+		agents,
+		actions,
+		back,
+	}
+}
+
+func activityEventsLabel(count int) string {
+	if count == 1 {
+		return "1 events"
+	}
+	return fmt.Sprintf("%d events", count)
+}
+
+func inlineBreakdownLine(caption string, counts map[string]int, width int) string {
+	return fitLine(caption+"  "+topModelLabel(counts, 3), width)
 }
 
 func chartBoxWidth(width int) int {

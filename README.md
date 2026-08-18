@@ -59,6 +59,9 @@ and the top three models for the selected range. The chart renders a braille
 pulse for the selected view, with the active range shown as a full-English
 bottom legend such as `Range: One week`. Ctrl navigation focuses the chart and
 keeps the selected persona card highlighted until the chart state resets.
+`Ctrl+Enter` (`Ctrl+J` in terminals that encode it that way) opens the selected
+persona's activity breakdown inline inside the chart box, and `Esc` returns to
+the pulse chart.
 
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 

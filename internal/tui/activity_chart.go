@@ -334,6 +334,56 @@ func renderPersonaCardRows(cards []personaCardEntry, selected string, focused bo
 	return rows
 }
 
+func renderPersonaMiniCardRows(cards []personaCardEntry, selected string, focused bool, width int, st Styles) []string {
+	if width <= 0 || len(cards) == 0 {
+		return nil
+	}
+	selected = selectedPersonaCard(cards, selected)
+	if width < 16 {
+		return []string{fitLine(carouselLabel(selected), width)}
+	}
+
+	const gap = 1
+	visible := (width + gap) / (18 + gap)
+	if visible < 1 {
+		visible = 1
+	}
+	if visible > len(cards) {
+		visible = len(cards)
+	}
+	selectedIdx := personaCardIndex(cards, selected)
+	start := selectedIdx - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if maxStart := len(cards) - visible; start > maxStart {
+		start = maxStart
+	}
+
+	cardW := (width - (visible-1)*gap) / visible
+	if cardW < 10 {
+		return []string{fitLine(carouselLabel(selected), width)}
+	}
+	used := cardW*visible + (visible-1)*gap
+	leftPad := (width - used) / 2
+	rows := []string{spaces(leftPad), spaces(leftPad), spaces(leftPad)}
+	for i := 0; i < visible; i++ {
+		if i > 0 {
+			for row := range rows {
+				rows[row] += spaces(gap)
+			}
+		}
+		cardLines := renderPersonaMiniCard(cards[start+i], selected, focused, cardW, st)
+		for row := range rows {
+			rows[row] += cardLines[row]
+		}
+	}
+	for i := range rows {
+		rows[i] = fitLine(rows[i], width)
+	}
+	return rows
+}
+
 func selectedPersonaCard(cards []personaCardEntry, key string) string {
 	for _, card := range cards {
 		if card.key == key {
@@ -377,6 +427,29 @@ func renderPersonaCard(card personaCardEntry, selected string, focused bool, wid
 			lines[i] = border.Render(line[:3]) + body.Render(line[3:len(line)-3]) + border.Render(line[len(line)-3:])
 		}
 	}
+	return lines
+}
+
+func renderPersonaMiniCard(card personaCardEntry, selected string, focused bool, width int, st Styles) []string {
+	innerW := width - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	border := st.Muted
+	body := st.Muted
+	if focused && card.key == selected {
+		border = st.HeaderLabel
+		body = st.PaneActiveStrong
+	}
+	label := fitLine(carouselLabel(card.key)+" · "+activityCountLabel(card.count)+" · "+topModelLabel(card.models, 3), innerW)
+	lines := []string{
+		"╭" + repeat("─", innerW) + "╮",
+		"│" + padDisplay(label, innerW) + "│",
+		"╰" + repeat("─", innerW) + "╯",
+	}
+	lines[0] = border.Render(lines[0])
+	lines[1] = border.Render(lines[1][:3]) + body.Render(lines[1][3:len(lines[1])-3]) + border.Render(lines[1][len(lines[1])-3:])
+	lines[2] = border.Render(lines[2])
 	return lines
 }
 

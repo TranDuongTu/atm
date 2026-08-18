@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"atm/internal/core"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -96,6 +97,153 @@ func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 	}
 	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
 		t.Fatal("esc should still reach normal pane handling after ctrl chart navigation")
+	}
+}
+
+func TestChartCtrlEnterOpensInlinePersonaDrillWithoutOverlay(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.updated"},
+		{At: now, Actor: "manager@claude:opus", Action: "project.reviewed"},
+	}
+
+	update(t, m, "ctrl+left")
+	if got := m.projects.chartPersona; got != "manager" {
+		t.Fatalf("setup selected persona = %q, want manager", got)
+	}
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+
+	if m.personaAct.open {
+		t.Fatal("ctrl+enter must not open the persona activity overlay")
+	}
+	body := stripANSI(m.projects.renderSummary(16))
+	for _, want := range []string{
+		personaIcon("manager") + " manager",
+		"1 events",
+		"models",
+		"opus",
+		"agents",
+		"claude",
+		"actions",
+		"project.reviewed",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
+	}
+}
+
+func TestChartEscBacksOutOfInlinePersonaDrill(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	update(t, m, "ctrl+right")
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+	if body := stripANSI(m.projects.renderSummary(14)); !strings.Contains(body, "models") {
+		t.Fatalf("setup: inline drill did not render\n%s", body)
+	}
+
+	update(t, m, "esc")
+	body := stripANSI(m.projects.renderSummary(14))
+	mustNotContain(t, body, "[Esc] back")
+	mustNotContain(t, body, "models")
+	mustContain(t, body, "Range: One week")
+}
+
+func TestChartDrillDoesNotStealProjectDetailEsc(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+	update(t, m, "enter")
+	if m.projects.view != pViewDetail {
+		t.Fatalf("setup: project view = %v, want detail", m.projects.view)
+	}
+
+	update(t, m, "esc")
+	if m.projects.view != pViewList {
+		t.Fatalf("esc from project detail with chart drill state = %v, want list", m.projects.view)
+	}
+}
+
+func TestChartCtrlEnterFocusesAndOpensInlinePersonaDrill(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	m.projects.chartPersona = "staff"
+	m.projects.chartFocused = false
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+
+	if !m.projects.chartFocused {
+		t.Fatal("ctrl+enter should focus the activity chart")
+	}
+	if !m.projects.chartDrill {
+		t.Fatal("ctrl+enter should open the inline persona breakdown")
+	}
+	body := stripANSI(m.projects.renderSummary(16))
+	mustContain(t, body, personaIcon("staff")+" staff")
+	mustContain(t, body, "[Esc] back")
+}
+
+func TestChartInlineDrillRendersInCompactSummary(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	m.projects.chartPersona = "staff"
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(6))
+	mustContain(t, body, personaIcon("staff")+" staff")
+	mustContain(t, body, "models")
+	mustContain(t, body, "[Esc] back")
+	mustNotContain(t, body, "⣀")
+}
+
+func TestChartInlineDrillKeepsExitHintAtTwelveRows(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "manager@claude:opus", Action: "project.reviewed"},
+	}
+	m.projects.chartPersona = "manager"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(12))
+	for _, want := range []string{
+		personaIcon("manager") + " manager",
+		"models",
+		"agents",
+		"actions",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
 	}
 }
 

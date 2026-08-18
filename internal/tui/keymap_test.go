@@ -113,7 +113,7 @@ func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
 func TestBorderHintedKeysAreHidden(t *testing.T) {
 	for _, e := range menuEntries {
 		switch e.key {
-		case "1", "2", "ctrl+left/right", "ctrl+up/down":
+		case "1", "2", "ctrl+left/right", "ctrl+enter / ctrl+j", "ctrl+up/down":
 			if !e.hidden {
 				t.Errorf("border-hinted key %q (%s) must be hidden", e.key, e.label)
 			}
@@ -126,6 +126,9 @@ func TestActivityChartKeymapLabels(t *testing.T) {
 	for _, want := range []string{
 		"ctrl+left/right",
 		"Activity chart: prev/next persona",
+		"ctrl+enter",
+		"ctrl+j",
+		"Activity chart: inline persona breakdown",
 		"ctrl+up/down",
 		"Activity chart: time range",
 		"Open detail / confirm",
