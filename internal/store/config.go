@@ -15,7 +15,7 @@ func (s *Store) GetProjectConfig(code string) (*ProjectConfig, error) {
 		}
 		return nil, err
 	}
-	if c.Embedding == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 && !c.ArtOn && len(c.Channels) == 0 {
+	if c.Embedding == nil && c.Chat == nil && c.UpdatedAt == "" && len(c.Remotes) == 0 && c.Boards == nil && len(c.Repos) == 0 && !c.ArtOn && len(c.Channels) == 0 {
 		return nil, nil
 	}
 	return &c, nil
@@ -38,6 +38,32 @@ func (s *Store) SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor strin
 			merged = existing
 		}
 		merged.Embedding = &cfg
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
+// SetChatConfig declares the project's chat model. Read-modify-write under
+// the project lock, exactly like SetEmbeddingConfig: the two configs share
+// config.json, and setting one must never drop the other.
+func (s *Store) SetChatConfig(code string, cfg ChatConfig, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	if cfg.Model == "" || cfg.Endpoint == "" {
+		return core.ErrUsage
+	}
+	return s.WithLock(code, func() error {
+		existing, err := s.GetProjectConfig(code)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		merged := &ProjectConfig{}
+		if existing != nil {
+			merged = existing
+		}
+		merged.Chat = &cfg
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)

@@ -426,6 +426,34 @@ func moveCursorToGroup(t *testing.T, m *Model, want string) {
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 }
 
+// firstTaskRow is the index of the first task row at the current level: the top
+// result, which the content section's header now sits above.
+func firstTaskRow(t *testing.T, m *Model) int {
+	t.Helper()
+	for i, r := range m.spotlight.rows {
+		if r.kind == rowTask {
+			return i
+		}
+	}
+	t.Fatalf("no task row in %v", rowLabels(m))
+	return -1
+}
+
+// moveCursorToComment arrows the cursor onto the first comment row at the
+// current level. Bounded by the row count, like every other cursor helper here:
+// a regression that stops producing comment rows must fail the test, not spin
+// the arrows forever.
+func moveCursorToComment(t *testing.T, m *Model) {
+	t.Helper()
+	for i := 0; i <= len(m.spotlight.rows); i++ {
+		if r := m.spotlight.selectedRow(); r != nil && r.kind == rowComment {
+			return
+		}
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	t.Fatalf("never reached a comment row in %v", rowLabels(m))
+}
+
 // moveCursorToTask arrows the cursor onto the task row for id. Matched on the
 // row's task rather than on its label: two tasks may share a title, and the ID
 // is what the per-task actions target.
@@ -449,12 +477,24 @@ func selectProject(t *testing.T, m *Model, code string) {
 }
 
 // typeQuery types q into the launcher one rune at a time — the real keystroke
-// path, which is the only way a per-keystroke rebuild bug shows up.
-func typeQuery(t *testing.T, m *Model, q string) {
+// path, which is the only way a per-keystroke rebuild bug shows up. The
+// returned Cmd is the debounced store search the LAST keystroke scheduled, or
+// nil at a level that searches the registry in memory.
+func typeQuery(t *testing.T, m *Model, q string) tea.Cmd {
 	t.Helper()
+	var cmd tea.Cmd
 	for _, r := range q {
-		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		cmd = m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
+	return cmd
+}
+
+// searchQuery types q and lands its debounced store search, which is where the
+// Task group's content rows now come from. Every task-group assertion about
+// rows goes through this rather than typeQuery.
+func searchQuery(t *testing.T, m *Model, q string) {
+	t.Helper()
+	flushSpotSearch(t, m, typeQuery(t, m, q))
 }
 
 // walkTo moves the cursor onto the row for a menu entry's label, drilling
@@ -1446,22 +1486,23 @@ func TestSpotlightSearchLineScrollsLongQueryIntoView(t *testing.T) {
 // --- the contextual Task group ---
 
 // The Task group is the launcher's one contextual surface: its query searches
-// the scoped project's live tasks instead of the registry. The result list is
-// capped at 5 — it shares the pane with the static Add-task row, and a search
-// that returns half a project is not a search.
-func TestSpotlightTaskSearchTopFive(t *testing.T) {
+// the scoped project's live content instead of the registry. The result list is
+// capped at spotSearchK — it shares the pane with the static Add-task row, and
+// a search that returns half a project is not a search.
+func TestSpotlightTaskSearchCapsAtSpotSearchK(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	selectProject(t, m, "ATM")
-	for i := 1; i <= 7; i++ {
+	for i := 1; i <= spotSearchK+2; i++ {
 		seedTask(t, m, "ATM", fmt.Sprintf("alpha task %d", i))
 	}
 	seedTask(t, m, "ATM", "beta task")
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "alpha")
+	searchQuery(t, m, "alpha")
 
 	var tasks int
 	for _, r := range m.spotlight.rows {
@@ -1472,33 +1513,39 @@ func TestSpotlightTaskSearchTopFive(t *testing.T) {
 			}
 		}
 	}
-	if tasks != 5 {
-		t.Errorf("task rows = %d, want the 5-match cap; rows = %v", tasks, rowLabels(m))
+	if tasks != spotSearchK {
+		t.Errorf("task rows = %d, want the %d-match cap; rows = %v", tasks, spotSearchK, rowLabels(m))
 	}
 	// The static Add-task row survives the search: it is how the user files
 	// the task they just failed to find.
-	if len(m.spotlight.rows) != 6 || m.spotlight.rows[0].kind != rowEntry || m.spotlight.rows[0].label() != "Add task" {
-		t.Errorf("rows = %v, want Add task followed by the 5 matches", rowLabels(m))
+	if len(m.spotlight.rows) != spotSearchK+2 || m.spotlight.rows[0].kind != rowEntry || m.spotlight.rows[0].label() != "Add task" {
+		t.Errorf("rows = %v, want Add task, the section header, then the %d matches", rowLabels(m), spotSearchK)
+	}
+	if m.spotlight.rows[1].kind != rowSection || m.spotlight.rows[1].text != spotContentSection {
+		t.Errorf("row 1 = %+v, want the %q header", m.spotlight.rows[1], spotContentSection)
 	}
 }
 
 // The cap is applied AFTER the ranking, not before it: with more matches than
 // the cap, the ID match must survive the cut even when the store hands it over
-// last. Sibling to TestSpotlightTaskSearchTopFive (which pins the cap itself
-// and the row shape) rather than a second phase inside it, because it needs a
-// different query — every task there is a title match, so no ID can rank.
+// last. Sibling to TestSpotlightTaskSearchCapsAtSpotSearchK (which pins the cap
+// itself and the row shape) rather than a second phase inside it, because it
+// needs a different query — every task there is a title match, so no ID can
+// rank. The store's own half of this is TestSearchTextAppliesKAfterRanking; what
+// is left here is that the rows the user sees inherit it.
 //
 // Fixture built like TestSpotlightTaskSearchRanksIDOverTitle's: decoys first,
 // retitled after the target exists, so creation order puts the ID match last.
-// Capping before ranking would keep the first five decoys and drop the one
-// task the user actually named.
+// There are more decoys than spotSearchK, so capping before ranking would keep
+// only decoys and drop the one task the user actually named.
 func TestSpotlightTaskSearchRanksBeforeCapping(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	selectProject(t, m, "ATM")
 	var decoys []*store.Task
-	for i := 1; i <= 7; i++ {
+	for i := 1; i <= spotSearchK+2; i++ {
 		decoys = append(decoys, seedTask(t, m, "ATM", fmt.Sprintf("placeholder %d", i)))
 	}
 	target := seedTask(t, m, "ATM", "no keyword here")
@@ -1506,33 +1553,43 @@ func TestSpotlightTaskSearchRanksBeforeCapping(t *testing.T) {
 		retitle(t, m, d, fmt.Sprintf("decoy %d mentions %s", i+1, target.ID))
 	}
 
-	got := m.spotlight.taskMatches(target.ID)
-	if len(got) != 5 {
-		t.Fatalf("taskMatches over 8 matches returned %d, want the 5-cap", len(got))
-	}
-	if got[0].ID != target.ID {
-		t.Fatalf("first match = %q (%q), want the ID match %q — the cap must be applied after the ranking",
-			got[0].ID, got[0].Title, target.ID)
-	}
-	// And the same through the rows the user actually sees.
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, target.ID)
+	searchQuery(t, m, target.ID)
 	moveCursorToTask(t, m, target.ID) // Fatalf if the cut dropped it
+
+	// Surviving the cut is not the whole property: the cap must still fall where
+	// the ranking put it. Every task here matches the query, so the section
+	// carries exactly the cap's worth of them — and the one the query NAMED is
+	// the first of them, which is what capping before ranking would break.
+	var got []*store.Task
+	for _, r := range m.spotlight.rows {
+		if r.kind == rowTask {
+			got = append(got, r.task)
+		}
+	}
+	if len(got) != spotSearchK {
+		t.Fatalf("task rows = %d, want the %d-hit cap; rows = %v", len(got), spotSearchK, rowLabels(m))
+	}
+	if got[0].ID != target.ID {
+		t.Errorf("first match = %q (%q), want the named task %q — K must cut after the ranking",
+			got[0].ID, got[0].Title, target.ID)
+	}
 }
 
 // ID matches rank above title matches: a user who pastes an ID means that
 // task, not every task whose title happens to contain the same run of
 // characters.
 //
-// The fixture is built so the store order FIGHTS the assertion. ListTasks
-// sorts by creation ordinal (internal/store/query.go), so seeding the ID match
-// first would put it at got[0] whether or not taskMatches ranks anything —
-// the assertion would hold with the rank sort deleted. The title decoys are
-// therefore created first and only then rewritten to mention the target's ID
-// (a title edit does not move a task's creation ordinal), which leaves the ID
-// match LAST in store order: only the rank sort can bring it forward.
+// The fixture is built so the store order FIGHTS the assertion. Entities are
+// searched in creation order, so seeding the ID match first would put it at the
+// top whether or not the search ranks anything — the assertion would hold with
+// the rank sort deleted. The title decoys are therefore created first and only
+// then rewritten to mention the target's ID (a title edit does not move a
+// task's creation ordinal), which leaves the ID match LAST in store order: only
+// the rank sort can bring it forward.
 func TestSpotlightTaskSearchRanksIDOverTitle(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1545,15 +1602,24 @@ func TestSpotlightTaskSearchRanksIDOverTitle(t *testing.T) {
 	retitle(t, m, decoys[0], "mentions "+target.ID+" in the title")
 	retitle(t, m, decoys[1], "also mentions "+target.ID)
 
-	// Setup check: the store really does hand taskMatches the ID match last.
+	// Setup check: the store really does hand the search the ID match last.
 	all := m.store.ListTasks(core.QueryFilters{Project: "ATM"})
 	if all[len(all)-1].ID != target.ID {
 		t.Fatalf("setup: want the ID match last in store order, got %q last", all[len(all)-1].ID)
 	}
 
-	got := m.spotlight.taskMatches(target.ID)
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, target.ID)
+
+	var got []*store.Task
+	for _, r := range m.spotlight.rows {
+		if r.kind == rowTask {
+			got = append(got, r.task)
+		}
+	}
 	if len(got) != 3 {
-		t.Fatalf("taskMatches(%q) = %d tasks, want 3", target.ID, len(got))
+		t.Fatalf("task rows for %q = %d, want 3; rows = %v", target.ID, len(got), rowLabels(m))
 	}
 	if got[0].ID != target.ID {
 		t.Errorf("first match = %q (%q), want the ID match %q", got[0].ID, got[0].Title, target.ID)
@@ -1571,20 +1637,44 @@ func retitle(t *testing.T, m *Model, tk *store.Task, title string) {
 	m.refreshAll()
 }
 
-// The search is case-insensitive and matches a substring anywhere in the
-// title — not a prefix.
-func TestSpotlightTaskSearchIsCaseInsensitiveSubstring(t *testing.T) {
+// The search is case-insensitive and matches each of the query's words as the
+// PREFIX of a word anywhere in the task — the store's rule, not a substring
+// scan. "the index" finds "Wire The Indexer" because "the" is one of its words
+// and "index" starts "Indexer"; "indexer wire" finds it too, which is the query
+// that establishes the rule rather than merely being consistent with it —
+// lowercased, "wire the indexer" does contain the run "the index", so that
+// query alone would match under substring semantics as well, while a reversed
+// word order can only match per-token. A query whose words start none of the
+// task's matches nothing, and says so rather than leaving the group looking
+// empty.
+func TestSpotlightTaskSearchMatchesPrefixPerToken(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	selectProject(t, m, "ATM")
 	seedTask(t, m, "ATM", "Wire The Indexer")
 
-	if got := m.spotlight.taskMatches("the index"); len(got) != 1 {
-		t.Errorf("taskMatches(\"the index\") = %d tasks, want 1", len(got))
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "the index")
+
+	want := []string{"Add task", spotContentSection, "Wire The Indexer"}
+	if got := rowLabels(m); !equalStrings(got, want) {
+		t.Errorf("rows for %q = %v, want %v", "the index", got, want)
 	}
-	if got := m.spotlight.taskMatches("nothing here"); len(got) != 0 {
-		t.Errorf("taskMatches on a non-match = %d tasks, want 0", len(got))
+	// Esc clears the query, so each later search is typed fresh rather than onto
+	// the end of the one before it.
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	searchQuery(t, m, "indexer wire") // the task's own words, out of order
+	if got := rowLabels(m); !equalStrings(got, want) {
+		t.Errorf("rows for %q = %v, want %v — a reversed word order is a per-token match", "indexer wire", got, want)
+	}
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	searchQuery(t, m, "nothing here")
+
+	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "no tasks match"}) {
+		t.Errorf("rows for a query starting none of the task's words = %v", got)
 	}
 }
 
@@ -1600,13 +1690,13 @@ func TestSpotlightTaskQueryIsInertWithoutAScope(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "alpha")
+	cmd := typeQuery(t, m, "alpha")
 
 	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "select a project first"}) {
 		t.Errorf("unscoped Task group after typing = %v, want the inert two rows", got)
 	}
-	if got := m.spotlight.taskMatches("alpha"); len(got) != 0 {
-		t.Errorf("taskMatches without a scope = %d tasks, want none", len(got))
+	if cmd != nil {
+		t.Error("an unscoped query must schedule no search at all")
 	}
 }
 
@@ -1614,6 +1704,7 @@ func TestSpotlightTaskQueryIsInertWithoutAScope(t *testing.T) {
 // like it lost its rows; the hint is not landable, so the cursor stays on the
 // Add-task row.
 func TestSpotlightTaskSearchNoMatchesIsAHint(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1622,7 +1713,7 @@ func TestSpotlightTaskSearchNoMatchesIsAHint(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "zzzz")
+	searchQuery(t, m, "zzzz")
 
 	if got := rowLabels(m); !equalStrings(got, []string{"Add task", "no tasks match"}) {
 		t.Errorf("rows for a query matching nothing = %v", got)
@@ -1633,9 +1724,9 @@ func TestSpotlightTaskSearchNoMatchesIsAHint(t *testing.T) {
 }
 
 // A query of nothing but whitespace is an empty query, in the row builder as
-// well as in the matcher. Space is a real keystroke inside the launcher
-// (printableRune maps tea.KeySpace to ' '), so the two disagreeing meant one
-// space turned the invitation to type into "no tasks match".
+// well as in the search it would schedule. Space is a real keystroke inside
+// the launcher (printableRune maps tea.KeySpace to ' '), so the two disagreeing
+// meant one space turned the invitation to type into "no tasks match".
 func TestSpotlightTaskWhitespaceQueryIsEmpty(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -1661,6 +1752,7 @@ func TestSpotlightTaskWhitespaceQueryIsEmpty(t *testing.T) {
 // something unrelated to what the user was typing, and every character undid
 // the arrow keys. A typed query homes onto the top *result* instead.
 func TestSpotlightTaskSearchSelectsTheTopResultWhileTyping(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1675,23 +1767,26 @@ func TestSpotlightTaskSearchSelectsTheTopResultWhileTyping(t *testing.T) {
 	// Every keystroke of the query, not just the last: the reset ran per
 	// rebuild, so a bug here is a per-keystroke bug.
 	for _, r := range "alpha" {
-		typeQuery(t, m, string(r))
+		searchQuery(t, m, string(r))
 		sel := m.spotlight.selectedRow()
 		if sel == nil || sel.kind != rowTask {
 			t.Fatalf("after typing %q the selection is %q, want a task row; rows = %v",
 				m.spotlight.query, m.spotlight.selectedLabel(), rowLabels(m))
 		}
-		if want := m.spotlight.rows[1]; sel.task != want.task {
+		if want := m.spotlight.rows[firstTaskRow(t, m)]; sel.task != want.task {
 			t.Errorf("after typing %q the selection is %q, want the top result %q",
 				m.spotlight.query, sel.label(), want.label())
 		}
 	}
 
 	// The arrows still move within the results, and backspacing back to an
-	// empty query returns to the tree's first selectable row.
+	// empty query returns to the tree's first selectable row. Measured from the
+	// top result rather than at a fixed index: the section header sits between
+	// Add task and the results.
+	top := m.spotlight.cursor
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	if got := m.spotlight.cursor; got != 2 {
-		t.Errorf("down from the top result left the cursor at %d, want 2", got)
+	if got := m.spotlight.cursor; got != top+1 {
+		t.Errorf("down from the top result left the cursor at %d, want %d", got, top+1)
 	}
 	for range "alpha" {
 		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -1706,6 +1801,7 @@ func TestSpotlightTaskSearchSelectsTheTopResultWhileTyping(t *testing.T) {
 // must act on the task that was chosen, not on whatever the Tasks pane cursor
 // happened to be on.
 func TestSpotlightTaskDrillAndTargetedAction(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1715,7 +1811,7 @@ func TestSpotlightTaskDrillAndTargetedAction(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 
 	preview := stripANSI(strings.Join(m.spotlight.lines, "\n"))
@@ -1759,6 +1855,7 @@ func TestSpotlightTaskDrillAndTargetedAction(t *testing.T) {
 // Esc peels the task-action level back to the Task group, exactly as it peels
 // a group back to the root — and drops the task it was targeting.
 func TestSpotlightEscLeavesTaskActions(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1767,7 +1864,7 @@ func TestSpotlightEscLeavesTaskActions(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -1793,6 +1890,7 @@ func TestSpotlightEscLeavesTaskActions(t *testing.T) {
 // are asserted: restoring the query string without rebuilding the rows it
 // selected would read as working while showing nothing.
 func TestSpotlightEscRestoresTheTaskQuery(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1803,12 +1901,14 @@ func TestSpotlightEscRestoresTheTaskQuery(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "alpha")
+	searchQuery(t, m, "alpha")
 	before := rowLabels(m)
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	// The restored query re-runs the search, so its rows land through a tick
+	// exactly as a typed query's do.
+	flushSpotSearch(t, m, m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}))
 
 	if m.spotlight.query != "alpha" {
 		t.Errorf("query after Esc = %q, want the search intact", m.spotlight.query)
@@ -1874,6 +1974,7 @@ func TestSpotlightTaskActionTargetsFromAnyState(t *testing.T) {
 
 	for _, st := range states {
 		t.Run(st.name, func(t *testing.T) {
+			withInstantSpotSearch(t)
 			m := newTestModel(t)
 			m.SetSize(120, 40)
 			seedProject(t, m, "ATM", "Acme")
@@ -1884,7 +1985,7 @@ func TestSpotlightTaskActionTargetsFromAnyState(t *testing.T) {
 
 			m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\\")})
 			moveCursorToGroup(t, m, "Task")
-			typeQuery(t, m, "indexer")
+			searchQuery(t, m, "indexer")
 			moveCursorToTask(t, m, target.ID)
 			m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 			moveCursorToLabel(t, m, "Add comment")
@@ -1928,6 +2029,7 @@ func TestSpotlightEveryTaskActionTargetsTheChosenTask(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
+			withInstantSpotSearch(t)
 			m := newTestModel(t)
 			m.SetSize(120, 40)
 			seedProject(t, m, "ATM", "Acme")
@@ -1938,7 +2040,7 @@ func TestSpotlightEveryTaskActionTargetsTheChosenTask(t *testing.T) {
 
 			m.spotlight.openSpotlight()
 			moveCursorToGroup(t, m, "Task")
-			typeQuery(t, m, "indexer")
+			searchQuery(t, m, "indexer")
 			moveCursorToTask(t, m, target.ID)
 			m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 			moveCursorToLabel(t, m, tc.label)
@@ -1957,6 +2059,7 @@ func TestSpotlightEveryTaskActionTargetsTheChosenTask(t *testing.T) {
 // the chosen task: the filtered list is rowEntry rows like any other, so the
 // targeting has to hang off the level, not off how the row was reached.
 func TestSpotlightFilteredTaskActionStaysTargeted(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -1966,10 +2069,12 @@ func TestSpotlightFilteredTaskActionStaysTargeted(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
+	// typeQuery, not searchQuery: at levelTaskActions the query filters the
+	// action list in memory and reaches no store.
 	typeQuery(t, m, "comment")
 	if got := rowLabels(m); !equalStrings(got, []string{"Add comment"}) {
 		t.Fatalf("filtered task actions = %v, want just Add comment", got)
@@ -1993,6 +2098,7 @@ func wantFormKind(t *testing.T, m *Model, want formAction) {
 // removed between the search and the Enter must never be replayed against.
 // The launcher says so and stays open on the action list.
 func TestSpotlightTaskActionOnAGoneTask(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -2001,7 +2107,7 @@ func TestSpotlightTaskActionOnAGoneTask(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 	moveCursorToTask(t, m, target.ID)
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -2076,6 +2182,7 @@ func TestSpotlightTaskPreviewWithoutDescriptionOrLabels(t *testing.T) {
 // also carries the same › drill marker a group row does, because Enter on it
 // drills exactly the same way.
 func TestSpotlightTaskRowRendersIDAndDrillMarker(t *testing.T) {
+	withInstantSpotSearch(t)
 	m := newTestModel(t)
 	m.SetSize(160, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -2084,7 +2191,7 @@ func TestSpotlightTaskRowRendersIDAndDrillMarker(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	typeQuery(t, m, "indexer")
+	searchQuery(t, m, "indexer")
 
 	view := stripANSI(m.spotlight.renderOverlay())
 	for _, want := range []string{target.ID, "wire the indexer ›"} {

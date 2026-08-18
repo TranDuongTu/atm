@@ -1,0 +1,39 @@
+{
+  "project": {
+    "capabilities": [
+      "contextmap",
+      "workflow"
+    ],
+    "chat": {
+      "endpoint": "http://localhost:11434/v1",
+      "model": "qwen3:8b"
+    },
+    "code": "FOO",
+    "created_at": "TIMESTAMP",
+    "created_by": "admin@cli:unset",
+    "history": [
+      {
+        "action": "project.created",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 1
+      },
+      {
+        "action": "project.capability-enabled",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 2
+      },
+      {
+        "action": "project.capability-enabled",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 3
+      }
+    ],
+    "name": "Foo",
+    "ordinal": 0,
+    "updated_at": "TIMESTAMP",
+    "updated_by": "admin@cli:unset"
+  }
+}

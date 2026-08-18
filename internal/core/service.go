@@ -130,6 +130,8 @@ type IndexService interface {
 	VectorMeta(code, slug string) (*VectorMeta, error)
 	DropVectors(code, slug string) error
 	SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor string) error
+	SetChatConfig(code string, cfg ChatConfig, actor string) error
+	PendingIndexCount(code, slug string) (int, error)
 	Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error)
 }
 

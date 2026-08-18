@@ -71,12 +71,24 @@ func cosineSimilarity(a, b []float64) float64 {
 // textSearch is the keyword fallback behind Search. Every project is v2
 // (born-v2 conversion is complete), so this folds the event file (through the
 // freshness-gated cache rows) rather than reading any log directly.
+//
+// Two tiers, not one score: an entity the query NAMES (its ID contains the
+// query) outranks one that merely mentions the query's words. The ID is not
+// part of the document text — taskDocumentText is title+description+labels,
+// because an ID is not worth embedding — so token overlap cannot see it, and a
+// pasted ID would otherwise find nothing at all. A comment's ID carries its
+// task's ID as a prefix, so pasting a task ID surfaces the task and its
+// comments together, task first.
+//
+// Tier 0 is guarded against the project-code prefix every ID in the project
+// shares (see namesEntity below): "names an entity" has to mean more than
+// "starts the way they all do".
 func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 	qtokens := tokenize(query)
 	if len(qtokens) == 0 {
 		return nil, nil
 	}
-	var hits []Hit
+	needle := strings.ToLower(strings.TrimSpace(query))
 	// The format lookup is propagated, never swallowed: a swallowed error here
 	// would silently report "no results" for a project whose entities plainly
 	// exist.
@@ -96,21 +108,62 @@ func (s *Store) textSearch(code, query, kind string, k int) ([]Hit, error) {
 		}
 		return nil, nil
 	}
+	// A query that matches nothing but the project-code prefix names no
+	// particular entity: every ID in the project starts with it, so treating
+	// that as "the user pasted an ID" ranks the whole project at the tier
+	// reserved for a named entity. `atm search --project ATM a` returned every
+	// task at score 1 before this guard.
+	prefix := strings.ToLower(code) + "-"
+	namesEntity := needle != "" && !strings.Contains(prefix, needle)
+	// tier 0 = the query names this entity, tier 1 = a document match.
+	type ranked struct {
+		hit  Hit
+		tier int
+	}
+	var scored []ranked
+	add := func(id string, hit Hit, overlap int) {
+		named := namesEntity && strings.Contains(strings.ToLower(id), needle)
+		if overlap == 0 && !named {
+			return
+		}
+		if overlap == 0 {
+			// A named entity with no word overlap is still a hit; give it the
+			// smallest positive score so Score keeps meaning "how much of the
+			// query the document carries" for everything else.
+			overlap = 1
+		}
+		hit.Score = float64(overlap)
+		tier := 1
+		if named {
+			tier = 0
+		}
+		scored = append(scored, ranked{hit, tier})
+	}
 	if kind == "" || kind == "all" || kind == "task" {
 		for _, t := range tasks {
-			if score := tokenOverlap(qtokens, tokenize(taskDocumentText(t))); score > 0 {
-				hits = append(hits, Hit{ID: t.ID, Kind: "task", Score: float64(score), Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"})
-			}
+			add(t.ID, Hit{ID: t.ID, Kind: "task", Title: t.Title, Snippet: snippet(t.Description, 80), Labels: t.Labels, Match: "text"},
+				tokenPrefixOverlap(qtokens, tokenize(taskDocumentText(t))))
 		}
 	}
 	if kind == "" || kind == "all" || kind == "comment" {
 		for _, c := range comments {
-			if score := tokenOverlap(qtokens, tokenize(commentDocumentText(c))); score > 0 {
-				hits = append(hits, Hit{ID: c.ID, Kind: "comment", Score: float64(score), Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"})
-			}
+			add(c.ID, Hit{ID: c.ID, Kind: "comment", Snippet: snippet(c.Body, 80), Labels: c.Labels, Match: "text"},
+				tokenPrefixOverlap(qtokens, tokenize(commentDocumentText(c))))
 		}
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	// Stable, so a tie inside a tier keeps entity order: tasks before comments,
+	// and creation order within each — which is what makes a task lead its own
+	// comments when an ID names all of them.
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].tier != scored[j].tier {
+			return scored[i].tier < scored[j].tier
+		}
+		return scored[i].hit.Score > scored[j].hit.Score
+	})
+	hits := make([]Hit, 0, len(scored))
+	for _, r := range scored {
+		hits = append(hits, r.hit)
+	}
 	if len(hits) > k {
 		hits = hits[:k]
 	}
@@ -124,15 +177,26 @@ func tokenize(s string) []string {
 	})
 }
 
-func tokenOverlap(query, doc []string) int {
-	dset := map[string]bool{}
-	for _, w := range doc {
-		dset[w] = true
-	}
+// tokenPrefixOverlap counts how many of the query's tokens the document
+// carries, matching each query token as a PREFIX of a document token.
+//
+// Prefix, not exact: the spotlight queries this path on a debounce as the user
+// types, so exact-token overlap left the results section empty until a whole
+// word was finished — a user who had typed "ind" of "indexer" saw nothing,
+// which is strictly worse than the strings.Contains matcher the search
+// redesign replaced. An exact match still counts, being a prefix of itself.
+//
+// Prefix, not fuzzy and not infix: "ind" finds "indexer", "dex" does not.
+// That keeps the rule explainable at the surface — what you have typed so far
+// is the start of a word in the thing you are looking for.
+func tokenPrefixOverlap(query, doc []string) int {
 	n := 0
-	for _, w := range query {
-		if dset[w] {
-			n++
+	for _, q := range query {
+		for _, d := range doc {
+			if strings.HasPrefix(d, q) {
+				n++
+				break
+			}
 		}
 	}
 	return n

@@ -1,0 +1,8 @@
+{
+  "actor": "admin@cli:unset",
+  "chat": {
+    "endpoint": "http://localhost:11434/v1",
+    "model": "qwen3:8b"
+  },
+  "project": "FOO"
+}

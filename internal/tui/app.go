@@ -529,6 +529,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			im.logs = im.logs[len(im.logs)-1000:]
 		}
 		return m, nil
+	case spotSearchTickMsg:
+		// The launcher's debounced content search coming due. applySearchTick
+		// drops it if a newer keystroke, level change, or close superseded it.
+		m.spotlight.applySearchTick(msg)
+		return m, nil
 	}
 	return m, nil
 }
@@ -557,7 +562,11 @@ func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	if m.spotlightReturn != nil && m.workspaceIdle() {
 		s := *m.spotlightReturn
 		m.spotlightReturn = nil
-		m.spotlight.openAt(s)
+		// The reopened launcher's restored query owes the user its rows: the
+		// search it schedules has to reach the runtime, not die here.
+		if c := m.spotlight.openAt(s); c != nil {
+			cmd = tea.Batch(cmd, c)
+		}
 	}
 	return cmd
 }

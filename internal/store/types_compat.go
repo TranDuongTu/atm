@@ -33,6 +33,7 @@ type HistoryView = core.HistoryView
 type Vocabulary = core.Vocabulary
 type VocabularyTerm = core.VocabularyTerm
 type EmbeddingConfig = core.EmbeddingConfig
+type ChatConfig = core.ChatConfig
 type ProjectConfig = core.ProjectConfig
 type RepoConfig = core.RepoConfig
 type AgentsConfig = core.AgentsConfig
