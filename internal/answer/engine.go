@@ -118,7 +118,15 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 	}
 	// Hydration runs AFTER Retrieved: the hits are already with the consumer,
 	// so a slow or failing lookup delays generation, never delivery.
-	srcs := buildSources(hits, e.documents(hits), e.cfg.SourceBudget)
+	docs, err := e.documents(hits)
+	if err != nil {
+		// A corrupt ledger, surfaced by hydration rather than by retrieval.
+		// Same treatment as a retrieval failure: this is the one path besides
+		// that one which both emits a terminal event AND returns an error.
+		emit(Failed{Reason: err.Error()})
+		return err
+	}
+	srcs := buildSources(hits, docs, e.cfg.SourceBudget)
 	var answer strings.Builder
 	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, srcs), func(text string) {
 		answer.WriteString(text)
@@ -187,12 +195,19 @@ func (e *Engine) behind() int {
 	return n
 }
 
-// documents hydrates the hits the engine is about to cite. Like behind, it
-// never fails an answer: a lookup that errors returns nil and every source
-// falls back to its snippet.
-func (e *Engine) documents(hits []core.Hit) map[string]string {
+// documents hydrates the hits the engine is about to cite. Best-effort by
+// design: a lookup that fails degrades to each hit's snippet rather than
+// failing the answer.
+//
+// With ONE exception, which is not a judgement call — core.ErrIntegrity means
+// the ledger itself is corrupt, and ATM never swallows that. It matters here
+// specifically because this is often the FIRST call to touch it: retrieve()'s
+// semantic path reads the vector file and never goes through the entity cache,
+// so a corrupt cache can be invisible until this runs. Swallowing it would
+// answer from snippets and report success over a broken store.
+func (e *Engine) documents(hits []core.Hit) (map[string]string, error) {
 	if len(hits) == 0 {
-		return nil
+		return nil, nil
 	}
 	ids := make([]string, 0, len(hits))
 	for _, h := range hits {
@@ -200,7 +215,10 @@ func (e *Engine) documents(hits []core.Hit) map[string]string {
 	}
 	docs, err := e.cfg.Searcher.Documents(e.cfg.Project, ids)
 	if err != nil {
-		return nil
+		if core.IsIntegrity(err) {
+			return nil, err
+		}
+		return nil, nil
 	}
-	return docs
+	return docs, nil
 }

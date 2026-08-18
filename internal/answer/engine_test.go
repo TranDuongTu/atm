@@ -408,3 +408,28 @@ func TestAskSurvivesHydrationFailure(t *testing.T) {
 		t.Error("want the snippet fallback in the prompt")
 	}
 }
+
+// A corrupt ledger is never swallowed. This path matters because hydration is
+// often the FIRST thing to touch the entity cache: retrieve()'s semantic
+// branch reads the vector file and never goes through it, so integrity damage
+// can be invisible until documents() runs.
+func TestAskPropagatesIntegrityErrorFromHydration(t *testing.T) {
+	fs := &fakeSearcher{
+		hits:    []core.Hit{{ID: "ATM-1", Snippet: "the snippet"}},
+		docsErr: fmt.Errorf("%w: cache row corrupt", core.ErrIntegrity),
+	}
+	fc := &fakeChat{deltas: []string{"should never run"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	err := e.Ask(context.Background(), Query{Question: "q"}, record(&events))
+	if err == nil {
+		t.Fatal("Ask returned nil; a corrupt ledger must not be swallowed")
+	}
+	if !core.IsIntegrity(err) {
+		t.Errorf("err = %v, want it to still satisfy core.IsIntegrity", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false", last)
+	}
+}
