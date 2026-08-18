@@ -13,6 +13,12 @@ import (
 // ATM-66a6d2's live verification ran qwen3:0.6b.
 const defaultSourceBudget = 12000
 
+// truncMarker signals to the model that it is holding a fragment. Its length
+// is RESERVED from max rather than added after, so clip's result honours the
+// allowance allot handed it — the budget is only a budget if the thing that
+// enforces it does not overshoot.
+const truncMarker = "…[truncated]"
+
 // source is one numbered block of the prompt: the hit it came from, and the
 // text actually shown for it after hydration and budgeting.
 type source struct {
@@ -88,9 +94,8 @@ func allot(lengths []int, budget int) []int {
 	return out
 }
 
-// clip cuts s to at most max runes on a rune boundary and says so. The marker
-// is not decoration: a model handed a sentence that stops mid-clause with no
-// signal will confidently answer from the half it can see.
+// clip cuts s to at most max runes, on a rune boundary, and says so when it
+// cuts. The result is never longer than max.
 func clip(s string, max int) string {
 	if max <= 0 {
 		return ""
@@ -98,10 +103,17 @@ func clip(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
+	markerRunes := utf8.RuneCountInString(truncMarker)
+	if max <= markerRunes {
+		// No room for content and a marker both. A bare ellipsis is 1 rune, so
+		// it always fits, and still signals that text was dropped.
+		return "…"
+	}
+	keep := max - markerRunes
 	n := 0
 	for i := range s {
-		if n == max {
-			return s[:i] + "…[truncated]"
+		if n == keep {
+			return s[:i] + truncMarker
 		}
 		n++
 	}

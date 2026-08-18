@@ -35,7 +35,7 @@ func TestAllotAllOversizedSplitsEvenly(t *testing.T) {
 }
 
 func TestClipIsRuneSafeAndMarked(t *testing.T) {
-	got := clip(strings.Repeat("あ", 100), 10)
+	got := clip(strings.Repeat("あ", 100), 40)
 	if !utf8.ValidString(got) {
 		t.Errorf("clip produced invalid UTF-8: %q", got)
 	}
@@ -62,5 +62,21 @@ func TestBuildSourcesWithNilDocsUsesEverySnippet(t *testing.T) {
 	got := buildSources(hits, nil, 0)
 	if len(got) != 1 || got[0].text != "only this" {
 		t.Errorf("buildSources with nil docs = %+v, want the snippet", got)
+	}
+}
+
+// clip's result must never exceed max: allot hands out allowances and clip is
+// what honours them, so an overshoot means the budget is not a budget. The
+// marker's length is reserved, not appended, and this pins that.
+func TestClipNeverExceedsMax(t *testing.T) {
+	long := strings.Repeat("あ", 500)
+	for _, max := range []int{1, 5, 11, 12, 13, 20, 100, 499, 500, 501} {
+		got := clip(long, max)
+		if n := utf8.RuneCountInString(got); n > max {
+			t.Errorf("clip(long, %d) = %d runes, want <= %d", max, n, max)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("clip(long, %d) produced invalid UTF-8", max)
+		}
 	}
 }
