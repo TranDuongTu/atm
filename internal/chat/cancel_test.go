@@ -127,3 +127,72 @@ func TestNewClientHasNoWholeRequestTimeout(t *testing.T) {
 		t.Fatalf("idle=%v total=%v, want both armed by New", c.idle, c.total)
 	}
 }
+
+// classify's ordering is what keeps a watchdog abort from masquerading as
+// caller cancellation: the caller's context is checked first, ahead of both
+// watchdogs (client.go:153-155). None of the integration tests above can
+// reach the branch that actually proves that order, because none of them
+// both shorten the idle window AND cancel the caller's context — idled and
+// callerCtx.Err() are never both true there. This table test calls classify
+// directly, so the full ladder is pinned deterministically with no server
+// and no timing window to race.
+func TestClassifyPrecedence(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	expired, stop := context.WithTimeout(context.Background(), 0)
+	defer stop()
+	<-expired.Done() // make sure the deadline has actually elapsed
+
+	live := context.Background()
+	underlying := errors.New("boom")
+
+	tests := []struct {
+		name      string
+		callerCtx context.Context
+		streamCtx context.Context
+		idled     bool
+		want      error
+	}{
+		{
+			// The discriminating case: a canceled ask is not a broken
+			// endpoint, so it must report as context.Canceled even when the
+			// idle watchdog also fired. If the two branches were swapped, or
+			// the caller check dropped, this is the only case in the
+			// package that would notice.
+			name:      "caller cancellation outranks an idled watchdog",
+			callerCtx: canceled,
+			streamCtx: live,
+			idled:     true,
+			want:      context.Canceled,
+		},
+		{
+			name:      "idled watchdog fires when the caller is still live",
+			callerCtx: live,
+			streamCtx: live,
+			idled:     true,
+			want:      ErrIdleTimeout,
+		},
+		{
+			name:      "ceiling fires when the caller is live and not idled",
+			callerCtx: live,
+			streamCtx: expired,
+			idled:     false,
+			want:      ErrCeiling,
+		},
+		{
+			name:      "neither watchdog nor caller: the underlying error passes through",
+			callerCtx: live,
+			streamCtx: live,
+			idled:     false,
+			want:      underlying,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classify(tt.callerCtx, tt.streamCtx, tt.idled, underlying); !errors.Is(got, tt.want) {
+				t.Errorf("classify() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
