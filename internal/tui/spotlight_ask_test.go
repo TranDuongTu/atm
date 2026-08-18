@@ -369,3 +369,87 @@ func drainAskTicks(t *testing.T, m *Model, p *askPane) {
 	}
 	t.Fatal("the stream never reported done")
 }
+
+// The layout the spec fixes: input on top, SOURCES left, transcript right,
+// footer under both.
+func TestAskSplitLayout(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{
+			{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"},
+			{ID: "ATM-0002", Kind: "task", Title: "answer engine core"},
+		}},
+		answer.Delta{Text: "The indexer is a watcher [1]."},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "SOURCES")
+	mustContain(t, view, "[1] ATM-0001")
+	mustContain(t, view, "[2] ATM-0002")
+	mustContain(t, view, "The indexer is a watcher [1].")
+	mustContain(t, view, "\u2191\u2193 sources")
+	mustContain(t, view, "esc back")
+
+	lines := strings.Split(view, "\n")
+	src, footer := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "SOURCES") {
+			src = i
+		}
+		if strings.Contains(l, "esc back") {
+			footer = i
+		}
+	}
+	if src < 0 || footer < 0 || src >= footer {
+		t.Fatalf("SOURCES at %d must sit above the footer at %d:\n%s", src, footer, view)
+	}
+}
+
+// Behind renders as its own chip with its own wording. event.go:26 records that
+// this number and the dock's "behind" (lastLogSeq - meta.LastLogSeq) disagree
+// for the same project at the same instant, so the two must never read as one
+// idea.
+func TestAskStalenessChipIsNotTheDocksBehind(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}, Behind: 4},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "sources may lag · 4 items indexing")
+	if strings.Contains(view, "behind") {
+		t.Error("the ask pane must not use the dock's word for a different number")
+	}
+}
+
+// Nothing pending, nothing to say.
+func TestAskNoStalenessChipWhenFresh(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}, Behind: 0},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	mustNotContain(t, stripANSI(p.view()), "sources may lag")
+}
+
+// The question stays visible above its answer, because [n] numbering restarts
+// each turn and an older answer's numbers refer to a list no longer on screen.
+func TestAskTranscriptKeepsTheQuestionAboveTheAnswer(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}},
+		answer.Delta{Text: "It is a watcher."},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	mustContain(t, stripANSI(p.view()), "indexer")
+}

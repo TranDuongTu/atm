@@ -452,6 +452,9 @@ func (sm *spotlightModel) previewPaneLines(bodyH, w int) []string {
 // content, the ▸ glyph (list only), the search caret (list only). A user who
 // glances at the box can always tell which half owns their keystrokes.
 func (sm *spotlightModel) renderOverlay() string {
+	if sm.level == levelAsk && sm.ask != nil {
+		return sm.ask.view()
+	}
 	st := sm.m.styles
 	leftW, blockH := sm.leftPaneWidth(), sm.blockHeight()
 	sm.clampOffset()

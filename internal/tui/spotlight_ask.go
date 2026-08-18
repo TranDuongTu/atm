@@ -301,7 +301,3 @@ func (p *askPane) applyTick(msg askTickMsg) tea.Cmd {
 	}
 	return nil
 }
-
-// scrollToBottom is filled in by the rendering task; following the tail needs
-// a rendered height to know where the bottom is.
-func (p *askPane) scrollToBottom() {}
