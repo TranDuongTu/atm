@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -226,6 +227,39 @@ func (h *goldenHarness) run(args ...string) (string, string, int) {
 		code = ExitCodeForError(err)
 		// Mirror production Execute(): write the error envelope to stderr
 		// in JSON mode so error-case goldens capture the envelope shape.
+		if h.output == outputJSON {
+			env := NewErrorEnvelopeFromError(err)
+			fmt.Fprintln(h.stderr, env.String())
+		}
+	}
+	return h.stdout.String(), h.stderr.String(), code
+}
+
+// runCtx is run() with a caller-supplied context, so a test can cancel a
+// command out from under it while it is still in flight — the same thing
+// signal.NotifyContext reacts to on a real ctrl-C, without sending any actual
+// OS signal (which would need to land inside the exact window a command's own
+// NotifyContext registration is open, and would race every other signal
+// listener in the test binary). Cobra threads ExecuteContext's ctx down to
+// the resolved subcommand (see cobra's execute(), which sets cmd.ctx = c.ctx
+// only when cmd.ctx is nil), so this reaches RunE the same way root.Execute()
+// does — it just gives the test a handle to cancel.
+func (h *goldenHarness) runCtx(ctx context.Context, args ...string) (string, string, int) {
+	h.reset()
+	h.st.flags.actor = ""
+	deps := h.mountDeps()
+	h.st.fullRegistry = deps.Registry
+	h.st.registry = mountRegistry(deps, args, func(string) string { return "" })
+	root := newRootCmdWithState(h.st)
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+	h.st.flags.store = h.store.StorePath()
+	h.st.flags.output = h.output
+	root.SetArgs(args)
+	err := root.ExecuteContext(ctx)
+	code := ExitSuccess
+	if err != nil {
+		code = ExitCodeForError(err)
 		if h.output == outputJSON {
 			env := NewErrorEnvelopeFromError(err)
 			fmt.Fprintln(h.stderr, env.String())

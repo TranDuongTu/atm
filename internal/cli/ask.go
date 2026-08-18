@@ -104,6 +104,10 @@ func newAskCmd(st *cliState) *cobra.Command {
 			eng := answer.New(acfg)
 			streamText := !st.isJSON()
 			var b strings.Builder
+			// Set in the answer.Failed arm below. A cancel is the user
+			// REJECTING the answer, not a deadline running out on one they
+			// still wanted — see the recording condition after Ask returns.
+			var canceled bool
 			q := answer.Query{Question: args[0]}
 			if session != "" {
 				res.Session = session
@@ -149,6 +153,7 @@ func newAskCmd(st *cliState) *cobra.Command {
 					res.Error = ev.Reason
 					if ev.Canceled {
 						res.Error = "canceled"
+						canceled = true
 					}
 				}
 			})
@@ -157,7 +162,11 @@ func newAskCmd(st *cliState) *cobra.Command {
 			// generated nothing, and an empty assistant turn replayed as history
 			// poisons every later turn in the session. A truncated partial IS
 			// recorded — that text is genuinely what the conversation contained.
-			if session != "" && err == nil && strings.TrimSpace(res.Answer) != "" {
+			// A CANCELED partial is not: a cancel is the user rejecting the
+			// answer, not the clock running out on one they still wanted, so it
+			// must not be replayed as the assistant's real prior reply on the
+			// next turn (ATM-d4ceed).
+			if session != "" && err == nil && !canceled && strings.TrimSpace(res.Answer) != "" {
 				if aerr := s.AppendAskTurn(project, session, core.AskTurn{Question: args[0], Answer: res.Answer}); aerr != nil {
 					fmt.Fprintf(st.stderr(), "warning: could not record the turn: %v\n", aerr)
 				}
@@ -225,12 +234,26 @@ func printAskText(st *cliState, res askResult) {
 		return
 	}
 	fmt.Fprintf(out, "\nSOURCES\n")
+	// The model numbers its citations over the FULL retrieval set, and
+	// citedHits returns them in first-mention order — so renumbering from 1
+	// here would print keys that do not match the [n] markers in the answer
+	// above. Look each cited hit up by its position in the hit list instead.
+	// On the degraded path, where `cited` falls back to res.Hits, this yields
+	// i+1 anyway, so both paths share one rule.
+	pos := make(map[string]int, len(res.Hits))
+	for i, h := range res.Hits {
+		pos[h.ID] = i + 1
+	}
 	for i, h := range cited {
 		label := h.Title
 		if label == "" {
 			label = h.Snippet
 		}
-		fmt.Fprintf(out, "[%d] %s (%s) %s\n", i+1, h.ID, h.Kind, label)
+		n, ok := pos[h.ID]
+		if !ok {
+			n = i + 1
+		}
+		fmt.Fprintf(out, "[%d] %s (%s) %s\n", n, h.ID, h.Kind, label)
 	}
 	if res.Behind > 0 {
 		fmt.Fprintf(out, "\nsources may lag · %d items still indexing\n", res.Behind)

@@ -245,13 +245,16 @@ Retrieval never breaks because generation cannot run. With no chat model configu
 - `--timeout 30s` bounds one call. An expired deadline is an interruption, not a failure: the partial answer is kept, `truncated` is true, and the exit code is still 0.
 - Queries and the IDs they returned are appended to `inquiry-log.jsonl` for search-quality measurement. Turn it off with `atm project set-inquiry-log --project ATM --enabled=false`.
 
-`--output json` emits one document, with every key present on every outcome:
+`--output json` emits one document, with every key present on every outcome. `hits` is the full retrieval set the model was shown, numbered in order; `citations` is the subset it actually cited. A `[n]` marker in `answer` resolves against `hits[n-1]`, not against a position in `citations` — `citations` is a filtered view, so indexing it by the marker's number would land on the wrong entry as soon as the model skips a source:
 
 ```json
 {
   "answer": "The release is blocked by ATM-1 [1].",
   "citations": [{"id": "ATM-1", "kind": "task", "score": 0.82, "snippet": "...", "match": "semantic"}],
-  "hits": [],
+  "hits": [
+    {"id": "ATM-1", "kind": "task", "score": 0.82, "snippet": "...", "match": "semantic"},
+    {"id": "ATM-2", "kind": "task", "score": 0.61, "snippet": "...", "match": "semantic"}
+  ],
   "chat_model": "qwen3:8b",
   "embed_model": "nomic-embed-text",
   "session": "",

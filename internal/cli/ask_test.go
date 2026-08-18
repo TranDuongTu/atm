@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"atm/internal/core"
 )
 
 // fakeOllama serves the OpenAI-compatible SSE shape internal/chat parses.
@@ -73,6 +77,40 @@ func TestAskStreamsAndCitesInTextMode(t *testing.T) {
 	}
 	if !strings.Contains(out, "SOURCES") {
 		t.Errorf("output = %q, want the cited-sources footer", out)
+	}
+}
+
+// The model numbers its [n] markers over the FULL retrieval set (buildMessages
+// numbers every hit 1..N), but citedHits returns only the ones actually named,
+// in first-mention order. Renumbering the footer from 1 over THAT list prints
+// keys that do not match the markers in the streamed answer above it whenever
+// the model cites anything but the leading sources in order. A single-hit
+// fixture cannot show this — it needs enough hits that the numbers can
+// disagree, and an answer that cites a later one, not the first.
+func TestAskTextFooterKeepsRetrievalPositionNotCitationOrder(t *testing.T) {
+	srv := fakeOllama(t, 0, "citing only the second source ", "here [2]")
+	defer srv.Close()
+	h := newGoldenHarness(t)
+	h.output = outputText
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	// All three carry "component" exactly once, and none is named by the query,
+	// so textSearch scores them identically and the stable sort keeps them in
+	// creation order — hits[1] is deterministically the second one created.
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "first widget", "--description", "a component of the system", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "second widget", "--description", "a component of the system", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "third widget", "--description", "a component of the system", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "fake", "--endpoint", srv.URL, "--actor", "admin@cli:unset")
+	out, _, code := h.run("ask", "component", "--store", sp, "--project", "FOO", "--k", "3")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "[2] ") {
+		t.Errorf("output = %q, want the footer to key the cited source as [2] — the number the answer actually used", out)
+	}
+	if strings.Contains(out, "[1] ") {
+		t.Errorf("output = %q, want no [1] entry — the answer never cited source 1, so the footer must not invent one", out)
 	}
 }
 
@@ -230,6 +268,53 @@ func TestAskDegradedDoesNotRecordATurn(t *testing.T) {
 	}
 }
 
+// A ctrl-C mid-stream is the user REJECTING the answer, not a deadline
+// running out on one they still wanted — the branch draws that distinction
+// everywhere else (Failed.Canceled, event.go), and ask.go's recording
+// condition was the one consumer that ignored it, writing the half-sentence
+// into the session and replaying it as the assistant's real prior reply on
+// the next turn. Cancellation cannot be driven through a real SIGINT
+// in-process (there is no way to land the signal inside the exact window
+// ask's own signal.NotifyContext registration is open without racing every
+// other signal listener in the test binary), so this drives the identical
+// code path directly: it cancels the context handed to root.ExecuteContext
+// while the stream is still in flight, which is exactly what a delivered
+// SIGINT would do to the ctx signal.NotifyContext derives from.
+func TestAskCanceledMidStreamIsNotRecorded(t *testing.T) {
+	srv := fakeOllamaSlowTail(t, 2*time.Second, "half of an answer")
+	defer srv.Close()
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "t", "--description", "d", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "fake", "--endpoint", srv.URL, "--actor", "admin@cli:unset")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+	out, _, code := h.runCtx(ctx, "ask", "anything", "--store", sp, "--project", "FOO", "--session", "s-cancel", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 — a cancellation is not a failure; out=%s", code, out)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("unmarshal %q: %v", out, err)
+	}
+	if doc["error"] != "canceled" {
+		t.Fatalf("error = %v, want %q — this test must actually exercise Failed{Canceled:true}: %s", doc["error"], "canceled", out)
+	}
+	turns, err := h.store.ReadAskTurns("FOO", "s-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 0 {
+		t.Errorf("turns = %+v, want none recorded — the user rejected this answer, it must not be replayed as history", turns)
+	}
+}
+
 func TestAskRejectsTraversalSessionID(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
@@ -263,6 +348,55 @@ func TestAskAppendsToInquiryLogWithCitations(t *testing.T) {
 	}
 	if len(inq[0].CitedIDs) == 0 {
 		t.Error("want the cited IDs recorded — they are the strong relevance signal")
+	}
+}
+
+// askHistoryTurns has no other test in this package: a broken cap fails
+// silently, growing every request on exactly the long-lived sessions the
+// feature exists for. This pins the exact count buildMessages sends: one
+// system message, then two per replayed turn (user + assistant), then one
+// final user message carrying sources and the question. With the cap
+// holding and 12 turns on disk, only the newest 10 are replayed, so the
+// request must carry 1 + (10 × 2) + 1 = 22 messages — not the 26 an
+// unbounded replay of all 12 turns would send.
+func TestAskHistoryCapsReplayedTurnsAt10(t *testing.T) {
+	var captured struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &captured); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "t", "--description", "d", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "fake", "--endpoint", srv.URL, "--actor", "admin@cli:unset")
+
+	// Write turns directly to the store rather than running 12 asks — this
+	// pins the cap in buildMessages, not the recording path finding 4 covers.
+	for i := 1; i <= 12; i++ {
+		if err := h.store.AppendAskTurn("FOO", "cap-test", core.AskTurn{
+			Question: fmt.Sprintf("question %d", i),
+			Answer:   fmt.Sprintf("answer %d", i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, _, code := h.run("ask", "the newest question", "--store", sp, "--project", "FOO", "--session", "cap-test", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s out=%s", code, h.stderr.String(), out)
+	}
+	if len(captured.Messages) != 22 {
+		t.Errorf("messages sent to the model = %d, want 22 — the history cap did not hold", len(captured.Messages))
 	}
 }
 
