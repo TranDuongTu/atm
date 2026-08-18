@@ -121,6 +121,8 @@ type ActivityService interface {
 	History(code string, subject Subject) []HistoryView
 	HistoryE(code string, subject Subject) ([]HistoryView, error)
 	AppendInquiry(code, query string, citedIDs []string) error
+	AppendAskTurn(code, sessionID string, t AskTurn) error
+	ReadAskTurns(code, sessionID string) ([]AskTurn, error)
 }
 
 type IndexService interface {
