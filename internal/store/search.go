@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error) {
@@ -202,12 +203,24 @@ func tokenPrefixOverlap(query, doc []string) int {
 	return n
 }
 
+// snippet trims s to at most max RUNES, never bytes: a byte slice can split a
+// multi-byte rune, and encoding/json silently rewrites the resulting invalid
+// UTF-8 to U+FFFD rather than rejecting it — so the corruption reaches an
+// agent parsing citations[].snippet without anything having failed loudly
+// (ATM-d4ceed).
 func snippet(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	n := 0
+	for i := range s {
+		if n == max-1 {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
 }
 
 func dedupVectorsByID(entries []VectorEntry) []VectorEntry {
