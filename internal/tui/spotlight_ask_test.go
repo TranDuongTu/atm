@@ -171,11 +171,27 @@ func (f *fakeAsker) Ask(ctx context.Context, q answer.Query, emit func(answer.Ev
 	return f.err
 }
 
-// withAsker swaps the engine seam for the duration of one test.
+// withAsker swaps the engine seam for the duration of one test. Chat is
+// reported configured -- the shape nearly every test wants, since most script
+// a Done or Failed that has nothing to do with whether chat is set up.
+// withUnconfiguredAsker is the one exception, for the test that specifically
+// covers the "chat was never configured" degrade.
 func withAsker(t *testing.T, a askAsker) {
 	t.Helper()
+	withAskerConfigured(t, a, true)
+}
+
+// withUnconfiguredAsker scripts a fake asker for a project with no chat
+// model set up, matching engine.go:117's own Config.Chat == nil path.
+func withUnconfiguredAsker(t *testing.T, a askAsker) {
+	t.Helper()
+	withAskerConfigured(t, a, false)
+}
+
+func withAskerConfigured(t *testing.T, a askAsker, configured bool) {
+	t.Helper()
 	prev := askEngineFor
-	askEngineFor = func(sm *spotlightModel) askAsker { return a }
+	askEngineFor = func(sm *spotlightModel) (askAsker, bool) { return a, configured }
 	t.Cleanup(func() { askEngineFor = prev })
 }
 
@@ -666,9 +682,9 @@ func TestAskRetryAfterCancelDoesNotReRun(t *testing.T) {
 // discover it.
 func TestAskDegradedShowsSourcesAndNamesTheFix(t *testing.T) {
 	withInstantSpotSearch(t)
-	withAsker(t, &fakeAsker{events: []answer.Event{
+	withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
 		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
-		answer.Done{Degraded: true, Reason: "no chat model configured"},
+		answer.Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"},
 	}})
 	m, p := openAsk(t, "indexer")
 	drainAskTicks(t, m, p)
@@ -678,6 +694,26 @@ func TestAskDegradedShowsSourcesAndNamesTheFix(t *testing.T) {
 	mustContain(t, view, "atm project set-chat")
 	if strings.Contains(view, "interrupted") {
 		t.Error("a degraded answer is not a broken one")
+	}
+}
+
+// Chat IS configured here -- the degrade is an unreachable endpoint or one
+// that answered with nothing (engine.go:155, engine.go:167). Telling the user
+// to run `atm project set-chat` would send them to fix a config that is
+// already fine, so the hint must show ONLY the reason, never the command.
+func TestAskDegradedWithChatConfiguredShowsReasonNotSetChatHint(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
+		answer.Done{Degraded: true, Reason: "the chat endpoint returned no answer"},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "the chat endpoint returned no answer")
+	if strings.Contains(view, "set-chat") {
+		t.Error("chat is already configured -- the hint must not send the user to configure it")
 	}
 }
 

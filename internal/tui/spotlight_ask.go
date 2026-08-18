@@ -65,6 +65,16 @@ type askPane struct {
 	failedReason   string
 	canceled       bool
 
+	// chatConfigured is captured from askEngineFor at the top of start(), not
+	// re-derived from degradedReason: a degraded turn's reason is free text
+	// (the stream error, or "the chat endpoint returned no answer") and
+	// string-matching it to guess whether chat was configured would be
+	// fragile. statusLine uses this to decide whether the degraded hint
+	// should tell the user to configure chat (nothing is set up) or just show
+	// the reason (chat IS configured; something else went wrong, and there is
+	// no config for the user to fix).
+	chatConfigured bool
+
 	// snap is where the list was standing when this level was pushed. Peel
 	// replays it through openAt, which re-runs the search, rebuilds the rows,
 	// rehomes a stale cursor, and -- via restorableLevel -- degrades a level
@@ -258,11 +268,18 @@ type askAsker interface {
 	Ask(ctx context.Context, q answer.Query, emit func(answer.Event)) error
 }
 
-// askEngineFor builds the engine for a spotlight. A package var because it is
-// the test seam; production never reassigns it.
-var askEngineFor = func(sm *spotlightModel) askAsker {
+// askEngineFor builds the engine for a spotlight, plus whether chat is
+// configured for it. A package var because it is the test seam; production
+// never reassigns it.
+//
+// The bool travels alongside the asker rather than being re-derived later
+// from a Done.Reason string: statusLine needs to know, for a degraded turn,
+// whether the fix is "configure chat" or something the user cannot fix by
+// running a command, and the config is only known here.
+var askEngineFor = func(sm *spotlightModel) (askAsker, bool) {
 	m := sm.m
 	acfg := answer.Config{Project: m.projectScope, Searcher: m.store, K: spotSearchK}
+	configured := false
 	if cfg, err := m.store.GetProjectConfig(m.projectScope); err == nil && cfg != nil {
 		if cfg.Embedding != nil {
 			client := embed.New(*cfg.Embedding)
@@ -279,9 +296,10 @@ var askEngineFor = func(sm *spotlightModel) askAsker {
 		// a nil-pointer panic.
 		if cfg.Chat != nil {
 			acfg.Chat = chat.New(*cfg.Chat)
+			configured = true
 		}
 	}
-	return answer.New(acfg)
+	return answer.New(acfg), configured
 }
 
 var askTickInterval = 60 * time.Millisecond
@@ -316,7 +334,8 @@ func (p *askPane) start() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	q := answer.Query{Question: p.question, History: p.history()}
-	eng := askEngineFor(p.sm)
+	eng, configured := askEngineFor(p.sm)
+	p.chatConfigured = configured
 	go func() {
 		if err := eng.Ask(ctx, q, st.emit); err != nil {
 			// Ask returns ErrUsage for an empty question and emits NOTHING, so a

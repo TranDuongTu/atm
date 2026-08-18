@@ -162,8 +162,13 @@ func (p *askPane) stalenessChip() string {
 // statusLine says how the last turn ended. Three outcomes that must not look
 // alike:
 //
-//	degraded    -- succeeded with no answer in it. Sources stand; the hint
-//	               names the command that would enable answers.
+//	degraded    -- succeeded with no answer in it. Sources stand. When chat
+//	               was never configured the hint names the command that would
+//	               enable answers; when chat IS configured (an unreachable
+//	               endpoint, or one that answered with nothing) that command
+//	               would fix nothing, so the reason stands alone instead
+//	               (engine.go:146 states the same rule: "calling it degraded
+//	               would send a consumer to fix a chat config that is fine").
 //	canceled    -- the user's own Esc. Not an error, and no retry offered:
 //	               they chose to stop.
 //	interrupted -- a disconnect or an expired deadline, deliberately
@@ -178,11 +183,13 @@ func (p *askPane) statusLine() string {
 	case p.failed:
 		return "⚠ answer interrupted (" + p.failedReason + ") · ctrl+r to retry"
 	case p.degraded:
-		hint := "no answer generated"
-		if p.degradedReason != "" {
-			hint = p.degradedReason
+		if !p.chatConfigured {
+			return "no chat model configured · run `atm project set-chat` to enable answers"
 		}
-		return hint + " · run `atm project set-chat` to enable answers"
+		if p.degradedReason != "" {
+			return p.degradedReason
+		}
+		return "no answer generated"
 	}
 	return ""
 }
