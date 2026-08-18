@@ -104,8 +104,8 @@ func TestBuiltinChecklistSeedsLoad(t *testing.T) {
 
 func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	cs := Capabilities()
-	if len(cs) != 5 {
-		t.Fatalf("want 5 built-in capabilities, got %d", len(cs))
+	if len(cs) != 6 {
+		t.Fatalf("want 6 built-in capabilities, got %d", len(cs))
 	}
 	for _, c := range cs {
 		if strings.Contains(c.Body, "## Brief") || strings.Contains(c.Body, "## Autopilot") {
@@ -114,5 +114,8 @@ func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	}
 	if _, ok := Capability("workflow_ai"); !ok {
 		t.Fatal("workflow_ai missing")
+	}
+	if _, ok := Capability("workflow_rpi"); !ok {
+		t.Fatal("workflow_rpi missing")
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
 	"atm/internal/capability/workflowai"
+	"atm/internal/capability/workflowrpi"
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -91,7 +92,7 @@ func testRegistry() *capability.Registry {
 // block, the capability-mounted verb trees) drive the same registered set the
 // binary ships.
 func productionRegistry() *capability.Registry {
-	return capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), channel.New(), checklist.New())
+	return capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), workflowrpi.New(), channel.New(), checklist.New())
 }
 
 // newRegistryTestCLI is newTestCLI carrying the production registry, so the
