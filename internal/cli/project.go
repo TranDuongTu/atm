@@ -432,7 +432,7 @@ func newProjectSetChatCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project code")
 	cmd.Flags().StringVar(&model, "model", "", "chat model slug (e.g. qwen3:8b)")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OpenAI-compatible base URL serving /chat/completions (default: the embedding endpoint)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OpenAI-compatible /v1 base URL, which serves /chat/completions (default: the embedding endpoint)")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("model")
 	return cmd

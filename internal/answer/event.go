@@ -22,7 +22,13 @@ type Event interface{ event() }
 // many entities are still waiting to be embedded, so a consumer can say
 // "sources may lag".
 type Retrieved struct {
-	Hits   []core.Hit
+	Hits []core.Hit
+	// Behind is a count of PENDING DOCUMENTS (store.PendingIndexCount), not the
+	// event-log delta that `atm index status` and the TUI print as "behind"
+	// (lastLogSeq - meta.LastLogSeq). The two disagree for the same project at
+	// the same instant, and for a project with no index at all this one counts
+	// the whole corpus while the CLI shows nothing — so a surface must not
+	// render them as the same number.
 	Behind int
 }
 

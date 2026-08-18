@@ -30,6 +30,15 @@ const systemPrompt = "You are ATM's answer engine. ATM is a task ledger, and the
 // Only the newest turn carries source blocks. Retrieval re-runs every turn,
 // so re-inlining earlier hits would spend the model's context on sources it
 // has already answered from.
+//
+// KNOWN LIMITATION of this sub-task (ATM-66a6d2): a source block carries the
+// hit's title plus core.Hit.Snippet, which store.Search truncates to ~80
+// characters — never the full task description or comment body. So the model
+// is told to answer from these sources while holding roughly one line of each,
+// and for a comment, whose body IS its content, that is close to nothing. It
+// bounds how good any answer can be. Widening the source text means widening
+// Searcher (a by-ID text lookup, or a store change), which is a design
+// decision left to the surface sub-tasks rather than smuggled in here.
 func buildMessages(q Query, hits []core.Hit) []chat.Message {
 	msgs := []chat.Message{{Role: "system", Content: systemPrompt}}
 	for _, t := range q.History {

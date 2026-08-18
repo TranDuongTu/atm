@@ -212,7 +212,7 @@ atm project set-chat --project ATM \
   --model qwen3:8b
 ```
 
-`--endpoint` defaults to the embedding endpoint, since ollama serves both. With no chat model configured, asking degrades to hits only and says so, rather than failing.
+`--endpoint` defaults to the embedding endpoint, since ollama serves both; passed explicitly it is a `/v1` base URL just like `set-embedding`'s (`http://localhost:11434/v1`), because the client appends `/chat/completions` itself. With no chat model configured, asking degrades to hits only and says so, rather than failing.
 
 **4. Build and inspect the index from the CLI.**
 
