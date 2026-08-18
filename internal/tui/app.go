@@ -89,6 +89,7 @@ type Model struct {
 	agentOptionsFn func() []agentOption
 	dispatchDlg    dispatchModel
 	personasOv     personasModel
+	personaAct     personaActivityModel
 	channelsOv     channelsModel
 	// setup is the setup & readiness wizard. Unlike every model above it, it
 	// is NOT an overlay: while active it replaces the workspace in View and
@@ -198,6 +199,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.agentOptionsFn = agentOptions
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
+	m.personaAct.m = m
 	m.channelsOv.m = m
 	m.setup.m = m
 	m.setup.run = setupRun
@@ -393,8 +395,9 @@ func (m *Model) canMutate() bool { return true }
 
 // workspaceIdle reports whether the plain two-pane workspace is what View
 // shows — no overlay, form, confirm, plugin, capability switcher, dispatch
-// dialog, personas overlay, or channels overlay layered over it (see View's
-// overlay chain), and not the setup wizard, which replaces it outright.
+// dialog, personas overlay, persona activity overlay, or channels overlay
+// layered over it (see View's overlay chain), and not the setup wizard, which
+// replaces it outright.
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
@@ -405,6 +408,7 @@ func (m *Model) workspaceIdle() bool {
 		!m.capability.open &&
 		!m.dispatchDlg.active &&
 		!m.personasOv.open &&
+		!m.personaAct.open &&
 		!m.channelsOv.open &&
 		!m.setup.active
 }
@@ -650,6 +654,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return m.personasOv.handleKey(k)
 	}
 
+	// Persona activity is a read-only activity snapshot.
+	if m.personaAct.open {
+		return m.personaAct.handleKey(k)
+	}
+
 	// Channels overlay (read-only) consumes keys until closed (Esc) or until
 	// `c` hands off to the dispatch dialog.
 	if m.channelsOv.open {
@@ -703,6 +712,13 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.focused == paneProjects && m.projects.view == pViewList && m.projects.chartDrill {
+		switch k.String() {
+		case "j", "down", "k", "up", "g":
+			return m.projects.handleKey(k)
+		}
+	}
+
 	// Tab switching works in list/detail panes (not inside form/confirm).
 	switch k.String() {
 	case "1":
@@ -750,11 +766,9 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	// Esc at pane level: back from detail to list, or cancel task filter.
 	// If a per-detail overlay (comment peek) is open, defer to the pane's
 	// overlay Esc handler so Esc returns to the detail rather than leaping
-	// out to the list and leaving the overlay state stale. Persona-chart
-	// drill-in Esc (back from detail) is handled by the projects pane's own
-	// key handler.
+	// out to the list and leaving the overlay state stale.
 	if k.String() == "esc" {
-		if m.focused == paneProjects && m.projects.personaDrilled {
+		if m.focused == paneProjects && m.projects.view == pViewList && m.projects.chartDrill {
 			return m.projects.handleKey(k)
 		}
 		if m.focused == paneProjects && m.projects.view == pViewDetail {
@@ -783,13 +797,10 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// overlayProject is the project a project-wide overlay should open on. It
-// mirrors the project openDispatch resolves — the highlighted Projects row
-// when that pane is focused and not drilled into the persona chart (the
-// drill-in has no row of its own, so dispatch keeps the scope there too) —
-// and falls back to the current scope everywhere else.
+// overlayProject is the project a project-wide overlay should open on: the
+// highlighted Projects row when that pane is focused, otherwise current scope.
 func (m *Model) overlayProject() string {
-	if m.focused == paneProjects && !(m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups)) {
+	if m.focused == paneProjects {
 		if row, ok := m.projects.selected(); ok {
 			return row.code
 		}
@@ -814,8 +825,6 @@ func (m *Model) openDispatch() {
 func (m *Model) dispatchDefaults() (persona, project, taskID, taskTitle string) {
 	persona, project = "concierge", m.projectScope
 	switch {
-	case m.focused == paneProjects && m.projects.personaDrilled && m.projects.personaCursor < len(m.projects.personaGroups):
-		persona = m.projects.personaGroups[m.projects.personaCursor].Key
 	case m.focused == paneProjects:
 		if row, ok := m.projects.selected(); ok {
 			persona, project = "manager", row.code
@@ -1033,7 +1042,7 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the eight gates below plus the setup
+	// KEEP IN SYNC WITH workspaceIdle(): the nine gates below plus the setup
 	// branch above are exactly the states in which View renders something
 	// other than the plain workspace, and workspaceIdle() is their negation
 	// (it gates the background-art animation tick). Adding an overlay here
@@ -1060,6 +1069,9 @@ func (m *Model) View() string {
 	}
 	if m.personasOv.open {
 		out = m.placeOverlay(out, m.personasOv.renderOverlay())
+	}
+	if m.personaAct.open {
+		out = m.placeOverlay(out, m.personaAct.renderOverlay())
 	}
 	if m.channelsOv.open {
 		out = m.placeOverlay(out, m.channelsOv.renderOverlay())

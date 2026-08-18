@@ -90,7 +90,7 @@ func TestMenuEntriesCarrySummaryAndKind(t *testing.T) {
 // empty one would replay the entry's key into whatever pane happens to be
 // focused, which is the contextual-menu bug this redesign removes.
 func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
-	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeProjectsDrill, scopeTasksList, scopeTasksDetail, scopeBoards}
+	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeTasksList, scopeTasksDetail, scopeBoards}
 	for _, s := range scopes {
 		chain := preludeFor(s)
 		if len(chain) == 0 {
@@ -107,16 +107,40 @@ func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
 	}
 }
 
-// The pane-focus and chart-drill keys are advertised on the pane and chart
-// borders already; they stay in the keymap reference but must never be
-// spotlight rows.
+// The pane-focus and activity-chart keys are advertised on the pane and
+// chart borders already; they stay in the keymap reference but must never
+// be spotlight rows.
 func TestBorderHintedKeysAreHidden(t *testing.T) {
 	for _, e := range menuEntries {
 		switch e.key {
-		case "1", "2", "ctrl+right", "ctrl+left":
+		case "1", "2", "ctrl+left/right", "ctrl+enter / ctrl+j / enter focused chart", "ctrl+up/down":
 			if !e.hidden {
 				t.Errorf("border-hinted key %q (%s) must be hidden", e.key, e.label)
 			}
+		}
+	}
+}
+
+func TestActivityChartKeymapLabels(t *testing.T) {
+	content := keymapReferenceText()
+	for _, want := range []string{
+		"ctrl+left/right",
+		"Activity chart: prev/next persona",
+		"ctrl+enter",
+		"ctrl+j",
+		"enter focused chart",
+		"Activity chart: inline persona breakdown",
+		"ctrl+up/down",
+		"Activity chart: time range; scroll inline drill",
+		"Open detail / confirm",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("keymap reference missing %q", want)
+		}
+	}
+	for _, stale := range []string{"Drill into persona activity", "Back from persona detail", "Scroll persona chart", "persona activity overlay", "Dispatch this persona", "persona drill"} {
+		if strings.Contains(content, stale) {
+			t.Errorf("keymap reference contains stale text %q", stale)
 		}
 	}
 }
@@ -336,22 +360,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			check: func(t *testing.T, m *Model) {
 				if m.confirm != confirmRemoveProject {
 					t.Errorf("x in project detail must open the remove-project confirm, confirm=%v", m.confirm)
-				}
-			},
-		},
-
-		// Actions — projects persona drill.
-		probeID("d", scopeProjectsDrill): {
-			setup: func(t *testing.T, m *Model) {
-				seedProject(t, m, "ATM", "Acme")
-				seedTask(t, m, "ATM", "activity for the persona chart")
-				m.projectScope = "ATM"
-				m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
-				m.agentOptionsFn = testAgents
-			},
-			check: func(t *testing.T, m *Model) {
-				if !m.dispatchDlg.active {
-					t.Error("d in the persona drill must open the dispatch dialog")
 				}
 			},
 		},

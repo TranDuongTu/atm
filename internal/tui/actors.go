@@ -1,7 +1,7 @@
 package tui
 
 // kvRow is a sortable (key, count) pair used for the agents/models/actions
-// breakdown rows in the persona detail view (renderPersonaDetailChart).
+// aggregate rows used by persona-focused activity views.
 type kvRow struct {
 	k string
 	v int

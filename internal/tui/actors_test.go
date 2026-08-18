@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"atm/internal/core"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -41,126 +44,596 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-// TestPersonaChartCtrlArrowsScroll verifies ctrl+down/up move the persona
-// cursor modelessly (no P toggle needed) and the cursor highlights the
-// persona name text.
-func TestPersonaChartCtrlArrowsScroll(t *testing.T) {
+func TestChartCtrlArrowsWrapClampRangeAndKeepChartFocused(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	// Seed a second persona so the cursor can move.
+	// Seed a second persona so carousel traversal can wrap.
 	seedTaskAsActor(t, m, "ATM", "task two", "developer@claude:opus-4.8")
 	m.refreshAll()
 
-	// The chart renders with a cursor on persona 0.
-	view := m.View()
-	if !strings.Contains(view, "activity by persona") {
-		t.Fatalf("persona chart missing:\n%s", view)
+	update(t, m, "ctrl+left")
+	mustContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
+	if got := m.projects.chartPersona; got != "developer" {
+		t.Fatalf("ctrl+left from All selected %q, want developer", got)
 	}
-	// ctrl+down moves the cursor (no panic, no focus toggle needed).
-	update(t, m, "ctrl+down")
-	update(t, m, "ctrl+up")
+	update(t, m, "j")
+	mustContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
+
+	update(t, m, "ctrl+right")
+	if got := m.projects.chartPersona; got != "" {
+		t.Fatalf("ctrl+right should wrap developer to All, got %q", got)
+	}
+	for range chartRanges {
+		update(t, m, "ctrl+up")
+	}
+	if got, want := m.projects.chartRange, len(chartRanges)-1; got != want {
+		t.Fatalf("chartRange after ctrl+up = %d, want %d", got, want)
+	}
+	for range chartRanges {
+		update(t, m, "ctrl+down")
+	}
+	if got := m.projects.chartRange; got != 0 {
+		t.Fatalf("chartRange after ctrl+down = %d, want 0", got)
+	}
 }
 
-// TestPersonaChartCtrlRightDrills verifies ctrl+right drills into the hovered
-// persona's detail and ctrl+left backs out.
-func TestPersonaChartCtrlRightDrills(t *testing.T) {
+func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
-	// The chart renders from the refresh-time snapshot (ATM-4c476c), so a
-	// directly-assigned scope needs a refresh — same as the sibling tests.
+	m.refreshAll()
+
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); handled {
+		t.Fatal("enter should reach the project list while chart is unfocused")
+	}
+	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
+		t.Fatal("esc should reach normal pane handling while chart is unfocused")
+	}
+	update(t, m, "ctrl+right")
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); !handled {
+		t.Fatal("enter should drill into the chart after ctrl chart navigation focuses it")
+	}
+
+	m = mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	update(t, m, "ctrl+right")
+	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
+		t.Fatal("esc should still reach normal pane handling after ctrl chart navigation")
+	}
+}
+
+func TestChartFocusedEnterOpensInlineDrillInsteadOfProjectDetail(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
 	m.refreshAll()
 
 	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill into persona detail")
+	update(t, m, "enter")
+
+	if m.projects.view != pViewList {
+		t.Fatalf("focused chart enter opened projects view %v, want list with inline drill", m.projects.view)
 	}
-	view := m.View()
-	if !strings.Contains(view, "persona: ") {
-		t.Fatalf("drilled detail should show persona title:\n%s", view)
+	if !m.projects.chartDrill {
+		t.Fatal("focused chart enter should open inline drill")
 	}
-	// No centered dispatch help text in the detail.
-	if strings.Contains(view, "dispatch") {
-		// The breakdown itself shouldn't contain the word "dispatch" —
-		// only the status hint (outside the box) may. Check the box body
-		// doesn't have a centered dispatch action.
-		if strings.Contains(view, "[D] dispatch") {
-			t.Fatalf("detail should not contain centered dispatch help:\n%s", view)
+	body := stripANSI(m.projects.renderSummary(16))
+	mustContain(t, body, "[Esc] back")
+}
+
+func TestChartCtrlEnterOpensInlinePersonaDrillWithoutOverlay(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.updated"},
+		{At: now, Actor: "manager@claude:opus", Action: "project.reviewed"},
+	}
+
+	update(t, m, "ctrl+left")
+	if got := m.projects.chartPersona; got != "manager" {
+		t.Fatalf("setup selected persona = %q, want manager", got)
+	}
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+
+	if m.personaAct.open {
+		t.Fatal("ctrl+enter must not open the persona activity overlay")
+	}
+	body := stripANSI(m.projects.renderSummary(16))
+	for _, want := range []string{
+		personaIcon("manager") + " manager",
+		"1 event",
+		"models",
+		"opus",
+		"agents",
+		"claude",
+		"actions",
+		"project.reviewed",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
+	}
+}
+
+func TestChartInlineDrillUsesOriginalBreakdownBars(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.updated"},
+		{At: now, Actor: "developer@codex:o3", Action: "task.updated"},
+		{At: now, Actor: "developer@claude:opus", Action: "project.reviewed"},
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(22))
+	for _, want := range []string{
+		"4 events",
+		"models",
+		"gpt-5",
+		"o3",
+		"opus",
+		"agents",
+		"codex",
+		"claude",
+		"actions",
+		"task.updated",
+		"project.reviewed",
+		"█",
+		"[j/k]scroll",
+		"[g]top",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
+	}
+}
+
+func TestChartInlineDrillScrollsOriginalBreakdown(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: fmt.Sprintf("task.action.%02d", i),
+		})
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	before := stripANSI(m.projects.renderSummary(12))
+	update(t, m, "j")
+	after := stripANSI(m.projects.renderSummary(12))
+
+	if before == after {
+		t.Fatalf("j should scroll the inline drill\n%s", before)
+	}
+	mustContain(t, after, "[j/k]scroll")
+	update(t, m, "g")
+	if top := stripANSI(m.projects.renderSummary(12)); top != before {
+		t.Fatalf("g should return inline drill to top\n--- top ---\n%s\n--- before ---\n%s", top, before)
+	}
+}
+
+func TestChartInlineDrillCtrlUpDownScrollsInsteadOfChangingRange(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: fmt.Sprintf("task.action.%02d", i),
+		})
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+	m.projects.chartRange = 1
+
+	before := stripANSI(m.projects.renderSummary(12))
+	update(t, m, "ctrl+down")
+	after := stripANSI(m.projects.renderSummary(12))
+
+	if got := m.projects.chartRange; got != 1 {
+		t.Fatalf("ctrl+down in inline drill changed range to %d, want 1", got)
+	}
+	if before == after {
+		t.Fatalf("ctrl+down should scroll the inline drill\n%s", before)
+	}
+	update(t, m, "ctrl+up")
+	if got := m.projects.chartRange; got != 1 {
+		t.Fatalf("ctrl+up in inline drill changed range to %d, want 1", got)
+	}
+	if top := stripANSI(m.projects.renderSummary(12)); top != before {
+		t.Fatalf("ctrl+up should scroll back toward top\n--- top ---\n%s\n--- before ---\n%s", top, before)
+	}
+}
+
+func TestChartInlineDrillKeepsCarouselPinnedToTop(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+	}
+	m.projects.chartPersona = "developer"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	lines := strings.Split(stripANSI(m.projects.renderSummary(20)), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("summary rendered too few lines: %q", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[1], "╭") {
+		t.Fatalf("carousel should start directly under chart border, got line 1 %q\n%s", lines[1], strings.Join(lines, "\n"))
+	}
+}
+
+func TestChartEscBacksOutOfInlinePersonaDrill(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	update(t, m, "ctrl+right")
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+	if body := stripANSI(m.projects.renderSummary(14)); !strings.Contains(body, "models") {
+		t.Fatalf("setup: inline drill did not render\n%s", body)
+	}
+
+	update(t, m, "esc")
+	body := stripANSI(m.projects.renderSummary(14))
+	mustNotContain(t, body, "[Esc] back")
+	mustNotContain(t, body, "models")
+	mustContain(t, body, "Range: One week")
+}
+
+func TestChartDrillDoesNotStealProjectDetailEsc(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+	m.projects.openDetail("ATM")
+	if m.projects.view != pViewDetail {
+		t.Fatalf("setup: project view = %v, want detail", m.projects.view)
+	}
+
+	update(t, m, "esc")
+	if m.projects.view != pViewList {
+		t.Fatalf("esc from project detail with chart drill state = %v, want list", m.projects.view)
+	}
+}
+
+func TestChartCtrlEnterFocusesAndOpensInlinePersonaDrill(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	m.projects.chartPersona = "staff"
+	m.projects.chartFocused = false
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = mm.(*Model)
+
+	if !m.projects.chartFocused {
+		t.Fatal("ctrl+enter should focus the activity chart")
+	}
+	if !m.projects.chartDrill {
+		t.Fatal("ctrl+enter should open the inline persona breakdown")
+	}
+	body := stripANSI(m.projects.renderSummary(16))
+	mustContain(t, body, personaIcon("staff")+" staff")
+	mustContain(t, body, "[Esc] back")
+}
+
+func TestChartInlineDrillRendersInCompactSummary(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	m.projects.chartPersona = "staff"
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(6))
+	mustContain(t, body, personaIcon("staff")+" staff")
+	mustContain(t, body, "models")
+	mustContain(t, body, "[Esc] back")
+	mustNotContain(t, body, "⣀")
+}
+
+func TestChartInlineDrillKeepsExitHintAtTwelveRows(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 44)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "manager@claude:opus", Action: "project.reviewed"},
+	}
+	m.projects.chartPersona = "manager"
+	m.projects.chartFocused = true
+	m.projects.chartDrill = true
+
+	body := stripANSI(m.projects.renderSummary(12))
+	for _, want := range []string{
+		personaIcon("manager") + " manager",
+		"models",
+		"agents",
+		"actions",
+		"[Esc] back",
+	} {
+		mustContain(t, body, want)
+	}
+}
+
+func TestChartTightPulseKeepsRangeLegendAndPulse(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	for _, height := range []int{7, 8, 9, 10, 12} {
+		body := stripANSI(m.projects.renderSummary(height))
+		mustContain(t, body, "Range: One week")
+		if height >= 8 {
+			mustContain(t, body, "└")
+		}
+		if height <= 10 {
+			mustNotContain(t, body, "╭")
 		}
 	}
-	// ctrl+left backs out.
-	update(t, m, "ctrl+left")
-	if m.projects.personaDrilled {
-		t.Fatal("ctrl+left should leave persona detail")
-	}
 }
 
-// TestPersonaChartEscFromDetailBacksOut verifies Esc from the drilled detail
-// returns to the chart.
-func TestPersonaChartEscFromDetailBacksOut(t *testing.T) {
+func TestChartCtrlNavigationDoesNotScheduleFocusExpiry(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
+	m.refreshAll()
+
+	_, cmd := m.Update(keyMsg("ctrl+right"))
+	if cmd != nil {
+		t.Fatal("ctrl chart navigation must not schedule a focus expiry timer")
+	}
+}
+
+func TestChartStateResetsOnProjectSwitch(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	seedProject(t, m, "SCY", "Scylla")
+	m.focused = paneProjects
+	update(t, m, "s")
 	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
+	update(t, m, "ctrl+up")
+	if m.projects.chartRange == 0 {
+		t.Fatal("setup failed to change chart state")
 	}
-	update(t, m, "esc")
-	if m.projects.personaDrilled {
-		t.Fatal("Esc should leave detail")
+	m.projects.cursor = 1
+	update(t, m, "s")
+	if m.projectScope != "SCY" {
+		t.Fatalf("projectScope = %q, want SCY", m.projectScope)
+	}
+	if m.projects.chartPersona != "" || m.projects.chartRange != 0 {
+		t.Fatalf("chart state after project switch = (%q, %d), want zero state", m.projects.chartPersona, m.projects.chartRange)
 	}
 }
 
-// TestPersonaChartDDispatchesWhenDrilled verifies the D key dispatches the
-// drilled-in persona.
-func TestPersonaChartDDispatchesWhenDrilled(t *testing.T) {
+func TestRenderSummaryCombinedChart(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
-	m.focused = paneProjects
-	fd := &fakeDispatcher{preview: "tmux · new window"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
+	m.refreshAll()
 
-	update(t, m, "ctrl+right") // drill into persona 0
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
-	}
-	update(t, m, "d")
-	if !m.dispatchDlg.active {
-		t.Fatal("D should open the dispatch dialog")
-	}
-	if got := m.dispatchDlg.persona(); got != "staff" {
-		t.Fatalf("D should preselect the drilled persona (staff), got %q", got)
+	body := m.projects.renderSummary(12)
+	mustContain(t, body, "activity")
+	mustNotContain(t, body, "activity \u00b7 1w")
+	mustContain(t, body, "Range: One week")
+	mustContain(t, body, "All")
+	mustNotContain(t, body, "activity by persona")
+	mustNotContain(t, body, "activity stripe")
+
+	m.projects.summaryEntries = nil
+	empty := m.projects.renderSummary(12)
+	if !strings.Contains(empty, "no activity yet") {
+		t.Fatalf("empty summary missing activity placeholder:\n%s", empty)
 	}
 }
 
-// TestPersonaChartDetailScroll verifies ctrl+down/up scroll the drilled-in
-// breakdown body when it overflows the box.
-func TestPersonaChartDetailScroll(t *testing.T) {
-	m := mkActorsOverlayTestModel(t)
-	m.SetSize(100, 40)
+func TestRenderSummaryPersonaCardsShowIconsRangeTotalsAndTopModels(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(200, 40)
 	m.projectScope = "ATM"
-	m.focused = paneProjects
-	update(t, m, "ctrl+right")
-	if !m.projects.personaDrilled {
-		t.Fatal("ctrl+right should drill in")
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	m.projects.summaryEntries = []core.LogEntry{
+		{At: now, Actor: "developer@codex:gpt-5", Action: "task.created"},
+		{At: now.AddDate(0, 0, -1), Actor: "developer@codex:o3", Action: "task.updated"},
+		{At: now.AddDate(0, 0, -2), Actor: "developer@claude:sonnet", Action: "task.commented"},
+		{At: now.AddDate(0, 0, -3), Actor: "developer@codex:gpt-5", Action: "task.closed"},
+		{At: now.AddDate(0, 0, -1), Actor: "manager@claude:opus", Action: "project.reviewed"},
+		{At: now.AddDate(0, 0, -10), Actor: "developer@claude:old", Action: "outside.range"},
 	}
-	// Scrolling down then up must not panic and offset stays in range.
-	update(t, m, "ctrl+down")
-	update(t, m, "ctrl+down")
-	if m.projects.personaDetailOffset < 0 {
-		t.Fatalf("offset should not go negative: %d", m.projects.personaDetailOffset)
+
+	body := stripANSI(m.projects.renderSummary(16))
+	for _, want := range []string{
+		personaIcon("") + " All",
+		personaIcon("developer") + " developer",
+		personaIcon("manager") + " manager",
+		"5 activities",
+		"4 activities",
+		"1 activity",
+		"gpt-5, o3, opus",
+		"gpt-5, o3, sonnet",
+		"opus",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("summary missing %q\n--- body ---\n%s", want, body)
+		}
 	}
-	update(t, m, "ctrl+up")
-	update(t, m, "ctrl+up")
-	if m.projects.personaDetailOffset != 0 {
-		t.Fatalf("offset should clamp at 0: %d", m.projects.personaDetailOffset)
+	if strings.Contains(body, "old") {
+		t.Fatalf("summary included a model outside the selected range:\n%s", body)
 	}
+}
+
+func TestRenderSummaryUsesFullEnglishRangeLegendAtBottom(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.projects.chartRange = 4
+	m.refreshAll()
+
+	lines := strings.Split(stripANSI(m.projects.renderSummary(14)), "\n")
+	found := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Range: One year") {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		t.Fatalf("summary missing full English bottom legend:\n%s", strings.Join(lines, "\n"))
+	}
+	for i := 0; i < found; i++ {
+		if strings.Contains(lines[i], "One year") {
+			t.Fatalf("range legend appeared above chart bottom on line %d:\n%s", i, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestRenderRangeLegendUsesStrongStyle(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	tag := func(s lipgloss.Style, name string) lipgloss.Style {
+		return s.Transform(func(v string) string { return "<" + name + ">" + v + "</" + name + ">" })
+	}
+	m.styles.HeaderLabel = tag(m.styles.HeaderLabel, "strong")
+	m.styles.Muted = tag(m.styles.Muted, "muted")
+
+	got := renderRangeLegend(chartRanges[0], 40, m.styles)
+	mustContain(t, got, "<strong>Range: One week")
+	mustNotContain(t, got, "<muted>Range: One week")
+}
+
+func TestRenderSummaryChartLinesKeepFixedWidthAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(180, 44)
+	m.projectScope = "ATM"
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 14; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now.AddDate(0, 0, -(i % 7)),
+			Actor:  "developer@codex:gpt-5",
+			Action: "task.updated",
+		})
+	}
+	m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+		At:     now,
+		Actor:  "manager@claude:opus",
+		Action: "project.reviewed",
+	})
+
+	all := strings.Split(stripANSI(m.projects.renderSummary(16)), "\n")
+	m.projects.chartPersona = "manager"
+	manager := strings.Split(stripANSI(m.projects.renderSummary(16)), "\n")
+	for name, lines := range map[string][]string{"all": all, "manager": manager} {
+		if len(lines) != 16 {
+			t.Fatalf("%s chart line count = %d, want 16", name, len(lines))
+		}
+		wantW := lipgloss.Width(lines[0])
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != wantW {
+				t.Fatalf("%s chart line %d width = %d, want %d\n--- chart ---\n%s", name, i, got, wantW, strings.Join(lines, "\n"))
+			}
+		}
+	}
+	if lipgloss.Width(all[0]) != lipgloss.Width(manager[0]) {
+		t.Fatalf("chart width changed across persona switch: all=%d manager=%d", lipgloss.Width(all[0]), lipgloss.Width(manager[0]))
+	}
+}
+
+func TestRenderSummaryPulseAxisOriginStableAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(180, 44)
+	m.projectScope = "ATM"
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 12; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now,
+			Actor:  "developer@codex:gpt-5",
+			Action: "task.updated",
+		})
+	}
+	m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+		At:     now,
+		Actor:  "manager@claude:opus",
+		Action: "project.reviewed",
+	})
+
+	all := stripANSI(m.projects.renderSummary(16))
+	m.projects.chartPersona = "manager"
+	manager := stripANSI(m.projects.renderSummary(16))
+	if got, want := pulseAxisOrigin(manager), pulseAxisOrigin(all); got != want {
+		t.Fatalf("pulse axis origin changed across persona switch: manager=%d all=%d\n--- manager ---\n%s\n--- all ---\n%s", got, want, manager, all)
+	}
+}
+
+func pulseAxisOrigin(chart string) int {
+	for _, line := range strings.Split(chart, "\n") {
+		if col := strings.IndexRune(line, '└'); col >= 0 {
+			return col
+		}
+	}
+	return -1
 }
 
 // ensure lipgloss is used (silences unused-import in trim builds).

@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"atm/internal/capability"
 	"atm/internal/capability/workflow"
@@ -940,10 +939,9 @@ func TestProjectsViewUsesFourWaySplit(t *testing.T) {
 	if got := find("Recent Events"); got != 9 {
 		t.Fatalf("events caption on line %d, want 9\n--- body ---\n%s", got, body)
 	}
-	// The "Project Summary" heading was removed; the summary region now
-	// starts directly with the "activity by persona" chart box title.
-	if got := find("activity by persona"); got != 18 {
-		t.Fatalf("persona chart on line %d, want 18\n--- body ---\n%s", got, body)
+	// The summary region starts directly with the combined activity box.
+	if got := find("activity"); got != 18 {
+		t.Fatalf("activity chart on line %d, want 18\n--- body ---\n%s", got, body)
 	}
 }
 
@@ -955,7 +953,7 @@ func TestProjectDetailDoesNotRenderSummaryCharts(t *testing.T) {
 	update(t, m, "enter")
 	body := m.projects.View()
 	mustContain(t, body, "Project ATM")
-	mustNotContain(t, body, "activity by persona")
+	mustNotContain(t, body, "activity ·")
 	mustNotContain(t, body, "Activities by actor")
 }
 
@@ -987,40 +985,6 @@ func TestProjectPaneSplitHeights(t *testing.T) {
 	}
 }
 
-func TestActivityStripeDayCountsUsesOneWeekEndingToday(t *testing.T) {
-	mustTime := func(s string) time.Time {
-		t.Helper()
-		ts, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			t.Fatalf("time.Parse(%q): %v", s, err)
-		}
-		return ts
-	}
-	entries := []store.LogEntry{
-		{At: mustTime("2026-07-01T10:00:00Z")},
-		{At: mustTime("2026-07-03T10:00:00Z")},
-		{At: mustTime("2026-07-03T11:00:00Z")},
-		{At: mustTime("2026-07-05T10:00:00Z")},
-	}
-	today := mustTime("2026-07-08T22:00:00Z")
-	got := activityStripeDayCountsEnding(entries, 7, today)
-	want := []activityStripeDay{
-		{day: "2026-07-02", count: 0},
-		{day: "2026-07-03", count: 2},
-		{day: "2026-07-04", count: 0},
-		{day: "2026-07-05", count: 1},
-		{day: "2026-07-06", count: 0},
-		{day: "2026-07-07", count: 0},
-		{day: "2026-07-08", count: 0},
-	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("activityStripeDayCountsEnding() = %#v, want %#v", got, want)
-	}
-	if activityDensityGlyph(0) != "·" || activityDensityGlyph(1) != "░" || activityDensityGlyph(3) != "▒" || activityDensityGlyph(6) != "▓" || activityDensityGlyph(10) != "█" {
-		t.Fatalf("activityDensityGlyph returned unexpected density marks")
-	}
-}
-
 func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(140, 48)
@@ -1029,10 +993,12 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity by persona")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	mustContain(t, body, "developer")
-	mustContain(t, body, "%")
-	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "All")
+	mustNotContain(t, body, "activity by persona")
+	mustNotContain(t, body, "activity stripe")
 	mustNotContain(t, body, "Activities by actor")
 	mustNotContain(t, body, "Activity stripe")
 }
@@ -1041,16 +1007,15 @@ func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	m := newTestModel(t)
 	// h=100x24 -> contentHeight=23 -> pane inner height=21 ->
 	// projectPaneSplitHeights(21) = (listH=9, artH=0, eventsH=7, summaryH=5),
-	// the minimum summary height at which both activity charts render under
-	// the fixed 5-row project list (see projectPaneSplitHeights).
+	// the summary is below the boxed-chart threshold.
 	m.SetSize(100, 24)
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity by persona")
-	mustContain(t, body, "activity stripe")
-	mustContain(t, body, "█")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
+	mustContain(t, body, "All")
 }
 
 func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
@@ -1061,8 +1026,9 @@ func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.renderSummary(5)
 	mustNotContain(t, body, "Project Summary")
-	mustContain(t, body, "activity by persona")
-	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
+	mustContain(t, body, "All")
 }
 
 func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
@@ -1081,8 +1047,7 @@ func TestProjectSummaryClearsWhenSelectedProjectRemoved(t *testing.T) {
 	}
 	body := m.projects.View()
 	mustContain(t, body, "select a project to see summaries")
-	mustNotContain(t, body, "activity by persona")
-	mustNotContain(t, body, "activity stripe")
+	mustNotContain(t, body, "activity ·")
 }
 
 func TestProjectSummaryRendersOnShortTerminalWithoutPanic(t *testing.T) {
@@ -1106,124 +1071,13 @@ func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity stripe")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	if m.form != nil {
 		t.Fatalf("bubble placeholder opened form")
 	}
 	if m.confirm != confirmNone {
 		t.Fatalf("bubble placeholder opened confirm = %v", m.confirm)
-	}
-}
-
-func TestRenderActivityStripeDeterministic(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 1},
-		{day: "2026-07-02", count: 3},
-		{day: "2026-07-03", count: 10},
-	}
-	got := renderActivityStripe(days)
-	want := "░▒█"
-	if got != want {
-		t.Fatalf("renderActivityStripe() = %q, want %q", got, want)
-	}
-}
-
-func TestRenderActorActivityChartShowsOverflowSummary(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	p := newProjectsModel(m)
-	p.SetSize(120, 40)
-	entries := []store.LogEntry{
-		{Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"}, {Actor: "a@x:1"},
-		{Actor: "b@x:1"}, {Actor: "b@x:1"}, {Actor: "b@x:1"}, {Actor: "b@x:1"},
-		{Actor: "c@x:1"}, {Actor: "c@x:1"}, {Actor: "c@x:1"},
-		{Actor: "d@x:1"}, {Actor: "d@x:1"},
-		{Actor: "e@x:1"},
-	}
-	lines := p.renderPersonaActivityChart(entries, 5)
-	got := strings.Join(lines, "\n")
-	mustContain(t, got, "activity by persona")
-	// entryCap = 3; the chart caps at 3 persona groups (no "others" fold).
-	mustContain(t, got, "a")
-	mustContain(t, got, "b")
-	mustContain(t, got, "c")
-	mustNotContain(t, got, "others")
-}
-
-func TestRenderActorActivityChartUsesMeterStyle(t *testing.T) {
-	m := newTestModel(t)
-	p := newProjectsModel(m)
-	p.SetSize(80, 20)
-	entries := []store.LogEntry{
-		{Actor: "claude@x:1"}, {Actor: "claude@x:1"},
-		{Actor: "codex@x:1"},
-	}
-	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
-	mustContain(t, got, "activity by persona")
-	mustContain(t, got, "claude")
-	mustContain(t, got, "67%")
-	mustContain(t, got, "codex")
-	mustContain(t, got, "33%")
-	mustContain(t, got, "█")
-}
-
-func TestRenderActorActivityChartShowsFullActorName(t *testing.T) {
-	m := newTestModel(t)
-	p := newProjectsModel(m)
-	p.SetSize(120, 20)
-	entries := []store.LogEntry{
-		{Actor: "very-long-agent-name-with-role@x:1"},
-	}
-	got := strings.Join(p.renderPersonaActivityChart(entries, 4), "\n")
-	mustContain(t, got, "very-long-agent-name-with-role")
-	mustNotContain(t, got, "very-lo...")
-}
-
-// TestRenderActorActivityChartBarsAlignAcrossRows asserts that every actor
-// row's meter bar starts at the same display column, regardless of the count's
-// digit width. The chart box center-aligns each body line independently; if
-// rows have different widths (e.g. counts "200", "50", "5"), narrower rows get
-// shifted right and the bars no longer share a common left baseline.
-func TestRenderActorActivityChartBarsAlignAcrossRows(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	p := newProjectsModel(m)
-	p.SetSize(120, 40)
-	// Counts with different digit widths: 200 (3d), 50 (2d), 5 (1d).
-	entries := make([]store.LogEntry, 0, 255)
-	for i := 0; i < 200; i++ {
-		entries = append(entries, store.LogEntry{Actor: "aaa@x:1"})
-	}
-	for i := 0; i < 50; i++ {
-		entries = append(entries, store.LogEntry{Actor: "bb@x:1"})
-	}
-	for i := 0; i < 5; i++ {
-		entries = append(entries, store.LogEntry{Actor: "c@x:1"})
-	}
-
-	lines := p.renderPersonaActivityChart(entries, 6)
-
-	var barCols []int
-	for _, line := range lines {
-		s := stripANSI(line)
-		// Body rows are bounded by box borders '│'. Skip border/title/blank rows.
-		if !strings.HasPrefix(s, "  │") {
-			continue
-		}
-		idx := strings.IndexAny(s, "█░")
-		if idx < 0 {
-			continue
-		}
-		barCols = append(barCols, idx)
-	}
-	if len(barCols) < 2 {
-		t.Fatalf("expected at least 2 bar rows, got %d (%v)\n--- body ---\n%s", len(barCols), barCols, strings.Join(lines, "\n"))
-	}
-	first := barCols[0]
-	for i, c := range barCols {
-		if c != first {
-			t.Fatalf("bar start column differs across rows: row 0 at col %d, row %d at col %d (all=%v)\n--- body ---\n%s", first, i, c, barCols, strings.Join(lines, "\n"))
-		}
 	}
 }
 
@@ -1235,14 +1089,14 @@ func TestProjectSummaryChartBoxesAreCentered(t *testing.T) {
 	body := m.projects.View()
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "activity by persona") && strings.Contains(line, "╭") {
+		if strings.Contains(line, "activity") && strings.Contains(line, "╭") {
 			if strings.HasPrefix(line, "╭") {
 				t.Fatalf("chart box should be centered with left padding, got %q\n--- body ---\n%s", line, body)
 			}
 			return
 		}
 	}
-	t.Fatalf("missing centered activity by persona box\n--- body ---\n%s", body)
+	t.Fatalf("missing centered combined activity box\n--- body ---\n%s", body)
 }
 
 func TestProjectSummaryChartBoxesUseNinetyFivePercentWidth(t *testing.T) {
@@ -1270,7 +1124,7 @@ func TestRenderChartBoxDimsBorderAndCentersContent(t *testing.T) {
 	m := newTestModel(t)
 	p := newProjectsModel(m)
 	p.SetSize(80, 20)
-	got := p.renderChartBox("activity stripe", "█", 7)
+	got := p.renderChartBox("activity", "█", 7)
 	lines := strings.Split(got, "\n")
 	if len(lines) != 7 {
 		t.Fatalf("renderChartBox lines = %d, want 7\n%s", len(lines), got)
@@ -1280,115 +1134,6 @@ func TestRenderChartBoxDimsBorderAndCentersContent(t *testing.T) {
 	centerLine := lines[len(lines)/2]
 	if !strings.Contains(centerLine, "█") {
 		t.Fatalf("chart content should be vertically centered, got middle line %q\n%s", centerLine, got)
-	}
-}
-
-func TestRenderActivityStripeCanvasUsesMultiLineChart(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 1},
-		{day: "2026-07-02", count: 3},
-		{day: "2026-07-03", count: 10},
-		{day: "2026-07-04", count: 0},
-		{day: "2026-07-05", count: 0},
-		{day: "2026-07-06", count: 0},
-		{day: "2026-07-07", count: 0},
-	}
-	got := renderActivityStripeCanvas(days, 70)
-	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("renderActivityStripeCanvas() should render a multi-line canvas, got %q", got)
-	}
-	mustContain(t, got, "█")
-	mustContain(t, got, "7d ago")
-	mustContain(t, got, "Today")
-	if activityCanvasStyle(10).GetForeground() == nil {
-		t.Fatalf("activityCanvasStyle should configure foreground color")
-	}
-	// Density fill: count 10 → █, count 3 → ▅, count 1 → ▂, count 0 → ·
-	mustContain(t, got, "█")
-	mustContain(t, got, "▅")
-	mustContain(t, got, "▂")
-	mustContain(t, got, "·")
-	mustContain(t, got, "7d ago")
-	mustContain(t, got, "Yesterday")
-	mustContain(t, got, "Today")
-	// Proportional height: render at height=5 (bodyH=4). count 10 fills 4 rows,
-	// count 1 fills 1 row (clamped). Top row (index 0) should only show █ for
-	// count 10 bar, and · for lower-count bars.
-	got2 := renderActivityStripeCanvas(days, 70, 5)
-	if got2 == "" {
-		t.Fatal("renderActivityStripeCanvas(height=5) returned empty")
-	}
-	lines2 := strings.Split(strings.TrimRight(got2, "\n"), "\n")
-	if len(lines2) < 5 {
-		t.Fatalf("expected 5 lines (4 bar + axis), got %d:\n%s", len(lines2), got2)
-	}
-	if !strings.Contains(lines2[0], "█") {
-		t.Fatal("top row should contain █ for count 10 bar")
-	}
-}
-
-func TestComputeStripDaysRange(t *testing.T) {
-	tests := []struct {
-		width    int
-		wantDays int
-	}{
-		{width: 10, wantDays: 7},
-		{width: 69, wantDays: 7},   // (69+1)/10 = 7
-		{width: 79, wantDays: 8},   // (79+1)/10 = 8
-		{width: 139, wantDays: 14}, // (139+1)/10 = 14
-		{width: 200, wantDays: 14},
-	}
-	for _, tc := range tests {
-		got := computeStripDays(tc.width)
-		if got != tc.wantDays {
-			t.Errorf("computeStripDays(%d) = %d, want %d", tc.width, got, tc.wantDays)
-		}
-	}
-}
-
-func TestActivityStripeAxisLabels(t *testing.T) {
-	days := make([]activityStripeDay, 7)
-	for i := range days {
-		days[i] = activityStripeDay{day: fmt.Sprintf("2026-07-%02d", i+1), count: i}
-	}
-	got := activityStripeAxis(days, 70, 9, 1)
-	mustContain(t, got, "7d ago")
-	mustContain(t, got, "Yesterday")
-	mustContain(t, got, "Today")
-}
-func TestRenderActivityStripeChartAdaptiveDays(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(200, 48)
-	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "t1", "ATM:status:open")
-	update(t, m, "s")
-	body := m.projects.View()
-	mustContain(t, body, "activity stripe")
-}
-
-func TestActivityStripeDayCountsReturnsEmptyForNoEvents(t *testing.T) {
-	got := activityStripeDayCounts(nil, 7)
-	if len(got) != 7 {
-		t.Fatalf("activityStripeDayCounts(nil) len = %d, want 7", len(got))
-	}
-	for _, day := range got {
-		if day.count != 0 {
-			t.Fatalf("activityStripeDayCounts(nil) = %#v, want all zero counts", got)
-		}
-	}
-}
-
-func TestRenderActivityStripeIncludesQuietDaysWithinWindow(t *testing.T) {
-	days := []activityStripeDay{
-		{day: "2026-07-01", count: 1},
-		{day: "2026-07-02", count: 0},
-		{day: "2026-07-03", count: 3},
-	}
-	got := renderActivityStripe(days)
-	want := "░·▒"
-	if got != want {
-		t.Fatalf("renderActivityStripe() = %q, want %q", got, want)
 	}
 }
 
@@ -2029,7 +1774,10 @@ func TestParityReferenceRenders(t *testing.T) {
 	mustContain(t, content, "atm project create")
 	mustContain(t, content, "atm task create")
 	mustContain(t, content, "atm conventions")
+	mustContain(t, content, "activity chart")
+	mustContain(t, content, "persona cards, range, inline breakdown")
 	mustNotContain(t, content, "Help tab")
+	mustNotContain(t, content, "Dispatch this persona")
 }
 
 func TestConventionsReferenceRenders(t *testing.T) {
@@ -2062,7 +1810,13 @@ func TestKeymapReferenceUsesPaneLanguage(t *testing.T) {
 	mustContain(t, content, "tasks")
 	mustContain(t, content, "Cycle theme")
 	mustContain(t, content, "Add project")
+	mustContain(t, content, "Activity chart: prev/next persona")
+	mustContain(t, content, "Activity chart: inline persona breakdown")
+	mustContain(t, content, "Activity chart: time range; scroll inline drill")
+	mustContain(t, content, "Open detail / confirm")
 	mustNotContain(t, content, "switch tab")
+	mustNotContain(t, content, "Dispatch this persona")
+	mustNotContain(t, content, "persona drill")
 	// Conventions-only content is NOT present in the keymap reference.
 	mustNotContain(t, content, "Suggested seed namespaces")
 	mustNotContain(t, content, "advisory")

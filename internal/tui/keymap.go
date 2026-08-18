@@ -15,7 +15,6 @@ const (
 	scopeGlobal menuScope = iota
 	scopeProjectsList
 	scopeProjectsDetail
-	scopeProjectsDrill
 	scopeTasksList
 	scopeTasksDetail
 	scopeBoards
@@ -139,11 +138,6 @@ var menuEntries = []menuEntry{
 	// Actions — projects detail
 	{key: "n", label: "Set project name", summary: "Rename the open project; the code is immutable.", kind: kindDialog, scopes: []menuScope{scopeProjectsDetail}, section: sectionActions, group: groupProject, icon: "✎"},
 
-	// Actions — projects persona drill
-	// Dispatch this persona's icon is ↯ for the same reason as "Dispatch a
-	// session" above — see the note on the Views entry.
-	{key: "d", label: "Dispatch this persona", summary: "Open the dispatch dialog preset to the drilled persona.", kind: kindDialog, scopes: []menuScope{scopeProjectsDrill}, section: sectionActions, group: groupProject, icon: "↯"},
-
 	// Actions — tasks list
 	{key: "a", label: "Add task", summary: "Create a task with a title, optional description, and labels.", kind: kindDialog, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupTask, icon: "+"},
 
@@ -174,8 +168,8 @@ var menuEntries = []menuEntry{
 	// Hidden: documented in the keymap reference, never spotlight rows.
 	{key: "1", label: "Projects pane", hidden: true},
 	{key: "2", label: "Tasks pane", hidden: true},
-	{key: "ctrl+right", label: "Drill into persona activity", hidden: true},
-	{key: "ctrl+left", label: "Back from persona detail", hidden: true},
+	{key: "ctrl+left/right", label: "Activity chart: prev/next persona", hidden: true},
+	{key: "ctrl+enter / ctrl+j / enter focused chart", label: "Activity chart: inline persona breakdown", hidden: true},
 	{key: "j/k", label: "Move cursor / scroll (spotlight: preview focus only — arrows move its search list)", hidden: true},
 	{key: "g", label: "Top of list · plugin leader prefix", hidden: true},
 	{key: "enter", label: "Open detail / confirm", hidden: true},
@@ -184,7 +178,7 @@ var menuEntries = []menuEntry{
 	{key: "shift+up/down", label: "Feed scroll / thumbnail cursor", hidden: true},
 	{key: "shift+right/left", label: "Feed page / thumbnail drill", hidden: true},
 	{key: "pgup/pgdown", label: "Page list / scroll detail", hidden: true},
-	{key: "ctrl+up/down", label: "Scroll persona chart", hidden: true},
+	{key: "ctrl+up/down", label: "Activity chart: time range; scroll inline drill", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
 	{key: "space", label: "Toggle capability (C overlay)", hidden: true},
 	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},
@@ -202,8 +196,6 @@ func preludeFor(s menuScope) []string {
 		return []string{"1"}
 	case scopeProjectsDetail:
 		return []string{"1", "enter"}
-	case scopeProjectsDrill:
-		return []string{"1", "ctrl+right"}
 	case scopeTasksList, scopeBoards:
 		// The boards ring is part of the Tasks pane's list view: the board
 		// keys route to boardsModel from there, so both scopes share a prelude.

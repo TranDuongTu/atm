@@ -1,95 +1,14 @@
 package tui
 
-import (
-	"strings"
-	"testing"
+import "testing"
 
-	"atm/internal/core"
-)
-
-func TestRenderPersonaActivityChart(t *testing.T) {
-	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
-	seedStaffPersona(t, m)
-	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.store.CreateTask("ATM", "task one", "", nil, "staff@claude:opus-4.8"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.store.CreateTask("ATM", "task two", "", nil, "staff@claude:opus-4.8"); err != nil {
-		t.Fatal(err)
-	}
-
-	m.SetSize(80, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-
-	entries, err := m.store.ReadLogCached("ATM")
-	if err != nil && !core.IsIntegrity(err) {
-		t.Fatalf("ReadLog: %v", err)
-	}
-	lines := m.projects.renderPersonaActivityChart(entries, 8)
-	view := strings.Join(lines, "\n")
-	if !strings.Contains(view, "activity by persona") {
-		t.Fatalf("chart title wrong:\n%s", view)
-	}
-	if !strings.Contains(view, "staff") {
-		t.Fatalf("missing persona row 'staff':\n%s", view)
-	}
-}
-
-func TestRenderPersonaActivityChartEmpty(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.SetSize(80, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-	entries, _ := m.store.ReadLogCached("ATM")
-	lines := m.projects.renderPersonaActivityChart(entries, 1)
-	view := strings.Join(lines, "\n")
-	if !strings.Contains(view, "activity by persona") {
-		t.Fatalf("degenerate title wrong:\n%s", view)
-	}
-}
-
-// ATM-0042: at small heights the inline persona chart's bar scale must not
-// degrade to a bare text line that only says "expand". With 2 or 3 available
-// lines the meter bar (█/░) must render so the "scale" is visible, not just
-// the expand hint. 1 line genuinely cannot fit a bar, so the expand hint is
-// the only acceptable content there.
-func TestRenderPersonaActivityChartShortShowsBarNotExpandText(t *testing.T) {
-	m := newTestModelWithActor(t, "staff@claude:opus-4.8")
-	seedStaffPersona(t, m)
-	if _, err := m.store.CreateProject("ATM", "Acme Task Manager", "staff@claude:opus-4.8"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.store.CreateTask("ATM", "task one", "", nil, "staff@claude:opus-4.8"); err != nil {
-		t.Fatal(err)
-	}
-	m.SetSize(80, 24)
-	m.projectScope = "ATM"
-	m.refreshAll()
-	entries, err := m.store.ReadLogCached("ATM")
-	if err != nil && !core.IsIntegrity(err) {
-		t.Fatalf("ReadLog: %v", err)
-	}
-
-	for _, maxLines := range []int{2, 3} {
-		view := strings.Join(m.projects.renderPersonaActivityChart(entries, maxLines), "\n")
-		if !strings.ContainsAny(view, "█░") {
-			t.Fatalf("maxLines=%d: meter bar missing, chart degraded to text-only:\n%s", maxLines, view)
-		}
-		if !strings.Contains(view, "staff") {
-			t.Fatalf("maxLines=%d: persona row missing:\n%s", maxLines, view)
+func TestSummaryChartsBoxedThreshold(t *testing.T) {
+	for _, height := range []int{6, 7, 8, 9, 10} {
+		if summaryChartsBoxed(height) {
+			t.Fatalf("summary height %d must use compact charts", height)
 		}
 	}
-
-	// 1 line cannot fit a bar; the title is the only acceptable content.
-	one := strings.Join(m.projects.renderPersonaActivityChart(entries, 1), "\n")
-	if !strings.Contains(one, "activity by persona") {
-		t.Fatalf("maxLines=1: title missing:\n%s", one)
-	}
-	if strings.ContainsAny(one, "█░") {
-		t.Fatalf("maxLines=1: should not render a bar in one line:\n%s", one)
+	if !summaryChartsBoxed(11) {
+		t.Fatal("summary height 11 must box the combined chart")
 	}
 }
