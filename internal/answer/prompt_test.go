@@ -115,3 +115,17 @@ func TestCitedHitsEmptyWhenTheAnswerCitedNothing(t *testing.T) {
 		t.Errorf("citations = %+v, want none", got)
 	}
 }
+
+// citeRe deliberately matches only single-number brackets. Broadening it was
+// REJECTED: a looser pattern also reads prose like [2024, 2025] out of a
+// quoted description and fabricates a citation, and under-claiming support
+// beats over-claiming it. This test exists so nobody "fixes" that.
+func TestCitedHitsDropsBothNumbersOfAMultiCiteBracket(t *testing.T) {
+	hits := []core.Hit{{ID: "ATM-1"}, {ID: "ATM-2"}}
+	if got := citedHits("as shown [1, 2]", hits); len(got) != 0 {
+		t.Errorf("citedHits = %v, want none — a [1, 2] bracket must yield nothing, not one of them", got)
+	}
+	if got := citedHits("as shown [1][2]", hits); len(got) != 2 {
+		t.Errorf("citedHits = %v, want both — [1][2] is the form the prompt asks for", got)
+	}
+}

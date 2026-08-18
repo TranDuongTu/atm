@@ -8,6 +8,7 @@ package answer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -134,6 +135,16 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 	})
 	if streamErr != nil {
 		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			// A caller's deadline expired. This arm MUST come before both the
+			// cancel arm and the zero-delta degrade arm. Before the cancel arm
+			// because ctx.Err() is non-nil for a deadline too, and reporting
+			// Canceled would tell a caller it stopped an answer it did not touch
+			// — Canceled is Esc in the spotlight (ATM-f71b81). Before the degrade
+			// arm because a deadline that expired before the first token is not
+			// "no chat model answered"; it is "you gave it no time", and calling
+			// it degraded would send a consumer to fix a chat config that is fine.
+			emit(Failed{Reason: streamErr.Error()})
 		case ctx.Err() != nil:
 			// The caller stopped it. The chat client cancels a DERIVED context
 			// for its own watchdogs, so this only trips on a real cancel.

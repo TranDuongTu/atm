@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"atm/internal/chat"
 	"atm/internal/core"
@@ -431,5 +432,42 @@ func TestAskPropagatesIntegrityErrorFromHydration(t *testing.T) {
 	last := events[len(events)-1]
 	if last != "failed:canceled=false" {
 		t.Errorf("terminal event = %q, want failed:canceled=false", last)
+	}
+}
+
+// A caller's own deadline is not the caller stopping the answer. Canceled is
+// reserved for a real user stop — it is what Esc means in the spotlight
+// (ATM-f71b81) — so a timeout must not claim the user pressed it.
+func TestAskReportsDeadlineAsInterruptionNotCancellation(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	fc := &fakeChat{deltas: []string{"partial"}, err: context.DeadlineExceeded}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(expired, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false", last)
+	}
+}
+
+// The ordering trap: a deadline that expires before the first token must not
+// be reported as "no chat model answered". The truth is "you gave it no time".
+func TestAskDeadlineWithZeroDeltasIsNotDegraded(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	fc := &fakeChat{err: context.DeadlineExceeded}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(expired, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false (a timeout is an interruption, not a degrade)", last)
 	}
 }
