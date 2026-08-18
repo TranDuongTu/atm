@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,41 @@ func TestReadInquiriesToleratesEntriesWithoutReturnedIDs(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ReturnedIDs != nil {
 		t.Errorf("got %+v, want the old line read with a nil ReturnedIDs", got)
+	}
+}
+
+// An empty returned set must survive a round trip as EMPTY, not as absent.
+// Absent is reserved for lines written before the field existed, and eval has
+// to tell "searched, found nothing" apart from "we do not know".
+func TestAppendInquiryDistinguishesEmptyReturnedFromAbsent(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "nothing matches this", []string{}, []string{}); err != nil {
+		t.Fatalf("AppendInquiry: %v", err)
+	}
+	got, err := s.ReadInquiries("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1", len(got))
+	}
+	if got[0].ReturnedIDs == nil {
+		t.Error("ReturnedIDs is nil after logging an empty returned set; it must round-trip as empty-but-present, because nil is how a pre-field line reads")
+	}
+	if len(got[0].ReturnedIDs) != 0 {
+		t.Errorf("ReturnedIDs = %v, want empty", got[0].ReturnedIDs)
+	}
+	// The raw line must carry the key, since that is what makes the two states
+	// distinguishable to a reader that is not this struct.
+	raw, err := os.ReadFile(s.inquiryLogPath("ATM"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"returned_ids":[]`) {
+		t.Errorf("log line = %s, want an explicit empty returned_ids", raw)
 	}
 }
 

@@ -13,9 +13,15 @@ type InquiryEntry struct {
 	// ReturnedIDs is what the search actually returned. Recall@k has no
 	// denominator without it (ATM-028a8d), which is why it exists separately
 	// from CitedIDs — a cited ID is a strong relevance signal, a returned ID is
-	// the candidate set that signal is measured against. Absent on lines
-	// written before ATM-d4ceed; those unmarshal to nil.
-	ReturnedIDs []string `json:"returned_ids,omitempty"`
+	// the candidate set that signal is measured against.
+	//
+	// Deliberately NOT omitempty, unlike a first draft of this field: an empty
+	// returned set must serialise as [] and not vanish, because a missing key
+	// is how a line written BEFORE this field existed looks. "Searched and
+	// found nothing" and "we do not know what this search returned" are
+	// different facts, and eval has to be able to tell them apart. CitedIDs
+	// has never carried omitempty either.
+	ReturnedIDs []string `json:"returned_ids"`
 	CitedIDs    []string `json:"cited_ids"`
 	At          string   `json:"at"`
 }
