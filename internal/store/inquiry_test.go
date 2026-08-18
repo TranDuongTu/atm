@@ -155,8 +155,16 @@ func TestAppendInquiryOpenedIDsSerialisesEmptyNotAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if !strings.Contains(string(b), `"opened_ids":`) {
-		t.Errorf("opened_ids must always be present:\n%s", b)
+	// The literal bracket, not just the key: "opened_ids":null unmarshals to
+	// the same nil slice an absent key does, which would erase the very
+	// distinction this field exists to preserve.
+	if !strings.Contains(string(b), `"opened_ids":[]`) {
+		t.Errorf("opened_ids must serialise as [], not null or absent:\n%s", b)
+	}
+	// nil citedIDs goes through the same normalization; pin it so a future
+	// refactor of AppendInquiry cannot quietly reintroduce the null case here.
+	if !strings.Contains(string(b), `"cited_ids":[]`) {
+		t.Errorf("cited_ids must serialise as [], not null, when nil is passed:\n%s", b)
 	}
 }
 

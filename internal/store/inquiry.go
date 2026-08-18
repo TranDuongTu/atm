@@ -46,8 +46,11 @@ func (s *Store) AppendInquiry(code, query string, returnedIDs, citedIDs, openedI
 		}
 		defer f.Close()
 		e := InquiryEntry{
-			Query: query, ReturnedIDs: returnedIDs, CitedIDs: citedIDs,
-			OpenedIDs: openedIDs, At: core.RFC3339UTC(core.Now()),
+			Query:       query,
+			ReturnedIDs: nonNilIDs(returnedIDs),
+			CitedIDs:    nonNilIDs(citedIDs),
+			OpenedIDs:   nonNilIDs(openedIDs),
+			At:          core.RFC3339UTC(core.Now()),
 		}
 		b, err := json.Marshal(e)
 		if err != nil {
@@ -56,6 +59,20 @@ func (s *Store) AppendInquiry(code, query string, returnedIDs, citedIDs, openedI
 		_, err = f.Write(append(b, '\n'))
 		return err
 	})
+}
+
+// nonNilIDs turns a nil slice into a non-nil empty one so it marshals as []
+// rather than null. A caller passing nil means "recorded, and there was
+// nothing" -- it must not collapse onto the encoding a pre-field line
+// produces on read (an absent key unmarshals to a nil slice too). Relying on
+// each caller to already hand back a non-nil empty slice is exactly the
+// accident that let this drift before; this is the one choke point that can
+// guarantee it regardless of what any caller passes.
+func nonNilIDs(ids []string) []string {
+	if ids == nil {
+		return []string{}
+	}
+	return ids
 }
 
 func (s *Store) ReadInquiries(code string) ([]InquiryEntry, error) {
