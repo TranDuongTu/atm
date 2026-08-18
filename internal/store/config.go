@@ -70,6 +70,29 @@ func (s *Store) SetChatConfig(code string, cfg ChatConfig, actor string) error {
 	})
 }
 
+// SetInquiryLog toggles the search/ask inquiry log for one project. Merges
+// into the existing config rather than replacing it, exactly as SetChatConfig
+// does — a project's embedding and chat settings must survive this write.
+func (s *Store) SetInquiryLog(code string, enabled bool, actor string) error {
+	if err := s.validateActor(actor); err != nil {
+		return err
+	}
+	return s.WithLock(code, func() error {
+		existing, err := s.GetProjectConfig(code)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		merged := &ProjectConfig{}
+		if existing != nil {
+			merged = existing
+		}
+		merged.InquiryLog = &enabled
+		merged.UpdatedAt = core.RFC3339UTC(core.Now())
+		merged.UpdatedBy = actor
+		return WriteFileAtomic(s.configPath(code), merged)
+	})
+}
+
 // SetProjectRemote adds or updates a named sync remote in the project's
 // config. name and url are both required.
 func (s *Store) SetProjectRemote(code, name, url, actor string) error {

@@ -133,6 +133,7 @@ type IndexService interface {
 	DropVectors(code, slug string) error
 	SetEmbeddingConfig(code string, cfg EmbeddingConfig, actor string) error
 	SetChatConfig(code string, cfg ChatConfig, actor string) error
+	SetInquiryLog(code string, enabled bool, actor string) error
 	PendingIndexCount(code, slug string) (int, error)
 	// Documents returns full document text keyed by entity ID, for hydrating
 	// search hits whose Snippet is only an 80-rune truncation. On IndexService
