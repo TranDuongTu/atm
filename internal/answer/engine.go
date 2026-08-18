@@ -38,6 +38,9 @@ const defaultK = 8
 type Searcher interface {
 	Search(p core.SearchParams) ([]core.Hit, bool, error)
 	PendingIndexCount(code, slug string) (int, error)
+	// Documents returns full document text keyed by entity ID. An ID it cannot
+	// resolve is simply absent — the engine falls back to that hit's Snippet.
+	Documents(code string, ids []string) (map[string]string, error)
 }
 
 // Streamer is internal/chat's client, narrowed to the one method generation
@@ -60,6 +63,9 @@ type Config struct {
 	Chat      Streamer
 	K         int
 	Threshold float64
+	// SourceBudget caps the total characters of source text sent to the model
+	// in one turn. 0 means defaultSourceBudget.
+	SourceBudget int
 }
 
 type Engine struct{ cfg Config }
@@ -110,8 +116,11 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 		emit(Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"})
 		return nil
 	}
+	// Hydration runs AFTER Retrieved: the hits are already with the consumer,
+	// so a slow or failing lookup delays generation, never delivery.
+	srcs := buildSources(hits, e.documents(hits), e.cfg.SourceBudget)
 	var answer strings.Builder
-	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, buildSources(hits, nil, 0)), func(text string) {
+	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, srcs), func(text string) {
 		answer.WriteString(text)
 		emit(Delta{Text: text})
 	})
@@ -176,4 +185,22 @@ func (e *Engine) behind() int {
 		return 0
 	}
 	return n
+}
+
+// documents hydrates the hits the engine is about to cite. Like behind, it
+// never fails an answer: a lookup that errors returns nil and every source
+// falls back to its snippet.
+func (e *Engine) documents(hits []core.Hit) map[string]string {
+	if len(hits) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(hits))
+	for _, h := range hits {
+		ids = append(ids, h.ID)
+	}
+	docs, err := e.cfg.Searcher.Documents(e.cfg.Project, ids)
+	if err != nil {
+		return nil
+	}
+	return docs
 }

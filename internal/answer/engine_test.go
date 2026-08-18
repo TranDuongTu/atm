@@ -17,6 +17,8 @@ type fakeSearcher struct {
 	pending int
 	params  core.SearchParams
 	calls   int
+	docs    map[string]string
+	docsErr error
 }
 
 func (f *fakeSearcher) Search(p core.SearchParams) ([]core.Hit, bool, error) {
@@ -29,6 +31,13 @@ func (f *fakeSearcher) Search(p core.SearchParams) ([]core.Hit, bool, error) {
 }
 
 func (f *fakeSearcher) PendingIndexCount(code, slug string) (int, error) { return f.pending, nil }
+
+func (f *fakeSearcher) Documents(code string, ids []string) (map[string]string, error) {
+	if f.docsErr != nil {
+		return nil, f.docsErr
+	}
+	return f.docs, nil
+}
 
 type fakeChat struct {
 	deltas []string
@@ -363,5 +372,39 @@ func TestAskEmptyQuestionIsAUsageErrorWithNoEvents(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("events = %v, want none", got)
+	}
+}
+
+func TestAskHydratesSourcesBeforeGenerating(t *testing.T) {
+	fs := &fakeSearcher{
+		hits: []core.Hit{{ID: "ATM-1", Kind: "comment", Snippet: "eighty chars"}},
+		docs: map[string]string{"ATM-1": "the entire body the model should read"},
+	}
+	fc := &fakeChat{deltas: []string{"answer [1]"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	if err := e.Ask(context.Background(), Query{Question: "q"}, func(Event) {}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := fc.msgs[len(fc.msgs)-1].Content
+	if !strings.Contains(last, "the entire body the model should read") {
+		t.Errorf("prompt = %q, want the hydrated body", last)
+	}
+}
+
+// Hydration is an improvement, not a dependency: the store failing must not
+// turn a working answer into a broken one.
+func TestAskSurvivesHydrationFailure(t *testing.T) {
+	fs := &fakeSearcher{
+		hits:    []core.Hit{{ID: "ATM-1", Snippet: "the snippet"}},
+		docsErr: errors.New("cache exploded"),
+	}
+	fc := &fakeChat{deltas: []string{"still answered"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(context.Background(), Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask returned %v; hydration failure must not fail an answer", err)
+	}
+	if !strings.Contains(fc.msgs[len(fc.msgs)-1].Content, "the snippet") {
+		t.Error("want the snippet fallback in the prompt")
 	}
 }
