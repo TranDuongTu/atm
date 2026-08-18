@@ -435,14 +435,14 @@ func TestAskPropagatesIntegrityErrorFromHydration(t *testing.T) {
 	}
 }
 
-// A caller's own deadline is not the caller stopping the answer. Canceled is
-// reserved for a real user stop — it is what Esc means in the spotlight
-// (ATM-f71b81) — so a timeout must not claim the user pressed it.
+// The ordering trap: a deadline that expires before the first token must not
+// be reported as "no chat model answered". The truth is "you gave it no time".
+// The context is already expired, so Stream never emits the delta.
 func TestAskReportsDeadlineAsInterruptionNotCancellation(t *testing.T) {
 	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
 	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancelExpired()
-	fc := &fakeChat{deltas: []string{"partial"}, err: context.DeadlineExceeded}
+	fc := &fakeChat{err: context.DeadlineExceeded}
 	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
 	var events []string
 	if err := e.Ask(expired, Query{Question: "q"}, record(&events)); err != nil {
@@ -454,8 +454,9 @@ func TestAskReportsDeadlineAsInterruptionNotCancellation(t *testing.T) {
 	}
 }
 
-// The ordering trap: a deadline that expires before the first token must not
-// be reported as "no chat model answered". The truth is "you gave it no time".
+// Both the pre-expired and the mid-stream deadline case must not degrade — only
+// the arm ordering proves it, so this redundant test proves the zero-delta arm
+// ordering alone (not paired with mid-stream coverage).
 func TestAskDeadlineWithZeroDeltasIsNotDegraded(t *testing.T) {
 	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
 	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
@@ -469,5 +470,31 @@ func TestAskDeadlineWithZeroDeltasIsNotDegraded(t *testing.T) {
 	last := events[len(events)-1]
 	if last != "failed:canceled=false" {
 		t.Errorf("terminal event = %q, want failed:canceled=false (a timeout is an interruption, not a degrade)", last)
+	}
+}
+
+// The real --timeout case: the model is ALREADY STREAMING when the caller's
+// deadline expires. The partial has to survive, and the outcome has to be an
+// interruption rather than a cancellation. Distinct from the sibling test,
+// where the deadline has already expired before generation starts — that one
+// proves the arm ordering, this one proves a partial answer is not thrown away.
+func TestAskDeadlineMidStreamKeepsThePartial(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	fc := &fakeChat{
+		deltas: []string{"the answer so far", "never arrives"},
+		before: func() { time.Sleep(80 * time.Millisecond) },
+	}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(ctx, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if len(events) < 2 || events[1] != "delta:the answer so far" {
+		t.Fatalf("events = %v, want the first delta delivered before the deadline expired", events)
+	}
+	if last := events[len(events)-1]; last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false — a deadline is an interruption", last)
 	}
 }
