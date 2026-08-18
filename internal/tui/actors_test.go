@@ -42,7 +42,7 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-func TestChartCtrlArrowsWrapClampRangeAndTransientlyFocusChart(t *testing.T) {
+func TestChartCtrlArrowsWrapClampRangeAndKeepChartFocused(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
@@ -57,7 +57,7 @@ func TestChartCtrlArrowsWrapClampRangeAndTransientlyFocusChart(t *testing.T) {
 		t.Fatalf("ctrl+left from All selected %q, want developer", got)
 	}
 	update(t, m, "j")
-	mustNotContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
+	mustContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
 
 	update(t, m, "ctrl+right")
 	if got := m.projects.chartPersona; got != "" {
@@ -99,27 +99,16 @@ func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 	}
 }
 
-func TestChartFocusExpiresOnlyForLatestCtrlInteraction(t *testing.T) {
+func TestChartCtrlNavigationDoesNotScheduleFocusExpiry(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	m.refreshAll()
 
-	update(t, m, "ctrl+right")
-	first := m.projects.chartFocusSeq
-	update(t, m, "ctrl+left")
-	second := m.projects.chartFocusSeq
-	if first == second {
-		t.Fatalf("chart focus sequence did not advance: %d", first)
-	}
-	m.Update(chartFocusExpiredMsg{seq: first})
-	if !m.projects.chartFocused {
-		t.Fatal("stale focus expiry must not clear a newer ctrl interaction")
-	}
-	m.Update(chartFocusExpiredMsg{seq: second})
-	if m.projects.chartFocused {
-		t.Fatal("latest focus expiry must clear chart focus")
+	_, cmd := m.Update(keyMsg("ctrl+right"))
+	if cmd != nil {
+		t.Fatal("ctrl chart navigation must not schedule a focus expiry timer")
 	}
 }
 
@@ -225,6 +214,19 @@ func TestRenderSummaryUsesFullEnglishRangeLegendAtBottom(t *testing.T) {
 			t.Fatalf("range legend appeared above chart bottom on line %d:\n%s", i, strings.Join(lines, "\n"))
 		}
 	}
+}
+
+func TestRenderRangeLegendUsesStrongStyle(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	tag := func(s lipgloss.Style, name string) lipgloss.Style {
+		return s.Transform(func(v string) string { return "<" + name + ">" + v + "</" + name + ">" })
+	}
+	m.styles.HeaderLabel = tag(m.styles.HeaderLabel, "strong")
+	m.styles.Muted = tag(m.styles.Muted, "muted")
+
+	got := renderRangeLegend(chartRanges[0], 40, m.styles)
+	mustContain(t, got, "<strong>Range: One week")
+	mustNotContain(t, got, "<muted>Range: One week")
 }
 
 func TestRenderSummaryChartLinesKeepFixedWidthAcrossPersonaSwitch(t *testing.T) {

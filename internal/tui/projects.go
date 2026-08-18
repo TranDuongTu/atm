@@ -32,10 +32,9 @@ type projectsModel struct {
 
 	// Combined activity chart state. Rendering consumes the refresh-time
 	// summary snapshot; only keys and project-scope writes mutate this state.
-	chartPersona  string
-	chartRange    int
-	chartFocused  bool
-	chartFocusSeq int
+	chartPersona string
+	chartRange   int
+	chartFocused bool
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -167,37 +166,32 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "ctrl+left", "ctrl+right":
-		cmd := p.focusChart()
+		p.focusChart()
 		entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
 		direction := -1
 		if k.String() == "ctrl+right" {
 			direction = 1
 		}
 		p.chartPersona = carouselStep(entries, p.chartPersona, direction)
-		return cmd, true
+		return nil, true
 	case "ctrl+up":
-		cmd := p.focusChart()
+		p.focusChart()
 		if p.chartRange < len(chartRanges)-1 {
 			p.chartRange++
 		}
-		return cmd, true
+		return nil, true
 	case "ctrl+down":
-		cmd := p.focusChart()
+		p.focusChart()
 		if p.chartRange > 0 {
 			p.chartRange--
 		}
-		return cmd, true
-	}
-	if p.chartFocused {
-		p.chartFocused = false
+		return nil, true
 	}
 	return nil, false
 }
 
-func (p *projectsModel) focusChart() tea.Cmd {
+func (p *projectsModel) focusChart() {
 	p.chartFocused = true
-	p.chartFocusSeq++
-	return chartFocusExpireCmd(p.chartFocusSeq)
 }
 
 func (p *projectsModel) openPersonaActivity() {
@@ -213,7 +207,6 @@ func (p *projectsModel) resetChart() {
 	p.chartPersona = ""
 	p.chartRange = 0
 	p.chartFocused = false
-	p.chartFocusSeq++
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -658,7 +651,7 @@ func renderRangeLegend(spec chartRangeSpec, width int, st Styles) string {
 	if label == "" {
 		label = spec.key
 	}
-	return st.Muted.Render(fitLine("Range: "+label+"  [Ctrl+\u2191/\u2193]", width))
+	return st.HeaderLabel.Render(fitLine("Range: "+label+"  [Ctrl+\u2191/\u2193]", width))
 }
 
 func chartBoxWidth(width int) int {
