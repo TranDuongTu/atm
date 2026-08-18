@@ -17,7 +17,7 @@ func newInquiryCmd(st *cliState) *cobra.Command {
 }
 
 func newInquiryAddCmd(st *cliState) *cobra.Command {
-	var project, query, cited string
+	var project, query, cited, returned string
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Append an inquiry (query + cited hit IDs) to inquiry-log.jsonl",
@@ -30,15 +30,19 @@ func newInquiryAddCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
 			}
+			returnedIDs := []string{}
+			if returned != "" {
+				returnedIDs = strings.Split(returned, ",")
+			}
 			citedIDs := []string{}
 			if cited != "" {
 				citedIDs = strings.Split(cited, ",")
 			}
-			if err := s.AppendInquiry(project, query, citedIDs); err != nil {
+			if err := s.AppendInquiry(project, query, returnedIDs, citedIDs); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{
-				"project": project, "query": query, "cited_ids": citedIDs,
+				"project": project, "query": query, "returned_ids": returnedIDs, "cited_ids": citedIDs,
 			}, func() {
 				fmt.Fprintf(st.stdout(), "appended inquiry to %s: %s\n", project, query)
 			})
@@ -47,6 +51,7 @@ func newInquiryAddCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&project, "project", "", "project code")
 	cmd.Flags().StringVar(&query, "query", "", "the inquiry question")
 	cmd.Flags().StringVar(&cited, "cited", "", "comma-separated cited hit IDs")
+	cmd.Flags().StringVar(&returned, "returned", "", "comma-separated IDs the search returned (the recall@k denominator)")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("query")
 	return cmd

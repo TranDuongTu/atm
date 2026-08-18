@@ -1,16 +1,20 @@
 package store
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestAppendInquiryAndRead(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendInquiry("ATM", "label conflicts", []string{"ATM-0001", "ATM-0002"}); err != nil {
+	if err := s.AppendInquiry("ATM", "label conflicts", []string{"ATM-0001", "ATM-0002"}, []string{"ATM-0001", "ATM-0002"}); err != nil {
 		t.Fatalf("AppendInquiry: %v", err)
 	}
-	if err := s.AppendInquiry("ATM", "audit log", []string{"ATM-0003"}); err != nil {
+	if err := s.AppendInquiry("ATM", "audit log", []string{"ATM-0003"}, []string{"ATM-0003"}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.ReadInquiries("ATM")
@@ -22,6 +26,53 @@ func TestAppendInquiryAndRead(t *testing.T) {
 	}
 	if got[0].Query != "label conflicts" || len(got[0].CitedIDs) != 2 {
 		t.Errorf("entry 0 = %+v", got[0])
+	}
+}
+
+func TestAppendInquiryRecordsReturnedAndCited(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "label conflicts",
+		[]string{"ATM-0001", "ATM-0002", "ATM-0003"}, []string{"ATM-0002"}); err != nil {
+		t.Fatalf("AppendInquiry: %v", err)
+	}
+	got, err := s.ReadInquiries("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1", len(got))
+	}
+	// recall@k needs the denominator: what came back, not only what was cited.
+	if len(got[0].ReturnedIDs) != 3 {
+		t.Errorf("ReturnedIDs = %v, want all three", got[0].ReturnedIDs)
+	}
+	if len(got[0].CitedIDs) != 1 || got[0].CitedIDs[0] != "ATM-0002" {
+		t.Errorf("CitedIDs = %v, want [ATM-0002]", got[0].CitedIDs)
+	}
+}
+
+// The log is append-only and already has lines on disk without the field.
+func TestReadInquiriesToleratesEntriesWithoutReturnedIDs(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	path := s.inquiryLogPath("ATM")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"query":"old","cited_ids":["ATM-1"],"at":"2026-01-01T00:00:00Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadInquiries("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ReturnedIDs != nil {
+		t.Errorf("got %+v, want the old line read with a nil ReturnedIDs", got)
 	}
 }
 
