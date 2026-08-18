@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 func (s *Store) Search(p SearchParams) (hits []Hit, fallbackUsed bool, err error) {
@@ -202,12 +203,24 @@ func tokenPrefixOverlap(query, doc []string) int {
 	return n
 }
 
+// snippet trims s to at most max RUNES, never bytes: a byte slice can split a
+// multi-byte rune, and encoding/json silently rewrites the resulting invalid
+// UTF-8 to U+FFFD rather than rejecting it — so the corruption reaches an
+// agent parsing citations[].snippet without anything having failed loudly
+// (ATM-d4ceed).
 func snippet(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	n := 0
+	for i := range s {
+		if n == max-1 {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
 }
 
 func dedupVectorsByID(entries []VectorEntry) []VectorEntry {
@@ -226,4 +239,42 @@ func dedupVectorsByID(entries []VectorEntry) []VectorEntry {
 		out = append(out, e)
 	}
 	return out
+}
+
+// Documents renders the full document text of the named entities, keyed by ID:
+// title + description + labels for a task, body + labels for a comment — the
+// same text the indexer embeds. The answer engine hydrates its top-K hits with
+// this, because core.Hit.Snippet is an 80-rune truncation and a comment's body
+// IS its content, so a model handed only the snippet is answering from roughly
+// one line (ATM-d4ceed).
+//
+// One v2CompatEntities fold rather than per-ID fetches: it is what textSearch
+// already does on every search, and it spares the caller from having to know
+// whether an ID names a task or a comment. IDs that name nothing are simply
+// absent from the map — the engine treats a missing entry as "use the
+// snippet", so a stale ID degrades instead of failing.
+func (s *Store) Documents(code string, ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	tasks, comments, err := s.v2CompatEntities(code)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tasks {
+		if want[t.ID] {
+			out[t.ID] = taskDocumentText(t)
+		}
+	}
+	for _, c := range comments {
+		if want[c.ID] {
+			out[c.ID] = commentDocumentText(c)
+		}
+	}
+	return out, nil
 }

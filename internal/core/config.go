@@ -69,14 +69,20 @@ type ChannelWiring struct {
 }
 
 type ProjectConfig struct {
-	UpdatedAt string                   `json:"updated_at,omitempty"`
-	UpdatedBy string                   `json:"updated_by,omitempty"`
-	Embedding *EmbeddingConfig         `json:"embedding,omitempty"`
-	Chat      *ChatConfig              `json:"chat,omitempty"`
-	Remotes   map[string]string        `json:"remotes,omitempty"`
-	Boards    *BoardsConfig            `json:"boards,omitempty"`
-	Repos     []RepoConfig             `json:"repos,omitempty"`
-	Channels  map[string]ChannelWiring `json:"channels,omitempty"`
+	UpdatedAt string           `json:"updated_at,omitempty"`
+	UpdatedBy string           `json:"updated_by,omitempty"`
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+	Chat      *ChatConfig      `json:"chat,omitempty"`
+	// InquiryLog toggles the auto-append of search and ask queries to
+	// inquiry-log.jsonl, the ground-truth stream the eval subsystem replays
+	// (ATM-028a8d). A POINTER because nil must mean "enabled": a plain bool
+	// would read every project that predates this field as opted out, silently
+	// starving eval of exactly the history it exists to measure.
+	InquiryLog *bool                    `json:"inquiry_log,omitempty"`
+	Remotes    map[string]string        `json:"remotes,omitempty"`
+	Boards     *BoardsConfig            `json:"boards,omitempty"`
+	Repos      []RepoConfig             `json:"repos,omitempty"`
+	Channels   map[string]ChannelWiring `json:"channels,omitempty"`
 	// ArtOn toggles the TUI background art on or off. Display preference,
 	// not substrate state: no event-log entry, and the default is off.
 	ArtOn bool `json:"art_on,omitempty"`

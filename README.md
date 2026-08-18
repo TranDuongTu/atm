@@ -238,6 +238,42 @@ atm index --project ATM              # continuous foreground indexing until Ctrl
 
 **5. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
 
+### Asking The Ledger
+
+`atm ask "question"` retrieves the project's most relevant tasks and comments and has the configured local chat model answer from them, citing each claim by source number.
+
+```sh
+atm project set-chat --project ATM --model qwen3:8b   # once, to enable answers
+atm ask "what is blocking the release?" --project ATM
+atm ask "and which of those is oldest?" --project ATM --session release-check
+```
+
+Retrieval never breaks because generation cannot run. With no chat model configured, or an endpoint that cannot be reached, the sources still come back with `degraded: true` and an exit code of 0 — so a script parses one shape whether or not ollama is up.
+
+- `--session <id>` shares conversation history across separate invocations (the last 10 turns are replayed). This is a conversation key, not an ATM agent session.
+- `--timeout 30s` bounds one call. An expired deadline is an interruption, not a failure: the partial answer is kept, `truncated` is true, and the exit code is still 0.
+- Queries and the IDs they returned are appended to `inquiry-log.jsonl` for search-quality measurement. Turn it off with `atm project set-inquiry-log --project ATM --enabled=false`.
+
+`--output json` emits one document, with every key present on every outcome. `hits` is the full retrieval set the model was shown, numbered in order; `citations` is the subset it actually cited. A `[n]` marker in `answer` resolves against `hits[n-1]`, not against a position in `citations` — `citations` is a filtered view, so indexing it by the marker's number would land on the wrong entry as soon as the model skips a source:
+
+```json
+{
+  "answer": "The release is blocked by ATM-1 [1].",
+  "citations": [{"id": "ATM-1", "kind": "task", "score": 0.82, "snippet": "...", "match": "semantic"}],
+  "hits": [
+    {"id": "ATM-1", "kind": "task", "score": 0.82, "snippet": "...", "match": "semantic"},
+    {"id": "ATM-2", "kind": "task", "score": 0.61, "snippet": "...", "match": "semantic"}
+  ],
+  "chat_model": "qwen3:8b",
+  "embed_model": "nomic-embed-text",
+  "session": "",
+  "behind": 0,
+  "degraded": false,
+  "truncated": false,
+  "error": ""
+}
+```
+
 ### Personas And Agent Defaults
 
 Personas shape the role prompt and actor identity used in `atm --persona <name> --project <CODE>`. ATM ships three built-in personas: `developer` (the default developer persona), `manager` (the default manager persona), and `admin` (human-driven CLI/TUI actions), plus `concierge` (plain-language onboarding, launchable without `--project`). Built-ins ship inside the binary from the top-level `skills/` folder and are no longer seeded into the store; inspect one with `atm persona show <name>` and customize it with `atm persona personality <name>`.

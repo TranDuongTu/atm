@@ -4,5 +4,6 @@
     "ATM-0002"
   ],
   "project": "FOO",
-  "query": "label conflicts"
+  "query": "label conflicts",
+  "returned_ids": []
 }

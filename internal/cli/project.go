@@ -29,6 +29,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectRemoveCmd(st))
 	cmd.AddCommand(newProjectSetEmbeddingCmd(st))
 	cmd.AddCommand(newProjectSetChatCmd(st))
+	cmd.AddCommand(newProjectSetInquiryLogCmd(st))
 	cmd.AddCommand(newProjectCapabilityCmd(st))
 	cmd.AddCommand(newProjectBoardsCmd(st))
 	cmd.AddCommand(newProjectRepoCmd(st))
@@ -266,6 +267,7 @@ func newProjectShowCmd(st *cliState) *cobra.Command {
 			if cfg, _ := s.GetProjectConfig(code); cfg != nil {
 				pj.Embedding = cfg.Embedding
 				pj.Chat = cfg.Chat
+				pj.InquiryLog = cfg.InquiryLog
 			}
 			return st.emit(st.stdout(), map[string]any{"project": pj}, func() {
 				fmt.Fprintln(os.Stdout, renderProjectText(pj))
@@ -435,6 +437,44 @@ func newProjectSetChatCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OpenAI-compatible /v1 base URL, which serves /chat/completions (default: the embedding endpoint)")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("model")
+	return cmd
+}
+
+func newProjectSetInquiryLogCmd(st *cliState) *cobra.Command {
+	var project string
+	var enabled bool
+	cmd := &cobra.Command{
+		Use:   "set-inquiry-log",
+		Short: "Turn the search/ask inquiry log on or off for this project",
+		Long: "atm search and atm ask append each query, the IDs they returned, and (for ask) the " +
+			"IDs the answer cited to inquiry-log.jsonl. That log is the ground-truth stream the " +
+			"search eval subsystem replays. On by default; turn it off for a project whose queries " +
+			"should not be recorded.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if _, err := s.GetProject(project); err != nil {
+				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
+			}
+			if err := s.SetInquiryLog(project, enabled, actor); err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{
+				"project": project, "inquiry_log": enabled, "actor": actor,
+			}, func() {
+				fmt.Fprintf(st.stdout(), "set inquiry-log for %s: enabled=%t\n", project, enabled)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	cmd.Flags().BoolVar(&enabled, "enabled", true, "whether atm search and atm ask append to inquiry-log.jsonl")
+	_ = cmd.MarkFlagRequired("project")
 	return cmd
 }
 

@@ -27,19 +27,17 @@ const systemPrompt = "You are ATM's answer engine. ATM is a task ledger, and the
 // buildMessages renders one turn's request: the standing instruction, the
 // prior turns verbatim, then this turn's numbered sources and question.
 //
-// Only the newest turn carries source blocks. Retrieval re-runs every turn,
-// so re-inlining earlier hits would spend the model's context on sources it
-// has already answered from.
+// Only the newest turn carries source blocks. Retrieval re-runs every turn, so
+// re-inlining earlier hits would spend the model's context on sources it has
+// already answered from.
 //
-// KNOWN LIMITATION of this sub-task (ATM-66a6d2): a source block carries the
-// hit's title plus core.Hit.Snippet, which store.Search truncates to ~80
-// characters — never the full task description or comment body. So the model
-// is told to answer from these sources while holding roughly one line of each,
-// and for a comment, whose body IS its content, that is close to nothing. It
-// bounds how good any answer can be. Widening the source text means widening
-// Searcher (a by-ID text lookup, or a store change), which is a design
-// decision left to the surface sub-tasks rather than smuggled in here.
-func buildMessages(q Query, hits []core.Hit) []chat.Message {
+// Sources arrive already hydrated and budgeted (see sources.go). Until
+// ATM-d4ceed they were built from core.Hit.Snippet, an 80-rune truncation — so
+// the model was told to answer from sources while holding roughly one line of
+// each, and for a comment, whose body IS its content, that was close to
+// nothing. buildSources now supplies the full document text where the store
+// has it, clipped only to fit a total budget and visibly marked when clipped.
+func buildMessages(q Query, srcs []source) []chat.Message {
 	msgs := []chat.Message{{Role: "system", Content: systemPrompt}}
 	for _, t := range q.History {
 		msgs = append(msgs, chat.Message{Role: "user", Content: t.Question})
@@ -47,19 +45,19 @@ func buildMessages(q Query, hits []core.Hit) []chat.Message {
 	}
 	var b strings.Builder
 	b.WriteString("SOURCES\n")
-	if len(hits) == 0 {
+	if len(srcs) == 0 {
 		// Stated, not omitted: a model handed a bare question answers from its
 		// own weights, which is the one thing this engine must not do.
 		b.WriteString("(none - the ledger returned no matching tasks or comments)\n")
 	}
-	for i, h := range hits {
-		label := h.Title
+	for i, s := range srcs {
+		label := s.hit.Title
 		if label == "" {
-			label = h.Snippet
+			label = s.hit.ID
 		}
-		fmt.Fprintf(&b, "[%d] %s (%s) %s\n", i+1, h.ID, h.Kind, strings.TrimSpace(label))
-		if h.Title != "" && h.Snippet != "" {
-			fmt.Fprintf(&b, "    %s\n", strings.TrimSpace(h.Snippet))
+		fmt.Fprintf(&b, "[%d] %s (%s) %s\n", i+1, s.hit.ID, s.hit.Kind, strings.TrimSpace(label))
+		if text := strings.TrimSpace(s.text); text != "" {
+			fmt.Fprintf(&b, "    %s\n", text)
 		}
 	}
 	fmt.Fprintf(&b, "\nQUESTION\n%s", q.Question)

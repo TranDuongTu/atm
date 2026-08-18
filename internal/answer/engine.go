@@ -8,6 +8,7 @@ package answer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -38,6 +39,9 @@ const defaultK = 8
 type Searcher interface {
 	Search(p core.SearchParams) ([]core.Hit, bool, error)
 	PendingIndexCount(code, slug string) (int, error)
+	// Documents returns full document text keyed by entity ID. An ID it cannot
+	// resolve is simply absent — the engine falls back to that hit's Snippet.
+	Documents(code string, ids []string) (map[string]string, error)
 }
 
 // Streamer is internal/chat's client, narrowed to the one method generation
@@ -60,6 +64,9 @@ type Config struct {
 	Chat      Streamer
 	K         int
 	Threshold float64
+	// SourceBudget caps the total characters of source text sent to the model
+	// in one turn. 0 means defaultSourceBudget.
+	SourceBudget int
 }
 
 type Engine struct{ cfg Config }
@@ -110,13 +117,34 @@ func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 		emit(Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"})
 		return nil
 	}
+	// Hydration runs AFTER Retrieved: the hits are already with the consumer,
+	// so a slow or failing lookup delays generation, never delivery.
+	docs, err := e.documents(hits)
+	if err != nil {
+		// A corrupt ledger, surfaced by hydration rather than by retrieval.
+		// Same treatment as a retrieval failure: this is the one path besides
+		// that one which both emits a terminal event AND returns an error.
+		emit(Failed{Reason: err.Error()})
+		return err
+	}
+	srcs := buildSources(hits, docs, e.cfg.SourceBudget)
 	var answer strings.Builder
-	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, hits), func(text string) {
+	streamErr := e.cfg.Chat.Stream(ctx, buildMessages(q, srcs), func(text string) {
 		answer.WriteString(text)
 		emit(Delta{Text: text})
 	})
 	if streamErr != nil {
 		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			// A caller's deadline expired. This arm MUST come before both the
+			// cancel arm and the zero-delta degrade arm. Before the cancel arm
+			// because ctx.Err() is non-nil for a deadline too, and reporting
+			// Canceled would tell a caller it stopped an answer it did not touch
+			// — Canceled is Esc in the spotlight (ATM-f71b81). Before the degrade
+			// arm because a deadline that expired before the first token is not
+			// "no chat model answered"; it is "you gave it no time", and calling
+			// it degraded would send a consumer to fix a chat config that is fine.
+			emit(Failed{Reason: streamErr.Error()})
 		case ctx.Err() != nil:
 			// The caller stopped it. The chat client cancels a DERIVED context
 			// for its own watchdogs, so this only trips on a real cancel.
@@ -176,4 +204,32 @@ func (e *Engine) behind() int {
 		return 0
 	}
 	return n
+}
+
+// documents hydrates the hits the engine is about to cite. Best-effort by
+// design: a lookup that fails degrades to each hit's snippet rather than
+// failing the answer.
+//
+// With ONE exception, which is not a judgement call — core.ErrIntegrity means
+// the ledger itself is corrupt, and ATM never swallows that. It matters here
+// specifically because this is often the FIRST call to touch it: retrieve()'s
+// semantic path reads the vector file and never goes through the entity cache,
+// so a corrupt cache can be invisible until this runs. Swallowing it would
+// answer from snippets and report success over a broken store.
+func (e *Engine) documents(hits []core.Hit) (map[string]string, error) {
+	if len(hits) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(hits))
+	for _, h := range hits {
+		ids = append(ids, h.ID)
+	}
+	docs, err := e.cfg.Searcher.Documents(e.cfg.Project, ids)
+	if err != nil {
+		if core.IsIntegrity(err) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	return docs, nil
 }

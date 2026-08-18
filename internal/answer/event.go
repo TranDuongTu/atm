@@ -52,7 +52,10 @@ type Done struct {
 // Failed ends an ask that broke. It arrives AFTER any deltas already
 // delivered — the partial answer is the consumer's to keep and to mark.
 // Canceled distinguishes the caller's own cancellation (Esc, ctrl-C) from an
-// endpoint that dropped mid-answer.
+// endpoint that dropped mid-answer. An EXPIRED DEADLINE is deliberately not a
+// cancellation: it reports Canceled:false, the same as a disconnect, because
+// both warrant the identical consumer response — keep the partial, offer a
+// retry — and only Reason distinguishes them (ATM-d4ceed).
 type Failed struct {
 	Reason   string
 	Canceled bool

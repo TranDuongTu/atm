@@ -50,6 +50,7 @@ type jsonProject struct {
 	UpdatedBy    string                `json:"updated_by"`
 	Embedding    *core.EmbeddingConfig `json:"embedding,omitempty"`
 	Chat         *core.ChatConfig      `json:"chat,omitempty"`
+	InquiryLog   *bool                 `json:"inquiry_log,omitempty"`
 	Capabilities []string              `json:"capabilities,omitempty"`
 }
 

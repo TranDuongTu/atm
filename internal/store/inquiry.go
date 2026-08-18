@@ -9,12 +9,24 @@ import (
 )
 
 type InquiryEntry struct {
-	Query    string   `json:"query"`
-	CitedIDs []string `json:"cited_ids"`
-	At       string   `json:"at"`
+	Query string `json:"query"`
+	// ReturnedIDs is what the search actually returned. Recall@k has no
+	// denominator without it (ATM-028a8d), which is why it exists separately
+	// from CitedIDs — a cited ID is a strong relevance signal, a returned ID is
+	// the candidate set that signal is measured against.
+	//
+	// Deliberately NOT omitempty, unlike a first draft of this field: an empty
+	// returned set must serialise as [] and not vanish, because a missing key
+	// is how a line written BEFORE this field existed looks. "Searched and
+	// found nothing" and "we do not know what this search returned" are
+	// different facts, and eval has to be able to tell them apart. CitedIDs
+	// has never carried omitempty either.
+	ReturnedIDs []string `json:"returned_ids"`
+	CitedIDs    []string `json:"cited_ids"`
+	At          string   `json:"at"`
 }
 
-func (s *Store) AppendInquiry(code, query string, citedIDs []string) error {
+func (s *Store) AppendInquiry(code, query string, returnedIDs, citedIDs []string) error {
 	return s.WithLock(code, func() error {
 		if err := os.MkdirAll(s.projectDir(code), 0o755); err != nil {
 			return err
@@ -24,7 +36,7 @@ func (s *Store) AppendInquiry(code, query string, citedIDs []string) error {
 			return err
 		}
 		defer f.Close()
-		e := InquiryEntry{Query: query, CitedIDs: citedIDs, At: core.RFC3339UTC(core.Now())}
+		e := InquiryEntry{Query: query, ReturnedIDs: returnedIDs, CitedIDs: citedIDs, At: core.RFC3339UTC(core.Now())}
 		b, err := json.Marshal(e)
 		if err != nil {
 			return err

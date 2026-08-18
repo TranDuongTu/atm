@@ -11,11 +11,26 @@ func hit(id, kind, title, snippet string) core.Hit {
 	return core.Hit{ID: id, Kind: kind, Title: title, Snippet: snippet, Score: 0.9, Match: "semantic"}
 }
 
+func TestBuildMessagesUsesHydratedText(t *testing.T) {
+	srcs := []source{{
+		hit:  core.Hit{ID: "ATM-1", Kind: "comment", Snippet: "the truncated eighty"},
+		text: "the entire comment body, which is what the model must actually read",
+	}}
+	msgs := buildMessages(Query{Question: "what happened?"}, srcs)
+	last := msgs[len(msgs)-1].Content
+	if !strings.Contains(last, "the entire comment body") {
+		t.Errorf("prompt = %q, want the hydrated text", last)
+	}
+	if !strings.Contains(last, "[1] ATM-1") {
+		t.Errorf("prompt = %q, want the source numbered so citations can be recovered", last)
+	}
+}
+
 func TestBuildMessagesNumbersSourcesAndAsksLast(t *testing.T) {
-	msgs := buildMessages(Query{Question: "who owns the indexer?"}, []core.Hit{
+	msgs := buildMessages(Query{Question: "who owns the indexer?"}, buildSources([]core.Hit{
 		hit("ATM-aaa111", "task", "wire the indexer", "the watcher owns freshness"),
 		hit("ATM-aaa111-c42", "comment", "", "g1 is its console"),
-	})
+	}, nil, 0))
 	if len(msgs) != 2 || msgs[0].Role != "system" || msgs[1].Role != "user" {
 		t.Fatalf("messages = %+v, want system then user", msgs)
 	}
@@ -45,7 +60,7 @@ func TestBuildMessagesReplaysHistoryWithoutStaleSources(t *testing.T) {
 	msgs := buildMessages(Query{
 		Question: "and who watches it?",
 		History:  []Turn{{Question: "who owns the indexer?", Answer: "the watcher [1]"}},
-	}, []core.Hit{hit("ATM-bbb222", "task", "watcher", "runs per project")})
+	}, buildSources([]core.Hit{hit("ATM-bbb222", "task", "watcher", "runs per project")}, nil, 0))
 	if len(msgs) != 4 {
 		t.Fatalf("messages = %d, want system + 2 history + 1 current", len(msgs))
 	}
@@ -98,5 +113,19 @@ func TestCitedHitsEmptyWhenTheAnswerCitedNothing(t *testing.T) {
 	hits := []core.Hit{hit("A", "task", "a", "")}
 	if got := citedHits("I could not find that in the ledger.", hits); len(got) != 0 {
 		t.Errorf("citations = %+v, want none", got)
+	}
+}
+
+// citeRe deliberately matches only single-number brackets. Broadening it was
+// REJECTED: a looser pattern also reads prose like [2024, 2025] out of a
+// quoted description and fabricates a citation, and under-claiming support
+// beats over-claiming it. This test exists so nobody "fixes" that.
+func TestCitedHitsDropsBothNumbersOfAMultiCiteBracket(t *testing.T) {
+	hits := []core.Hit{{ID: "ATM-1"}, {ID: "ATM-2"}}
+	if got := citedHits("as shown [1, 2]", hits); len(got) != 0 {
+		t.Errorf("citedHits = %v, want none — a [1, 2] bracket must yield nothing, not one of them", got)
+	}
+	if got := citedHits("as shown [1][2]", hits); len(got) != 2 {
+		t.Errorf("citedHits = %v, want both — [1][2] is the form the prompt asks for", got)
 	}
 }

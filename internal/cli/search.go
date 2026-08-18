@@ -31,6 +31,10 @@ func newSearchCmd(st *cliState) *cobra.Command {
 			if _, err := s.GetProject(project); err != nil {
 				return fmt.Errorf("%w: project %s not found", ErrNotFound, project)
 			}
+			cfg, err := s.GetProjectConfig(project)
+			if err != nil {
+				return err
+			}
 			var qv []float64
 			resolvedModel := model
 			if queryVector != "" {
@@ -38,10 +42,6 @@ func newSearchCmd(st *cliState) *cobra.Command {
 					return fmt.Errorf("%w: --query-vector must be a JSON array of numbers: %v", ErrUsage, err)
 				}
 			} else {
-				cfg, err := s.GetProjectConfig(project)
-				if err != nil {
-					return err
-				}
 				if cfg != nil && cfg.Embedding != nil {
 					client := embed.New(*cfg.Embedding)
 					vec, err := client.Embed(cmd.Context(), args[0], "query")
@@ -70,6 +70,7 @@ func newSearchCmd(st *cliState) *cobra.Command {
 			if fallback {
 				match = "text"
 			}
+			logInquiry(st, s, cfg, project, args[0], idsOf(hitsToJSON(hits)), []string{})
 			return st.emit(st.stdout(), map[string]any{
 				"query": args[0], "model": resolvedModel, "match": match,
 				"hits": hitsToJSON(hits), "fallback_used": fallback,

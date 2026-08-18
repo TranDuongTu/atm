@@ -154,6 +154,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newEmbedCmd(st))
 	root.AddCommand(newIndexCmd(st))
 	root.AddCommand(newSearchCmd(st))
+	root.AddCommand(newAskCmd(st))
 	root.AddCommand(newInquiryCmd(st))
 	root.AddCommand(newAgentsCmd(st))
 	root.AddCommand(newSetupCmd(st))

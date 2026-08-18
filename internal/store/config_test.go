@@ -625,3 +625,37 @@ func TestSetChatConfigRequiresModelAndEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// SetInquiryLog is the third writer into config.json. It must merge, not
+// replace: a project that has been configured for search and answers must
+// not lose that configuration because someone turned query logging off.
+// Both sibling writers (SetEmbeddingConfig, SetChatConfig) carry this same
+// guard.
+func TestSetInquiryLogKeepsEmbeddingAndChat(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEmbeddingConfig("ATM", core.EmbeddingConfig{Model: "nomic-embed-text", Endpoint: "http://localhost:11434/v1", Dim: 768}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetChatConfig("ATM", core.ChatConfig{Model: "qwen3:8b", Endpoint: "http://localhost:11434/v1"}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetInquiryLog("ATM", false, testActor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetProjectConfig("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Embedding == nil || got.Embedding.Model != "nomic-embed-text" {
+		t.Errorf("embedding = %+v, want it preserved", got.Embedding)
+	}
+	if got.Chat == nil || got.Chat.Model != "qwen3:8b" {
+		t.Errorf("chat = %+v, want it preserved", got.Chat)
+	}
+	if got.InquiryLog == nil || *got.InquiryLog != false {
+		t.Errorf("inquiry log = %v, want false", got.InquiryLog)
+	}
+}

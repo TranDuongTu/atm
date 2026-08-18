@@ -127,6 +127,33 @@ func TestGoldenProjectSetChat(t *testing.T) {
 	compareGolden(t, "project-set-chat", out)
 }
 
+func TestGoldenProjectSetInquiryLog(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	out, _, code := h.run("project", "set-inquiry-log", "--store", sp, "--project", "FOO", "--enabled=false", "--actor", "admin@cli:unset", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	compareGolden(t, "project-set-inquiry-log", out)
+}
+
+// Logging is on by default: an unset field must not read as disabled.
+func TestProjectInquiryLogDefaultsToEnabled(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	cfg, err := h.store.GetProjectConfig("FOO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != nil && cfg.InquiryLog != nil {
+		t.Errorf("InquiryLog = %v on a fresh project, want nil so the default is enabled", *cfg.InquiryLog)
+	}
+}
+
 // The chat endpoint defaults to the embedding one: ollama serves both, so
 // making the user repeat the URL would be ceremony.
 func TestProjectSetChatBorrowsEmbeddingEndpoint(t *testing.T) {

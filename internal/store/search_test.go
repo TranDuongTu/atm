@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestCosineSimilarity(t *testing.T) {
@@ -395,5 +396,64 @@ func TestSearchDeduplicatesStaleEntries(t *testing.T) {
 	}
 	if hits[0].Title != "new title" {
 		t.Errorf("hit.Title = %q, want %q (latest entry)", hits[0].Title, "new title")
+	}
+}
+
+// A snippet that ends mid-rune emits invalid UTF-8, which encoding/json
+// rewrites to U+FFFD on its way to an agent. max counts runes, not bytes.
+func TestSnippetTruncatesOnRuneBoundary(t *testing.T) {
+	s := strings.Repeat("あ", 200) // 3 bytes per rune
+	got := snippet(s, 80)
+	if !utf8.ValidString(got) {
+		t.Errorf("snippet(...) = %q, which is not valid UTF-8", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 80 {
+		t.Errorf("rune count = %d, want 80 (79 kept + the ellipsis)", n)
+	}
+}
+
+// ASCII behaviour is unchanged, so existing goldens do not churn.
+func TestSnippetASCIIUnchanged(t *testing.T) {
+	if got := snippet("short", 80); got != "short" {
+		t.Errorf("snippet = %q, want %q", got, "short")
+	}
+	if got := snippet(strings.Repeat("a", 100), 80); got != strings.Repeat("a", 79)+"…" {
+		t.Errorf("snippet = %q, want 79 a's plus an ellipsis", got)
+	}
+}
+
+func TestDocumentsReturnsFullTextByID(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("the label resolver walks the hierarchy. ", 20)
+	task, err := s.CreateTask("ATM", "label resolver", long, nil, testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.Documents("ATM", []string{task.ID, "ATM-nosuch"})
+	if err != nil {
+		t.Fatalf("Documents: %v", err)
+	}
+	if !strings.Contains(docs[task.ID], long) {
+		t.Errorf("docs[%s] = %q, want it to carry the FULL description, not a snippet", task.ID, docs[task.ID])
+	}
+	if _, ok := docs["ATM-nosuch"]; ok {
+		t.Error("an ID naming nothing must be absent from the map, so the engine falls back to the snippet")
+	}
+}
+
+func TestDocumentsWithNoIDsIsEmptyNotNil(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.Documents("ATM", nil)
+	if err != nil {
+		t.Fatalf("Documents: %v", err)
+	}
+	if docs == nil {
+		t.Error("want an empty map, not nil")
 	}
 }

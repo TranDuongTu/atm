@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"atm/internal/chat"
 	"atm/internal/core"
@@ -17,6 +18,8 @@ type fakeSearcher struct {
 	pending int
 	params  core.SearchParams
 	calls   int
+	docs    map[string]string
+	docsErr error
 }
 
 func (f *fakeSearcher) Search(p core.SearchParams) ([]core.Hit, bool, error) {
@@ -29,6 +32,13 @@ func (f *fakeSearcher) Search(p core.SearchParams) ([]core.Hit, bool, error) {
 }
 
 func (f *fakeSearcher) PendingIndexCount(code, slug string) (int, error) { return f.pending, nil }
+
+func (f *fakeSearcher) Documents(code string, ids []string) (map[string]string, error) {
+	if f.docsErr != nil {
+		return nil, f.docsErr
+	}
+	return f.docs, nil
+}
 
 type fakeChat struct {
 	deltas []string
@@ -363,5 +373,128 @@ func TestAskEmptyQuestionIsAUsageErrorWithNoEvents(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("events = %v, want none", got)
+	}
+}
+
+func TestAskHydratesSourcesBeforeGenerating(t *testing.T) {
+	fs := &fakeSearcher{
+		hits: []core.Hit{{ID: "ATM-1", Kind: "comment", Snippet: "eighty chars"}},
+		docs: map[string]string{"ATM-1": "the entire body the model should read"},
+	}
+	fc := &fakeChat{deltas: []string{"answer [1]"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	if err := e.Ask(context.Background(), Query{Question: "q"}, func(Event) {}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := fc.msgs[len(fc.msgs)-1].Content
+	if !strings.Contains(last, "the entire body the model should read") {
+		t.Errorf("prompt = %q, want the hydrated body", last)
+	}
+}
+
+// Hydration is an improvement, not a dependency: the store failing must not
+// turn a working answer into a broken one.
+func TestAskSurvivesHydrationFailure(t *testing.T) {
+	fs := &fakeSearcher{
+		hits:    []core.Hit{{ID: "ATM-1", Snippet: "the snippet"}},
+		docsErr: errors.New("cache exploded"),
+	}
+	fc := &fakeChat{deltas: []string{"still answered"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(context.Background(), Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask returned %v; hydration failure must not fail an answer", err)
+	}
+	if !strings.Contains(fc.msgs[len(fc.msgs)-1].Content, "the snippet") {
+		t.Error("want the snippet fallback in the prompt")
+	}
+}
+
+// A corrupt ledger is never swallowed. This path matters because hydration is
+// often the FIRST thing to touch the entity cache: retrieve()'s semantic
+// branch reads the vector file and never goes through it, so integrity damage
+// can be invisible until documents() runs.
+func TestAskPropagatesIntegrityErrorFromHydration(t *testing.T) {
+	fs := &fakeSearcher{
+		hits:    []core.Hit{{ID: "ATM-1", Snippet: "the snippet"}},
+		docsErr: fmt.Errorf("%w: cache row corrupt", core.ErrIntegrity),
+	}
+	fc := &fakeChat{deltas: []string{"should never run"}}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	err := e.Ask(context.Background(), Query{Question: "q"}, record(&events))
+	if err == nil {
+		t.Fatal("Ask returned nil; a corrupt ledger must not be swallowed")
+	}
+	if !core.IsIntegrity(err) {
+		t.Errorf("err = %v, want it to still satisfy core.IsIntegrity", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false", last)
+	}
+}
+
+// The ordering trap: a deadline that expires before the first token must not
+// be reported as "no chat model answered". The truth is "you gave it no time".
+// The context is already expired, so Stream never emits the delta.
+func TestAskReportsDeadlineAsInterruptionNotCancellation(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	fc := &fakeChat{err: context.DeadlineExceeded}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(expired, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false", last)
+	}
+}
+
+// Both the pre-expired and the mid-stream deadline case must not degrade — only
+// the arm ordering proves it, so this redundant test proves the zero-delta arm
+// ordering alone (not paired with mid-stream coverage).
+func TestAskDeadlineWithZeroDeltasIsNotDegraded(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	fc := &fakeChat{err: context.DeadlineExceeded}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(expired, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	last := events[len(events)-1]
+	if last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false (a timeout is an interruption, not a degrade)", last)
+	}
+}
+
+// The real --timeout case: the model is ALREADY STREAMING when the caller's
+// deadline expires. The partial has to survive, and the outcome has to be an
+// interruption rather than a cancellation. Distinct from the sibling test,
+// where the deadline has already expired before generation starts — that one
+// proves the arm ordering, this one proves a partial answer is not thrown away.
+func TestAskDeadlineMidStreamKeepsThePartial(t *testing.T) {
+	fs := &fakeSearcher{hits: []core.Hit{{ID: "ATM-1", Snippet: "s"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	fc := &fakeChat{
+		deltas: []string{"the answer so far", "never arrives"},
+		before: func() { time.Sleep(80 * time.Millisecond) },
+	}
+	e := New(Config{Project: "ATM", Searcher: fs, Chat: fc})
+	var events []string
+	if err := e.Ask(ctx, Query{Question: "q"}, record(&events)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if len(events) < 2 || events[1] != "delta:the answer so far" {
+		t.Fatalf("events = %v, want the first delta delivered before the deadline expired", events)
+	}
+	if last := events[len(events)-1]; last != "failed:canceled=false" {
+		t.Errorf("terminal event = %q, want failed:canceled=false — a deadline is an interruption", last)
 	}
 }
