@@ -42,7 +42,7 @@ func seedTaskAsActor(t *testing.T, m *Model, projectCode, title, actor string) {
 	m.refreshAll()
 }
 
-func TestChartCtrlArrowsWrapAndClampRangeWithoutStickyFocus(t *testing.T) {
+func TestChartCtrlArrowsWrapClampRangeAndTransientlyFocusChart(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
 	m.projectScope = "ATM"
@@ -52,9 +52,13 @@ func TestChartCtrlArrowsWrapAndClampRangeWithoutStickyFocus(t *testing.T) {
 	m.refreshAll()
 
 	update(t, m, "ctrl+left")
+	mustContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
 	if got := m.projects.chartPersona; got != "developer" {
 		t.Fatalf("ctrl+left from All selected %q, want developer", got)
 	}
+	update(t, m, "j")
+	mustNotContain(t, stripANSI(m.projects.renderSummary(12)), "\u25b8 activity")
+
 	update(t, m, "ctrl+right")
 	if got := m.projects.chartPersona; got != "" {
 		t.Fatalf("ctrl+right should wrap developer to All, got %q", got)
@@ -95,6 +99,30 @@ func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 	}
 }
 
+func TestChartFocusExpiresOnlyForLatestCtrlInteraction(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	update(t, m, "ctrl+right")
+	first := m.projects.chartFocusSeq
+	update(t, m, "ctrl+left")
+	second := m.projects.chartFocusSeq
+	if first == second {
+		t.Fatalf("chart focus sequence did not advance: %d", first)
+	}
+	m.Update(chartFocusExpiredMsg{seq: first})
+	if !m.projects.chartFocused {
+		t.Fatal("stale focus expiry must not clear a newer ctrl interaction")
+	}
+	m.Update(chartFocusExpiredMsg{seq: second})
+	if m.projects.chartFocused {
+		t.Fatal("latest focus expiry must clear chart focus")
+	}
+}
+
 func TestChartStateResetsOnProjectSwitch(t *testing.T) {
 	m := mkActorsOverlayTestModel(t)
 	m.SetSize(100, 40)
@@ -123,7 +151,9 @@ func TestRenderSummaryCombinedChart(t *testing.T) {
 	m.refreshAll()
 
 	body := m.projects.renderSummary(12)
-	mustContain(t, body, "activity \u00b7 1w")
+	mustContain(t, body, "activity")
+	mustNotContain(t, body, "activity \u00b7 1w")
+	mustContain(t, body, "Range: One week")
 	mustContain(t, body, "All")
 	mustNotContain(t, body, "activity by persona")
 	mustNotContain(t, body, "activity stripe")
@@ -169,6 +199,70 @@ func TestRenderSummaryPersonaCardsShowIconsRangeTotalsAndTopModels(t *testing.T)
 	}
 	if strings.Contains(body, "old") {
 		t.Fatalf("summary included a model outside the selected range:\n%s", body)
+	}
+}
+
+func TestRenderSummaryUsesFullEnglishRangeLegendAtBottom(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(140, 44)
+	m.projectScope = "ATM"
+	m.projects.chartRange = 4
+	m.refreshAll()
+
+	lines := strings.Split(stripANSI(m.projects.renderSummary(14)), "\n")
+	found := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Range: One year") {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		t.Fatalf("summary missing full English bottom legend:\n%s", strings.Join(lines, "\n"))
+	}
+	for i := 0; i < found; i++ {
+		if strings.Contains(lines[i], "One year") {
+			t.Fatalf("range legend appeared above chart bottom on line %d:\n%s", i, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestRenderSummaryChartLinesKeepFixedWidthAcrossPersonaSwitch(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(180, 44)
+	m.projectScope = "ATM"
+	now := core.Now()
+	m.projects.summaryOK = true
+	m.projects.summaryProject = &core.Project{Code: "ATM", Name: "Acme Task Manager"}
+	for i := 0; i < 14; i++ {
+		m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+			At:     now.AddDate(0, 0, -(i % 7)),
+			Actor:  "developer@codex:gpt-5",
+			Action: "task.updated",
+		})
+	}
+	m.projects.summaryEntries = append(m.projects.summaryEntries, core.LogEntry{
+		At:     now,
+		Actor:  "manager@claude:opus",
+		Action: "project.reviewed",
+	})
+
+	all := strings.Split(stripANSI(m.projects.renderSummary(16)), "\n")
+	m.projects.chartPersona = "manager"
+	manager := strings.Split(stripANSI(m.projects.renderSummary(16)), "\n")
+	for name, lines := range map[string][]string{"all": all, "manager": manager} {
+		if len(lines) != 16 {
+			t.Fatalf("%s chart line count = %d, want 16", name, len(lines))
+		}
+		wantW := lipgloss.Width(lines[0])
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != wantW {
+				t.Fatalf("%s chart line %d width = %d, want %d\n--- chart ---\n%s", name, i, got, wantW, strings.Join(lines, "\n"))
+			}
+		}
+	}
+	if lipgloss.Width(all[0]) != lipgloss.Width(manager[0]) {
+		t.Fatalf("chart width changed across persona switch: all=%d manager=%d", lipgloss.Width(all[0]), lipgloss.Width(manager[0]))
 	}
 }
 

@@ -15,16 +15,17 @@ import (
 
 type chartRangeSpec struct {
 	key        string
+	label      string
 	buckets    int
 	bucketDays int
 }
 
 var chartRanges = []chartRangeSpec{
-	{key: "1w", buckets: 7, bucketDays: 1},
-	{key: "1m", buckets: 30, bucketDays: 1},
-	{key: "3m", buckets: 13, bucketDays: 7},
-	{key: "6m", buckets: 26, bucketDays: 7},
-	{key: "1y", buckets: 52, bucketDays: 7},
+	{key: "1w", label: "One week", buckets: 7, bucketDays: 1},
+	{key: "1m", label: "One month", buckets: 30, bucketDays: 1},
+	{key: "3m", label: "Three months", buckets: 13, bucketDays: 7},
+	{key: "6m", label: "Six months", buckets: 26, bucketDays: 7},
+	{key: "1y", label: "One year", buckets: 52, bucketDays: 7},
 }
 
 func chartWindow(spec chartRangeSpec, end time.Time) (start, endDay time.Time) {
@@ -280,7 +281,7 @@ func topModelLabel(models map[string]int, limit int) string {
 	return strings.Join(parts, ", ")
 }
 
-func renderPersonaCardRows(cards []personaCardEntry, selected string, width int, st Styles) []string {
+func renderPersonaCardRows(cards []personaCardEntry, selected string, focused bool, width int, st Styles) []string {
 	if width <= 0 || len(cards) == 0 {
 		return nil
 	}
@@ -322,7 +323,7 @@ func renderPersonaCardRows(cards []personaCardEntry, selected string, width int,
 				rows[row] += spaces(gap)
 			}
 		}
-		cardLines := renderPersonaCard(cards[start+i], selected, cardW, st)
+		cardLines := renderPersonaCard(cards[start+i], selected, focused, cardW, st)
 		for row := range rows {
 			rows[row] += cardLines[row]
 		}
@@ -351,14 +352,14 @@ func personaCardIndex(cards []personaCardEntry, key string) int {
 	return 0
 }
 
-func renderPersonaCard(card personaCardEntry, selected string, width int, st Styles) []string {
+func renderPersonaCard(card personaCardEntry, selected string, focused bool, width int, st Styles) []string {
 	innerW := width - 2
 	if innerW < 1 {
 		innerW = 1
 	}
 	border := st.Muted
 	body := st.Muted
-	if card.key == selected {
+	if focused && card.key == selected {
 		border = st.HeaderLabel
 		body = st.PaneActiveStrong
 	}

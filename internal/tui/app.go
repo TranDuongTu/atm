@@ -469,6 +469,18 @@ func artTickCmd() tea.Cmd {
 	return tea.Tick(artTickInterval, func(time.Time) tea.Msg { return artTickMsg{} })
 }
 
+type chartFocusExpiredMsg struct {
+	seq int
+}
+
+const chartFocusDuration = 650 * time.Millisecond
+
+func chartFocusExpireCmd(seq int) tea.Cmd {
+	return tea.Tick(chartFocusDuration, func(time.Time) tea.Msg {
+		return chartFocusExpiredMsg{seq: seq}
+	})
+}
+
 // Update routes messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -487,6 +499,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.artPhase++
 		}
 		return m, artTickCmd()
+	case chartFocusExpiredMsg:
+		if m.projects.chartFocusSeq == msg.seq {
+			m.projects.chartFocused = false
+		}
+		return m, nil
 	case pluginTickMsg:
 		im := m.indexer
 		if im == nil {

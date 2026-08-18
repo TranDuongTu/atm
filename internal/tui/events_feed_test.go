@@ -625,7 +625,7 @@ func TestEventsFeedRendersAsBoxAlignedWithCharts(t *testing.T) {
 		return -1, -1
 	}
 	el, er := edgesOf("Recent Events")
-	pl, pr := edgesOf("activity · 1w")
+	pl, pr := edgesOf("activity")
 	if el != pl || er != pr {
 		t.Fatalf("events box edges (%d,%d) != activity box edges (%d,%d)\n--- body ---\n%s", el, er, pl, pr, body)
 	}
@@ -685,7 +685,7 @@ func TestEventsFeedFramingMatchesActivityChart(t *testing.T) {
 			// Events slot collapsed at this height — nothing to compare.
 			continue
 		}
-		activityLine := findLine(body, "activity · 1w")
+		activityLine := findLine(body, "activity")
 		if activityLine == "" {
 			_, _, _, summaryH := projectPaneSplitHeights(m.projects.contentHeight)
 			if summaryH == 0 {

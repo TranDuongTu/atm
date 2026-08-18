@@ -56,8 +56,10 @@ on **All** activity; `Ctrl+Left/Right` moves between All and individual personas
 while `Ctrl+Up/Down` changes the time range: `1w`, `1m`, `3m`, `6m`, or `1y`.
 The carousel renders bounded persona cards with icons, period activity totals,
 and the top three models for the selected range. The chart renders a braille
-pulse for the selected view, and Ctrl navigation does not leave a sticky chart
-focus behind.
+pulse for the selected view, with the active range shown as a full-English
+bottom legend such as `Range: One week`. Ctrl navigation gives the chart and
+selected persona card a transient focus treatment that clears after the
+interaction.
 
 ![Dispatch dialog with persona, agent, repo, and spawn target](docs/assets/screenshots/atm-dispatch-developer.png)
 

@@ -940,7 +940,7 @@ func TestProjectsViewUsesFourWaySplit(t *testing.T) {
 		t.Fatalf("events caption on line %d, want 9\n--- body ---\n%s", got, body)
 	}
 	// The summary region starts directly with the combined activity box.
-	if got := find("activity · 1w"); got != 18 {
+	if got := find("activity"); got != 18 {
 		t.Fatalf("activity chart on line %d, want 18\n--- body ---\n%s", got, body)
 	}
 }
@@ -993,7 +993,8 @@ func TestSelectedProjectSummaryRendersCharts(t *testing.T) {
 	seedTask(t, m, "ATM", "bug two", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity · 1w")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	mustContain(t, body, "developer")
 	mustContain(t, body, "All")
 	mustNotContain(t, body, "activity by persona")
@@ -1012,7 +1013,8 @@ func TestSelectedProjectSummaryRendersActivityInCompactPane(t *testing.T) {
 	seedTask(t, m, "ATM", "bug one", "ATM:status:open", "ATM:type:bug")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity · 1w")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	mustContain(t, body, "All")
 }
 
@@ -1024,7 +1026,8 @@ func TestProjectSummaryTinyHeightStillRendersActivity(t *testing.T) {
 	update(t, m, "s")
 	body := m.projects.renderSummary(5)
 	mustNotContain(t, body, "Project Summary")
-	mustContain(t, body, "activity · 1w")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	mustContain(t, body, "All")
 }
 
@@ -1068,7 +1071,8 @@ func TestKeywordSummaryDoesNotOpenFormOrConfirm(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme Task Manager")
 	update(t, m, "s")
 	body := m.projects.View()
-	mustContain(t, body, "activity · 1w")
+	mustContain(t, body, "activity")
+	mustContain(t, body, "Range: One week")
 	if m.form != nil {
 		t.Fatalf("bubble placeholder opened form")
 	}
@@ -1085,7 +1089,7 @@ func TestProjectSummaryChartBoxesAreCentered(t *testing.T) {
 	body := m.projects.View()
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "activity · 1w") && strings.Contains(line, "╭") {
+		if strings.Contains(line, "activity") && strings.Contains(line, "╭") {
 			if strings.HasPrefix(line, "╭") {
 				t.Fatalf("chart box should be centered with left padding, got %q\n--- body ---\n%s", line, body)
 			}

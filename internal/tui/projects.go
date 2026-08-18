@@ -32,8 +32,10 @@ type projectsModel struct {
 
 	// Combined activity chart state. Rendering consumes the refresh-time
 	// summary snapshot; only keys and project-scope writes mutate this state.
-	chartPersona string
-	chartRange   int
+	chartPersona  string
+	chartRange    int
+	chartFocused  bool
+	chartFocusSeq int
 
 	// Render snapshot for the summary pane and events feed, rebuilt by
 	// refreshSummary (refreshAll and the project select/deselect handlers).
@@ -165,25 +167,37 @@ func (p *projectsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "ctrl+left", "ctrl+right":
+		cmd := p.focusChart()
 		entries := carouselEntries(activity.Aggregate(activity.Build(p.summaryEntries), "persona"))
 		direction := -1
 		if k.String() == "ctrl+right" {
 			direction = 1
 		}
 		p.chartPersona = carouselStep(entries, p.chartPersona, direction)
-		return nil, true
+		return cmd, true
 	case "ctrl+up":
+		cmd := p.focusChart()
 		if p.chartRange < len(chartRanges)-1 {
 			p.chartRange++
 		}
-		return nil, true
+		return cmd, true
 	case "ctrl+down":
+		cmd := p.focusChart()
 		if p.chartRange > 0 {
 			p.chartRange--
 		}
-		return nil, true
+		return cmd, true
+	}
+	if p.chartFocused {
+		p.chartFocused = false
 	}
 	return nil, false
+}
+
+func (p *projectsModel) focusChart() tea.Cmd {
+	p.chartFocused = true
+	p.chartFocusSeq++
+	return chartFocusExpireCmd(p.chartFocusSeq)
 }
 
 func (p *projectsModel) openPersonaActivity() {
@@ -198,6 +212,8 @@ func (p *projectsModel) openPersonaActivity() {
 func (p *projectsModel) resetChart() {
 	p.chartPersona = ""
 	p.chartRange = 0
+	p.chartFocused = false
+	p.chartFocusSeq++
 }
 
 func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
@@ -586,40 +602,63 @@ func (p *projectsModel) renderCombinedActivityChart(entries []core.LogEntry, hei
 	if p.chartRange >= 0 && p.chartRange < len(chartRanges) {
 		spec = chartRanges[p.chartRange]
 	}
-	title := fmt.Sprintf("activity \u00b7 %s  [Ctrl+\u2190/\u2192] [Ctrl+\u2191/\u2193]", spec.key)
+	title := "activity"
+	if p.chartFocused {
+		title = "\u25b8 " + title
+	}
 	now := core.Now()
 
 	if !summaryChartsBoxed(height) {
 		lines := []string{dashboardLine(p.width, title), dashboardLine(p.width, renderCarouselCompact(carousel, selected, p.width, p.m.styles))}
 		if len(groups) == 0 {
 			lines = append(lines, dashboardLine(p.width, p.m.styles.Muted.Render("no activity yet")))
+			lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
 			return strings.Join(lines, "\n")
 		}
-		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, p.width, height-len(lines), now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
+		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, p.width, height-len(lines)-1, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
 			for _, line := range strings.Split(pulse, "\n") {
 				lines = append(lines, dashboardLine(p.width, line))
 			}
 		}
+		lines = append(lines, dashboardLine(p.width, renderRangeLegend(spec, p.width, p.m.styles)))
 		return strings.Join(lines, "\n")
 	}
 
 	innerW := chartBoxInnerWidth(p.width)
-	body := renderPersonaCardRows(personaCardEntries(entries, groups, spec, now), selected, innerW, p.m.styles)
+	body := renderPersonaCardRows(personaCardEntries(entries, groups, spec, now), selected, p.chartFocused, innerW, p.m.styles)
 	if len(groups) == 0 {
 		body = append(body, p.m.styles.Muted.Render("no activity yet"))
 	} else {
-		pulseH := height - 2 - len(body)
+		pulseH := height - 3 - len(body)
 		if len(body) > 0 && pulseH > 0 {
 			body = append(body, "")
 			pulseH--
 		}
 		pulse := renderActivityPulse(activityBucketCounts(entries, selected, spec, now), spec, innerW, pulseH, now, p.m.styles.HeaderLabel, p.m.styles.Muted, p.m.styles.Muted)
 		if pulse != "" {
-			body = append(body, strings.Split(pulse, "\n")...)
+			for _, line := range strings.Split(pulse, "\n") {
+				body = append(body, chartBodyLine(line, innerW))
+			}
 		}
 	}
+	for i := range body {
+		body[i] = chartBodyLine(body[i], innerW)
+	}
+	body = append(body, chartBodyLine(renderRangeLegend(spec, innerW, p.m.styles), innerW))
 	return p.renderChartBoxWithBorder(title, strings.Join(body, "\n"), height, p.m.styles.Muted)
+}
+
+func chartBodyLine(line string, width int) string {
+	return padDisplay(fitLine(line, width), width)
+}
+
+func renderRangeLegend(spec chartRangeSpec, width int, st Styles) string {
+	label := spec.label
+	if label == "" {
+		label = spec.key
+	}
+	return st.Muted.Render(fitLine("Range: "+label+"  [Ctrl+\u2191/\u2193]", width))
 }
 
 func chartBoxWidth(width int) int {
