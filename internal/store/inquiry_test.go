@@ -12,10 +12,10 @@ func TestAppendInquiryAndRead(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendInquiry("ATM", "label conflicts", []string{"ATM-0001", "ATM-0002"}, []string{"ATM-0001", "ATM-0002"}); err != nil {
+	if err := s.AppendInquiry("ATM", "label conflicts", []string{"ATM-0001", "ATM-0002"}, []string{"ATM-0001", "ATM-0002"}, nil); err != nil {
 		t.Fatalf("AppendInquiry: %v", err)
 	}
-	if err := s.AppendInquiry("ATM", "audit log", []string{"ATM-0003"}, []string{"ATM-0003"}); err != nil {
+	if err := s.AppendInquiry("ATM", "audit log", []string{"ATM-0003"}, []string{"ATM-0003"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.ReadInquiries("ATM")
@@ -36,7 +36,7 @@ func TestAppendInquiryRecordsReturnedAndCited(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.AppendInquiry("ATM", "label conflicts",
-		[]string{"ATM-0001", "ATM-0002", "ATM-0003"}, []string{"ATM-0002"}); err != nil {
+		[]string{"ATM-0001", "ATM-0002", "ATM-0003"}, []string{"ATM-0002"}, nil); err != nil {
 		t.Fatalf("AppendInquiry: %v", err)
 	}
 	got, err := s.ReadInquiries("ATM")
@@ -85,7 +85,7 @@ func TestAppendInquiryDistinguishesEmptyReturnedFromAbsent(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendInquiry("ATM", "nothing matches this", []string{}, []string{}); err != nil {
+	if err := s.AppendInquiry("ATM", "nothing matches this", []string{}, []string{}, nil); err != nil {
 		t.Fatalf("AppendInquiry: %v", err)
 	}
 	got, err := s.ReadInquiries("ATM")
@@ -109,6 +109,54 @@ func TestAppendInquiryDistinguishesEmptyReturnedFromAbsent(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"returned_ids":[]`) {
 		t.Errorf("log line = %s, want an explicit empty returned_ids", raw)
+	}
+}
+
+// A spotlight click-through is a human judgment; a citation is a model's.
+// Sub-task 6 (ATM-028a8d) weighs them differently, so the log has to keep them
+// apart -- folding an opened ID into CitedIDs would average the strongest
+// relevance signal in the corpus into the weaker one.
+func TestAppendInquiryRecordsOpenedSeparatelyFromCited(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "label conflicts",
+		[]string{"ATM-0001", "ATM-0002"}, []string{"ATM-0001"}, []string{"ATM-0002"}); err != nil {
+		t.Fatalf("AppendInquiry: %v", err)
+	}
+	got, err := s.ReadInquiries("ATM")
+	if err != nil {
+		t.Fatalf("ReadInquiries: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1", len(got))
+	}
+	if len(got[0].OpenedIDs) != 1 || got[0].OpenedIDs[0] != "ATM-0002" {
+		t.Errorf("OpenedIDs = %v, want [ATM-0002]", got[0].OpenedIDs)
+	}
+	if len(got[0].CitedIDs) != 1 || got[0].CitedIDs[0] != "ATM-0001" {
+		t.Errorf("CitedIDs = %v, want [ATM-0001] -- opened must not leak into cited", got[0].CitedIDs)
+	}
+}
+
+// The same reasoning ReturnedIDs documents on itself: a missing key is how a
+// line written before the field existed looks, so "opened nothing" and "we do
+// not know what was opened" must not serialise identically.
+func TestAppendInquiryOpenedIDsSerialisesEmptyNotAbsent(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendInquiry("ATM", "q", []string{"ATM-0001"}, nil, nil); err != nil {
+		t.Fatalf("AppendInquiry: %v", err)
+	}
+	b, err := os.ReadFile(s.inquiryLogPath("ATM"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(b), `"opened_ids":`) {
+		t.Errorf("opened_ids must always be present:\n%s", b)
 	}
 }
 

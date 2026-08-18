@@ -34,7 +34,7 @@ func TestVerifyReportsVectorIndexesInfoLevel(t *testing.T) {
 	if err := s.WriteVectorBatch("ATM", "m", []VectorEntry{{ID: "ATM-0001", Kind: "task", Model: "m", Dim: 2, Vector: []float64{0.1, 0.2}}}, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendInquiry("ATM", "q", []string{"ATM-0001"}, []string{"ATM-0001"}); err != nil {
+	if err := s.AppendInquiry("ATM", "q", []string{"ATM-0001"}, []string{"ATM-0001"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := s.VerifyProject("ATM")

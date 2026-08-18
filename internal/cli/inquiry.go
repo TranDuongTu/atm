@@ -38,7 +38,8 @@ func newInquiryAddCmd(st *cliState) *cobra.Command {
 			if cited != "" {
 				citedIDs = strings.Split(cited, ",")
 			}
-			if err := s.AppendInquiry(project, query, returnedIDs, citedIDs); err != nil {
+			// This CLI surface has no click-through -- that's the spotlight (ATM-f71b81).
+			if err := s.AppendInquiry(project, query, returnedIDs, citedIDs, nil); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{
