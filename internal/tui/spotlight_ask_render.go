@@ -31,6 +31,9 @@ func (p *askPane) view() string {
 	for i := 0; i < bodyH; i++ {
 		b.WriteString(" " + fitLine(left[i], leftW) + spaces(spotPaneGap) + fitLine(right[i], rightW) + "\n")
 	}
+	if s := p.statusLine(); s != "" {
+		b.WriteString(" " + st.KeyMenuDim.Render(fitLine(s, inner)) + "\n")
+	}
 	if chip := p.stalenessChip(); chip != "" {
 		b.WriteString(" " + st.KeyMenuDim.Render(fitLine(chip, inner)) + "\n")
 	}
@@ -154,6 +157,34 @@ func (p *askPane) stalenessChip() string {
 		return ""
 	}
 	return fmt.Sprintf("sources may lag · %d items still indexing", p.behind)
+}
+
+// statusLine says how the last turn ended. Three outcomes that must not look
+// alike:
+//
+//	degraded    -- succeeded with no answer in it. Sources stand; the hint
+//	               names the command that would enable answers.
+//	canceled    -- the user's own Esc. Not an error, and no retry offered:
+//	               they chose to stop.
+//	interrupted -- a disconnect or an expired deadline, deliberately
+//	               indistinguishable at the event level because both warrant
+//	               the same response. Only Reason says which.
+func (p *askPane) statusLine() string {
+	switch {
+	case p.streaming:
+		return ""
+	case p.canceled:
+		return "(canceled)"
+	case p.failed:
+		return "⚠ answer interrupted (" + p.failedReason + ") · ctrl+r to retry"
+	case p.degraded:
+		hint := "no answer generated"
+		if p.degradedReason != "" {
+			hint = p.degradedReason
+		}
+		return hint + " · run `atm project set-chat` to enable answers"
+	}
+	return ""
 }
 
 // footer names what Enter means right now, because what Enter means depends on

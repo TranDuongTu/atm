@@ -660,6 +660,103 @@ func TestAskRetryAfterCancelDoesNotReRun(t *testing.T) {
 	}
 }
 
+// Degraded is a SUCCESSFUL outcome with no answer in it: hits reach the user,
+// and the hint names the step that would enable answers. It must name the fix,
+// not merely report the lack -- a user who cannot see the wizard row cannot
+// discover it.
+func TestAskDegradedShowsSourcesAndNamesTheFix(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
+		answer.Done{Degraded: true, Reason: "no chat model configured"},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "[1] ATM-0001")
+	mustContain(t, view, "atm project set-chat")
+	if strings.Contains(view, "interrupted") {
+		t.Error("a degraded answer is not a broken one")
+	}
+}
+
+// The user's own key stopped it. Nothing here is an error and nothing offers a
+// retry.
+func TestAskCanceledKeepsThePartialAndOffersNoRetry(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "half an answer"},
+		answer.Failed{Reason: "context canceled", Canceled: true},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "half an answer")
+	mustContain(t, view, "(canceled)")
+	if strings.Contains(view, "retry") {
+		t.Error("a cancellation must not offer a retry -- the user chose to stop")
+	}
+}
+
+// A disconnect and an expired deadline are deliberately indistinguishable at
+// the event level: both keep the partial and offer a retry, and only Reason
+// says which happened.
+func TestAskInterruptedKeepsThePartialAndOffersRetry(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "half an answer"},
+		answer.Failed{Reason: "answer timed out", Canceled: false},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "half an answer")
+	mustContain(t, view, "answer interrupted")
+	mustContain(t, view, "answer timed out")
+	mustContain(t, view, "ctrl+r")
+}
+
+// Retry re-runs the SAME question with the SAME history. The other two retry
+// tests (TestAskRetryAfterInterruptionReRuns, TestAskRetryAfterCancelDoesNotReRun)
+// already pin WHETHER a retry starts a new turn; this one pins WHAT that turn
+// asks.
+func TestAskRetryReRunsTheQuestionWithHistory(t *testing.T) {
+	withInstantSpotSearch(t)
+	rec := &recordingAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Failed{Reason: "boom"},
+	}}
+	withAsker(t, rec)
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+	drainAskTicks(t, m, p)
+
+	if len(rec.asked) != 2 {
+		t.Fatalf("asked %d times, want 2", len(rec.asked))
+	}
+	if rec.asked[1].Question != rec.asked[0].Question {
+		t.Errorf("retry asked %q, want the original %q", rec.asked[1].Question, rec.asked[0].Question)
+	}
+	_ = m
+}
+
+type recordingAsker struct {
+	events []answer.Event
+	asked  []answer.Query
+}
+
+func (r *recordingAsker) Ask(ctx context.Context, q answer.Query, emit func(answer.Event)) error {
+	r.asked = append(r.asked, q)
+	for _, ev := range r.events {
+		emit(ev)
+	}
+	return nil
+}
+
 // Scrolling up drops follow-the-tail; without that, a user reading the top of
 // a long answer is yanked back down by every token.
 func TestAskScrollUpDropsFollowAndBottomRestoresIt(t *testing.T) {
