@@ -422,7 +422,7 @@ func TestAskStalenessChipIsNotTheDocksBehind(t *testing.T) {
 	drainAskTicks(t, m, p)
 
 	view := stripANSI(p.view())
-	mustContain(t, view, "sources may lag · 4 items indexing")
+	mustContain(t, view, "sources may lag · 4 items still indexing")
 	if strings.Contains(view, "behind") {
 		t.Error("the ask pane must not use the dock's word for a different number")
 	}
@@ -442,6 +442,10 @@ func TestAskNoStalenessChipWhenFresh(t *testing.T) {
 
 // The question stays visible above its answer, because [n] numbering restarts
 // each turn and an older answer's numbers refer to a list no longer on screen.
+// Asserting the line ORDER, not just that "indexer" appears somewhere, matters:
+// a regression that rendered the answer above the question, or dropped the
+// question while some other "indexer" substring survived (e.g. inside the
+// question's own echo further down), would pass a mere substring check.
 func TestAskTranscriptKeepsTheQuestionAboveTheAnswer(t *testing.T) {
 	withInstantSpotSearch(t)
 	withAsker(t, &fakeAsker{events: []answer.Event{
@@ -451,5 +455,63 @@ func TestAskTranscriptKeepsTheQuestionAboveTheAnswer(t *testing.T) {
 	}})
 	m, p := openAsk(t, "indexer")
 	drainAskTicks(t, m, p)
-	mustContain(t, stripANSI(p.view()), "indexer")
+
+	view := stripANSI(p.view())
+	mustContain(t, view, "indexer")
+	mustContain(t, view, "It is a watcher.")
+
+	lines := strings.Split(view, "\n")
+	question, answerLine := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "indexer") && question < 0 {
+			question = i
+		}
+		if strings.Contains(l, "It is a watcher.") {
+			answerLine = i
+		}
+	}
+	if question < 0 || answerLine < 0 || question >= answerLine {
+		t.Fatalf("question at %d must sit above its answer at %d:\n%s", question, answerLine, view)
+	}
+}
+
+// A second turn that ends without being recorded -- canceled, or degraded --
+// must not vanish from the transcript. transcriptBody used to approximate
+// applyTick's append condition with len(p.turns) == 0, which reads "a turn
+// was EVER recorded" as "THIS turn was recorded"; once turn 1 landed in
+// p.turns, a canceled or degraded turn 2 was suppressed along with its
+// question, leaving no trace the user ever asked it.
+func TestAskSecondTurnSurvivesWhenNotRecorded(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}},
+		answer.Delta{Text: "It is a watcher."},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	if len(p.turns) != 1 {
+		t.Fatalf("setup: turns = %d, want 1", len(p.turns))
+	}
+
+	t.Run("canceled", func(t *testing.T) {
+		p.question = "what about the debounce"
+		p.transcript = "partial answer before "
+		p.streaming = false
+		p.canceled = true
+		p.scrollToBottom() // mirrors applyTick's follow behavior in production
+		view := stripANSI(p.view())
+		mustContain(t, view, "what about the debounce")
+	})
+
+	t.Run("degraded", func(t *testing.T) {
+		p.question = "and the retry policy"
+		p.transcript = ""
+		p.streaming = false
+		p.canceled = false
+		p.degraded = true
+		p.scrollToBottom()
+		view := stripANSI(p.view())
+		mustContain(t, view, "and the retry policy")
+	})
 }

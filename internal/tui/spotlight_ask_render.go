@@ -116,7 +116,15 @@ func (p *askPane) transcriptBody(w int) []string {
 		appendWrapped(t.answer)
 		out = append(out, "")
 	}
-	if p.streaming || len(p.turns) == 0 {
+	// recorded mirrors applyTick's own append condition (spotlight_ask.go)
+	// exactly, rather than approximating it with len(p.turns) == 0: that
+	// approximation reads "any turn was ever recorded" as "the current turn
+	// was recorded", which only holds while there is one turn. A SECOND turn
+	// that ends canceled or degraded is never appended to p.turns, and with
+	// the approximation the live block was suppressed anyway -- the question
+	// and any partial answer vanished with no trace the user ever asked it.
+	recorded := !p.canceled && strings.TrimSpace(p.transcript) != ""
+	if p.streaming || !recorded {
 		appendWrapped(st.KeyMenuDim.Render("> " + p.question))
 		appendWrapped(p.transcript)
 	}
@@ -145,7 +153,7 @@ func (p *askPane) stalenessChip() string {
 	if p.behind <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("sources may lag · %d items indexing", p.behind)
+	return fmt.Sprintf("sources may lag · %d items still indexing", p.behind)
 }
 
 // footer names what Enter means right now, because what Enter means depends on
