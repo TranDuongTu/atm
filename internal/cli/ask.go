@@ -168,6 +168,7 @@ func newAskCmd(st *cliState) *cobra.Command {
 				// document, so this is the whole exit-code rule.
 				return err
 			}
+			logInquiry(st, s, cfg, project, args[0], idsOf(res.Hits), idsOf(res.Citations))
 			return st.emit(st.stdout(), res, func() {
 				printAskText(st, res)
 			})
@@ -178,6 +179,31 @@ func newAskCmd(st *cliState) *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "give up after this long (default: none; internal/chat still bounds an idle stream)")
 	cmd.Flags().StringVar(&session, "session", "", "conversation id; consecutive calls with the same id share history")
 	return cmd
+}
+
+// logInquiry appends one query to inquiry-log.jsonl, the ground-truth stream
+// the eval subsystem replays (ATM-028a8d). It NEVER fails the command: by the
+// time it runs the answer has already streamed to the user, and a side-effect
+// write must not turn a delivered answer into an error. The warning goes to
+// stderr so JSON mode's stdout stays parseable.
+func logInquiry(st *cliState, s core.Service, cfg *core.ProjectConfig, project, query string, returned, cited []string) {
+	// nil means enabled: a plain bool would read every project predating the
+	// field as opted out.
+	if cfg != nil && cfg.InquiryLog != nil && !*cfg.InquiryLog {
+		return
+	}
+	if err := s.AppendInquiry(project, query, returned, cited); err != nil {
+		fmt.Fprintf(st.stderr(), "warning: could not record the inquiry: %v\n", err)
+	}
+}
+
+// idsOf pulls the IDs out of a hit list for the inquiry log.
+func idsOf(hits []jsonHit) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.ID)
+	}
+	return out
 }
 
 // printAskText renders the non-streaming remainder of text mode. Task 11 adds

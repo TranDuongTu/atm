@@ -240,3 +240,45 @@ func TestAskRejectsTraversalSessionID(t *testing.T) {
 		t.Errorf("exit=%d, want %d — a bad session id is rejected, never sanitized", code, ExitUsage)
 	}
 }
+
+func TestAskAppendsToInquiryLogWithCitations(t *testing.T) {
+	srv := fakeOllama(t, 0, "the answer [1]")
+	defer srv.Close()
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "label resolver", "--description", "walks the hierarchy", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "fake", "--endpoint", srv.URL, "--actor", "admin@cli:unset")
+	h.run("ask", "label resolver", "--store", sp, "--project", "FOO", "--output", "json")
+	inq, err := h.store.ReadInquiries("FOO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inq) != 1 {
+		t.Fatalf("got %d inquiries, want 1", len(inq))
+	}
+	if len(inq[0].ReturnedIDs) == 0 {
+		t.Error("want the returned IDs recorded — they are recall@k's denominator")
+	}
+	if len(inq[0].CitedIDs) == 0 {
+		t.Error("want the cited IDs recorded — they are the strong relevance signal")
+	}
+}
+
+func TestAskDoesNotLogWhenDisabled(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "t", "--description", "d", "--actor", "admin@cli:unset")
+	h.run("project", "set-inquiry-log", "--store", sp, "--project", "FOO", "--enabled=false", "--actor", "admin@cli:unset")
+	h.run("ask", "anything", "--store", sp, "--project", "FOO", "--output", "json")
+	inq, err := h.store.ReadInquiries("FOO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inq) != 0 {
+		t.Errorf("got %d inquiries, want none when the log is disabled", len(inq))
+	}
+}
