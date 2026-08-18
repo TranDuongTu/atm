@@ -396,7 +396,6 @@ func TestSpotlightAskRowLayout(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	m.spotlight.askRowEnabled = true // sub-task 4 (ATM-f71b81) flips this for real
 	searchQuery(t, m, "indexer")
 
 	view := stripANSI(m.spotlight.renderOverlay())
@@ -425,8 +424,7 @@ func TestSpotlightAskRowLayout(t *testing.T) {
 	}
 }
 
-// An empty query has nothing to ask about, so the row does not render even
-// when the gate is open.
+// An empty query has nothing to ask about, so the row does not render.
 func TestSpotlightAskRowNeedsANonEmptyQuery(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -435,26 +433,6 @@ func TestSpotlightAskRowNeedsANonEmptyQuery(t *testing.T) {
 
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
-	m.spotlight.askRowEnabled = true
 
-	mustNotContain(t, stripANSI(m.spotlight.renderOverlay()), "Ask ATM:")
-}
-
-// The gate is shut in this sub-task: the launcher a user opens today shows no
-// Ask row, because nothing behind it can answer yet (sub-task 2, ATM-66a6d2).
-func TestSpotlightAskRowIsGatedOffByDefault(t *testing.T) {
-	withInstantSpotSearch(t)
-	m := newTestModel(t)
-	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme")
-	selectProject(t, m, "ATM")
-	seedTask(t, m, "ATM", "wire the indexer")
-
-	m.spotlight.openSpotlight()
-	moveCursorToGroup(t, m, "Task")
-	if m.spotlight.askRowEnabled {
-		t.Fatal("askRowEnabled must default to false until an answer engine exists")
-	}
-	searchQuery(t, m, "indexer")
 	mustNotContain(t, stripANSI(m.spotlight.renderOverlay()), "Ask ATM:")
 }

@@ -143,19 +143,20 @@ func TestSpotlightStaticActivationReplays(t *testing.T) {
 	}
 }
 
-// Tab moves focus to the preview and back; `\` closes from anywhere inside.
-func TestSpotlightTabTogglesFocusAndBackslashCloses(t *testing.T) {
+// The arrow that points at the preview moves focus there and back; `\` closes
+// from anywhere inside.
+func TestSpotlightRightArrowTogglesFocusAndBackslashCloses(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("Tab must focus the preview")
+		t.Fatal("Right must focus the preview")
 	}
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyLeft})
 	if m.spotlight.focus != focusList {
-		t.Fatal("Tab must return focus to the list")
+		t.Fatal("Left must return focus to the list")
 	}
 
 	moveCursorToLabel(t, m, "Project")
@@ -343,7 +344,7 @@ func TestActivateCapabilitiesFromProjectsPane(t *testing.T) {
 // because only its Enter half went stale. In a focused preview it must NOT
 // hand focus back either: Tab and Esc are the two advertised exits, and a
 // third undocumented one is exactly what this pins against.
-func TestSpotlightLeftIsInert(t *testing.T) {
+func TestSpotlightLeftIsInertOnTheList(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedChannels(t, m)
@@ -361,6 +362,8 @@ func TestSpotlightLeftIsInert(t *testing.T) {
 		t.Errorf("left must not move: level=%v selected=%q", m.spotlight.level, m.spotlight.selectedLabel())
 	}
 
+	// Left is no longer inert once the preview is focused -- it is the exit
+	// the arrow that pointed it there now owns (TestSpotlightRightArrowFocusesPreview).
 	m.spotlight.openSpotlight()
 	walkTo(t, m, "Conventions")
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -368,8 +371,8 @@ func TestSpotlightLeftIsInert(t *testing.T) {
 		t.Fatal("setup: Enter on a reference entry must focus the preview")
 	}
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyLeft})
-	if m.spotlight.focus != focusPreview {
-		t.Errorf("left must not be a third way out of a focused preview, focus=%v", m.spotlight.focus)
+	if m.spotlight.focus != focusList {
+		t.Errorf("left must return focus to the list, focus=%v", m.spotlight.focus)
 	}
 }
 
@@ -552,12 +555,12 @@ func TestSpotlightFocusSwapsCaretAndFooter(t *testing.T) {
 
 	view := stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "> ▏")
-	mustContain(t, view, "[Tab] preview")
+	mustContain(t, view, "[→] preview")
 	mustNotContain(t, view, "back to list")
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("setup: Tab must focus the preview")
+		t.Fatal("setup: Right must focus the preview")
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustNotContain(t, view, "▏")
@@ -664,19 +667,19 @@ func TestSpotlightPageKeysScrollPreviewFromEitherFocus(t *testing.T) {
 	}
 }
 
-// Routed from Task 6's review: Tab used to focus the preview unconditionally,
-// stranding the user in a blank pane where most keys do nothing. An empty
-// preview is not focusable, and it says so rather than rendering as a blank
-// column the user cannot tell from a broken one.
-func TestSpotlightTabIgnoresAnEmptyPreview(t *testing.T) {
+// Routed from Task 6's review: the right arrow used to focus the preview
+// unconditionally, stranding the user in a blank pane where most keys do
+// nothing. An empty preview is not focusable, and it says so rather than
+// rendering as a blank column the user cannot tell from a broken one.
+func TestSpotlightRightArrowIgnoresAnEmptyPreview(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 	m.spotlight.lines = nil
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusList {
-		t.Errorf("Tab must not focus an empty preview, focus=%v", m.spotlight.focus)
+		t.Errorf("right-arrow must not focus an empty preview, focus=%v", m.spotlight.focus)
 	}
 	mustContain(t, stripANSI(m.spotlight.renderOverlay()), "(no preview)")
 }
@@ -860,9 +863,9 @@ func TestSpotlightPaneHeaderAccentFollowsFocus(t *testing.T) {
 	// The preview's label lives in its panel's border now, so the border test
 	// below is what pins its half of this cue.
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("setup: Tab must focus the preview")
+		t.Fatal("setup: Right must focus the preview")
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "<dim>Actions</dim>")
@@ -886,7 +889,7 @@ func TestSpotlightUsesNoReverseVideo(t *testing.T) {
 }
 
 // The ▸ glyph stays put when focus moves to the preview — the cursor row is
-// still where Tab returns to — but it dims: a bright selection in a pane that
+// still where Left returns to — but it dims: a bright selection in a pane that
 // is not taking keystrokes is the exact confusion the redesign removes.
 func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
 	m := newTestModel(t)
@@ -898,9 +901,9 @@ func TestSpotlightCursorGlyphDimsWithoutListFocus(t *testing.T) {
 	mustContain(t, view, "<accent>▸ </accent>")
 	mustNotContain(t, view, "<muted>▸ </muted>")
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("setup: Tab must focus the preview")
+		t.Fatal("setup: Right must focus the preview")
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "<muted>▸ </muted>")
@@ -929,9 +932,9 @@ func TestSpotlightBorderMarksTheFocusedPane(t *testing.T) {
 	mustContain(t, view, "<accent>╭ Search")
 	mustContain(t, view, "<dim>╭ Preview")
 
-	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if m.spotlight.focus != focusPreview {
-		t.Fatal("setup: Tab must focus the preview")
+		t.Fatal("setup: Right must focus the preview")
 	}
 	view = stripANSI(m.spotlight.renderOverlay())
 	mustContain(t, view, "<dim>╭ Search")
@@ -1470,6 +1473,10 @@ func TestSpotlightSearchLineUnfocusedOffByOneFixed(t *testing.T) {
 // A query wider than the pane must scroll so its tail — what the user just
 // typed — stays visible, exercising fitLineFrom's scroll-into-view path,
 // which no earlier test typed a query long enough to reach.
+// Scoped to the search box itself, not the whole overlay: the Ask row below it
+// quotes the query too, but with fitLine's head-kept truncation rather than the
+// search box's tail-following scroll -- the two rows are free to disagree about
+// which end of an overlong query is worth showing.
 func TestSpotlightSearchLineScrollsLongQueryIntoView(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -1478,9 +1485,9 @@ func TestSpotlightSearchLineScrollsLongQueryIntoView(t *testing.T) {
 	long := "HEADMARK" + strings.Repeat("y", 100) + "TAILMARK"
 	m.spotlight.setQuery(long)
 
-	view := stripANSI(m.spotlight.renderOverlay())
-	mustContain(t, view, "TAILMARK")
-	mustNotContain(t, view, "HEADMARK")
+	box := stripANSI(m.spotlight.searchBox(m.spotlight.innerWidth()))
+	mustContain(t, box, "TAILMARK")
+	mustNotContain(t, box, "HEADMARK")
 }
 
 // --- the contextual Task group ---

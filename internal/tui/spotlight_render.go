@@ -224,13 +224,16 @@ func (sm *spotlightModel) scrollMark() string {
 // peel and closes instead.
 func (sm *spotlightModel) footerHint() string {
 	if sm.focus == focusPreview {
-		return "[↑↓/PgUp/PgDn] scroll · [Tab/Esc] back to list"
+		return "[↑↓/PgUp/PgDn] scroll · [←/Esc] back to list"
 	}
 	esc := "back"
 	if sm.level == levelRoot && sm.query == "" {
 		esc = "close"
 	}
-	return "[↑↓] move · [Enter] open · [Tab] preview · [Esc] " + esc
+	if sm.askRowVisible() {
+		return "[↑↓] move · [Enter] open · [Tab] ask · [→] preview · [Esc] " + esc
+	}
+	return "[↑↓] move · [Enter] open · [→] preview · [Esc] " + esc
 }
 
 // searchBox is the query input: its own bordered field across the top of the
@@ -437,12 +440,12 @@ func (sm *spotlightModel) previewPaneLines(bodyH, w int) []string {
 //	│ ▸ ▤ Project ›        │ Create, select, rename, …    │
 //	│   ☰ Task ›           │                              │
 //	│   [D] ↯ Dispatch …   │ + Add project — Create a …   │
-//	│ Ask ATM: "…"                                        │
-//	│ [↑↓] move · [Enter] open · [Tab] preview · [Esc] …  │
+//	│ Ask ATM: "…"   [Tab]                                │
+//	│ [↑↓] move · [Enter] open · [Tab] ask · [→] preview …│
 //	╰─────────────────────────────────────────────────────╯
 //
-// The Ask row is pinned there only once askRowEnabled is on and the query is
-// non-empty; gated off, the block runs straight into the footer as before.
+// The Ask row is pinned there only once the query is non-empty; with nothing
+// typed, the block runs straight into the footer as before.
 //
 // Exactly one element is bright at a time, and every cue moves together: the
 // focused pane's header, the divider segment running alongside that pane's
@@ -474,28 +477,24 @@ func (sm *spotlightModel) renderOverlay() string {
 }
 
 // askRowVisible reports whether the pinned Ask row renders: only with
-// something to ask about, and only once an engine exists to answer.
-// askRowEnabled is false throughout this sub-task — the row's layout is
-// defined here (spec sub-task 1) and sub-task 4 (ATM-f71b81) turns it on,
-// which is what keeps a row that cannot answer off the user's screen.
+// something to ask about. The sub-task gate it also carried is gone -- hiding
+// the row when no chat model is configured would be the wrong behaviour, since
+// degraded mode plus a hint naming the wizard step is how that gets
+// communicated, and a user cannot discover a fix from a row that is not there.
 func (sm *spotlightModel) askRowVisible() bool {
-	return sm.askRowEnabled && strings.TrimSpace(sm.query) != ""
+	return strings.TrimSpace(sm.query) != ""
 }
 
 // askRow is the conversational entry point, pinned across the bottom of the
 // box rather than filed in the left column: it acts on the query itself, not
 // on any row, so it belongs to the whole launcher.
-//
-// No key hint yet. The spec's key for it is tab, which currently focuses the
-// preview pane (handleKey); advertising tab here before that is resolved would
-// document a binding that does something else. Sub-task 4 owns the rebinding.
 func (sm *spotlightModel) askRow(w int) string {
 	if !sm.askRowVisible() {
 		return ""
 	}
 	st := sm.m.styles
 	label := `Ask ATM: "` + sm.query + `"`
-	return st.KeyMenuDim.Render(fitLine(label, w))
+	return st.KeyMenuDim.Render(fitLine(label+"   [Tab]", w))
 }
 
 // groupPreviewLines is a group row's preview: the group's hint, a blank line,
