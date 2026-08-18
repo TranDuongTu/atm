@@ -114,6 +114,8 @@ func (c *Client) Stream(ctx context.Context, msgs []Message, onDelta func(string
 	}
 	// The idle watchdog starts once headers are in: ollama sends them before
 	// it loads the model, so the wait for the first token is on this clock.
+	// What it bounds is the gap between CHUNKS, not between tokens (see the
+	// reset below).
 	var idled atomic.Bool
 	watchdog := time.AfterFunc(c.idle, func() { idled.Store(true); cancel() })
 	defer watchdog.Stop()
@@ -133,11 +135,16 @@ func (c *Client) Stream(ctx context.Context, msgs []Message, onDelta func(string
 			if chunk.Error != nil {
 				return fmt.Errorf("chat error: %s", chunk.Error.Message)
 			}
+			// Reset per parsed chunk, not per non-empty delta: the watchdog
+			// measures SILENCE, and a server sending role-only openers or
+			// reasoning deltas in a field this client does not read is not
+			// silent. Gating the reset on content would kill such a stream at
+			// c.idle while chunks were arriving the whole time.
+			watchdog.Reset(c.idle)
 			for _, ch := range chunk.Choices {
 				if ch.Delta.Content == "" {
 					continue
 				}
-				watchdog.Reset(c.idle)
 				onDelta(ch.Delta.Content)
 			}
 		}

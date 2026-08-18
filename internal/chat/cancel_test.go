@@ -68,26 +68,63 @@ func TestStreamIdleTimeoutAbortsAQuietStream(t *testing.T) {
 // A stream that keeps producing must NOT be killed by the idle watchdog:
 // this is the assertion that a long answer survives, which a whole-request
 // timeout would fail.
+//
+// The two properties that make it discriminating: the window is far longer
+// than any single gap (so a healthy stream never trips it even on a loaded
+// box) and shorter than the whole stream (so a watchdog that never reset
+// would kill this stream mid-way and the count below would come up short).
 func TestStreamSurvivesLongerThanTheIdleWindow(t *testing.T) {
+	const deltas, gap = 30, 20 * time.Millisecond
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		for i := 0; i < 6; i++ {
+		for i := 0; i < deltas; i++ {
 			_, _ = w.Write([]byte(delta("x")))
 			w.(http.Flusher).Flush()
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(gap)
 		}
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 		w.(http.Flusher).Flush()
 	}))
 	defer srv.Close()
 	c := New(core.ChatConfig{Model: "m", Endpoint: srv.URL})
-	c.idle = 50 * time.Millisecond // shorter than the whole stream, longer than each gap
+	c.idle = 250 * time.Millisecond // ~12x each gap, well under the stream's 600ms
 	var got []string
 	if err := c.Stream(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(s string) { got = append(got, s) }); err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	if len(got) != 6 {
-		t.Errorf("deltas = %d, want all 6 (a resetting watchdog must not truncate a live stream)", len(got))
+	if len(got) != deltas {
+		t.Errorf("deltas = %d, want all %d (a resetting watchdog must not truncate a live stream)", len(got), deltas)
+	}
+}
+
+// The watchdog measures silence between CHUNKS, not between tokens: a server
+// that opens with role-only chunks, or streams content in a field this client
+// does not read, is still sending. Every chunk here carries an empty content
+// delta, spread across more than the idle window in total, and the real token
+// arrives only at the end — if the reset were gated on non-empty content, the
+// stream would be killed with ErrIdleTimeout before it ever landed.
+func TestStreamEmptyContentChunksKeepTheWatchdogAlive(t *testing.T) {
+	const empties, gap = 30, 20 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i := 0; i < empties; i++ {
+			_, _ = w.Write([]byte(delta("")))
+			w.(http.Flusher).Flush()
+			time.Sleep(gap)
+		}
+		_, _ = w.Write([]byte(delta("the answer")))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+	c := New(core.ChatConfig{Model: "m", Endpoint: srv.URL})
+	c.idle = 250 * time.Millisecond // ~12x each gap, well under the stream's 600ms
+	var got []string
+	if err := c.Stream(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(s string) { got = append(got, s) }); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if len(got) != 1 || got[0] != "the answer" {
+		t.Errorf("deltas = %q, want the one real token (empty chunks are skipped, not counted as silence)", got)
 	}
 }
 
