@@ -131,8 +131,11 @@ func TestAskEmbedsTheQuestionForSemanticRetrieval(t *testing.T) {
 	}
 }
 
-// Retrieval re-runs every turn (the spec's rule), history or not.
-func TestAskRetrievesOncePerTurnEvenWithHistory(t *testing.T) {
+// A turn with history still retrieves — it is not skipped just because the
+// question is a follow-up. (This does not pin re-running per turn across
+// multiple Ask calls; it only proves history's presence doesn't suppress
+// this one retrieval.)
+func TestAskRetrievesEvenWhenHistoryIsPresent(t *testing.T) {
 	s := &fakeSearcher{hits: twoHits()}
 	c := &fakeChat{deltas: []string{"ok"}}
 	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: c})
@@ -159,5 +162,36 @@ func TestAskBehindIsZeroWithoutAnEmbeddingModel(t *testing.T) {
 	}
 	if got[0] != "retrieved:2:behind=0" {
 		t.Errorf("first event = %q, want behind=0", got[0])
+	}
+}
+
+// The umbrella spec's "retrieval never breaks" rule (ATM-e4be94), applied to
+// the embedding half: an Embed that errors must not fail the turn. The query
+// vector is dropped and store.Search falls back to its text pass, so the
+// engine still emits a normal Retrieved -> Delta -> Done sequence. Asserting
+// QueryVector == nil on the params the fake Searcher received is what
+// actually pins the fallback — without it, a broken Embed could silently
+// leak a stale or zero vector into Search and this test would still pass.
+func TestAskFallsBackToTextRetrievalWhenEmbedFails(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{
+		Project:  "ATM",
+		Searcher: s,
+		Model:    "nomic-embed-text",
+		Embed: func(ctx context.Context, text, role string) ([]float64, error) {
+			return []float64{9, 9}, fmt.Errorf("ollama unreachable")
+		},
+		Chat: &fakeChat{deltas: []string{"the watcher owns it [1]"}},
+	})
+	var got []string
+	if err := e.Ask(context.Background(), Query{Question: "who owns freshness?"}, record(&got)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	want := []string{"retrieved:2:behind=0", "delta:the watcher owns it [1]", "done:cited=1:degraded=false"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events =\n%v\nwant\n%v", got, want)
+	}
+	if s.params.QueryVector != nil {
+		t.Errorf("QueryVector = %v, want nil (a failed embed must not reach Search)", s.params.QueryVector)
 	}
 }

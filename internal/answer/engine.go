@@ -75,12 +75,26 @@ func New(cfg Config) *Engine {
 // more Delta, then exactly one terminal Done or Failed. emit is called on the
 // calling goroutine; cancellation runs through ctx.
 //
+// That sequence is the guarantee for a question that passes validation. The
+// empty-question guard below is caller validation, not an answer that broke:
+// it returns core.ErrUsage before the stream begins and emits NOTHING, because
+// a malformed call is not a failed answer — Failed is reserved for a real
+// break (a mid-stream disconnect or a cancellation), the same line Done's
+// Degraded field draws for "no answer, but not broken" (see event.go). A
+// consumer driven purely by events would otherwise never see this case, so it
+// must also check the returned error.
+//
 // The returned error is narrow by design: it is non-nil only when retrieval
 // itself failed (a broken ledger, or a question with nothing in it). A
 // degraded answer and a mid-stream break both return nil, because both are
 // exit-0 outcomes for `atm ask` (ATM-d4ceed) — the event says what happened.
 func (e *Engine) Ask(ctx context.Context, q Query, emit func(Event)) error {
 	if strings.TrimSpace(q.Question) == "" {
+		// Caller validation, not a broken answer: returns an error and emits
+		// nothing. Contrast the store-error path just below, which is the one
+		// path that both emits a terminal event AND returns an error — the two
+		// are easy to conflate, so this comment and that one each say which
+		// they are.
 		return fmt.Errorf("%w: empty question", core.ErrUsage)
 	}
 	hits, err := e.retrieve(ctx, q.Question)
