@@ -337,13 +337,13 @@ func TestActivateCapabilitiesFromProjectsPane(t *testing.T) {
 	}
 }
 
-// left is inert in both halves of the launcher. In the list it is neither a
-// case in handleKey's switch nor a printable rune, so it cannot activate,
-// close, navigate, or type — the assertion the deleted
-// TestSpotlightEnterAndLeftAreInertInTheList used to carry, re-homed here
-// because only its Enter half went stale. In a focused preview it must NOT
-// hand focus back either: Tab and Esc are the two advertised exits, and a
-// third undocumented one is exactly what this pins against.
+// left means one thing in each half of the launcher, and the test covers both.
+// In the list it is inert: neither a case in handleKey's switch nor a
+// printable rune, so it cannot activate, close, navigate, or type — the
+// assertion the deleted TestSpotlightEnterAndLeftAreInertInTheList used to
+// carry, re-homed here because only its Enter half went stale. In a focused
+// preview it is an exit, alongside esc — the arrow that focused the pane is
+// the arrow that leaves it, now that tab means ask.
 func TestSpotlightLeftIsInertOnTheList(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)

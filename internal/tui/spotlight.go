@@ -567,8 +567,13 @@ func (sm *spotlightModel) selectedLabel() string {
 
 // handleKey routes the launcher's keys. The key column the list renders is
 // documentation of the real TUI binding, never an accelerator: inside the
-// launcher every printable key types into the query. `\` is the one
-// exception — the key that opens the launcher also closes it, from any level.
+// launcher every printable key types into the query. `\` is the one exception
+// — the key that opens the launcher also closes it.
+//
+// From any level of the TREE, that is. The ask level forks above the `\` case
+// on purpose: it has a text input of its own, and a backslash typed into a
+// question is a character, not a command. Esc is the exit there, and it peels
+// back to the list this closes from.
 func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	if sm.level == levelAsk && sm.ask != nil {
 		return sm.ask.handleKey(k)
@@ -601,11 +606,9 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		if len(sm.lines) > 0 {
 			sm.focus = focusPreview
 		}
-	case "left":
-		if sm.focus == focusPreview {
-			sm.focus = focusList
-			sm.offset = 0
-		}
+	// No "left" case: focusPreview is routed to handlePreviewKey above this
+	// switch, so a left arm guarded on that focus could never run. Left out of
+	// a focused preview is handlePreviewKey's, alongside esc.
 	case "pgup":
 		sm.scrollPreview(-sm.previewHeight())
 	case "pgdown":
