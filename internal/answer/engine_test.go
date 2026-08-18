@@ -195,6 +195,9 @@ func TestAskFallsBackToTextRetrievalWhenEmbedFails(t *testing.T) {
 	if s.params.QueryVector != nil {
 		t.Errorf("QueryVector = %v, want nil (a failed embed must not reach Search)", s.params.QueryVector)
 	}
+	if s.params.QueryText != "who owns freshness?" {
+		t.Errorf("QueryText = %q, want the question, which is all the text path has left to match on", s.params.QueryText)
+	}
 }
 
 // No chat model at all: hits, then a degraded Done naming the fix. Never a
@@ -347,32 +350,6 @@ func TestAskStoreErrorFailsAndReturnsTheError(t *testing.T) {
 	}
 	if strings.Join(got, "|") != "failed:canceled=false" {
 		t.Errorf("events = %v, want a single Failed and no Retrieved", got)
-	}
-}
-
-// A down embedder is not a down search: the vector is dropped and the store's
-// text path answers, so hits still reach the consumer.
-func TestAskEmbedFailureFallsBackToTextRetrieval(t *testing.T) {
-	s := &fakeSearcher{hits: twoHits()}
-	e := New(Config{
-		Project: "ATM", Searcher: s, Model: "m",
-		Embed: func(ctx context.Context, text, role string) ([]float64, error) {
-			return nil, fmt.Errorf("connection refused")
-		},
-		Chat: &fakeChat{deltas: []string{"still answered [1]"}},
-	})
-	var got []string
-	if err := e.Ask(context.Background(), Query{Question: "q"}, record(&got)); err != nil {
-		t.Fatalf("Ask: %v", err)
-	}
-	if s.params.QueryVector != nil {
-		t.Errorf("QueryVector = %v, want it dropped so the text path runs", s.params.QueryVector)
-	}
-	if s.params.QueryText != "q" {
-		t.Errorf("QueryText = %q, want the question for the text path", s.params.QueryText)
-	}
-	if got[len(got)-1] != "done:cited=1:degraded=false" {
-		t.Errorf("events = %v, want a normal cited answer", got)
 	}
 }
 
