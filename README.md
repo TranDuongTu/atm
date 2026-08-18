@@ -203,7 +203,18 @@ atm project set-embedding --project ATM \
 
 Match `--model` and `--dim` to the model you pulled. A 404 `model "..." not found` from the embed step means the named model is not present at the endpoint — pull it (Ollama) or fix the model name/provider.
 
-**3. Build and inspect the index from the CLI.**
+**3. Configure the chat model (optional).** This is what answers questions over the ledger; leave it unset and search works exactly as before.
+
+```sh
+ollama pull qwen3:8b                 # or any chat model your endpoint serves
+
+atm project set-chat --project ATM \
+  --model qwen3:8b
+```
+
+`--endpoint` defaults to the embedding endpoint, since ollama serves both. With no chat model configured, asking degrades to hits only and says so, rather than failing.
+
+**4. Build and inspect the index from the CLI.**
 
 ```sh
 atm index reindex --project ATM      # one-shot index pass
@@ -216,7 +227,7 @@ atm index --project ATM              # continuous foreground indexing until Ctrl
 
 `atm search` prefers the vector index and falls back to a keyword pass over the live store when there is no index, no query vector, or nothing clears the threshold — which is also the path the TUI spotlight's task search takes, so a task created seconds ago is findable before anything has embedded it. That fallback matches each query word as the **prefix** of a word in the entity's text (title, description, labels, and for a comment its body): `ind` finds *wire the indexer*, and so does `indexer wire`, but `dex` doesn't — prefix, not infix. It also finds an entity by its **ID**, whole or in fragment, and ranks a named entity above anything that merely mentions the query's words; a query matching nothing beyond the project-code prefix every ID shares (`a`, `atm`, `atm-`) names no particular entity, so it is scored as an ordinary word match rather than as a pasted ID.
 
-**4. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
+**5. Or manage indexing from the TUI.** Run `atm`, then press `g 1` to open the indexer overlay: `e` edits embedding config (`p` fills the Nomic preset, `s` saves), `S` starts or stops the live indexer, `r` runs a one-shot reindex, `d` drops the selected model index.
 
 ### Personas And Agent Defaults
 

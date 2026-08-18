@@ -7,8 +7,13 @@ import "atm/internal/core"
 // it with a type switch (the TUI's ask level is a bubbletea update loop), and
 // the compiler then checks that every arm handles a real event.
 //
-// The order is fixed: Retrieved, then zero or more Delta, then exactly one
-// terminal event — Done or Failed.
+// The order is fixed for a question that passes validation: Retrieved, then
+// zero or more Delta, then exactly one terminal event — Done or Failed. An
+// empty question never enters this sequence at all — Ask returns
+// core.ErrUsage before the stream begins and emits nothing, because a
+// malformed call is not an answer that broke — so a consumer driven purely
+// by events would never see that case; it must also check Ask's returned
+// error.
 type Event interface{ event() }
 
 // Retrieved carries the sources, always, before any generation is attempted:
