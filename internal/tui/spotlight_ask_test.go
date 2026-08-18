@@ -515,3 +515,149 @@ func TestAskSecondTurnSurvivesWhenNotRecorded(t *testing.T) {
 		mustContain(t, view, "and the retry policy")
 	})
 }
+
+// Enter is overloaded and the disambiguation is the input's emptiness. Both
+// directions, because a one-way test would pass on a handler that always
+// submits.
+func TestAskEnterSubmitsWhenInputHasText(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "a watcher keeps it fresh."}, answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	for _, r := range "and the watcher?" {
+		p.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if p.question != "and the watcher?" {
+		t.Errorf("question = %q, want the follow-up submitted", p.question)
+	}
+	if p.input != "" {
+		t.Errorf("input = %q, want it cleared on submit", p.input)
+	}
+	if len(p.turns) != 1 {
+		t.Errorf("turns = %d, want the first exchange kept as history", len(p.turns))
+	}
+}
+
+func TestAskEnterWithEmptyInputDoesNotSubmit(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task"}}}, answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	before := p.question
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if p.question != before {
+		t.Errorf("question changed to %q -- empty input must open, not submit", p.question)
+	}
+}
+
+// Esc is two states deep and no deeper: the input never absorbs it.
+func TestAskEscCancelsThenPeels(t *testing.T) {
+	withInstantSpotSearch(t)
+	block := make(chan struct{})
+	withAsker(t, &fakeAsker{block: block, events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "partial"}, answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	for i := 0; i < 50 && p.transcript == ""; i++ {
+		p.applyTick(askTickMsg{gen: p.gen})
+		time.Sleep(time.Millisecond)
+	}
+	p.input = "half typed"
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.spotlight.level != levelAsk {
+		t.Fatal("the first esc cancels; it must not peel")
+	}
+	if p.streaming {
+		t.Error("the first esc must stop the stream")
+	}
+	if p.input != "half typed" {
+		t.Error("the input must not absorb esc")
+	}
+	close(block)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.spotlight.level == levelAsk {
+		t.Error("the second esc must peel")
+	}
+}
+
+// Scrolling up drops follow-the-tail; without that, a user reading the top of
+// a long answer is yanked back down by every token.
+func TestAskScrollUpDropsFollowAndBottomRestoresIt(t *testing.T) {
+	withInstantSpotSearch(t)
+	var events []answer.Event
+	events = append(events, answer.Retrieved{})
+	for i := 0; i < 400; i++ {
+		events = append(events, answer.Delta{Text: fmt.Sprintf("line %d\n", i)})
+	}
+	events = append(events, answer.Done{})
+	withAsker(t, &fakeAsker{events: events})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	if !p.follow {
+		t.Fatal("a fresh pane follows the tail")
+	}
+	p.handleKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	if p.follow {
+		t.Error("scrolling up must drop follow")
+	}
+	for i := 0; i < 200; i++ {
+		p.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if !p.follow {
+		t.Error("returning to the bottom must restore follow")
+	}
+	_ = m
+}
+
+// Up and down belong to SOURCES, always -- never to the transcript.
+func TestAskArrowsMoveTheSourceCursor(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{
+			{ID: "ATM-0001", Kind: "task"}, {ID: "ATM-0002", Kind: "task"},
+		}}, answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if p.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", p.cursor)
+	}
+	p.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if p.cursor != 1 {
+		t.Errorf("cursor = %d, want it clamped at the last source", p.cursor)
+	}
+	p.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if p.cursor != 0 {
+		t.Errorf("cursor = %d, want 0", p.cursor)
+	}
+	_ = m
+}
+
+// Backspace edits the input, and does NOT peel the level.
+func TestAskBackspaceEditsTheInput(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+	p.input = "abc"
+	p.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	if p.input != "ab" {
+		t.Errorf("input = %q, want \"ab\"", p.input)
+	}
+	if m.spotlight.level != levelAsk {
+		t.Error("backspace must not leave the level")
+	}
+}

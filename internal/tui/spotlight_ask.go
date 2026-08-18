@@ -105,13 +105,97 @@ func (sm *spotlightModel) peelAsk() tea.Cmd {
 // spotlightModel.handleKey rather than threading cases through the tree's
 // switch: almost every key means something different inside the pane, so a
 // shared switch would be a list of exceptions.
+//
+// Enter is overloaded and the input's emptiness disambiguates it: with text to
+// send, Enter sends; with none, Enter opens the selected source. One key, no
+// mode, and unambiguous at every moment, because the input either has text or
+// it does not.
+//
+// Retry is ctrl+r rather than the umbrella spec's Enter. Enter already carries
+// two meanings, and a third would take effect precisely in the state where the
+// user is most likely to want a source instead -- the answer just broke, and
+// the retrieved sources are the fallback. A bare `r` cannot serve: printable
+// runes belong to the input.
+//
+// ctrl+c is not a case here: dispatchKey handles it as the global quit
+// (app.go) and never reaches the spotlight with it, so a case in this switch
+// would be dead code that reads as though the pane deliberately swallows quit.
 func (p *askPane) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
+		// Two states deep and no deeper. The input never absorbs esc.
+		if p.streaming {
+			p.stop()
+			p.canceled = true
+			return nil
+		}
 		return p.sm.peelAsk()
+	case "enter":
+		if strings.TrimSpace(p.input) != "" {
+			return p.submit()
+		}
+		return p.openSelected()
+	case "ctrl+r":
+		if p.failed && !p.canceled {
+			return p.start()
+		}
+	case "up":
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case "down":
+		if p.cursor < len(p.sources)-1 {
+			p.cursor++
+		}
+	case "pgup", "ctrl+u":
+		p.scroll(-p.transcriptHeight())
+	case "pgdown", "ctrl+d":
+		p.scroll(p.transcriptHeight())
+	case "backspace":
+		if p.input != "" {
+			p.input = p.input[:len(p.input)-1]
+		}
+	default:
+		if r, ok := printableRune(k); ok {
+			p.input += string(r)
+		}
 	}
 	return nil
 }
+
+// submit starts a new turn from the input. Retrieval re-runs, so SOURCES and
+// [n] belong to the new turn alone.
+func (p *askPane) submit() tea.Cmd {
+	p.stop()
+	p.question = strings.TrimSpace(p.input)
+	p.input = ""
+	p.sources = nil
+	p.cursor = 0
+	return p.start()
+}
+
+// scroll moves the transcript window. Moving off the bottom drops
+// follow-the-tail, and landing back on it restores it: a user reading the top
+// of a long answer must not be yanked down by every token, and a user who has
+// caught up should not have to keep pressing a key to stay caught up.
+func (p *askPane) scroll(delta int) {
+	w := p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
+	max := len(p.transcriptBody(w)) - p.transcriptHeight()
+	if max < 0 {
+		max = 0
+	}
+	p.offset += delta
+	if p.offset < 0 {
+		p.offset = 0
+	}
+	if p.offset > max {
+		p.offset = max
+	}
+	p.follow = p.offset >= max
+}
+
+// openSelected is filled in by the click-through task.
+func (p *askPane) openSelected() tea.Cmd { return nil }
 
 // askStream is the goroutine-to-UI boundary.
 //
