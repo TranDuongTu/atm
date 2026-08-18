@@ -19,6 +19,12 @@ import (
 // documented a binding that did something else (spotlight_render.go:489).
 func TestSpotlightTabEntersAskMode(t *testing.T) {
 	withInstantSpotSearch(t)
+	// Tab now runs start(), which launches a real goroutine against
+	// askEngineFor's engine. Without withAsker this test would spawn one
+	// against a real engine over the test's t.TempDir() store and never peel
+	// to stop it -- a leaked goroutine outliving both the test and its temp
+	// dir. Script a minimal event sequence instead.
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -36,6 +42,7 @@ func TestSpotlightTabEntersAskMode(t *testing.T) {
 	if m.spotlight.ask == nil || m.spotlight.ask.question != "indexer" {
 		t.Errorf("the query must arrive as the question, got %+v", m.spotlight.ask)
 	}
+	drainAskTicks(t, m, m.spotlight.ask)
 }
 
 // An empty query has nothing to ask about, and tab no longer means preview.
@@ -77,6 +84,9 @@ func TestSpotlightRightArrowFocusesPreview(t *testing.T) {
 // Peel restores the list exactly: the query is back, and so are its rows.
 func TestAskEscPeelRestoresTheListExactly(t *testing.T) {
 	withInstantSpotSearch(t)
+	// Same leak this file's other bare-Tab test guards against: Tab now runs
+	// start(), which launches a real goroutine.
+	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
@@ -89,6 +99,7 @@ func TestAskEscPeelRestoresTheListExactly(t *testing.T) {
 	before := stripANSI(m.spotlight.renderOverlay())
 
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	drainAskTicks(t, m, m.spotlight.ask)
 	flushSpotSearch(t, m, m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyEsc}))
 
 	if m.spotlight.level == levelAsk {
@@ -211,6 +222,42 @@ func TestAskDropsNoDeltasUnderBurst(t *testing.T) {
 	}
 }
 
+// TestAskDropsNoDeltasUnderBurst above drives the burst through a fakeAsker
+// whose goroutine runs to completion (5000 short WriteStrings) before the
+// test's own applyTick loop gets scheduled at all, so every delta and Done
+// land in the SAME drain call -- emit and drain never actually interleave,
+// and -race proves nothing about the boundary between them. This test drives
+// emit from a goroutine against a drain loop that never sleeps, so the two
+// genuinely race on the mutex, and asserts every byte still survives.
+func TestAskStreamSurvivesConcurrentEmitAndDrain(t *testing.T) {
+	const n = 5000
+	st := &askStream{}
+	want := strings.Builder{}
+	for i := 0; i < n; i++ {
+		want.WriteString(fmt.Sprintf("%d ", i))
+	}
+
+	go func() {
+		for i := 0; i < n; i++ {
+			st.emit(answer.Delta{Text: fmt.Sprintf("%d ", i)})
+		}
+		st.emit(answer.Done{})
+	}()
+
+	var got strings.Builder
+	for {
+		_, _, _, text, _, done := st.drain()
+		got.WriteString(text)
+		if done {
+			break
+		}
+	}
+
+	if got.String() != want.String() {
+		t.Errorf("transcript lost text under concurrent emit/drain: got %d bytes, want %d", got.Len(), want.Len())
+	}
+}
+
 // A tick belonging to a retired stream must not write into the pane. Same
 // reason searchGen exists (spotlight.go:34): the user moved on.
 func TestAskIgnoresTicksFromARetiredStream(t *testing.T) {
@@ -236,6 +283,54 @@ func TestAskSurfacesAskReturnedError(t *testing.T) {
 	drainAskTicks(t, m, p)
 	if !strings.Contains(p.errText+p.transcript, "ledger is corrupt") {
 		t.Errorf("a store error must reach the pane, got errText=%q", p.errText)
+	}
+}
+
+// applyTick's history-recording rule mirrors cli/ask.go's (ATM-d4ceed): a
+// degraded turn generated nothing and must not be replayed as an empty
+// assistant reply on the next turn; a canceled partial is the user rejecting
+// the answer, not history the model should see; a truncated (non-canceled)
+// partial IS genuinely what the conversation contained, and is kept.
+func TestAskRecordsHistoryOnlyForNonEmptyUncanceledAnswers(t *testing.T) {
+	withInstantSpotSearch(t)
+
+	cases := []struct {
+		name   string
+		events []answer.Event
+		want   bool
+	}{
+		{
+			name:   "a normal Done records",
+			events: []answer.Event{answer.Retrieved{}, answer.Delta{Text: "the answer"}, answer.Done{}},
+			want:   true,
+		},
+		{
+			name:   "a degraded Done does not record",
+			events: []answer.Event{answer.Retrieved{}, answer.Done{Degraded: true, Reason: "no chat model configured"}},
+			want:   false,
+		},
+		{
+			name:   "a truncated Failed records the partial",
+			events: []answer.Event{answer.Retrieved{}, answer.Delta{Text: "partial"}, answer.Failed{Reason: "endpoint dropped"}},
+			want:   true,
+		},
+		{
+			name:   "a canceled Failed does not record",
+			events: []answer.Event{answer.Retrieved{}, answer.Delta{Text: "partial"}, answer.Failed{Reason: "canceled", Canceled: true}},
+			want:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withAsker(t, &fakeAsker{events: tc.events})
+			m, p := openAsk(t, "indexer")
+			drainAskTicks(t, m, p)
+
+			if got := len(p.turns) == 1; got != tc.want {
+				t.Errorf("recorded = %v, want %v (turns=%+v)", got, tc.want, p.turns)
+			}
+		})
 	}
 }
 

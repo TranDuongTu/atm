@@ -147,8 +147,13 @@ func (s *askStream) emit(ev answer.Event) {
 		s.retrieved, s.sources, s.behind = true, e.Hits, e.Behind
 	case answer.Delta:
 		s.text.WriteString(e.Text)
-	default:
+	case answer.Done, answer.Failed:
 		s.terminal, s.done = ev, true
+	default:
+		// Any event added to the Event interface later that is neither of the
+		// above is ignored rather than treated as terminal -- a terminal
+		// default would flip s.done early and silently drop every delta that
+		// followed, turning "truncated" into "finished".
 	}
 }
 
@@ -210,6 +215,10 @@ func askTickCmd(gen int) tea.Cmd {
 // watchdogs cancel a DERIVED context, never the caller's, so a watchdog abort
 // can never arrive here looking like an Esc.
 func (p *askPane) start() tea.Cmd {
+	// A second start() on the same pane must not overwrite p.cancel out from
+	// under a still-running goroutine: that would orphan it against a live
+	// endpoint with nothing left able to cancel it.
+	p.stop()
 	p.gen++
 	gen := p.gen
 	st := &askStream{}
@@ -279,9 +288,15 @@ func (p *askPane) applyTick(msg askTickMsg) tea.Cmd {
 		p.failed, p.failedReason, p.canceled = true, e.Reason, e.Canceled
 		p.errText = e.Reason
 	}
-	// A broken turn is not history: replaying a partial as though it were an
-	// answer would teach the model its own truncation.
-	if !p.failed {
+	// Recorded only when there is an answer to record, mirroring cli/ask.go's
+	// rule (ATM-d4ceed): a degraded turn generated nothing, and an empty
+	// assistant turn replayed as history poisons every later turn. A
+	// TRUNCATED partial IS recorded -- that text is genuinely what the
+	// conversation contained. A CANCELED partial is not: a cancel is the user
+	// rejecting the answer, not the clock running out on one they still
+	// wanted, so it must not be replayed as the assistant's real prior reply
+	// on the next turn.
+	if !p.canceled && strings.TrimSpace(p.transcript) != "" {
 		p.turns = append(p.turns, askTurn{question: p.question, answer: p.transcript})
 	}
 	return nil
