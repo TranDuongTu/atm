@@ -183,3 +183,60 @@ func TestAskWithEmptyQuestionIsUsage(t *testing.T) {
 		t.Errorf("exit=%d, want %d", code, ExitUsage)
 	}
 }
+
+// Two separate invocations, one conversation: the second must carry the
+// first's turn, because atm ask is a process that exits and a follow-up
+// question otherwise has no antecedent.
+func TestAskSessionCarriesHistoryAcrossInvocations(t *testing.T) {
+	srv := fakeOllama(t, 0, "first answer [1]")
+	defer srv.Close()
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--store", sp, "--project", "FOO", "--title", "t", "--description", "d", "--actor", "admin@cli:unset")
+	h.run("project", "set-chat", "--store", sp, "--project", "FOO", "--model", "fake", "--endpoint", srv.URL, "--actor", "admin@cli:unset")
+	h.run("ask", "first question", "--store", sp, "--project", "FOO", "--session", "s1", "--output", "json")
+	turns, err := h.store.ReadAskTurns("FOO", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Question != "first question" {
+		t.Fatalf("turns = %+v, want the first exchange recorded", turns)
+	}
+	out, _, code := h.run("ask", "second question", "--store", sp, "--project", "FOO", "--session", "s1", "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, `"session": "s1"`) && !strings.Contains(out, `"session":"s1"`) {
+		t.Errorf("output = %s, want the session echoed", out)
+	}
+}
+
+// A degraded ask produced no answer. Recording an empty assistant turn would
+// poison every later turn in the session.
+func TestAskDegradedDoesNotRecordATurn(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	h.run("ask", "anything", "--store", sp, "--project", "FOO", "--session", "s2", "--output", "json")
+	turns, err := h.store.ReadAskTurns("FOO", "s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 0 {
+		t.Errorf("turns = %+v, want none — there was no answer to record", turns)
+	}
+}
+
+func TestAskRejectsTraversalSessionID(t *testing.T) {
+	h := newGoldenHarness(t)
+	sp := h.store.StorePath()
+	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
+	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	_, _, code := h.run("ask", "q", "--store", sp, "--project", "FOO", "--session", "../../../etc/passwd", "--output", "json")
+	if code != ExitUsage {
+		t.Errorf("exit=%d, want %d — a bad session id is rejected, never sanitized", code, ExitUsage)
+	}
+}

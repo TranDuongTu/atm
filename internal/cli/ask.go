@@ -11,6 +11,7 @@ import (
 
 	"atm/internal/answer"
 	"atm/internal/chat"
+	"atm/internal/core"
 	"atm/internal/embed"
 
 	"github.com/spf13/cobra"
@@ -34,10 +35,16 @@ type askResult struct {
 	Error      string    `json:"error"`
 }
 
+// askHistoryTurns bounds how much of a session is replayed. A long-lived
+// session id would otherwise grow the prompt without limit, competing with the
+// source budget for the same context window.
+const askHistoryTurns = 10
+
 func newAskCmd(st *cliState) *cobra.Command {
 	var project string
 	var k int
 	var timeout time.Duration
+	var session string
 	cmd := &cobra.Command{
 		Use:   "ask \"question\"",
 		Short: "Ask a question answered from this project's own tasks and comments",
@@ -97,7 +104,24 @@ func newAskCmd(st *cliState) *cobra.Command {
 			eng := answer.New(acfg)
 			streamText := !st.isJSON()
 			var b strings.Builder
-			err = eng.Ask(ctx, answer.Query{Question: args[0]}, func(e answer.Event) {
+			q := answer.Query{Question: args[0]}
+			if session != "" {
+				res.Session = session
+				turns, err := s.ReadAskTurns(project, session)
+				if err != nil {
+					// A rejected session id is a usage error and must surface: an
+					// agent that mistyped an id should learn it rather than get a
+					// silently different conversation.
+					return err
+				}
+				if len(turns) > askHistoryTurns {
+					turns = turns[len(turns)-askHistoryTurns:]
+				}
+				for _, t := range turns {
+					q.History = append(q.History, answer.Turn{Question: t.Question, Answer: t.Answer})
+				}
+			}
+			err = eng.Ask(ctx, q, func(e answer.Event) {
 				switch ev := e.(type) {
 				case answer.Retrieved:
 					res.Hits = hitsToJSON(ev.Hits)
@@ -129,6 +153,15 @@ func newAskCmd(st *cliState) *cobra.Command {
 				}
 			})
 			res.Answer = b.String()
+			// Recorded only when there is an answer to record. A degraded ask
+			// generated nothing, and an empty assistant turn replayed as history
+			// poisons every later turn in the session. A truncated partial IS
+			// recorded — that text is genuinely what the conversation contained.
+			if session != "" && err == nil && strings.TrimSpace(res.Answer) != "" {
+				if aerr := s.AppendAskTurn(project, session, core.AskTurn{Question: args[0], Answer: res.Answer}); aerr != nil {
+					fmt.Fprintf(st.stderr(), "warning: could not record the turn: %v\n", aerr)
+				}
+			}
 			if err != nil {
 				// The only non-nil returns are a broken ledger and a malformed
 				// call. Everything else is an exit-0 outcome carried by the
@@ -143,6 +176,7 @@ func newAskCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&project, "project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().IntVar(&k, "k", 0, "how many sources to retrieve (default: the engine's 8)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "give up after this long (default: none; internal/chat still bounds an idle stream)")
+	cmd.Flags().StringVar(&session, "session", "", "conversation id; consecutive calls with the same id share history")
 	return cmd
 }
 
