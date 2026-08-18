@@ -2,6 +2,7 @@ package answer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -193,5 +194,138 @@ func TestAskFallsBackToTextRetrievalWhenEmbedFails(t *testing.T) {
 	}
 	if s.params.QueryVector != nil {
 		t.Errorf("QueryVector = %v, want nil (a failed embed must not reach Search)", s.params.QueryVector)
+	}
+}
+
+// No chat model at all: hits, then a degraded Done naming the fix. Never a
+// Delta, never a Failed (ATM-e4be94: retrieval survives generation).
+func TestAskWithoutAChatModelDegradesToHits(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits(), pending: 1}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m"})
+	var got []string
+	var done Done
+	err := e.Ask(context.Background(), Query{Question: "q"}, func(ev Event) {
+		record(&got)(ev)
+		if d, ok := ev.(Done); ok {
+			done = d
+		}
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	want := []string{"retrieved:2:behind=1", "done:cited=0:degraded=true"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events = %v, want %v", got, want)
+	}
+	if !strings.Contains(done.Reason, "set-chat") {
+		t.Errorf("reason = %q, want it to name the fix", done.Reason)
+	}
+}
+
+// An endpoint that never produced a delta never generated anything: that is
+// the spec's "unreachable" degrade, not a failure.
+func TestAskUnreachableChatDegradesRatherThanFails(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: &fakeChat{err: fmt.Errorf("dial tcp 127.0.0.1:11434: connection refused")}})
+	var got []string
+	var done Done
+	if err := e.Ask(context.Background(), Query{Question: "q"}, func(ev Event) {
+		record(&got)(ev)
+		if d, ok := ev.(Done); ok {
+			done = d
+		}
+	}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if strings.Join(got, "|") != "retrieved:2:behind=0|done:cited=0:degraded=true" {
+		t.Errorf("events = %v, want retrieved then a degraded done", got)
+	}
+	if !strings.Contains(done.Reason, "connection refused") {
+		t.Errorf("reason = %q, want the endpoint's own words", done.Reason)
+	}
+}
+
+// A break AFTER deltas is a real failure: the partial answer is delivered and
+// the consumer marks it interrupted.
+func TestAskMidStreamFailureKeepsTheDeltasAndFails(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: &fakeChat{deltas: []string{"half an ans"}, err: fmt.Errorf("unexpected EOF")}})
+	var got []string
+	if err := e.Ask(context.Background(), Query{Question: "q"}, record(&got)); err != nil {
+		t.Fatalf("Ask returned %v; a mid-stream break is exit 0 for the CLI", err)
+	}
+	want := []string{"retrieved:2:behind=0", "delta:half an ans", "failed:canceled=false"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events = %v, want %v", got, want)
+	}
+}
+
+// Cancellation is its own ending, and it outranks the zero-delta degrade: a
+// user who pressed Esc did not discover a broken endpoint.
+func TestAskCanceledStreamIsACanceledFailure(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &fakeChat{deltas: []string{"partial", "never"}, before: cancel}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: c})
+	var got []string
+	if err := e.Ask(ctx, Query{Question: "q"}, record(&got)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if got[len(got)-1] != "failed:canceled=true" {
+		t.Errorf("events = %v, want a canceled failure last", got)
+	}
+}
+
+// The one path that returns an error: a broken ledger is not a degraded
+// answer, and `atm ask` must be able to exit non-zero for it.
+func TestAskStoreErrorFailsAndReturnsTheError(t *testing.T) {
+	s := &fakeSearcher{err: fmt.Errorf("integrity: event log truncated")}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: &fakeChat{deltas: []string{"x"}}})
+	var got []string
+	err := e.Ask(context.Background(), Query{Question: "q"}, record(&got))
+	if err == nil || !strings.Contains(err.Error(), "integrity") {
+		t.Fatalf("err = %v, want the store's error returned", err)
+	}
+	if strings.Join(got, "|") != "failed:canceled=false" {
+		t.Errorf("events = %v, want a single Failed and no Retrieved", got)
+	}
+}
+
+// A down embedder is not a down search: the vector is dropped and the store's
+// text path answers, so hits still reach the consumer.
+func TestAskEmbedFailureFallsBackToTextRetrieval(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{
+		Project: "ATM", Searcher: s, Model: "m",
+		Embed: func(ctx context.Context, text, role string) ([]float64, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+		Chat: &fakeChat{deltas: []string{"still answered [1]"}},
+	})
+	var got []string
+	if err := e.Ask(context.Background(), Query{Question: "q"}, record(&got)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if s.params.QueryVector != nil {
+		t.Errorf("QueryVector = %v, want it dropped so the text path runs", s.params.QueryVector)
+	}
+	if s.params.QueryText != "q" {
+		t.Errorf("QueryText = %q, want the question for the text path", s.params.QueryText)
+	}
+	if got[len(got)-1] != "done:cited=1:degraded=false" {
+		t.Errorf("events = %v, want a normal cited answer", got)
+	}
+}
+
+func TestAskEmptyQuestionIsAUsageErrorWithNoEvents(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: &fakeChat{deltas: []string{"x"}}})
+	var got []string
+	err := e.Ask(context.Background(), Query{Question: "   "}, record(&got))
+	if !errors.Is(err, core.ErrUsage) {
+		t.Fatalf("err = %v, want core.ErrUsage", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("events = %v, want none", got)
 	}
 }
