@@ -92,12 +92,39 @@ func TestChartEnterEscAreGatedByFocus(t *testing.T) {
 		t.Fatal("esc should reach normal pane handling while chart is unfocused")
 	}
 	update(t, m, "ctrl+right")
-	if _, handled := m.projects.handleChartKey(keyMsg("enter")); handled {
-		t.Fatal("enter should still reach the project list after ctrl chart navigation")
+	if _, handled := m.projects.handleChartKey(keyMsg("enter")); !handled {
+		t.Fatal("enter should drill into the chart after ctrl chart navigation focuses it")
 	}
+
+	m = mkActorsOverlayTestModel(t)
+	m.SetSize(100, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+	update(t, m, "ctrl+right")
 	if _, handled := m.projects.handleChartKey(keyMsg("esc")); handled {
 		t.Fatal("esc should still reach normal pane handling after ctrl chart navigation")
 	}
+}
+
+func TestChartFocusedEnterOpensInlineDrillInsteadOfProjectDetail(t *testing.T) {
+	m := mkActorsOverlayTestModel(t)
+	m.SetSize(120, 40)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	m.refreshAll()
+
+	update(t, m, "ctrl+right")
+	update(t, m, "enter")
+
+	if m.projects.view != pViewList {
+		t.Fatalf("focused chart enter opened projects view %v, want list with inline drill", m.projects.view)
+	}
+	if !m.projects.chartDrill {
+		t.Fatal("focused chart enter should open inline drill")
+	}
+	body := stripANSI(m.projects.renderSummary(16))
+	mustContain(t, body, "[Esc] back")
 }
 
 func TestChartCtrlEnterOpensInlinePersonaDrillWithoutOverlay(t *testing.T) {
@@ -170,7 +197,7 @@ func TestChartDrillDoesNotStealProjectDetailEsc(t *testing.T) {
 
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	m = mm.(*Model)
-	update(t, m, "enter")
+	m.projects.openDetail("ATM")
 	if m.projects.view != pViewDetail {
 		t.Fatalf("setup: project view = %v, want detail", m.projects.view)
 	}

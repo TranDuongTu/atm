@@ -187,7 +187,10 @@ func (p *projectsModel) handleChartKey(k tea.KeyMsg) (tea.Cmd, bool) {
 			p.chartRange--
 		}
 		return nil, true
-	case "ctrl+j", "ctrl+enter":
+	case "enter", "ctrl+j", "ctrl+enter":
+		if k.String() == "enter" && !p.chartFocused {
+			return nil, false
+		}
 		p.focusChart()
 		p.chartDrill = true
 		return nil, true

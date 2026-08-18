@@ -169,7 +169,7 @@ var menuEntries = []menuEntry{
 	{key: "1", label: "Projects pane", hidden: true},
 	{key: "2", label: "Tasks pane", hidden: true},
 	{key: "ctrl+left/right", label: "Activity chart: prev/next persona", hidden: true},
-	{key: "ctrl+enter / ctrl+j", label: "Activity chart: inline persona breakdown", hidden: true},
+	{key: "ctrl+enter / ctrl+j / enter focused chart", label: "Activity chart: inline persona breakdown", hidden: true},
 	{key: "j/k", label: "Move cursor / scroll (spotlight: preview focus only — arrows move its search list)", hidden: true},
 	{key: "g", label: "Top of list · plugin leader prefix", hidden: true},
 	{key: "enter", label: "Open detail / confirm", hidden: true},
