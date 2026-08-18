@@ -22,6 +22,12 @@ func TestBuildMessagesNumbersSourcesAndAsksLast(t *testing.T) {
 	if !strings.Contains(msgs[0].Content, "[2]") {
 		t.Error("the system message must show the cite-by-number form it demands")
 	}
+	// citeRe reads only single-number brackets, so the prompt has to rule out
+	// [1, 2] explicitly — a model writing that loses BOTH citations silently,
+	// and the regex is deliberately not broadened to accept it.
+	if !strings.Contains(msgs[0].Content, "not [1, 2]") {
+		t.Errorf("system message = %q, want it to demand one number per bracket", msgs[0].Content)
+	}
 	body := msgs[1].Content
 	for _, want := range []string{"[1] ATM-aaa111 (task)", "[2] ATM-aaa111-c42 (comment)", "who owns the indexer?"} {
 		if !strings.Contains(body, want) {

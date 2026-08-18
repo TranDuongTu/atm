@@ -14,8 +14,14 @@ import (
 // cosmetic: it is how Done's citations are recovered from the finished text
 // (see citedHits), so the numbering in buildMessages and the bracket form
 // demanded here have to stay in step.
+//
+// One number per bracket is spelled out because citeRe matches only single-
+// number brackets: a model writing [1, 2] would have BOTH citations dropped.
+// The fix belongs here rather than in the regex — a pattern loose enough to
+// read [1, 2] also reads a year range quoted out of a task description, and
+// fabricating a citation is worse than missing one.
 const systemPrompt = "You are ATM's answer engine. ATM is a task ledger, and the numbered sources below are its own tasks and comments.\n" +
-	"Answer the question using ONLY those sources. Cite every claim with its source's number in square brackets, like [2].\n" +
+	"Answer the question using ONLY those sources. Cite every claim with its source's number in square brackets, like [2]. Use one number per bracket: write [1][2], not [1, 2].\n" +
 	"If the sources do not carry the answer, say so plainly instead of guessing. Be concise."
 
 // buildMessages renders one turn's request: the standing instruction, the
