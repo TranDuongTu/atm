@@ -234,7 +234,15 @@ func (p *askPane) openSelected() tea.Cmd {
 		m.showToast("task " + id + " is gone")
 		return nil
 	}
-	p.logClickThrough(id)
+	// Log hit.ID, not id: returned (built below from p.sources) is the
+	// candidate set exactly as retrieval returned it, and for a comment hit
+	// that's the COMMENT id -- id has already been resolved to the comment's
+	// TASK id, for openDetail below, which has no comment view of its own.
+	// Logging the resolved task id here would put an opened_ids entry absent
+	// from that same turn's returned_ids, breaking any eval correlating the
+	// two. cli/ask.go's idsOf never resolves comment ids to task ids either,
+	// for the same reason: one id space, one log. Do not "fix" this to id.
+	p.logClickThrough(hit.ID)
 	p.stop()
 	m.spotlight.ask = nil
 	m.spotlight.open = false
@@ -243,8 +251,11 @@ func (p *askPane) openSelected() tea.Cmd {
 }
 
 // logClickThrough records the human judgment: this question produced these
-// sources, and the user opened this one. Kept out of CitedIDs, which is the
-// model's opinion rather than a person's (ATM-028a8d weighs them differently).
+// sources, and the user opened this one. id is the SOURCE's id, exactly as
+// retrieval returned it -- for a comment hit that's the comment id, not the
+// task openSelected navigates to (see the call site). Kept out of CitedIDs,
+// which is the model's opinion rather than a person's (ATM-028a8d weighs
+// them differently).
 //
 // A logging failure must never cost the user their navigation, so it is
 // toasted rather than written to p.errText -- openSelected sets sm.ask = nil

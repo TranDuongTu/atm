@@ -961,6 +961,57 @@ func TestAskOpenSourceLogsTheClickThrough(t *testing.T) {
 	}
 }
 
+// A comment source opens the task it belongs to -- a comment has no detail
+// view of its own -- but LOGS the comment's own id, not the task's. That id
+// space match matters: ReturnedIDs (built from p.sources, i.e. from the hits
+// exactly as retrieval returned them) carries the comment id for a comment
+// hit, and an OpenedIDs entry the eval can't find in that same turn's
+// ReturnedIDs would silently break any correlation between the two.
+func TestAskOpenCommentSourceLogsTheCommentIDAndOpensItsTask(t *testing.T) {
+	withInstantSpotSearch(t)
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	selectProject(t, m, "ATM")
+	task := seedTask(t, m, "ATM", "wire the indexer")
+	c, err := m.store.CreateComment(task.ID, "see the watcher hookup", nil, "", testActor)
+	if err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: c.ID, Kind: "comment"}}},
+		answer.Done{},
+	}})
+
+	m.spotlight.openSpotlight()
+	moveCursorToGroup(t, m, "Task")
+	searchQuery(t, m, "indexer")
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	p := m.spotlight.ask
+	drainAskTicks(t, m, p)
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.tasks.view != tViewDetail || m.tasks.detail.id != task.ID {
+		t.Errorf("a comment source must open its OWNING task; view=%v detail.id=%q, want %q",
+			m.tasks.view, m.tasks.detail.id, task.ID)
+	}
+
+	entries, err := readInquiriesForTest(t, m, "ATM")
+	if err != nil {
+		t.Fatalf("read inquiries: %v", err)
+	}
+	last := entries[len(entries)-1]
+	if len(last.OpenedIDs) != 1 || last.OpenedIDs[0] != c.ID {
+		t.Errorf("OpenedIDs = %v, want [%s] -- the COMMENT id, not the task it opened", last.OpenedIDs, c.ID)
+	}
+	if len(last.ReturnedIDs) != 1 || last.ReturnedIDs[0] != c.ID {
+		t.Errorf("ReturnedIDs = %v, want [%s]", last.ReturnedIDs, c.ID)
+	}
+	if last.OpenedIDs[0] != last.ReturnedIDs[0] {
+		t.Error("the opened id must appear in this turn's returned_ids -- that is the whole point of logging hit.ID unresolved")
+	}
+}
+
 // A source whose task another process deleted is not openable. Same re-read
 // activateTaskAction does before replaying against a target, for the same
 // reason: rows are a snapshot of a store someone else can write to.
@@ -984,8 +1035,16 @@ func TestAskOpenSourceSurvivesADeletedTask(t *testing.T) {
 	drainAskTicks(t, m, p)
 
 	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // must not panic
-	if m.spotlight.level != levelAsk {
-		t.Error("a source that is gone leaves the user where they were")
+	// level is not the guard's signal: openSelected never calls setLevel on
+	// ANY path (success included), so level alone can't tell a rejected open
+	// from an accepted one. open/ask are what the guard actually protects --
+	// they are left untouched by the early return, and only flipped/nilled
+	// past the re-read on a live target.
+	if !m.spotlight.open {
+		t.Error("a source that is gone must not close the spotlight")
+	}
+	if m.spotlight.ask == nil {
+		t.Error("a source that is gone must not end the ask session")
 	}
 }
 
