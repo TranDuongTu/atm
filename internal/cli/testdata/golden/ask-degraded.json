@@ -1,0 +1,21 @@
+{
+  "answer": "",
+  "behind": 0,
+  "chat_model": "",
+  "citations": [],
+  "degraded": true,
+  "embed_model": "",
+  "error": "no chat model configured; run 'atm project set-chat'",
+  "hits": [
+    {
+      "id": "FOO-06f331",
+      "kind": "task",
+      "match": "text",
+      "score": 3,
+      "snippet": "the resolver walks the hierarchy",
+      "title": "label resolver"
+    }
+  ],
+  "session": "",
+  "truncated": false
+}
