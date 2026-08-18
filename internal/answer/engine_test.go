@@ -260,8 +260,12 @@ func TestAskMidStreamFailureKeepsTheDeltasAndFails(t *testing.T) {
 	}
 }
 
-// Cancellation is its own ending, and it outranks the zero-delta degrade: a
-// user who pressed Esc did not discover a broken endpoint.
+// Cancellation is its own ending: a mid-stream cancel (after a delta has
+// already arrived) reports Failed{Canceled: true}, not the mid-stream-failure
+// default a non-canceled break would produce. This does NOT by itself prove
+// cancellation outranks the zero-delta degrade row — answer.Len() is already
+// non-zero here by the time the cancel fires, so that ordering is pinned
+// separately by TestAskCanceledBeforeAnyDeltaIsStillACanceledFailure below.
 func TestAskCanceledStreamIsACanceledFailure(t *testing.T) {
 	s := &fakeSearcher{hits: twoHits()}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -273,6 +277,33 @@ func TestAskCanceledStreamIsACanceledFailure(t *testing.T) {
 	}
 	if got[len(got)-1] != "failed:canceled=true" {
 		t.Errorf("events = %v, want a canceled failure last", got)
+	}
+}
+
+// The only state that actually separates the cancel row from the zero-delta
+// degrade row: canceling before any token ever arrives, so ctx.Err() != nil
+// AND answer.Len() == 0 are both true when the switch runs. This is not an
+// edge case — a user pressing Esc while waiting for generation to start is
+// probably the MOST common cancel there is. If a refactor ever swapped the
+// order of those two switch cases, this cancel would silently render as
+// Done{Degraded: true} ("sources only, generation unavailable") instead of
+// Failed{Canceled: true} ("you stopped it") — a user-visible lie that every
+// other test in this file would stay green through.
+func TestAskCanceledBeforeAnyDeltaIsStillACanceledFailure(t *testing.T) {
+	s := &fakeSearcher{hits: twoHits()}
+	ctx, cancel := context.WithCancel(context.Background())
+	// A single-delta stream: fakeChat's before hook fires ahead of the LAST
+	// delta, which here is also the FIRST — so cancellation lands before
+	// onDelta is ever called and answer.Len() stays 0.
+	c := &fakeChat{deltas: []string{"never"}, before: cancel}
+	e := New(Config{Project: "ATM", Searcher: s, Model: "m", Chat: c})
+	var got []string
+	if err := e.Ask(ctx, Query{Question: "q"}, record(&got)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	want := []string{"retrieved:2:behind=0", "failed:canceled=true"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events = %v, want %v (canceled, never a degraded done)", got, want)
 	}
 }
 
