@@ -534,6 +534,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// drops it if a newer keystroke, level change, or close superseded it.
 		m.spotlight.applySearchTick(msg)
 		return m, nil
+	case askTickMsg:
+		if p := m.spotlight.ask; p != nil {
+			return m, p.applyTick(msg)
+		}
 	}
 	return m, nil
 }

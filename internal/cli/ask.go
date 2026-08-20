@@ -201,7 +201,8 @@ func logInquiry(st *cliState, s core.Service, cfg *core.ProjectConfig, project, 
 	if cfg != nil && cfg.InquiryLog != nil && !*cfg.InquiryLog {
 		return
 	}
-	if err := s.AppendInquiry(project, query, returned, cited); err != nil {
+	// `atm ask` has no click-through surface -- that's the spotlight (ATM-f71b81).
+	if err := s.AppendInquiry(project, query, returned, cited, nil); err != nil {
 		fmt.Fprintf(st.stderr(), "warning: could not record the inquiry: %v\n", err)
 	}
 }

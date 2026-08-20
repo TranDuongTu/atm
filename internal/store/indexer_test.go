@@ -277,7 +277,11 @@ func TestWatchTriggersOnNewLogAppend(t *testing.T) {
 }
 
 // PendingIndexCount is the answer engine's staleness number (ATM-66a6d2): the
-// count crosses the package boundary so IndexDoc does not have to.
+// count crosses the package boundary so IndexDoc does not have to. It covers
+// both of PendingIndexCount's paths (ATM-f71b81): the full fold, exercised
+// here before any vectors exist for slug "m" (VectorMeta is nil, so the fast
+// path can't fire), and the fast path once the vector meta catches up to the
+// log -- the two must agree, always at zero once caught up.
 func TestPendingIndexCountMatchesPendingIndex(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
@@ -296,5 +300,34 @@ func TestPendingIndexCountMatchesPendingIndex(t *testing.T) {
 	}
 	if n != len(pending) || n == 0 {
 		t.Errorf("count = %d, want %d and non-zero", n, len(pending))
+	}
+
+	// Catch the vector meta up to the log so PendingIndexCount's fast path
+	// (VectorMeta.LastLogSeq == LastLogSeq) fires. It must still agree with
+	// the full fold: both zero.
+	lastSeq, err := s.LastLogSeq("ATM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []VectorEntry
+	for _, doc := range pending {
+		entries = append(entries, VectorEntry{
+			ID: doc.ID, Kind: doc.Kind, Model: "m", Dim: 2, Vector: []float64{0.1, 0.2},
+			TextHash: doc.TextHash, LogSeq: doc.LogSeq, Title: doc.Title, Snippet: doc.Snippet, Labels: doc.Labels,
+		})
+	}
+	if err := s.WriteVectorBatch("ATM", "m", entries, lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	wantCaughtUp, err := s.PendingIndex("ATM", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotCaughtUp, err := s.PendingIndexCount("ATM", "m")
+	if err != nil {
+		t.Fatalf("PendingIndexCount after catch-up: %v", err)
+	}
+	if gotCaughtUp != len(wantCaughtUp) || gotCaughtUp != 0 {
+		t.Errorf("count = %d, want %d and 0 (caught up, fast path)", gotCaughtUp, len(wantCaughtUp))
 	}
 }

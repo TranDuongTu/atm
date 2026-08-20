@@ -45,10 +45,12 @@ type spotlightModel struct {
 	searchGen   int
 	searching   bool   // a debounce tick is in flight
 	searchErr   string // the last store error, surfaced as a row rather than swallowed
-	// askRowEnabled gates the pinned Ask row. False here and flipped by
-	// sub-task 4 (ATM-f71b81), which is what makes the row's layout land now
-	// without shipping a row that does nothing.
-	askRowEnabled bool
+
+	// ask is the spotAsk level's whole state, non-nil exactly while level is
+	// levelAsk. It lives behind a pointer in its own file because the level owns a
+	// streaming goroutine, a transcript and an input of its own -- none of which
+	// the tree levels have any use for.
+	ask *askPane
 }
 
 // spotLevel is which layer of the tree is on screen.
@@ -58,6 +60,7 @@ const (
 	levelRoot        spotLevel = iota
 	levelGroup                 // a static group's entries (Project, Board, Reference)
 	levelTaskActions           // per-task actions for sm.taskID
+	levelAsk                   // the conversational answer level (ATM-f71b81)
 )
 
 type spotFocus int
@@ -564,9 +567,17 @@ func (sm *spotlightModel) selectedLabel() string {
 
 // handleKey routes the launcher's keys. The key column the list renders is
 // documentation of the real TUI binding, never an accelerator: inside the
-// launcher every printable key types into the query. `\` is the one
-// exception — the key that opens the launcher also closes it, from any level.
+// launcher every printable key types into the query. `\` is the one exception
+// — the key that opens the launcher also closes it.
+//
+// From any level of the TREE, that is. The ask level forks above the `\` case
+// on purpose: it has a text input of its own, and a backslash typed into a
+// question is a character, not a command. Esc is the exit there, and it peels
+// back to the list this closes from.
 func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
+	if sm.level == levelAsk && sm.ask != nil {
+		return sm.ask.handleKey(k)
+	}
 	if k.String() == "\\" {
 		sm.open = false
 		return nil
@@ -584,13 +595,20 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "enter":
 		return sm.activate()
 	case "tab":
-		// An empty preview is not worth focusing: Tab would strand the user in
-		// a pane with nothing to scroll, where every key but Tab/Esc/`\` does
-		// nothing. The pane says "(no preview)" rather than going blank, so
-		// the ignored Tab reads as "nothing to see" and not as a dead key.
+		// Sub-task 1 pinned the Ask row and left it hintless because this key
+		// focused the preview; it named this task as the owner of the rebinding
+		// (spotlight_render.go). Preview focus moves to the arrow that points at
+		// the pane it focuses, which reads better than tab ever did.
+		return sm.enterAsk()
+	case "right":
+		// An empty preview is not worth focusing: the user would be stranded in a
+		// pane with nothing to scroll, where every key but left/esc does nothing.
 		if len(sm.lines) > 0 {
 			sm.focus = focusPreview
 		}
+	// No "left" case: focusPreview is routed to handlePreviewKey above this
+	// switch, so a left arm guarded on that focus could never run. Left out of
+	// a focused preview is handlePreviewKey's, alongside esc.
 	case "pgup":
 		sm.scrollPreview(-sm.previewHeight())
 	case "pgdown":
@@ -610,7 +628,7 @@ func (sm *spotlightModel) handleKey(k tea.KeyMsg) tea.Cmd {
 }
 
 // handlePreviewKey is the focused-preview mode: the arrows and j/k scroll a
-// line, PgUp/PgDn a screenful (both advertised in the footer); Tab and Esc —
+// line, PgUp/PgDn a screenful (both advertised in the footer); Left and Esc —
 // the only two exits — hand focus back to the list. Printable keys do not type
 // here: the query belongs to the list.
 func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) tea.Cmd {
@@ -623,7 +641,7 @@ func (sm *spotlightModel) handlePreviewKey(k tea.KeyMsg) tea.Cmd {
 		sm.scrollPreview(sm.previewHeight())
 	case "pgup":
 		sm.scrollPreview(-sm.previewHeight())
-	case "tab", "esc":
+	case "left", "esc":
 		return sm.escPeel()
 	}
 	return nil

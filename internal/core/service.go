@@ -120,7 +120,7 @@ type ActivityService interface {
 	LastLogSeq(code string) (int, error)
 	History(code string, subject Subject) []HistoryView
 	HistoryE(code string, subject Subject) ([]HistoryView, error)
-	AppendInquiry(code, query string, returnedIDs, citedIDs []string) error
+	AppendInquiry(code, query string, returnedIDs, citedIDs, openedIDs []string) error
 	AppendAskTurn(code, sessionID string, t AskTurn) error
 	ReadAskTurns(code, sessionID string) ([]AskTurn, error)
 }

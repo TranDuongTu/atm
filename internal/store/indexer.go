@@ -79,10 +79,29 @@ func (s *Store) PendingIndex(code, slug string) ([]IndexDoc, error) {
 
 // PendingIndexCount is the instant staleness number: how many entities are
 // waiting to be embedded for this model. The answer engine renders it as
-// "sources may lag" (ATM-66a6d2). Only the count crosses the boundary —
-// IndexDoc is a store type with no core counterpart, and a consumer that
-// wants documents can still call PendingIndex.
+// "sources may lag" (ATM-66a6d2), calling it once per question right before
+// Retrieved is emitted (ATM-f71b81) -- so this is dead time between the user
+// asking and the spotlight painting SOURCES. Only the count crosses the
+// boundary — IndexDoc is a store type with no core counterpart, and a
+// consumer that wants documents can still call PendingIndex.
+//
+// The fast path is exact, not an approximation: PendingIndex's own staleness
+// test is the text hash, and a project whose vector meta has already caught
+// up to the log has nothing whose hash could have changed since. Falling
+// through to the full fold otherwise keeps the number identical either way.
+// Never redefine this as the log-seq delta -- that answers a different
+// question and the two can disagree (answer/event.go:26).
 func (s *Store) PendingIndexCount(code, slug string) (int, error) {
+	meta, err := s.VectorMeta(code, slug)
+	if err != nil {
+		return 0, err
+	}
+	if meta != nil {
+		last, err := s.LastLogSeq(code)
+		if err == nil && last >= 0 && last == meta.LastLogSeq {
+			return 0, nil
+		}
+	}
 	pending, err := s.PendingIndex(code, slug)
 	if err != nil {
 		return 0, err
