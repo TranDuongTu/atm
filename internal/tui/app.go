@@ -81,6 +81,7 @@ type Model struct {
 	projects   projectsModel
 	tasks      tasksModel
 	boards     boardsModel
+	lanes      lanesModel
 	capability capabilityModel
 
 	// dispatch is the composition-root-injected dispatch port (the
@@ -194,6 +195,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
 	m.boards = newBoardsModel(m)
+	m.lanes = newLanesModel(m)
 	m.capability = newCapabilityModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
@@ -325,6 +327,9 @@ func (m *Model) refreshAll() {
 	m.artPair = pairs
 	m.tasks.refresh()
 	m.boards.refresh()
+	// After capability.refresh (which resolves current) and boards.refresh:
+	// the lane strip is scoped to the current capability like the ring is.
+	m.lanes.refresh()
 	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
 	// something on a normal launch: without it, m.setup.model stays at its
 	// zero value until the user has opened the wizard at least once, so an

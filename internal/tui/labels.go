@@ -728,7 +728,7 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 			})
 			continue
 		}
-		count, broken := b.boardCount(l.Name)
+		count, broken := b.m.boardCount(l.Name)
 		out = append(out, boardRow{
 			Name:        suffix,
 			FullName:    l.Name,
@@ -767,10 +767,12 @@ func (b *boardsModel) buildBoardRows(ls []core.Label) []boardRow {
 // boardCount returns the task count for a board (label with an Expr) and
 // whether the expression is broken (invalid or cyclic). Uses GroupTasksErr
 // via a single-label query because ListTasks swallows expression errors
-// and would conflate a broken board with an empty one.
-func (b *boardsModel) boardCount(full string) (int, bool) {
-	_, others, err := b.m.store.GroupTasksErr(core.QueryFilters{
-		Project: b.m.projectScope,
+// and would conflate a broken board with an empty one. It lives on the Model
+// rather than on a pane because both the board ring and the lane strip count
+// boards the same way.
+func (m *Model) boardCount(full string) (int, bool) {
+	_, others, err := m.store.GroupTasksErr(core.QueryFilters{
+		Project: m.projectScope,
 		Labels:  []string{full},
 	})
 	if err != nil {
@@ -860,7 +862,7 @@ func (b *boardsModel) buildUmbrellaRows() []boardRow {
 			continue
 		}
 		name := strings.TrimPrefix(l.Name, scope+":")
-		count, broken := b.boardCount(l.Name)
+		count, broken := b.m.boardCount(l.Name)
 		seen[name] = true
 		out = append(out, boardRow{
 			Name: name, FullName: l.Name, Description: l.Description,
