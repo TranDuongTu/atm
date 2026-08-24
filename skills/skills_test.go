@@ -114,9 +114,23 @@ func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	}
 	// Named, not counted: the set grows and shrinks as capabilities ship and
 	// retire, and a magic total only ever fails for the wrong reason.
-	for _, want := range []string{"workflow_ai", "workflow_rpi", "scrum", "qa", "codereview"} {
+	for _, want := range []string{"workflow_ai", "workflow_rpi", "scrum", "qa", "codereview", "release"} {
 		if _, ok := Capability(want); !ok {
 			t.Errorf("%s missing", want)
 		}
+	}
+}
+
+// A registry capability owns labels but seeds no boards. Its frontmatter must
+// be allowed to say so rather than list a lane it does not have.
+func TestCapabilityMayDeclareNoBoards(t *testing.T) {
+	src := []byte("---\nname: reg\ndescription: A registry capability.\nlabels: [reg:*]\n---\n" +
+		"## Semantics\nx\n\n## Actions\nx\n\n## Converge\nx\n")
+	c, err := ParseCapability("reg", src)
+	if err != nil {
+		t.Fatalf("ParseCapability: %v", err)
+	}
+	if len(c.Boards) != 0 {
+		t.Fatalf("boards = %v", c.Boards)
 	}
 }

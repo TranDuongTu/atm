@@ -200,9 +200,9 @@ func ParseCapability(stem string, src []byte) (CapabilitySpec, error) {
 	if len(c.Labels) == 0 {
 		return CapabilitySpec{}, fmt.Errorf("capability %s: labels is required", stem)
 	}
-	if len(c.Boards) == 0 {
-		return CapabilitySpec{}, fmt.Errorf("capability %s: boards is required", stem)
-	}
+	// boards may be empty: a REGISTRY capability owns labels but seeds no
+	// lanes, and listing a board it does not have would be a lie in the one
+	// place agents read to learn what a capability surfaces.
 	_, secs := splitSections(c.Body)
 	have := map[string]bool{}
 	for _, s := range secs {

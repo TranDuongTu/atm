@@ -136,7 +136,6 @@ func TestParseCapability(t *testing.T) {
 func TestParseCapabilityErrors(t *testing.T) {
 	cases := map[string]string{
 		"missing labels":    "---\nname: x\ndescription: d\nboards: [b]\n---\n## Semantics\ns\n## Actions\na\n## Converge\nc",
-		"missing boards":    "---\nname: x\ndescription: d\nlabels: [l]\n---\n## Semantics\ns\n## Actions\na\n## Converge\nc",
 		"missing converge":  "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Semantics\ns\n## Actions\na",
 		"missing actions":   "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Semantics\ns\n## Converge\nc",
 		"missing semantics": "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Actions\na\n## Converge\nc",
