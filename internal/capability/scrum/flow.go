@@ -43,6 +43,3 @@ func (Cap) EvictLabel(code string) core.Label {
 func (Cap) Lanes(code string) capability.LaneSet {
 	return capability.LaneSet{Inbox: BoardInbox(code), Pipeline: BoardPipeline(code), Out: BoardOut(code)}
 }
-
-// Annotate lands in the reporter/annotate task; nothing to say until then.
-func (Cap) Annotate(core.Task) *capability.Cell { return nil }

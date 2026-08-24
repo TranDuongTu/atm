@@ -1,6 +1,10 @@
 package scrum
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -52,4 +56,43 @@ func payloadOf(t *testing.T, s *store.Store, id string) *Payload {
 		t.Fatalf("decode payload %s: %v", id, err)
 	}
 	return pl
+}
+
+// ledgerDigest hashes the store's DURABLE ledger: the per-project event logs
+// and the store manifest. Every mutation in ATM is an appended event, so a
+// reader can be pinned as a reader by running this either side of it.
+//
+// The derived read cache (cache.db and its SQLite -wal/-shm sidecars) is
+// deliberately excluded: SQLite touches the shared-memory file on a pure read,
+// which says nothing about whether the ledger moved.
+func ledgerDigest(t *testing.T, s *store.Store) string {
+	t.Helper()
+	h := sha256.New()
+	root := s.StorePath()
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		if filepath.Ext(rel) != ".jsonl" && rel != "store.json" {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s:%d:", rel, len(b))
+		h.Write(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk store: %v", err)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

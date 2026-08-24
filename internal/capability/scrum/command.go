@@ -36,6 +36,8 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 	cmd.AddCommand(newLinkCmd(env, false))
 	cmd.AddCommand(newLocatorCmd(env, "spec"))
 	cmd.AddCommand(newLocatorCmd(env, "plan"))
+	cmd.AddCommand(newLinksCmd(env))
+	cmd.AddCommand(newReportCmd(env))
 	cmd.AddCommand(newSeedCmd(env))
 	return cmd
 }
@@ -332,6 +334,94 @@ func newSeedCmd(env capability.Env) *cobra.Command {
 			}
 			return env.Emit(map[string]any{"project": project, "boards": names}, func() {
 				fmt.Fprintf(env.Stdout(), "ensured scrum lanes for %s\n", project)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project code")
+	_ = cmd.MarkFlagRequired("project")
+	return cmd
+}
+
+func newLinksCmd(env capability.Env) *cobra.Command {
+	var id, legacy string
+	cmd := &cobra.Command{
+		Use:   "links",
+		Short: "Show a unit's topology, outbound and inbound (read-only)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, err := env.ResolveTaskID(id, legacy)
+			if err != nil {
+				return err
+			}
+			svc, err := env.OpenService()
+			if err != nil {
+				return err
+			}
+			l, err := (&Reporter{Store: svc}).Links(taskID)
+			if err != nil {
+				return err
+			}
+			return env.Emit(map[string]any{"task": taskID, "links": l}, func() {
+				w := env.Stdout()
+				if l.PartOf != "" {
+					fmt.Fprintf(w, "%s\tpart_of\t%s\n", taskID, l.PartOf)
+				}
+				if l.CoveredBy != "" {
+					fmt.Fprintf(w, "%s\tcovered_by\t%s\n", taskID, l.CoveredBy)
+				}
+				for _, x := range l.DependsOn {
+					fmt.Fprintf(w, "%s\tdepends_on\t%s\n", taskID, x)
+				}
+				for _, x := range l.Children {
+					fmt.Fprintf(w, "%s\tchild\t%s\n", taskID, x)
+				}
+				for _, x := range l.Dependents {
+					fmt.Fprintf(w, "%s\tdependent\t%s\n", taskID, x)
+				}
+				for _, x := range l.Covered {
+					fmt.Fprintf(w, "%s\tcovers\t%s\n", taskID, x)
+				}
+			})
+		},
+	}
+	env.BindTaskIDFlags(cmd, &id, &legacy)
+	return cmd
+}
+
+func newReportCmd(env capability.Env) *cobra.Command {
+	var project string
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Read the project through the scrum lens: lane rosters and findings (read-only)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := env.OpenService()
+			if err != nil {
+				return err
+			}
+			rep, err := (&Reporter{Store: svc}).Report(project)
+			if err != nil {
+				return err
+			}
+			return env.Emit(map[string]any{"report": rep}, func() {
+				w := env.Stdout()
+				for _, id := range rep.Inbox {
+					fmt.Fprintf(w, "%s\tinbox\tawaiting a decision\n", id)
+				}
+				for _, s := range rep.Pipeline {
+					stage := s.Stage
+					if stage == "" {
+						stage = "-"
+					}
+					fmt.Fprintf(w, "%s\tpipeline\t%s · %s\tchildren: %d, blocked by: %d\n",
+						s.TaskID, s.Type, stage, s.Children, len(s.BlockedBy))
+				}
+				for _, s := range rep.Out {
+					fmt.Fprintf(w, "%s\tout\t%s\n", s.TaskID, s.Reason)
+				}
+				for _, f := range rep.Findings {
+					fmt.Fprintf(w, "%s\tfinding\t%s\n", f.TaskID, f.Detail)
+				}
+				fmt.Fprintf(w, "%d inbox, %d pipeline, %d out, %d findings\n",
+					len(rep.Inbox), len(rep.Pipeline), len(rep.Out), len(rep.Findings))
 			})
 		},
 	}
