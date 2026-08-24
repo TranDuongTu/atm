@@ -7,7 +7,11 @@ import (
 	"atm/internal/capability"
 	"atm/internal/capability/channel"
 	"atm/internal/capability/checklist"
+	"atm/internal/capability/codereview"
 	"atm/internal/capability/contextmap"
+	"atm/internal/capability/qa"
+	"atm/internal/capability/release"
+	"atm/internal/capability/scrum"
 	"atm/internal/capability/workflow"
 	"atm/internal/capability/workflowai"
 	"atm/internal/capability/workflowrpi"
@@ -22,7 +26,10 @@ import (
 // the capability registry, and hands the adapters their dependencies. No
 // domain or presentation logic here.
 func main() {
-	reg := capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New(), workflowrpi.New(), channel.New(), checklist.New())
+	reg := capability.NewRegistry(
+		workflow.New(), contextmap.New(), workflowai.New(), workflowrpi.New(), channel.New(), checklist.New(),
+		scrum.New(), qa.New(), codereview.New(), release.New(),
+	)
 	open := func(storePath string) (*store.Store, error) {
 		return store.Open(store.ResolveStorePath(storePath))
 	}

@@ -32,6 +32,7 @@ func newProjectCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProjectSetInquiryLogCmd(st))
 	cmd.AddCommand(newProjectCapabilityCmd(st))
 	cmd.AddCommand(newProjectBoardsCmd(st))
+	cmd.AddCommand(newProjectWiringCmd(st))
 	cmd.AddCommand(newProjectRepoCmd(st))
 	return cmd
 }
