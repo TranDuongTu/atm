@@ -114,7 +114,18 @@ func TestCoveredByAndLocatorsRoundTrip(t *testing.T) {
 		t.Fatalf("round trip lost fields: %s", out)
 	}
 	q.ClearCoveredBy()
-	if q.CoveredBy() != "" {
-		t.Fatal("covered_by survived clear")
+	q.ClearSpec()
+	q.ClearPlan()
+	if q.CoveredBy() != "" || q.Spec() != "" || q.Plan() != "" {
+		t.Fatal("a cleared field survived")
+	}
+	// Every field this version owns is clearable, so release can empty the
+	// payload through the accessors rather than reaching into the raw map.
+	out, err = q.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Fatalf("payload with every owned field cleared encodes to %q, want \"\"", out)
 	}
 }

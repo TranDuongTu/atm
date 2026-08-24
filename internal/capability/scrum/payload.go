@@ -143,7 +143,11 @@ func (p *Payload) Spec() string { return str(p.raw["spec"]) }
 
 func (p *Payload) SetSpec(path string) { p.raw["spec"] = path }
 
+func (p *Payload) ClearSpec() { delete(p.raw, "spec") }
+
 // Plan returns the repo-relative implementation-plan locator, or "" when none.
 func (p *Payload) Plan() string { return str(p.raw["plan"]) }
 
 func (p *Payload) SetPlan(path string) { p.raw["plan"] = path }
+
+func (p *Payload) ClearPlan() { delete(p.raw, "plan") }

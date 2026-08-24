@@ -344,8 +344,8 @@ func (r *Recorder) Release(taskID, reason string) error {
 	for _, id := range pl.DependsOn() {
 		pl.RemoveDependsOn(id)
 	}
-	delete(pl.raw, "spec")
-	delete(pl.raw, "plan")
+	pl.ClearSpec()
+	pl.ClearPlan()
 	if err := r.writePayload(taskID, pl); err != nil {
 		return err
 	}
