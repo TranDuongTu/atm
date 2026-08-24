@@ -97,7 +97,7 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		c.open = false
-		c.m.dispatchDlg.open("concierge", c.project, "", "", "channel")
+		c.m.dispatchDlg.open("concierge", c.project, "", "", dispatchScope{Capability: "channel"})
 	}
 	return nil
 }

@@ -51,8 +51,8 @@ func TestSelectPathTimings(t *testing.T) {
 		}
 	})
 	stage("capability.refresh", nil, func() { m.capability.refresh() })
-	stage("boards.refresh", nil, func() { m.boards.refresh() })
-	stage("boards.selectDefault", nil, func() { m.boards.selectDefault() })
+	stage("lanes.refresh", nil, func() { m.lanes.refresh() })
+	stage("lanes.selectDefault", nil, func() { m.lanes.selectDefault() })
 	stage("tasks.refresh", nil, func() { m.tasks.refresh() })
 	stage("refreshStoreStats", nil, func() { m.refreshStoreStats() })
 	stage("refreshSummary", nil, func() { m.projects.refreshSummary() })

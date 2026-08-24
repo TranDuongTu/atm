@@ -213,13 +213,12 @@ func TestBoardsConfigRoundTripAndMerge(t *testing.T) {
 	if err != nil || b == nil {
 		t.Fatalf("GetBoardsConfig absent = (%v, %v), want empty non-nil", b, err)
 	}
-	if len(b.Order) != 0 || len(b.Hidden) != 0 || len(b.Pins) != 0 {
+	if len(b.Order) != 0 || len(b.Hidden) != 0 {
 		t.Fatalf("absent config not empty: %+v", b)
 	}
 	want := &core.BoardsConfig{
 		Order:  []string{"ATM:all-tasks", "ATM:unmanaged"},
 		Hidden: []string{"ATM:context-current"},
-		Pins:   []string{"ATM:all-tasks"},
 	}
 	if err := s.SetProjectBoards("ATM", want, testActor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
@@ -228,7 +227,7 @@ func TestBoardsConfigRoundTripAndMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Order[0] != "ATM:all-tasks" || got.Hidden[0] != "ATM:context-current" || got.Pins[0] != "ATM:all-tasks" {
+	if got.Order[0] != "ATM:all-tasks" || got.Hidden[0] != "ATM:context-current" {
 		t.Errorf("round-trip = %+v, want %+v", got, want)
 	}
 	// Boards write preserves other config fields.
@@ -266,43 +265,8 @@ func TestSetProjectBoardsValidation(t *testing.T) {
 	if err := s.SetProjectBoards("ATM", nil, testActor); !core.IsUsage(err) {
 		t.Errorf("nil boards: err = %v, want usage", err)
 	}
-	four := &core.BoardsConfig{Pins: []string{"ATM:a", "ATM:b", "ATM:c", "ATM:d"}}
-	if err := s.SetProjectBoards("ATM", four, testActor); !core.IsUsage(err) {
-		t.Errorf("4 pins: err = %v, want usage (MaxBoardPins=3)", err)
-	}
 	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{}, ""); !core.IsUsage(err) {
 		t.Errorf("missing actor: err = %v, want usage", err)
-	}
-}
-
-// TestGetBoardsConfigFoldsLegacyPins is the migration read: boards nil +
-// pins.json present -> Pins folded in (capped at 3); first SetProjectBoards
-// persists, after which pins.json is ignored.
-func TestGetBoardsConfigFoldsLegacyPins(t *testing.T) {
-	s := newTestStore(t)
-	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
-		t.Fatal(err)
-	}
-	// Task 7 retired WritePins; the fold-in read still consumes a raw
-	// pins.json, so the fixture writes one directly under the project dir.
-	pinsPath := filepath.Join(s.StorePath(), "projects", "ATM", "pins.json")
-	if err := os.WriteFile(pinsPath, []byte(`{"boards":["ATM:open-tasks","ATM:backlog"]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	b, err := s.GetBoardsConfig("ATM")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(b.Pins) != 2 || b.Pins[0] != "ATM:open-tasks" {
-		t.Fatalf("legacy fold-in = %+v, want the pins.json boards", b.Pins)
-	}
-	// Persist with different pins; pins.json is now dead.
-	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Pins: []string{"ATM:all-tasks"}}, testActor); err != nil {
-		t.Fatal(err)
-	}
-	b2, _ := s.GetBoardsConfig("ATM")
-	if len(b2.Pins) != 1 || b2.Pins[0] != "ATM:all-tasks" {
-		t.Fatalf("after persist = %+v, pins.json must be ignored", b2.Pins)
 	}
 }
 

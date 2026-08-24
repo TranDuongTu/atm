@@ -90,7 +90,7 @@ func TestMenuEntriesCarrySummaryAndKind(t *testing.T) {
 // empty one would replay the entry's key into whatever pane happens to be
 // focused, which is the contextual-menu bug this redesign removes.
 func TestPreludesRoundTripAndCoverEveryScope(t *testing.T) {
-	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeTasksList, scopeTasksDetail, scopeBoards}
+	scopes := []menuScope{scopeProjectsList, scopeProjectsDetail, scopeTasksList, scopeTasksDetail}
 	for _, s := range scopes {
 		chain := preludeFor(s)
 		if len(chain) == 0 {
@@ -193,7 +193,7 @@ func probeID(key string, scope menuScope) string {
 	return fmt.Sprintf("%s|%d", key, scope)
 }
 
-// scopeTasksPane (tasks_boards_authoring_test.go) selects the seeded project
+// parityTasksScope selects the seeded project
 // and focuses the Tasks pane, so the entry's key routes through
 // tasksModel.handleListKey (the boards keys route to boardsModel from there).
 
@@ -201,23 +201,23 @@ func probeID(key string, scope menuScope) string {
 // pane: "s" (not "2") is what runs EnsureVocabulary and boards.selectDefault,
 // so the tasks/boards models are ready even though the pane isn't focused
 // yet. This is the setup for probes whose own scope's prelude ends in "2" —
-// the prelude does the focusing the old scopeTasksPane call used to.
+// the prelude does the focusing that the setup used to.
 func parityTasksSeed(t *testing.T, m *Model) {
 	t.Helper()
 	seedProject(t, m, "ATM", "Acme")
 	update(t, m, "s")
 }
 
-// parityTasksScope is scopeTasksPane's seed-and-focus setup. It stays in use
-// (rather than parityTasksSeed) wherever a probe's own setup goes on to do
-// more pane-dependent replay of its own — a Views entry with no prelude at
-// all ("C|views"), or parityBoardsChart's namespace/chart drill below — since
-// that replay needs the Tasks pane focused before setup returns, not after
-// the driver's prelude runs.
+// parityTasksScope seeds a project, selects it, and focuses the Tasks pane.
+// It stays in use (rather than parityTasksSeed) wherever a probe's own setup
+// goes on to replay pane-dependent keys of its own — a Views entry with no
+// prelude at all ("C|views") — since that replay needs the Tasks pane focused
+// before setup returns, not after the driver's prelude runs.
 func parityTasksScope(t *testing.T, m *Model) {
 	t.Helper()
 	seedProject(t, m, "ATM", "Acme")
-	scopeTasksPane(t, m, "ATM")
+	update(t, m, "s") // select the project under the Projects cursor
+	update(t, m, "2") // focus the Tasks pane
 }
 
 // parityTaskDetail seeds a task for the scopeTasksDetail probes (e/d/b/B/M/
@@ -227,27 +227,6 @@ func parityTaskDetail(t *testing.T, m *Model) {
 	t.Helper()
 	parityTasksSeed(t, m)
 	seedTask(t, m, "ATM", "parity task")
-}
-
-// parityBoardsChart drills the tasks pane into the status namespace's chart,
-// where the boards describe/remove keys (d/l) apply at chart level. The
-// scopeBoards prelude only reaches the ring ({"2"}), not the chart, so the
-// namespace cycle and the shift+right drill-in stay here — and because they
-// replay through m.handleKey themselves, they need the Tasks pane focused
-// already, hence parityTasksScope rather than parityTasksSeed.
-func parityBoardsChart(t *testing.T, m *Model) {
-	t.Helper()
-	parityTasksScope(t, m)
-	for i := 0; m.boards.selected != "ATM:status:*"; i++ {
-		if i > len(m.boards.rows) {
-			t.Fatalf("status namespace never became selected; rows=%v", m.boards.rowNames())
-		}
-		m.boards.cycleBoard(1)
-	}
-	update(t, m, "shift+right")
-	if m.boards.level != lLevelChart {
-		t.Fatalf("drill-in must reach the chart, level=%v", m.boards.level)
-	}
 }
 
 // TestMenuEntriesConsumedByHandlers is the spec's parity test (decision 9):
@@ -373,14 +352,6 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
-		probeID("p", scopeTasksList): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if len(m.boards.pins) != 1 || m.boards.pins[0] != "ATM:all-tasks" {
-					t.Errorf("p on the tasks list must pin the selected board, pins=%v want [ATM:all-tasks]", m.boards.pins)
-				}
-			},
-		},
 
 		// Actions — task detail.
 		probeID("e", scopeTasksDetail): {
@@ -432,47 +403,20 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 			},
 		},
 
-		// Actions — boards ring (routed from the tasks pane).
-		probeID("n", scopeBoards): {
+		// Actions — lanes (routed from the tasks pane).
+		probeID("s", scopeTasksList): {
 			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
-				if m.form == nil || m.formKind != formBoardEditor {
-					t.Errorf("n on the boards ring must open the board editor, formKind=%v", m.formKind)
+				if m.tasks.sortMode == sortUpdatedDesc {
+					t.Errorf("s on the tasks list must advance the sort, sortMode=%v", m.tasks.sortMode)
 				}
 			},
 		},
-		probeID("e", scopeBoards): {
-			setup: parityTasksSeed,
-			check: func(t *testing.T, m *Model) {
-				if m.form == nil || m.formKind != formBoardEditor {
-					t.Errorf("e on the boards ring must open the board editor, formKind=%v", m.formKind)
-				}
-				if m.boardEd == nil || m.boardEd.Name != "all-tasks" {
-					t.Errorf("e on the boards ring must edit the selected board all-tasks, boardEd=%v", m.boardEd)
-				}
-			},
-		},
-		probeID("d", scopeBoards): {
-			setup: parityBoardsChart,
-			check: func(t *testing.T, m *Model) {
-				if m.form == nil || m.formKind != formLabelDescribe {
-					t.Errorf("d at chart level must open the describe-label form, formKind=%v", m.formKind)
-				}
-			},
-		},
-		probeID("l", scopeBoards): {
-			setup: parityBoardsChart,
-			check: func(t *testing.T, m *Model) {
-				if m.form == nil || m.formKind != formLabelRemove {
-					t.Errorf("l at chart level must open the remove-label form, formKind=%v", m.formKind)
-				}
-			},
-		},
-		probeID("S", scopeBoards): {
+		probeID("S", scopeTasksList): {
 			setup: parityTasksSeed,
 			check: func(t *testing.T, m *Model) {
 				if !strings.Contains(m.toastMsg, "ensured capability vocabulary in ATM") {
-					t.Errorf("S on the boards ring must seed the capability vocabulary (toast), toast=%q", m.toastMsg)
+					t.Errorf("S on the tasks list must seed the capability vocabulary (toast), toast=%q", m.toastMsg)
 				}
 			},
 		},

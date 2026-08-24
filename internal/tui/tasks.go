@@ -17,8 +17,6 @@ type tasksModel struct {
 
 	// list state (flat + grouped)
 	rows     []taskRow
-	groups   []taskGroup
-	others   []taskRow
 	cursor   int
 	offset   int
 	pageSize int
@@ -67,23 +65,11 @@ const sortModeCount = 4
 type taskFocusMode int
 
 const (
-	// focusOff renders whatever t.filter yields: empty filter -> all tasks
-	// flat (L0); an exact label token -> that label's tasks flat (L2).
+	// focusOff renders whatever t.filter yields: an empty filter -> all the
+	// project's tasks, a lane board's FullName -> that lane. It is the only
+	// mode: the grouped, negated and umbrella-idle views belonged to the
+	// board ring, and pane [2] shows one lane at a time.
 	focusOff taskFocusMode = iota
-	// focusPresent renders tasks that carry the namespace. Real namespace:
-	// grouped via GroupTasks with others hidden. bareTags: flat predicate.
-	focusPresent
-	// focusAbsent renders tasks that do NOT carry the namespace. Real
-	// namespace: the GroupTasks others bucket, flat. bareTags: flat predicate.
-	focusAbsent
-	// focusUnlabeled renders tasks with zero labels.
-	focusUnlabeled
-	// focusUmbrellaIdle renders an empty page with a "press Enter to drill
-	// in" hint. The L0 umbrella row is a sentinel, not a real label: it has
-	// no expression to filter tasks by, and showing the unfiltered all-tasks
-	// list would conflate the umbrella with the all-tasks board. The user
-	// drills into the umbrella sub-table to browse unmanaged labels.
-	focusUmbrellaIdle
 )
 
 // taskFocus is the Tasks-pane view state the board strip sets on each level
@@ -137,8 +123,6 @@ func (t *tasksModel) SetSize(w, h int) {
 
 func (t *tasksModel) refresh() {
 	t.rows = nil
-	t.groups = nil
-	t.others = nil
 	t.annReg = nil
 	if t.m.projectScope == "" {
 		t.clampCursor()
@@ -148,68 +132,9 @@ func (t *tasksModel) refresh() {
 	if !t.m.capability.unmanagedCurrent() {
 		t.annReg = t.m.regFor(scope)
 	}
-	switch t.focus.mode {
-	case focusUmbrellaIdle:
-		// No rows: the umbrella is a browsing surface, not a filter. The
-		// empty-state renderer shows the drill-in hint.
-		t.clampCursor()
-		return
-	case focusUnlabeled:
-		for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope})) {
-			if len(tk.Labels) == 0 {
-				t.rows = append(t.rows, t.toRow(tk))
-			}
-		}
-	case focusPresent, focusAbsent:
-		if t.focus.bareTags {
-			for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope})) {
-				has := core.HasBareTag(scope, tk.Labels)
-				if (t.focus.mode == focusPresent) == has {
-					t.rows = append(t.rows, t.toRow(tk))
-				}
-			}
-			break
-		}
-		filters := t.parseFilter()
-		wildcards := core.WildcardTokens(filters)
-		// GroupTasksErr is still the source of the board-as-facet guard (a
-		// board has no members) and of focusAbsent's rows. Its groups are
-		// discarded: the tree below nests from wildcards[0] rather than
-		// taking a flat level 1. Its others is only sound for focusAbsent,
-		// whose filter always carries exactly one wildcard.
-		_, others, gerr := t.m.store.GroupTasksErr(core.QueryFilters{Project: scope, Labels: filters})
-		if gerr != nil {
-			break // matches the old GroupTasks, which swallowed the error and rendered nothing
-		}
-		if t.focus.mode == focusPresent {
-			inScope := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
-			nodes, _ := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
-			t.groups = nodesToGroups(nodes, t.toRow)
-		} else {
-			for _, tk := range t.applySort(others) {
-				t.rows = append(t.rows, t.toRow(tk))
-			}
-		}
-	default: // focusOff
-		filters := t.parseFilter()
-		wildcards := core.WildcardTokens(filters)
-		if len(wildcards) == 0 {
-			for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})) {
-				t.rows = append(t.rows, t.toRow(tk))
-			}
-			break
-		}
-		// GroupTasksErr is called only for the board-as-facet guard; its
-		// others under-counts what the tree drops (see splitUnmatchedTop).
-		if _, _, gerr := t.m.store.GroupTasksErr(core.QueryFilters{Project: scope, Labels: filters}); gerr != nil {
-			break
-		}
-		inScope := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
-		nodes, unmatched := splitUnmatchedTop(core.GroupNested(inScope, taskLabels, wildcards), inScope, wildcards)
-		t.groups = nodesToGroups(nodes, t.toRow)
-		for _, tk := range unmatched {
-			t.others = append(t.others, t.toRow(tk))
-		}
+	filters := core.ParseFilter(t.filter)
+	for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})) {
+		t.rows = append(t.rows, t.toRow(tk))
 	}
 	t.clampCursor()
 }

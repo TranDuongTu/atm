@@ -72,15 +72,15 @@ atm project set-name --code --name    Projects detail  [n]
 atm project remove --code             Projects pane  [x]
 atm activity --project --group-by persona  Projects pane activity chart: persona cards, range, inline breakdown
 
-atm label add --name --desc           Tasks pane [a]dd / [d]esc
-atm label remove --name               Tasks pane [l]
-atm capability workflow seed --project Boards  [S] seed vocabulary
-atm label list [--project] [--ns]     Tasks pane (boards strip)
+atm label add --name --desc           Task detail  [b]
+atm label remove --name               Task detail  [B]
+atm capability <name> seed --project  Tasks pane  [S] seed capability vocabulary
+atm label list [--project] [--ns]     — (CLI only)
 atm label show --name                 — (CLI only)
 
 atm task create --project --title [--label]   Tasks pane  [a]dd (labels field)
-atm task list [--project] [--label]   Tasks pane  (board strip filters the list)
-atm task list --facets                CLI wildcard faceting; TUI board strip (Tasks mirror)
+atm task list [--project] [--label]   Tasks pane  (the lane strip filters the list)
+atm task list --facets                — (CLI only)
 atm task show --id                    Tasks pane  [Enter] detail
 atm task set-title --id --title       Task detail  [e]
 atm task set-description --id --desc  Task detail  [d]
@@ -143,8 +143,6 @@ func keymapScopeName(e menuEntry) string {
 			return "tasks"
 		case scopeTasksDetail:
 			return "task detail"
-		case scopeBoards:
-			return "boards"
 		}
 	}
 	return "global"

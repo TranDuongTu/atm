@@ -20,7 +20,7 @@ func TestSpotlightRootRows(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 
-	want := []string{"Project", "Task", "Board", "Reference", "Dispatch a session", "Channels", "Personas", "Cycle theme", "Setup & readiness"}
+	want := []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Personas", "Cycle theme", "Setup & readiness"}
 	if got := rowLabels(m); !equalStrings(got, want) {
 		t.Errorf("root rows without a project scope =\n%v\nwant\n%v", got, want)
 	}
@@ -30,7 +30,7 @@ func TestSpotlightRootRows(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	m.spotlight.openSpotlight()
-	want = []string{"Project", "Task", "Board", "Reference", "Dispatch a session", "Channels", "Personas", "Capabilities", "Cycle theme", "Setup & readiness"}
+	want = []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Personas", "Capabilities", "Cycle theme", "Setup & readiness"}
 	if got := rowLabels(m); !equalStrings(got, want) {
 		t.Errorf("root rows with a project scope =\n%v\nwant\n%v", got, want)
 	}
@@ -294,7 +294,8 @@ func TestSpotlightActivationReplaysPreludeThenKey(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
-	scopeTasksPane(t, m, "ATM")
+	update(t, m, "s") // select the project under the Projects cursor
+	update(t, m, "2") // focus the Tasks pane
 	m.focused = paneProjects
 
 	m.spotlight.openSpotlight()
@@ -988,7 +989,7 @@ func TestGroupPreviewLines(t *testing.T) {
 		t.Errorf("a nil group has no preview, got %v", got)
 	}
 
-	g := groupByID(groupBoard)
+	g := groupByID(groupLane)
 	got := groupPreviewLines(g, 200)
 	if len(got) < 3 {
 		t.Fatalf("group preview too short: %v", got)
@@ -1007,7 +1008,7 @@ func TestGroupPreviewLines(t *testing.T) {
 		want = append(want, e.icon+" "+e.label+" — "+e.summary)
 	}
 	if len(want) == 0 {
-		t.Fatal("the Board group has no member entries to preview")
+		t.Fatal("the Lane group has no member entries to preview")
 	}
 	if !equalStrings(got[2:], want) {
 		t.Errorf("member lines =\n%v\nwant\n%v", got[2:], want)
@@ -1142,8 +1143,7 @@ func TestSpotlightSearchFlattens(t *testing.T) {
 // Stability: entries tied on rank keep their original table order, not just a
 // non-decreasing rank sequence (which alone would also pass a shuffle within
 // a tier). Compared by table index via pointer identity rather than by label,
-// since two distinct entries share the label "Remove label" (Task and
-// Board groups).
+// since entries can share a label across groups.
 func TestSpotlightSearchRankTiesKeepTableOrder(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
@@ -1970,7 +1970,7 @@ func TestSpotlightTaskActionTargetsFromAnyState(t *testing.T) {
 		}},
 		{"a board filter that hides the target", func(t *testing.T, m *Model, target, decoy *store.Task) {
 			m.focused = paneTasks
-			m.tasks.setFocus(taskFocus{mode: focusUnlabeled}, "")
+			m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:no-such-board")
 			for _, r := range m.tasks.rows {
 				if r.id == target.ID {
 					t.Fatalf("setup: the filter must hide the target, rows = %v", m.tasks.rows)

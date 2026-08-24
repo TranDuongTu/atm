@@ -47,8 +47,8 @@ func TestTasksRefreshResolvesRegistryOncePerRefresh(t *testing.T) {
 	}
 	m.projectScope = "ATM"
 	m.refreshAll()
-	if len(m.tasks.rows)+groupRowCount(m.tasks.groups) != 5 {
-		t.Fatalf("setup: expected 5 task rows, got rows=%d groups=%d", len(m.tasks.rows), groupRowCount(m.tasks.groups))
+	if len(m.tasks.rows) != 5 {
+		t.Fatalf("setup: expected 5 task rows, got %d", len(m.tasks.rows))
 	}
 
 	svc.getProject = 0
@@ -56,12 +56,4 @@ func TestTasksRefreshResolvesRegistryOncePerRefresh(t *testing.T) {
 	if svc.getProject > 1 {
 		t.Fatalf("tasks refresh called GetProject %d times for 5 rows; want at most 1", svc.getProject)
 	}
-}
-
-func groupRowCount(gs []taskGroup) int {
-	n := 0
-	for _, g := range gs {
-		n += len(g.rows) + groupRowCount(g.subgroups)
-	}
-	return n
 }

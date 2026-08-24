@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/capability/workflow"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -52,84 +51,6 @@ func TestTaskColumnWidthsClampsIdWidth(t *testing.T) {
 	idW, _, _, _ := m.tasks.taskColumnWidths()
 	if idW != 14 {
 		t.Errorf("idW for a 40-char id = %d, want 14 (clamp)", idW)
-	}
-}
-
-// TestSelectedCellShowsInspectHintWhenHighlighted verifies the highlighted
-// SELECTED board (pinFocus == -1) advertises "to inspect" in its title, and
-// that the hint disappears once a pin takes the highlight (Shift-N jump).
-func TestSelectedCellShowsInspectHintWhenHighlighted(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	m.boards.refresh()
-	m.boards.selectDefault() // pinFocus == -1: the SELECTED cell holds the highlight
-
-	strip := m.boards.renderStrip(80, stripHeight)
-	if !strings.Contains(strip, "to inspect") {
-		t.Errorf("highlighted SELECTED cell missing the \"> to inspect\" hint:\n%s", strip)
-	}
-
-	// Once a pin is jumped to, the highlight leaves the strip and so must the hint.
-	m.boards.togglePin()
-	if !m.boards.jumpPin(1) {
-		t.Fatal("jumpPin(1) returned false with 1 pin")
-	}
-	strip = m.boards.renderStrip(80, stripHeight)
-	if strings.Contains(strip, "to inspect") {
-		t.Errorf("SELECTED cell should drop the inspect hint once a pin holds the highlight:\n%s", strip)
-	}
-}
-
-// TestGroupedPagingDerivesFromListContentHeight verifies the grouped page-jump
-// size matches what the renderer windows by: at keypress time listPageSize()
-// must equal listContentHeight()-2 (the grouped body reserves 2 lines of
-// chrome), so pgup/pgdown land on the exact page boundary the grouped renderer
-// draws. It must also be stable across pin toggles (fixed slot).
-func TestGroupedPagingDerivesFromListContentHeight(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	m.boards.refresh()
-	// Select the status namespace board so the Tasks pane groups by facet.
-	for _, r := range m.boards.rows {
-		if r.Expandable && r.Name == "status" {
-			m.boards.selected = r.FullName
-			break
-		}
-	}
-	m.boards.applyFocus()
-	m.SetSize(100, 40)
-
-	if !m.tasks.grouped() {
-		t.Fatalf("expected a grouped (namespace) focus, got %+v", m.tasks.focus)
-	}
-	// Grouped body reserves 4 chrome lines: header + blank + footer divider + "showing" footer.
-	want := m.tasks.listContentHeight() - 4
-	if got := m.tasks.listPageSize(); got != want {
-		t.Errorf("grouped listPageSize() = %d, want listContentHeight()-4 = %d", got, want)
-	}
-
-	// Pinning must not shift the grouped page boundary.
-	m.boards.selectDefault()
-	m.boards.togglePin()
-	for _, r := range m.boards.rows {
-		if r.Expandable && r.Name == "status" {
-			m.boards.selected = r.FullName
-			break
-		}
-	}
-	m.boards.applyFocus()
-	if got := m.tasks.listPageSize(); got != want {
-		t.Errorf("grouped listPageSize() after pinning = %d, want unchanged %d", got, want)
 	}
 }
 

@@ -1,8 +1,21 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+// goToLane builds the act for a "Go to <lane> lane" entry: select that lane
+// absolutely and push its board through the Tasks pane's focus channel.
+func goToLane(k laneKind) func(*Model) tea.Cmd {
+	return func(m *Model) tea.Cmd {
+		if m.projectScope == "" {
+			return nil
+		}
+		m.lanes.selected = k
+		m.lanes.applyFocus()
+		return nil
+	}
+}
 
 // menuScope identifies a context an action entry belongs to. The spotlight
 // list itself is global and never filters on it; scopes instead feed the
@@ -17,7 +30,6 @@ const (
 	scopeProjectsDetail
 	scopeTasksList
 	scopeTasksDetail
-	scopeBoards
 )
 
 // menuSection groups entries in the spotlight overlay: Actions are the
@@ -60,7 +72,7 @@ const (
 	groupNone menuGroupID = iota // inline root entries (sectionViews)
 	groupProject
 	groupTask
-	groupBoard
+	groupLane
 	groupReference
 )
 
@@ -75,7 +87,7 @@ type menuGroup struct {
 var menuGroups = []menuGroup{
 	{id: groupProject, icon: "▤", label: "Project", hint: "Create, select, rename, dispatch, remove projects."},
 	{id: groupTask, icon: "☰", label: "Task", hint: "Add a task, or search a task to act on it."},
-	{id: groupBoard, icon: "▦", label: "Board", hint: "Author boards and labels, pin jump slots, seed vocabulary."},
+	{id: groupLane, icon: "▦", label: "Lane", hint: "Go straight to a lane, sort the list, seed the vocabulary."},
 	{id: groupReference, icon: "§", label: "Reference", hint: "Keymap, CLI parity, conventions."},
 }
 
@@ -107,6 +119,12 @@ type menuEntry struct {
 	icon         string      // single-width glyph; unset only for hidden rows
 	hidden       bool        // keymap-reference-only; never a spotlight row
 	needsProject bool        // shown only when a project scope exists (capabilities switcher)
+	// act is the entry's effect when it cannot be expressed as a key replay.
+	// The lane rows need it: "go to the Out lane" is an ABSOLUTE selection
+	// and [ / ] are relative, so no key sequence names it. An entry carries
+	// either a key or an act, never both — and an act row still replays its
+	// scope prelude first, so it lands in the right pane like any other.
+	act func(*Model) tea.Cmd
 }
 
 // menuEntries is the single declarative menu entry table. Transcribed from
@@ -149,16 +167,15 @@ var menuEntries = []menuEntry{
 	{key: "M", label: "Add comment", summary: "Append a classified comment to the open task's thread.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions, group: groupTask, icon: "✉"},
 	{key: "x", label: "Remove task", summary: "Delete the open task after a confirm.", kind: kindDialog, scopes: []menuScope{scopeTasksDetail}, section: sectionActions, group: groupTask, icon: "✗"},
 
-	// Actions — boards. Pin/unpin board lives here for table readability
-	// (grouped with the rest of the boards block) even though its scope and
-	// prelude are still scopeTasksList — it routes from the tasks list, not
-	// the boards ring, and that behavior is unchanged.
-	{key: "p", label: "Pin/unpin board", summary: "Pin the selected board to a !1..!9 jump slot, or unpin it.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupBoard, icon: "#"},
-	{key: "n", label: "New board", summary: "Author a board from a label expression.", kind: kindDialog, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "+"},
-	{key: "e", label: "Edit board", summary: "Edit the selected board's name and expression.", kind: kindDialog, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "✎"},
-	{key: "d", label: "Describe label", summary: "Record what the selected label is for.", kind: kindDialog, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "❝"},
-	{key: "l", label: "Remove label", summary: "Delete the selected label from the project.", kind: kindDialog, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "✗"},
-	{key: "S", label: "Seed vocabulary", summary: "Ensure the enabled capabilities' labels and boards exist.", kind: kindAction, scopes: []menuScope{scopeBoards}, section: sectionActions, group: groupBoard, icon: "↻"},
+	// Actions — lanes. Pane [2] has no key-hint footer, so these rows ARE
+	// the pane's advertised surface: the lane rows select absolutely (via
+	// act, since [ / ] are relative), and the rest are the keys a user
+	// would otherwise have to already know.
+	{label: "Go to Inbox lane", summary: "Show the work this capability has not decided about yet.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "◧", act: goToLane(laneInbox)},
+	{label: "Go to Pipeline lane", summary: "Show what this capability is building.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "◫", act: goToLane(lanePipeline)},
+	{label: "Go to Out lane", summary: "Show the work settled out of this capability.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "◨", act: goToLane(laneOut)},
+	{key: "s", label: "Sort tasks", summary: "Cycle the task list's sort: updated, id, title.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "⇅"},
+	{key: "S", label: "Seed capability vocabulary", summary: "Ensure the enabled capabilities' labels exist for this project.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "↻"},
 
 	// Reference (no keys; Enter focuses the preview)
 	{label: "Keymap reference", summary: "Every binding, flat: Key | Where | Action.", kind: kindReference, section: sectionReference, ref: refKeymap, group: groupReference, icon: "⌨"},
@@ -174,16 +191,14 @@ var menuEntries = []menuEntry{
 	{key: "g", label: "Top of list · plugin leader prefix", hidden: true},
 	{key: "enter", label: "Open detail / confirm", hidden: true},
 	{key: "esc", label: "Back / close overlay", hidden: true},
-	{key: "[ / ]", label: "Prev/next board or page", hidden: true},
-	{key: "shift+up/down", label: "Feed scroll / thumbnail cursor", hidden: true},
-	{key: "shift+right/left", label: "Feed page / thumbnail drill", hidden: true},
+	{key: "[ / ]", label: "Prev/next lane", hidden: true},
+	{key: "shift+up/down", label: "Feed scroll", hidden: true},
+	{key: "shift+right/left", label: "Feed page", hidden: true},
 	{key: "pgup/pgdown", label: "Page list / scroll detail", hidden: true},
 	{key: "ctrl+up/down", label: "Activity chart: time range; scroll inline drill", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
 	{key: "space", label: "Toggle capability (C overlay)", hidden: true},
-	{key: "!1..!9 / !0", label: "Jump to pinned / center board", hidden: true},
 	{key: "q / ctrl+c", label: "Quit", hidden: true},
-	{key: "s", label: "Cycle task sort (tasks list)", hidden: true},
 }
 
 // preludeFor is the key chain that establishes a scope before an entry's own
@@ -196,9 +211,7 @@ func preludeFor(s menuScope) []string {
 		return []string{"1"}
 	case scopeProjectsDetail:
 		return []string{"1", "enter"}
-	case scopeTasksList, scopeBoards:
-		// The boards ring is part of the Tasks pane's list view: the board
-		// keys route to boardsModel from there, so both scopes share a prelude.
+	case scopeTasksList:
 		return []string{"2"}
 	case scopeTasksDetail:
 		return []string{"2", "enter"}

@@ -145,9 +145,8 @@ func TestLanesMissingBoardIsBrokenAndFocusesNothing(t *testing.T) {
 	}
 
 	m.lanes.selectDefault()
-	if len(m.tasks.rows) != 0 || len(m.tasks.groups) != 0 {
-		t.Fatalf("a broken lane must focus an empty result; got %d rows, %d groups",
-			len(m.tasks.rows), len(m.tasks.groups))
+	if len(m.tasks.rows) != 0 {
+		t.Fatalf("a broken lane must focus an empty result; got %d rows", len(m.tasks.rows))
 	}
 }
 

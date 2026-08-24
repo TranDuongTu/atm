@@ -111,7 +111,7 @@ var previewRegistry = map[string]previewFunc{
 	"C|views": func(m *Model, w, h int) string { return m.capability.previewBody(w) },
 	"D|views": func(m *Model, w, h int) string {
 		persona, project, taskID, taskTitle := m.dispatchDefaults()
-		m.dispatchDlg.loadFor(persona, project, taskID, taskTitle, "") // populates fields; does not activate
+		m.dispatchDlg.loadFor(persona, project, taskID, taskTitle, m.dispatchScopeDefault()) // populates fields; does not activate
 		return m.dispatchDlg.previewBody(w)
 	},
 	fmt.Sprintf("a|%d", scopeProjectsList): func(m *Model, w, h int) string {

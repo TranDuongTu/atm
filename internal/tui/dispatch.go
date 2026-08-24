@@ -54,6 +54,17 @@ func agentOptions() []agentOption {
 // dispatchModel is the universal dispatch dialog overlay (pattern:
 // capabilityModel). Persona is a selectable field cycling over every store
 // persona; context only preselects persona/project/task defaults at open.
+// dispatchScope is the working context a dispatch inherits from the pane it
+// was opened from: which capability the user is looking through, and which of
+// its lanes. Lane carries the DISPLAY name (Inbox/Pipeline/Out) — it is read
+// by a human in the dialog, not parsed.
+type dispatchScope struct {
+	Capability string
+	Lane       string
+}
+
+func (s dispatchScope) empty() bool { return s == dispatchScope{} }
+
 type dispatchModel struct {
 	m             *Model
 	active        bool
@@ -62,7 +73,7 @@ type dispatchModel struct {
 	project       string
 	taskID        string
 	taskTitle     string
-	capability    string
+	scope         dispatchScope
 	agents        []agentOption
 	cursor        int
 	targets       []string
@@ -160,8 +171,8 @@ func bwInner(width int) int {
 // active. open calls it and then activates; the spotlight preview calls it
 // alone, so previewing never activates the dialog. Dispatch logic never
 // branches on how it was opened.
-func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle, capability string) {
-	d.project, d.taskID, d.taskTitle, d.capability = project, taskID, taskTitle, capability
+func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle string, scope dispatchScope) {
+	d.project, d.taskID, d.taskTitle, d.scope = project, taskID, taskTitle, scope
 	d.personas = d.m.store.ListPersonas()
 	d.personaCursor = 0
 	for i, p := range d.personas {
@@ -218,8 +229,8 @@ func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle, capa
 }
 
 // open loads the dialog's fields for the given context, then activates it.
-func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle, capability string) {
-	d.loadFor(defaultPersona, project, taskID, taskTitle, capability)
+func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle string, scope dispatchScope) {
+	d.loadFor(defaultPersona, project, taskID, taskTitle, scope)
 	d.active = true
 }
 
@@ -309,8 +320,8 @@ func (d *dispatchModel) submit() {
 	if d.taskID != "" && d.project != "" && p.Name != "admin" {
 		argv = append(argv, "--task", d.taskID)
 	}
-	if d.capability != "" && p.Name != "admin" {
-		argv = append(argv, "--capability", d.capability)
+	if d.scope.Capability != "" && p.Name != "admin" {
+		argv = append(argv, "--capability", d.scope.Capability)
 	}
 	dir, err := os.Getwd()
 	if err != nil {
@@ -378,8 +389,12 @@ func (d *dispatchModel) previewBody(w int) string {
 		b.WriteString("Task:   " + d.taskID + "\n")
 		b.WriteString(styles.FieldHint.Render("        "+fitLine(d.taskTitle, w-6)) + "\n\n")
 	}
-	if d.capability != "" {
-		b.WriteString("Scope:  " + d.capability + " capability\n\n")
+	if !d.scope.empty() {
+		line := d.scope.Capability + " capability"
+		if d.scope.Lane != "" {
+			line += " · " + d.scope.Lane + " lane"
+		}
+		b.WriteString("Scope:  " + line + "\n\n")
 	}
 	if d.project != "" {
 		b.WriteString("Repo:   " + d.repoLabel() + "\n\n")

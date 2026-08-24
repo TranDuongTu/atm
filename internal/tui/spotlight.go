@@ -784,6 +784,20 @@ func (sm *spotlightModel) activateEntry(e *menuEntry) tea.Cmd {
 	if len(e.scopes) > 0 {
 		chain = preludeFor(e.scopes[0])
 	}
+	if e.act != nil {
+		// An act row still establishes its scope by replay — only its effect
+		// is direct, because no key sequence names it.
+		var cmds []tea.Cmd
+		for _, seg := range chain {
+			if c := sm.m.handleKey(keyMsgFromString(seg)); c != nil {
+				cmds = append(cmds, c)
+			}
+		}
+		if c := e.act(sm.m); c != nil {
+			cmds = append(cmds, c)
+		}
+		return tea.Batch(cmds...)
+	}
 	chain = append(append([]string{}, chain...), e.key)
 	var cmds []tea.Cmd
 	for _, seg := range chain {

@@ -21,20 +21,18 @@ type ChatConfig struct {
 	Endpoint string `json:"endpoint"`
 }
 
-// MaxBoardPins caps the pinned boards per project (Shift-1..3 slots).
-const MaxBoardPins = 3
-
 // BoardsConfig is the per-project boards display preference set, stored under
 // config.json's "boards" key. Display preference, not substrate state: no
 // event-log entry, and entries naming boards that don't exist are ignored by
 // readers (defensive against typos and disabled capabilities).
 type BoardsConfig struct {
-	Order  []string `json:"order,omitempty"`  // ring order override (partial, FullName list)
-	Hidden []string `json:"hidden,omitempty"` // hidden FullNames
-	Pins   []string `json:"pins,omitempty"`   // pin-slot FullNames (max MaxBoardPins)
-	// Capability is the current capability-view selection ("workflow",
-	// "unmanaged", ...). Written only on an explicit switch in the TUI;
-	// readers fall back silently when it names nothing enabled.
+	Order  []string `json:"order,omitempty"`  // CLI board order override (partial, FullName list)
+	Hidden []string `json:"hidden,omitempty"` // CLI hidden FullNames
+	// Capability is pane [2]'s current flow capability. Written only on an
+	// explicit switch in the TUI; readers fall back silently when it names
+	// nothing enabled. Pins are gone with the pin slots that read them —
+	// unknown JSON keys are ignored on read, so a config carrying the old
+	// "pins" key still loads.
 	Capability string `json:"capability,omitempty"`
 }
 

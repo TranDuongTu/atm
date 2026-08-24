@@ -80,7 +80,6 @@ type Model struct {
 
 	projects   projectsModel
 	tasks      tasksModel
-	boards     boardsModel
 	lanes      lanesModel
 	capability capabilityModel
 
@@ -110,10 +109,6 @@ type Model struct {
 	// formPayload carries context for the form (e.g. which label is being
 	// removed, which task is being edited).
 	formPayload string
-
-	// boardEditor holds the live-validation state for the Boards pane
-	// [n]ew/[e]dit form. Non-nil only while formKind == formBoardEditor.
-	boardEd *boardEditor
 
 	confirm        confirmAction
 	confirmMsg     string
@@ -194,7 +189,6 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	}
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
-	m.boards = newBoardsModel(m)
 	m.lanes = newLanesModel(m)
 	m.capability = newCapabilityModel(m)
 	m.dispatcher = opts.Dispatcher
@@ -226,9 +220,10 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	// pre-populated projectScope.
 	if m.projectScope != "" {
 		if _, err := m.regFor(m.projectScope).EnsureVocabulary(m.store, m.projectScope, m.actor); err != nil {
-			m.showToast("ensure workflow boards: " + err.Error())
+			m.showToast("ensure capability vocabulary: " + err.Error())
 		}
-		m.boards.selectDefault()
+		m.lanes.refresh()
+		m.lanes.selectDefault()
 	}
 	return m, nil
 }
@@ -337,9 +332,8 @@ func (m *Model) refreshAll() {
 	m.artOn = on
 	m.artPair = pairs
 	m.tasks.refresh()
-	m.boards.refresh()
-	// After capability.refresh (which resolves current) and boards.refresh:
-	// the lane strip is scoped to the current capability like the ring is.
+	// After capability.refresh, which resolves current: the lane strip is
+	// scoped to the current flow capability.
 	m.lanes.refresh()
 	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
 	// something on a normal launch: without it, m.setup.model stays at its
@@ -835,7 +829,19 @@ func (m *Model) overlayProject() string {
 // project).
 func (m *Model) openDispatch() {
 	persona, project, taskID, taskTitle := m.dispatchDefaults()
-	m.dispatchDlg.open(persona, project, taskID, taskTitle, "")
+	m.dispatchDlg.open(persona, project, taskID, taskTitle, m.dispatchScopeDefault())
+}
+
+// dispatchScopeDefault carries the Tasks pane's working context into the
+// dialog: the capability being looked through and the lane being looked at.
+// Only pane [2] has a lane, so only pane [2] contributes a scope — dispatch
+// from anywhere else stays unscoped rather than inheriting a lane the user
+// was not looking at.
+func (m *Model) dispatchScopeDefault() dispatchScope {
+	if m.focused != paneTasks || m.projectScope == "" || m.capability.current == "" {
+		return dispatchScope{}
+	}
+	return dispatchScope{Capability: m.capability.current, Lane: m.lanes.selected.String()}
 }
 
 // dispatchDefaults resolves the persona/project/task defaults openDispatch
@@ -892,7 +898,6 @@ func (m *Model) closeForm() {
 	m.form = nil
 	m.formKind = formNone
 	m.formPayload = ""
-	m.boardEd = nil
 }
 
 // submitForm performs the action bound to the active form.
@@ -925,8 +930,6 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doCommentAdd(vals)
 	case formPersonaCreate:
 		return m.doPersonaCreate(vals)
-	case formBoardEditor:
-		return m.doBoardEdit(vals)
 	case formNamespaceDescribe:
 		return m.doNamespaceDescribe(vals)
 	case formSetupAgentModel:

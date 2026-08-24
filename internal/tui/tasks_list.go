@@ -20,11 +20,6 @@ type taskRow struct {
 	task    *core.Task
 }
 
-// stripHeight is the fixed height of the board thumbnail strip. The strip
-// itself is gone from the pane (the lane strip replaced it); the constant
-// survives only for the thumbnail machinery still awaiting deletion.
-const stripHeight = 8
-
 // listContentHeight is the single source of truth for how many lines the
 // scrollable task list gets in the list view, once the fixed lane strip is
 // subtracted. The strip is a CONSTANT laneStripHeight lines regardless of
@@ -69,36 +64,19 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		if k.String() == "]" {
 			dir = 1
 		}
-		t.m.boards.cycleBoard(dir)
+		t.m.lanes.move(dir)
 	case "pgdown":
 		t.cursor += t.listPageSize()
 		t.clampCursor()
 	case "pgup":
 		t.cursor -= t.listPageSize()
 		t.clampCursor()
-	case "shift+right", "shift+left":
-		// Drill the SELECTED thumbnail in / out via boardsModel's level navigation.
-		if k.String() == "shift+right" {
-			t.m.boards.drillIn()
-		} else {
-			t.m.boards.drillOut()
-		}
-	case "shift+up", "shift+down":
-		// Move the SELECTED thumbnail's chart cursor (the member that d, l target).
-		dir := -1
-		if k.String() == "shift+down" {
-			dir = 1
-		}
-		t.m.boards.chartCursorMove(dir)
-	case "p":
-		t.m.boards.togglePin()
-	case "!", "@", "#", "$", "%", "^", "&", "*", "(":
-		n := shiftDigitToInt(k.String())
-		t.m.boards.jumpPin(n)
-	case ")":
-		// Shift+0: return the strong current-filter highlight from a pin box
-		// to the strip's SELECTED (center) board, the inverse of Shift-1..9.
-		t.m.boards.focusCenter()
+	case "shift+right", "shift+left", "shift+up", "shift+down", "p",
+		"!", "@", "#", "$", "%", "^", "&", "*", "(", ")":
+		// Drill, pins and pin jumps addressed a ring of arbitrary boards.
+		// There is no ring: three lanes are the whole surface and [ / ] reach
+		// all of them. Consumed so the keys do nothing rather than fall
+		// through to a global handler.
 	case "s":
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % sortModeCount
@@ -110,23 +88,14 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		t.openCreateForm()
 	case "A":
 		t.m.toggleScopedArt()
-	case "n", "e", "S", "d", "l":
-		// Board-authoring keys, scoped to the SELECTED board at its current
-		// drill level. Delegated to a selection-aware handler on boardsModel
-		// (not handleTableKey, whose e targets b.cursor — wrong in the merged
-		// pane, where cycleBoard resets b.cursor to 0 and the selection lives
-		// at b.ringIndex()).
-		return t.m.boards.handleAuthoringKey(k)
+	case "S":
+		// Vocabulary seeding survives the board-authoring cull: it converges
+		// the project's labels, which is not authoring a board.
+		return t.m.seedDefaults()
+	case "n", "e", "d", "l":
+		// Board authoring and label editing addressed boards the user owned.
+		// The lanes are the flow's, not the user's.
 	case "enter":
-		if t.grouped() {
-			// Enter is context-sensitive: toggle a header, or open detail
-			// on a leaf row (spec Screen 7). The (no matching labels)
-			// header is not collapsible but its rows are openable.
-			if r, ok := t.rowAtCursor(); ok {
-				return t.openDetail(r.id)
-			}
-			return t.toggleGroupAtCursor()
-		}
 		return t.openDetailAtCursor()
 	}
 	return nil
@@ -145,89 +114,24 @@ func (t *tasksModel) cursorUp() {
 	}
 }
 
-// flatLineCount returns the number of logical lines (headers + rows) the
-// list view presents — used for cursor bounds and paging.
-func (t *tasksModel) flatLineCount() int {
-	if t.grouped() {
-		n := 0
-		for _, g := range t.groups {
-			n += groupLineCount(g)
-		}
-		if t.focus.mode == focusOff {
-			n++ // (no matching labels) header
-			n += len(t.others)
-		}
-		return n
-	}
-	return len(t.rows)
-}
+// flatLineCount returns the number of rows the list view presents — used for
+// cursor bounds and paging. One lane is one flat list, so it is just the row
+// count; the grouped tree went with the board ring that produced it.
+func (t *tasksModel) flatLineCount() int { return len(t.rows) }
 
 func (t *tasksModel) openDetailAtCursor() tea.Cmd {
-	if !t.grouped() {
-		if t.cursor >= 0 && t.cursor < len(t.rows) {
-			return t.openDetail(t.rows[t.cursor].id)
-		}
+	if t.cursor >= 0 && t.cursor < len(t.rows) {
+		return t.openDetail(t.rows[t.cursor].id)
 	}
 	return nil
 }
 
-// selectedRow returns the task row under the cursor in either the flat or
-// the grouped view. The flat/grouped branching mirrors openDetailAtCursor
-// (flat) and rowAtCursor (grouped): grouped delegates to rowAtCursor, flat
-// indexes t.rows with a bounds check.
+// selectedRow returns the task row under the cursor.
 func (t *tasksModel) selectedRow() (taskRow, bool) {
-	if t.grouped() {
-		return t.rowAtCursor()
-	}
 	if t.cursor >= 0 && t.cursor < len(t.rows) {
 		return t.rows[t.cursor], true
 	}
 	return taskRow{}, false
-}
-
-// rowAtCursor returns the leaf row the cursor currently sits on in the
-// grouped view, or (zero, false) if the cursor is on a group/bucket header
-// (or out of range). Used to make `Enter` context-sensitive per the spec.
-func (t *tasksModel) rowAtCursor() (taskRow, bool) {
-	if !t.grouped() {
-		return taskRow{}, false
-	}
-	idx := 0
-	for _, g := range t.groups {
-		if r, ok, next := rowInGroup(g, idx, t.cursor); ok {
-			return r, true
-		} else {
-			idx = next
-		}
-	}
-	if t.focus.mode == focusOff {
-		// (no matching labels) bucket: header then rows.
-		if idx == t.cursor {
-			return taskRow{}, false
-		}
-		idx++
-		// rows in the top-level (no matching labels) bucket are not nested.
-		if t.cursor >= idx && t.cursor < idx+len(t.others) {
-			return t.others[t.cursor-idx], true
-		}
-	}
-	return taskRow{}, false
-}
-
-func (t *tasksModel) toggleGroupAtCursor() tea.Cmd {
-	if !t.grouped() {
-		return nil
-	}
-	idx := 0
-	for gi := range t.groups {
-		if done, next := toggleInGroup(&t.groups[gi], idx, t.cursor); done {
-			return nil
-		} else {
-			idx = next
-		}
-	}
-	// (no matching labels) header is not collapsible.
-	return nil
 }
 
 // renderListWithStrip renders the list view top to bottom: the task list
@@ -305,11 +209,7 @@ func (t *tasksModel) renderList() string {
 		return padToHeight(b.String(), t.contentHeight)
 	}
 
-	if t.grouped() {
-		t.renderGroupedList(&b)
-	} else {
-		t.renderFlatList(&b)
-	}
+	t.renderFlatList(&b)
 	return padToHeight(b.String(), t.contentHeight)
 }
 
@@ -410,19 +310,11 @@ func toneStyle(tone capability.Tone) lipgloss.Style {
 }
 
 func (t *tasksModel) renderFlatList(b *strings.Builder) {
-	if t.focus.mode == focusUmbrellaIdle {
-		t.renderEmptyState(b, []string{
-			t.m.styles.EmptyHead.Render("unmanaged labels"),
-			"",
-			t.m.styles.EmptyText.Render("select a label below (Shift-↑/↓) to see its tasks"),
-		})
-		return
-	}
 	if len(t.rows) == 0 {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
-			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
+			t.m.styles.EmptyText.Render("switch lanes with [ / ]"),
 		})
 		return
 	}
@@ -470,168 +362,15 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	b.WriteString(dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(t.rows)))))
 }
 
-func (t *tasksModel) renderGroupedList(b *strings.Builder) {
-	if t.focus.mode == focusPresent && len(t.groups) == 0 {
-		t.renderEmptyState(b, []string{
-			t.m.styles.EmptyHead.Render("no tasks match this focus"),
-			"",
-			t.m.styles.EmptyText.Render("switch boards with [ / ] to change focus"),
-		})
-		return
-	}
-
-	// Check the wildcard-yields-no-labels state.
-	if len(t.groups) == 0 {
-		b.WriteString(centerLinesBoth([]string{
-			t.m.styles.EmptyHead.Render("no labels match wildcard — add labels to tasks"),
-		}, t.width, t.contentHeight-1))
-		b.WriteString("\n")
-	}
-
-	// Build the full group/row tree into `body` first (idx mirrors the exact
-	// flattened line-index scheme flatLineCount/rowAtCursor use), then window
-	// it to the visible page so the cursor's row stays in view and "[" / "]"
-	// have something well-defined to jump.
-	var body strings.Builder
-	idx := 0
-	for _, g := range t.groups {
-		idx = t.renderGroup(&body, g, 0, idx)
-	}
-	if t.focus.mode == focusOff {
-		// (no matching labels) bucket is legacy focusOff behavior. It stays
-		// flat (no nesting): t.others holds tasks carrying no label that
-		// matches wildcards[0] (splitUnmatchedTop), a strict superset of the
-		// store's own others once the filter carries 2+ wildcards.
-		header := t.m.styles.GroupHeader.Render(fmt.Sprintf("▾ (no matching labels) (%d)", len(t.others)))
-		if idx == t.cursor {
-			header = t.m.styles.RowCursor.Render(header)
-		}
-		body.WriteString(dashboardLine(t.width, header))
-		body.WriteString("\n")
-		idx++
-		for _, r := range t.others {
-			titleW := t.width - 6
-			if titleW < 20 {
-				titleW = 20
-			}
-			if titleW > 32 {
-				titleW = 32
-			}
-			line := fmt.Sprintf("  %s   id %s   updated %s", truncateRunes(r.title, titleW), r.id, r.updated)
-			if idx == t.cursor {
-				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
-			}
-			body.WriteString(dashboardLine(t.width, line))
-			body.WriteString("\n")
-			idx++
-		}
-	}
-
-	lines := strings.Split(strings.TrimSuffix(body.String(), "\n"), "\n")
-	start, end := windowLines(len(lines), t.cursor, t.groupPageSize())
-	for i := start; i < end; i++ {
-		b.WriteString(lines[i])
-		b.WriteString("\n")
-	}
-	b.WriteString(dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(lines)))))
-}
-
-// renderGroup renders one group (header + its leaf rows or its expanded
-// sub-groups) at the given indentation depth, returning the next flattened
-// line index after this group's contribution. `depth` is the nesting level
-// (0 = top); each level indents rows by two spaces. The header count is the
-// total leaf tasks under this group. A label of "" denotes the per-level
-// `(no matching labels)` sub-bucket.
-func (t *tasksModel) renderGroup(b *strings.Builder, g taskGroup, depth, idx int) int {
-	marker := "▾"
-	if g.collapsed {
-		marker = "▸"
-	}
-	count := groupLeafCount(g)
-	name := g.label
-	if name == "" {
-		name = "(no matching labels)"
-	}
-	indent := strings.Repeat("  ", depth)
-	header := t.m.styles.GroupHeader.Render(fmt.Sprintf("%s%s %s (%d)", indent, marker, name, count))
-	if idx == t.cursor {
-		header = t.m.styles.RowCursor.Render(header)
-	}
-	b.WriteString(dashboardLine(t.width, header))
-	b.WriteString("\n")
-	idx++
-	if g.collapsed {
-		return idx
-	}
-	if len(g.subgroups) > 0 {
-		for _, sg := range g.subgroups {
-			idx = t.renderGroup(b, sg, depth+1, idx)
-		}
-	} else {
-		rowIndent := strings.Repeat("  ", depth+1)
-		for _, r := range g.rows {
-			titleW := t.width - 6 - len(rowIndent)
-			if titleW < 20 {
-				titleW = 20
-			}
-			if titleW > 32 {
-				titleW = 32
-			}
-			line := fmt.Sprintf("%s%s   id %s   updated %s", rowIndent, truncateRunes(r.title, titleW), r.id, r.updated)
-			if idx == t.cursor {
-				if r.cell != nil {
-					line += "   " + truncateRunes(r.cell.Text, metaColumnWidth)
-				}
-				line = t.m.styles.RowCursor.Render(line)
-			} else {
-				if r.cell != nil {
-					line += "   " + toneStyle(r.cell.Tone).Render(truncateRunes(r.cell.Text, metaColumnWidth))
-				}
-			}
-			b.WriteString(dashboardLine(t.width, line))
-			b.WriteString("\n")
-			idx++
-		}
-	}
-	return idx
-}
-
 func (t *tasksModel) pageWindow(total int) (int, int) {
 	return windowLines(total, t.cursor, t.pageSize)
 }
 
-// groupPageSize returns the number of lines that fit in the grouped/tree list
-// body. Fixed overhead is 4 lines: the header line + blank line written by
-// renderList, PLUS the footer divider + "showing X of Y" footer line
-// renderGroupedList writes after the body. Reserving only 3 makes the body
-// one line too tall, so padToHeight truncates the footer (and the pinned
-// stack then renders where it would be).
-// Called ONLY during render, where renderListWithStrip has already shrunk
-// t.contentHeight to the list sub-height (listContentHeight), so
-// t.contentHeight-4 == listH-4 here. The keypress side (listPageSize)
-// reconstructs the same listH-4 from listContentHeight() directly, since at
-// keypress time t.contentHeight is the full pane height.
-func (t *tasksModel) groupPageSize() int {
-	size := t.contentHeight - 4
-	if size < 1 {
-		size = 1
-	}
-	return size
-}
-
-// listPageSize returns the page size for whichever list mode is active, used by
-// the pgdown / pgup page-jump keys. Both modes derive from listContentHeight()
-// (the list sub-height) so a jump always lands on the exact page boundary the
-// renderer draws: the flat body reserves 7 lines of chrome, the grouped body 4
-// (header + blank + footer divider + "showing" footer).
+// listPageSize returns the list's page size, used by the pgdown / pgup
+// page-jump keys. It derives from listContentHeight() (the list sub-height)
+// so a jump always lands on the exact page boundary the renderer draws: the
+// body reserves 7 lines of chrome.
 func (t *tasksModel) listPageSize() int {
-	if t.grouped() {
-		size := t.listContentHeight() - 4
-		if size < 1 {
-			size = 1
-		}
-		return size
-	}
 	size := t.listContentHeight() - 7
 	if size < 1 {
 		size = 1

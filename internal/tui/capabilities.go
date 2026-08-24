@@ -42,7 +42,17 @@ func newCapabilityModel(m *Model) capabilityModel { return capabilityModel{m: m}
 func (c *capabilityModel) unmanagedCurrent() bool { return c.current == unmanagedCapability }
 
 // refresh rebuilds the switcher entries and re-resolves current. It MUST run
-// before boardsModel.refresh in refreshAll — the ring is scoped to current.
+// before lanesModel.refresh in refreshAll — the lanes are scoped to current.
+//
+// Only FLOW capabilities are listed. Pane [2] is one flow capability × one
+// lane: a registry capability has no lanes to show, and the unmanaged
+// pseudo-entry named a label drill-down the pane no longer has. Disabled
+// flows stay listed so the overlay can still enable one.
+//
+// TRANSITIONAL: a project with no enabled flow at all keeps the pre-revamp
+// listing and resolution (every capability, plus the unmanaged entry), so a
+// project that has not adopted a flow yet still has a working pane. Plan 3/4
+// deletes the legacy capabilities and this tail with them.
 func (c *capabilityModel) refresh() {
 	c.entries = nil
 	scope := c.m.projectScope
@@ -50,16 +60,28 @@ func (c *capabilityModel) refresh() {
 		c.current = ""
 		return
 	}
+	enabledFlows := c.flowNames(c.m.regFor(scope))
+	legacy := len(enabledFlows) == 0
+	names := enabledFlows
+	if legacy {
+		names = c.m.regFor(scope).Names()
+	}
 	enabled := map[string]bool{}
-	names := c.m.regFor(scope).Names()
 	for _, n := range names {
 		enabled[n] = true
+	}
+	listed := map[string]bool{}
+	for _, n := range c.flowNames(c.m.reg) {
+		listed[n] = true
 	}
 	boardsPer := map[string]int{}
 	for _, e := range c.m.reg.Exposed(scope) {
 		boardsPer[e.Owner]++
 	}
 	for _, d := range c.m.reg.Describe() {
+		if !legacy && !listed[d.Name] {
+			continue
+		}
 		n := boardsPer[d.Name]
 		c.entries = append(c.entries, capEntry{
 			name:    d.Name,
@@ -68,22 +90,34 @@ func (c *capabilityModel) refresh() {
 			count:   fmt.Sprintf("%d %s", n, pluralBoards(n)),
 		})
 	}
-	un, _ := c.m.regFor(scope).Unmanaged(c.m.store, scope)
-	c.entries = append(c.entries, capEntry{
-		name:      unmanagedCapability,
-		summary:   "labels no enabled capability owns",
-		unmanaged: true,
-		count: fmt.Sprintf("%d %s · %d %s",
-			len(un), pluralLabels(len(un)),
-			c.m.countTasksCarrying(scope, capability.NewLabelSet(un)), pluralTasks(c.m.countTasksCarrying(scope, capability.NewLabelSet(un)))),
-	})
-	c.current = c.resolveCurrent(names)
+	if legacy {
+		un, _ := c.m.regFor(scope).Unmanaged(c.m.store, scope)
+		c.entries = append(c.entries, capEntry{
+			name:      unmanagedCapability,
+			summary:   "labels no enabled capability owns",
+			unmanaged: true,
+			count: fmt.Sprintf("%d %s · %d %s",
+				len(un), pluralLabels(len(un)),
+				c.m.countTasksCarrying(scope, capability.NewLabelSet(un)), pluralTasks(c.m.countTasksCarrying(scope, capability.NewLabelSet(un)))),
+		})
+	}
+	c.current = c.resolveCurrent(names, legacy)
 	if c.cursor >= len(c.entries) {
 		c.cursor = len(c.entries) - 1
 	}
 	if c.cursor < 0 {
 		c.cursor = 0
 	}
+}
+
+// flowNames is the registry's flow capabilities by name, in registration
+// order — which is also the order the fallback picks "first" from.
+func (c *capabilityModel) flowNames(reg *capability.Registry) []string {
+	var out []string
+	for _, f := range reg.Flows() {
+		out = append(out, f.Name())
+	}
+	return out
 }
 
 func pluralBoards(n int) string {
@@ -102,11 +136,13 @@ func pluralLabels(n int) string {
 
 // resolveCurrent applies the resolution rule: the in-session current if still
 // valid, else the persisted boards.capability if valid, else the first
-// enabled capability, else unmanaged. Never writes back — only switchTo
-// persists.
-func (c *capabilityModel) resolveCurrent(enabledNames []string) string {
+// enabled flow, else "". Valid means "an enabled FLOW" — a project that
+// persisted a capability which is no longer one (a legacy capability, or a
+// registry capability) falls back silently rather than showing a pane with
+// no lanes. Never writes back — only switchTo persists.
+func (c *capabilityModel) resolveCurrent(enabledNames []string, legacy bool) string {
 	valid := func(v string) bool {
-		if v == unmanagedCapability {
+		if legacy && v == unmanagedCapability {
 			return true
 		}
 		for _, n := range enabledNames {
@@ -125,7 +161,10 @@ func (c *capabilityModel) resolveCurrent(enabledNames []string) string {
 	if len(enabledNames) > 0 {
 		return enabledNames[0]
 	}
-	return unmanagedCapability
+	if legacy {
+		return unmanagedCapability
+	}
+	return ""
 }
 
 // switchTo makes name the current capability: persist (best-effort — the
@@ -153,12 +192,8 @@ func (c *capabilityModel) switchTo(name string) {
 	if err := c.m.store.SetProjectBoards(scope, cfg, c.m.actor); err != nil {
 		c.m.showToast("save capability: " + err.Error())
 	}
-	c.m.boards.resetDrill()
-	c.m.boards.selected = ""
-	c.m.boards.refresh()
-	c.m.boards.selectDefault()
-	// loadPins already runs at the end of boards.refresh (both managed and
-	// unmanaged branches), so an explicit call here is redundant.
+	c.m.lanes.refresh()
+	c.m.lanes.selectDefault()
 }
 
 // openOverlay opens the [C] switcher with the cursor on the current

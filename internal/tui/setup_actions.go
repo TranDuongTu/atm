@@ -591,7 +591,7 @@ func (s *setupModel) concierge() {
 	}
 	// concierge is project-optional, so this works with no project selected —
 	// which is the empty-store case the wizard opens in.
-	s.m.dispatchDlg.open("concierge", s.m.projectScope, "", "", capability)
+	s.m.dispatchDlg.open("concierge", s.m.projectScope, "", "", dispatchScope{Capability: capability})
 }
 
 // conciergeAction names which concierge session the current section wants.

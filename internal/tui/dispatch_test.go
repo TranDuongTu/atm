@@ -585,7 +585,7 @@ func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("manager", "", "", "", "")
+	m.dispatchDlg.open("manager", "", "", "", dispatchScope{})
 	if m.dispatchDlg.persona() != "manager" {
 		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
 	}
@@ -612,7 +612,7 @@ func TestDispatchUnknownDefaultFallsBackToConcierge(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("ghost", "", "", "", "")
+	m.dispatchDlg.open("ghost", "", "", "", dispatchScope{})
 	if m.dispatchDlg.persona() != "concierge" {
 		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
 	}
@@ -665,7 +665,7 @@ func TestDispatchConciergeOmitsProject(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("concierge", "", "", "", "")
+	m.dispatchDlg.open("concierge", "", "", "", dispatchScope{})
 	if m.dispatchDlg.persona() != "concierge" {
 		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
 	}
@@ -712,7 +712,7 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("admin", "ATM", "", "", "")
+	m.dispatchDlg.open("admin", "ATM", "", "", dispatchScope{})
 	if m.dispatchDlg.persona() != "admin" {
 		t.Fatalf("persona = %q want admin", m.dispatchDlg.persona())
 	}
@@ -783,7 +783,7 @@ func TestDispatchAgentRowShowsConfiguredModel(t *testing.T) {
 
 	d := &m.dispatchDlg
 	d.m = m
-	d.loadFor("developer", "ATM", "", "", "")
+	d.loadFor("developer", "ATM", "", "", dispatchScope{})
 
 	var claude agentOption
 	for _, a := range d.agents {

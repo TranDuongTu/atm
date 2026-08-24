@@ -248,26 +248,8 @@ func (s *Store) ProjectRepos(code string) ([]RepoConfig, error) {
 	return c.Repos, nil
 }
 
-// legacyPinBoards reads the board list from a pre-boards pins.json, kept
-// only for the lazy migration into config.json.boards.pins. Missing or
-// malformed reads as nil: display preferences are not worth failing over.
-func (s *Store) legacyPinBoards(code string) []string {
-	var p struct {
-		Boards []string `json:"boards"`
-	}
-	if err := ReadJSON(filepath.Join(s.projectDir(code), "pins.json"), &p); err != nil {
-		return nil
-	}
-	return p.Boards
-}
-
 // GetBoardsConfig returns the project's boards display preferences, never nil
-// on success. While config.json carries no boards key, a legacy pins.json is
-// folded into Pins — the read half of the pins.json migration. The merged
-// value is persisted by the first SetProjectBoards write, after which
-// config.json.boards is non-nil and pins.json is ignored forever. A malformed
-// pins.json is treated as absent: display preferences are not worth failing a
-// read over.
+// on success.
 func (s *Store) GetBoardsConfig(code string) (*core.BoardsConfig, error) {
 	c, err := s.GetProjectConfig(code)
 	if err != nil {
@@ -276,25 +258,18 @@ func (s *Store) GetBoardsConfig(code string) (*core.BoardsConfig, error) {
 	if c != nil && c.Boards != nil {
 		return c.Boards, nil
 	}
-	b := &core.BoardsConfig{}
-	if pins := s.legacyPinBoards(code); len(pins) > 0 {
-		b.Pins = pins
-		if len(b.Pins) > core.MaxBoardPins {
-			b.Pins = b.Pins[:core.MaxBoardPins]
-		}
-	}
-	return b, nil
+	return &core.BoardsConfig{}, nil
 }
 
 // SetProjectBoards writes the project's boards display preferences under the
 // project lock, read-modify-write like SetEmbeddingConfig, refreshing the
-// updated_at/updated_by stamps. Enforces the MaxBoardPins cap. No store
-// event: display preferences are config, not substrate state.
+// updated_at/updated_by stamps. No store event: display preferences are
+// config, not substrate state.
 func (s *Store) SetProjectBoards(code string, b *core.BoardsConfig, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if b == nil || len(b.Pins) > core.MaxBoardPins {
+	if b == nil {
 		return core.ErrUsage
 	}
 	return s.WithLock(code, func() error {

@@ -309,19 +309,18 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			// ATM-0082: a project switch is a clean break for the right
 			// column. Reset the Tasks pane via its documented single
 			// channel (setFocus) so view/detail/filter/focus/cursor/offset
-			// all return to a fresh list, and the Boards pane back to L0.
+			// all return to a fresh list.
 			// Going through setFocus (rather than poking fields directly)
 			// keeps the invariant that the Tasks pane never edits its own
 			// filter; it also clears stale view/detail from a task the
 			// user had open under the previous project.
-			p.m.boards.reset()
 			p.m.tasks.backToList()
 			p.m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			p.m.capability.current = "" // re-resolve for the new project
 			p.logsOffset = 0            // fresh project: viewport back to the newest event
 			p.resetChart()
 			if _, err := p.m.regFor(r.code).EnsureVocabulary(p.m.store, r.code, p.m.actor); err != nil {
-				p.m.showToast("ensure workflow boards: " + err.Error())
+				p.m.showToast("ensure capability vocabulary: " + err.Error())
 			}
 			// D15: auto-start the indexer for the newly-selected project
 			// (starts the watcher if config present; opens the overlay to
@@ -338,14 +337,10 @@ func (p *projectsModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 			}
 			cmd := autoStartIndexer(p.m, r.code)
 			p.m.capability.refresh()
-			p.m.boards.refresh()
-			p.m.boards.selectDefault()
-			// tasks.refresh runs AFTER boards.selectDefault so that, when the
-			// resolved capability is `unmanaged`, selectDefault has already
-			// established focusUmbrellaIdle via enterUnmanagedBase — preventing
-			// an unfiltered task sweep at idle (capability-view spec §4).
-			p.m.tasks.refresh()
-			p.m.boards.loadPins()
+			p.m.lanes.refresh()
+			// selectDefault refreshes the task list through setFocus, so the
+			// pane lands on the new project's Pipeline lane in one step.
+			p.m.lanes.selectDefault()
 			// Status-bar counts and the summary/feed snapshot are
 			// project-scoped, so they must follow the switch here — this
 			// handler never runs a full refreshAll.
