@@ -110,6 +110,37 @@ type Capability interface {
 	Command(env Env) *cobra.Command
 }
 
+// LaneSet names a flow capability's three lane boards for a project. The
+// boards themselves are seeded through EnsureVocabulary like any others;
+// this struct only carries their FullNames for adapters (TUI pane [2], the
+// wiring writer) to select by name, never by expression.
+type LaneSet struct {
+	Inbox    string
+	Pipeline string
+	Out      string
+}
+
+// Flow is the flow-capability contract: work moving toward a finish through
+// three lanes (Inbox -> Pipeline -> Out). A registry capability simply does
+// not implement it — the interface check IS the kind distinction.
+type Flow interface {
+	Capability
+	// ClaimExprs are the expression atoms that mean "claimed by me"
+	// (namespace descriptors, unprefixed: "scrum:*"). The registry's
+	// DefaultPoolExpr negates the union across enabled flows.
+	ClaimExprs() []string
+	// FinishLabel is the declared finish socket: the stored label this
+	// capability stamps on work it certifies finished. Downstream wiring
+	// selects on it. Declaration over convention: the name is
+	// capability-chosen, the meaning machine-readable here.
+	FinishLabel(code string) core.Label
+	// EvictLabel is the declared evict socket (a namespace descriptor:
+	// presence of any member means evicted-by-me).
+	EvictLabel(code string) core.Label
+	// Lanes names the capability's three seeded lane boards.
+	Lanes(code string) LaneSet
+}
+
 // Registry is an ordered collection of capabilities. All methods are
 // nil-receiver safe: a nil *Registry behaves as an empty one, so adapters
 // and tests constructed without capabilities keep working.
@@ -120,6 +151,40 @@ type Registry struct {
 // NewRegistry builds a registry; order is significant (mount order,
 // EnsureVocabulary order).
 func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
+
+// Flows returns the registered capabilities that implement Flow, in
+// registration order. Callers narrow to the enabled set first:
+// reg.For(project).Flows().
+func (r *Registry) Flows() []Flow {
+	if r == nil {
+		return nil
+	}
+	var out []Flow
+	for _, c := range r.caps {
+		if f, ok := c.(Flow); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// DefaultPoolExpr is the unclaimed work pool over the registry's flow set:
+// tasks claimed by no flow capability. "*" (every task) when there are no
+// flows. This is the DEFAULT inbox eligibility for first-stage flow
+// capabilities; downstream capabilities get explicit wiring instead.
+func (r *Registry) DefaultPoolExpr() string {
+	flows := r.Flows()
+	if len(flows) == 0 {
+		return "*"
+	}
+	var parts []string
+	for _, f := range flows {
+		for _, e := range f.ClaimExprs() {
+			parts = append(parts, "NOT "+e)
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
 
 // Description is one capability's enumeration entry. The capability's Name
 // IS its mounted command under `atm capability` — there is no separate
