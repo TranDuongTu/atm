@@ -104,18 +104,19 @@ func TestBuiltinChecklistSeedsLoad(t *testing.T) {
 
 func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	cs := Capabilities()
-	if len(cs) != 6 {
-		t.Fatalf("want 6 built-in capabilities, got %d", len(cs))
+	if len(cs) == 0 {
+		t.Fatal("no built-in capabilities loaded")
 	}
 	for _, c := range cs {
 		if strings.Contains(c.Body, "## Brief") || strings.Contains(c.Body, "## Autopilot") {
 			t.Errorf("%s: persona-specific Brief/Autopilot sections must not appear in capability files", c.Name)
 		}
 	}
-	if _, ok := Capability("workflow_ai"); !ok {
-		t.Fatal("workflow_ai missing")
-	}
-	if _, ok := Capability("workflow_rpi"); !ok {
-		t.Fatal("workflow_rpi missing")
+	// Named, not counted: the set grows and shrinks as capabilities ship and
+	// retire, and a magic total only ever fails for the wrong reason.
+	for _, want := range []string{"workflow_ai", "workflow_rpi", "scrum"} {
+		if _, ok := Capability(want); !ok {
+			t.Errorf("%s missing", want)
+		}
 	}
 }
