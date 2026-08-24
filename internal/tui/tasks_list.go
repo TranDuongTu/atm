@@ -101,7 +101,7 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		t.m.boards.focusCenter()
 	case "s":
 		// cycle sort
-		t.sortMode = (t.sortMode + 1) % 3
+		t.sortMode = (t.sortMode + 1) % sortModeCount
 		t.refresh()
 	case "a":
 		if t.m.projectScope == "" {
@@ -289,19 +289,12 @@ func (t *tasksModel) fillGapWithArt(listOut string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (t *tasksModel) headerLine() string {
-	capName := t.m.capability.current
-	if capName == "" {
-		capName = "(none)"
-	}
-	return fmt.Sprintf("CAPABILITY: %s    TOTAL: %d/%d tasks    SORT: %s [s]", capName, t.capCount, t.totalCount, t.sortMode)
-}
-
+// renderList draws the pane body. There is no capability/total/sort header
+// row: the capability names itself in the pane title, the counts live on the
+// lane cards, and the sort is readable where it is applied — on the column
+// header it sorts by.
 func (t *tasksModel) renderList() string {
 	var b strings.Builder
-	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLine.Render(t.headerLine())))
-	b.WriteString("\n")
-	b.WriteString("\n")
 
 	if t.m.projectScope == "" {
 		t.renderEmptyState(&b, []string{
@@ -321,11 +314,9 @@ func (t *tasksModel) renderList() string {
 }
 
 // renderEmptyState appends a vertically+horizontally centered empty-state
-// block (each line center-aligned independently) into b. The block is
-// centered within contentHeight-1 to account for the header line already
-// written by the caller.
+// block (each line center-aligned independently) into b.
 func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
-	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight-1))
+	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight))
 }
 
 // taskColumnWidths returns fixed widths for ID/UPDATED and a flexible TITLE
@@ -335,7 +326,7 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 // before (IDs are "<CODE>-<hash>"). When the contextual column is present,
 // metaW = metaColumnWidth and the padding grows by one (four columns).
 func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
-	idW, updatedW = 9, 8
+	idW, updatedW = 9, 9
 	for _, r := range t.rows {
 		if w := len(r.id); w > idW {
 			idW = w
@@ -358,15 +349,42 @@ func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	return
 }
 
-// metaColumnName returns the contextual column's header (the current
-// capability's name, upper-cased), or "" when the column is absent: no scoped
-// project, or the unmanaged pseudo-capability (which annotates nothing).
+// metaColumnName returns the annotation column's header, or "" when the
+// column is absent (no scoped project). The header is the ROLE, not the
+// capability's name: the columns are fixed, and which capability is reading
+// is already answered by the pane title.
 func (t *tasksModel) metaColumnName() string {
-	if t.m.projectScope == "" || t.m.capability.unmanagedCurrent() || t.m.capability.current == "" {
+	if t.m.projectScope == "" {
 		return ""
 	}
-	return strings.ToUpper(t.m.capability.current)
+	return "ANNOTATE"
 }
+
+// sortIndicator returns the arrow to hang off a column header, or "" when
+// that column is not the sorted one. The indicator lives on the column it
+// acts on — a sort caption elsewhere makes the user map a mode name onto a
+// column every time they read it.
+func (t *tasksModel) sortIndicator(col string) string {
+	want := ""
+	arrow := "↑"
+	switch t.sortMode {
+	case sortUpdatedDesc:
+		want, arrow = "UPDATED", "↓"
+	case sortUpdatedAsc:
+		want = "UPDATED"
+	case sortIDAsc:
+		want = "ID"
+	case sortTitleAsc:
+		want = "TITLE"
+	}
+	if col != want {
+		return ""
+	}
+	return " " + arrow
+}
+
+// columnHead is a column header with its sort indicator attached.
+func (t *tasksModel) columnHead(col string) string { return col + t.sortIndicator(col) }
 
 const metaColumnWidth = 18
 
@@ -411,9 +429,9 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	idW, metaW, updatedW, titleW := t.taskColumnWidths()
 	var header string
 	if metaW > 0 {
-		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, "ID", titleW, "TITLE", metaW, t.metaColumnName(), updatedW, "UPDATED")
+		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), metaW, t.metaColumnName(), updatedW, t.columnHead("UPDATED"))
 	} else {
-		header = fmt.Sprintf(" %-*s %-*s %*s", idW, "ID", titleW, "TITLE", updatedW, "UPDATED")
+		header = fmt.Sprintf(" %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), updatedW, t.columnHead("UPDATED"))
 	}
 	b.WriteString(dashboardLine(t.width, t.m.styles.HeaderLabel.Render(header)))
 	b.WriteString("\n")
@@ -423,7 +441,9 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
-		cellTxt := ""
+		// A nil Cell is the capability saying nothing about this task. The
+		// dash says that out loud: an empty column reads as a rendering bug.
+		cellTxt := "—"
 		cellTone := capability.ToneNeutral
 		if r.cell != nil {
 			cellTxt, cellTone = r.cell.Text, r.cell.Tone

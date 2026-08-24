@@ -422,7 +422,10 @@ func TestListPageSizeConstantAsPinsAdded(t *testing.T) {
 	}
 }
 
-func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
+// TestPaneTitleNamesTheCurrentCapability replaces the old header-row test:
+// the capability that used to head the list now names itself in the pane
+// title, and the counts moved to the lane cards.
+func TestPaneTitleNamesTheCurrentCapability(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -430,22 +433,19 @@ func TestHeaderLineShowsCapabilityAndCounts(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	seedTask(t, m, "ATM", "stray", "ATM:needs-triage")
 	m.refreshAll()
-	got := m.tasks.headerLine()
-	want := "CAPABILITY: workflow    TOTAL: 1/2 tasks    SORT: updated-desc [s]"
-	if got != want {
-		t.Fatalf("headerLine = %q, want %q", got, want)
+	if got, want := m.tasksPaneTitle(), "[2] Tasks · workflow"; got != want {
+		t.Fatalf("tasksPaneTitle = %q, want %q", got, want)
 	}
 }
 
 // TestCycleSortKeyAdvancesAndWraps covers the registry curation in
 // ATM-77af5e: "Cycle sort" is dropped from the spotlight because it's a
 // rapid-toggle key pressed repeatedly while looking at the list, not a
-// launcher destination — instead the SORT field itself advertises the [s]
-// key inline (see TestHeaderLineShowsCapabilityAndCounts). This test presses
-// the key itself and asserts sortMode actually advances and wraps, since the
-// header text alone does not prove the key still works.
+// launcher destination — the sort now advertises itself as an arrow on the
+// column header it sorts by. This test presses the key itself and asserts
+// sortMode advances through every mode and wraps, since the rendered
+// indicator alone does not prove the key still works.
 func TestCycleSortKeyAdvancesAndWraps(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -465,8 +465,9 @@ func TestCycleSortKeyAdvancesAndWraps(t *testing.T) {
 	}
 
 	m.tasks.handleKey(keyMsg("s"))
+	m.tasks.handleKey(keyMsg("s"))
 	if m.tasks.sortMode != start {
-		t.Errorf("sortMode after 3 presses = %v, want wrap back to %v", m.tasks.sortMode, start)
+		t.Errorf("sortMode after %d presses = %v, want wrap back to %v", sortModeCount, m.tasks.sortMode, start)
 	}
 }
 
@@ -506,26 +507,19 @@ func TestTasksListContextualColumn(t *testing.T) {
 	m.refreshAll()
 	m.boards.selectDefault()
 
-	view := m.tasks.View()
-	if !strings.Contains(view, "WORKFLOW") {
-		t.Errorf("column header missing current capability name:\n%s", view)
+	view := stripANSI(m.tasks.View())
+	if !strings.Contains(view, "ANNOTATE") {
+		t.Errorf("column header missing the annotation column:\n%s", view)
 	}
 	if !strings.Contains(view, "in-progress") {
 		t.Errorf("column missing workflow cell:\n%s", view)
 	}
-
-	// unmanaged hides the column.
-	m.capability.switchTo("unmanaged")
-	view = m.tasks.View()
-	if strings.Contains(view, "WORKFLOW") {
-		t.Errorf("unmanaged still shows capability column:\n%s", view)
-	}
 }
 
-// TestTasksListContextualColumnHiddenOnNarrowPane verifies the contextual
+// TestTasksListContextualColumnHiddenOnNarrowPane verifies the annotation
 // column is hidden when the pane is too narrow to fit all four columns
 // (below metaColumnMinPaneWidth). The three-column fallback path already
-// handles metaW == 0, so the WORKFLOW header must not appear.
+// handles metaW == 0, so the ANNOTATE header must not appear.
 func TestTasksListContextualColumnHiddenOnNarrowPane(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "PXA", "Acme")
@@ -541,7 +535,7 @@ func TestTasksListContextualColumnHiddenOnNarrowPane(t *testing.T) {
 
 	m.tasks.SetSize(metaColumnMinPaneWidth-1, 30)
 	view := m.tasks.renderList()
-	if strings.Contains(view, "WORKFLOW") {
+	if strings.Contains(view, "ANNOTATE") {
 		t.Errorf("contextual column shown on narrow pane (width=%d):\n%s", metaColumnMinPaneWidth-1, view)
 	}
 	if !strings.Contains(view, "TITLE") || !strings.Contains(view, "UPDATED") {

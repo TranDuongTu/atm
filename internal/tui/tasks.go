@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"sort"
+	"strings"
+
 	"atm/internal/capability"
 	"atm/internal/core"
 	"github.com/charmbracelet/bubbletea"
@@ -24,11 +27,6 @@ type tasksModel struct {
 	filter   string
 	sortMode sortMode
 	focus    taskFocus
-
-	// header counts, computed on refresh (never per frame): capCount is the
-	// current capability's owned-task total, totalCount the project total.
-	capCount   int
-	totalCount int
 
 	// annReg is the capability registry annotate renders cells from,
 	// resolved ONCE at the top of refresh — regFor runs a GetProject
@@ -58,7 +56,13 @@ const (
 	sortUpdatedDesc sortMode = iota
 	sortUpdatedAsc
 	sortIDAsc
+	sortTitleAsc
 )
+
+// sortModeCount bounds the [s] cycle. Deriving the cycle from this constant
+// rather than a literal is what keeps adding a mode from silently making the
+// last one unreachable.
+const sortModeCount = 4
 
 type taskFocusMode int
 
@@ -99,6 +103,8 @@ func (s sortMode) String() string {
 		return "updated-asc"
 	case sortIDAsc:
 		return "id-asc"
+	case sortTitleAsc:
+		return "title-asc"
 	}
 	return "?"
 }
@@ -135,8 +141,6 @@ func (t *tasksModel) refresh() {
 	t.others = nil
 	t.annReg = nil
 	if t.m.projectScope == "" {
-		t.capCount = 0
-		t.totalCount = 0
 		t.clampCursor()
 		return
 	}
@@ -144,8 +148,6 @@ func (t *tasksModel) refresh() {
 	if !t.m.capability.unmanagedCurrent() {
 		t.annReg = t.m.regFor(scope)
 	}
-	t.totalCount = len(t.m.store.ListTasks(core.QueryFilters{Project: scope}))
-	t.capCount = t.m.capabilityTaskCount(t.m.capability.current)
 	switch t.focus.mode {
 	case focusUmbrellaIdle:
 		// No rows: the umbrella is a browsing surface, not a filter. The
@@ -258,6 +260,10 @@ func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {
 		}
 	case sortIDAsc:
 		// store already returns id-asc; no-op
+	case sortTitleAsc:
+		sort.SliceStable(out, func(i, j int) bool {
+			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
+		})
 	}
 	return out
 }

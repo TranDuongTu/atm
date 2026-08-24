@@ -306,6 +306,17 @@ func innerPaneHeight(height int) int {
 
 // refreshAll reloads all panes from the store. Called on launch and after
 // every mutation.
+// tasksPaneTitle names the pane and, once a capability is current, whose
+// reading of the work the pane is showing. The capability moved here when the
+// list's header row went away: it belongs with the pane's identity, not
+// repeated above every column set.
+func (m *Model) tasksPaneTitle() string {
+	if m.projectScope == "" || m.capability.current == "" {
+		return "[2] Tasks"
+	}
+	return "[2] Tasks · " + m.capability.current
+}
+
 func (m *Model) refreshAll() {
 	m.capability.refresh()
 	m.projects.refresh()
@@ -1093,7 +1104,7 @@ func (m *Model) View() string {
 func (m *Model) renderWorkspace() string {
 	leftW, rightW := splitWorkspaceWidths(m.width)
 	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
-	tasks := m.renderPane(paneTasks, rightW, m.contentHeight, "[2] Tasks", m.tasks.View())
+	tasks := m.renderPane(paneTasks, rightW, m.contentHeight, m.tasksPaneTitle(), m.tasks.View())
 	return lipgloss.JoinHorizontal(lipgloss.Top, projects, tasks)
 }
 

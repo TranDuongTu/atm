@@ -1226,8 +1226,6 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	// board; clear it here so this test can verify the unfiltered flat list.
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2") // focus Tasks pane
-	// Task 7: the new CAPABILITY/TOTAL/SORT header is wider than the old
-	// PROJECT/FOCUS/SORT one; size the pane wide enough that it fits intact.
 	m.SetSize(140, 48)
 	v := m.View()
 	body := m.tasks.View()
@@ -1239,9 +1237,7 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	mustContain(t, body, "TITLE")
 	mustNotContain(t, body, "LABELS") // Task 7: LABELS column removed from the tasks table.
 	mustContain(t, body, "UPDATED")
-	mustContain(t, v, "CAPABILITY: workflow")
-	mustContain(t, v, "TOTAL: 1/1 tasks")
-	mustContain(t, v, "SORT: updated-desc")
+	mustContain(t, v, "[2] Tasks · workflow")
 	mustContain(t, v, "task one")
 	mustContain(t, v, tk.ID)
 	// Task 7: LABELS column removed from the tasks table — the label
@@ -1722,7 +1718,6 @@ func TestTasksEmptyStateNoProject(t *testing.T) {
 	// No project selected (projectScope empty).
 	update(t, m, "2")
 	v := m.tasks.View()
-	mustContain(t, v, "CAPABILITY: (none)")
 	mustContain(t, v, "no project selected")
 	mustContain(t, v, "press [s] in the Projects pane")
 }
