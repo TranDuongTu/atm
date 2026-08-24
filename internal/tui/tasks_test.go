@@ -247,10 +247,11 @@ func TestTasksFocusRendersSubset(t *testing.T) {
 	mustContain(t, v, "bare")
 }
 
-// TestTasksPaneRendersStripAndPinnedRow verifies the Tasks pane list view
-// renders the board thumbnail strip above the task list (Task 7: merging the
-// Boards pane into Tasks).
-func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
+// TestTasksPaneRendersLaneStrip verifies the Tasks pane list view renders the
+// lane strip below the task list. The three lanes are a fixed feature of the
+// pane: they render even under a capability that is not a flow, because the
+// pane's shape must not depend on what is enabled.
+func TestTasksPaneRendersLaneStrip(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -258,15 +259,12 @@ func TestTasksPaneRendersStripAndPinnedRow(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	m.boards.refresh()
-	m.boards.selectDefault()
-	v := m.tasks.View()
-	// "all-tasks" already appears once via the header FOCUS caption (the
-	// board's filter token, ATM:all-tasks); the strip renders the board name
-	// again as its thumbnail title, so a passing render must contain it at
-	// least twice.
-	if got := strings.Count(v, "all-tasks"); got < 2 {
-		t.Errorf("tasks view missing strip board name (got %d occurrences, want >= 2):\n%s", got, v)
+	m.SetSize(100, 40)
+	v := stripANSI(m.tasks.View())
+	for _, lane := range []string{"Inbox", "Pipeline", "Out"} {
+		if !strings.Contains(v, lane) {
+			t.Errorf("tasks view missing the %s lane card:\n%s", lane, v)
+		}
 	}
 }
 
@@ -374,13 +372,10 @@ func TestTasksFocusPresentEmptyNamespace(t *testing.T) {
 	mustNotContain(t, v, "showing 1-1 of 1")
 }
 
-// TestListViewLayoutOrderListPinsStripBottom verifies the list-view layout:
-// top-to-bottom the pane stacks task list -> board strip -> tabbed pinned box,
-// so the pinned box is the LAST pinnedBoxHeight lines (pinned at the very
-// bottom of the pane) and the fixed board strip (stripHeight lines) sits
-// directly above it. The pinned all-tasks board surfaces as the Shift-1 tab,
-// with its name in the box body.
-func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
+// TestListViewLayoutOrderListThenLaneStripBottom verifies the list-view
+// layout: top-to-bottom the pane stacks task list -> lane strip, so the strip
+// is the LAST laneStripHeight lines and nothing renders below it.
+func TestListViewLayoutOrderListThenLaneStripBottom(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -388,26 +383,18 @@ func TestListViewLayoutOrderListPinsStripBottom(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	seedTask(t, m, "ATM", "open one", "ATM:status:open")
-	m.boards.refresh()
-	m.boards.selectDefault()
-	m.boards.togglePin()
 	m.SetSize(100, 40)
 
-	view := m.tasks.View()
-	lines := strings.Split(view, "\n")
-	if !strings.Contains(lines[0], "CAPABILITY:") {
-		t.Fatalf("first line = %q, want the task list header first", lines[0])
+	lines := strings.Split(stripANSI(m.tasks.View()), "\n")
+	stripBlock := strings.Join(lines[len(lines)-laneStripHeight:], "\n")
+	for _, lane := range []string{"Inbox", "Pipeline", "Out"} {
+		if !strings.Contains(stripBlock, lane) {
+			t.Errorf("lane strip (last %d lines) missing %s:\n%s", laneStripHeight, lane, stripBlock)
+		}
 	}
-	pinBlock := strings.Join(lines[len(lines)-pinnedBoxHeight:], "\n")
-	if !strings.Contains(pinBlock, "all-tasks") {
-		t.Errorf("pinned box (last %d lines) = %q, want the pinned all-tasks board named in the body", pinnedBoxHeight, pinBlock)
-	}
-	if !strings.Contains(pinBlock, "Shift-1") {
-		t.Errorf("pinned box missing the Shift-1 tab:\n%s", pinBlock)
-	}
-	stripBlock := strings.Join(lines[len(lines)-pinnedBoxHeight-stripHeight:len(lines)-pinnedBoxHeight], "\n")
-	if !strings.Contains(stripBlock, "all-tasks") {
-		t.Errorf("board strip (%d lines above the pinned box) missing the board:\n%s", stripHeight, stripBlock)
+	above := strings.Join(lines[:len(lines)-laneStripHeight], "\n")
+	if strings.Contains(above, "Pipeline") {
+		t.Errorf("the lane strip leaked above its %d-line slot:\n%s", laneStripHeight, above)
 	}
 }
 

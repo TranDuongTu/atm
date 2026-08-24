@@ -20,20 +20,19 @@ type taskRow struct {
 	task    *core.Task
 }
 
-// stripHeight is the fixed height of the board thumbnail strip rendered
-// above the task list (list view only; clamps down on short terminals).
+// stripHeight is the fixed height of the board thumbnail strip. The strip
+// itself is gone from the pane (the lane strip replaced it); the constant
+// survives only for the thumbnail machinery still awaiting deletion.
 const stripHeight = 8
 
 // listContentHeight is the single source of truth for how many lines the
-// scrollable task list gets in the list view, once the fixed board strip and
-// the FIXED pinned slot are subtracted. The pinned slot is a single tabbed box
-// that always reserves pinnedBoxHeight lines (renderPinnedTabs draws exactly
-// that many, regardless of how many boards are pinned), so the subtraction is a
-// CONSTANT — the list height never changes as pins are added or removed.
+// scrollable task list gets in the list view, once the fixed lane strip is
+// subtracted. The strip is a CONSTANT laneStripHeight lines regardless of
+// what the lanes contain, so the list height never moves under the user.
 // renderListWithStrip and listPageSize both derive from this single value, so
 // the renderer and the pgup/pgdown page jumps always agree on the page boundary.
 func (t *tasksModel) listContentHeight() int {
-	h := t.contentHeight - stripHeight - pinnedBoxHeight
+	h := t.contentHeight - laneStripHeight
 	if h < 4 {
 		h = 4
 	}
@@ -252,17 +251,10 @@ func (t *tasksModel) renderListWithStrip() string {
 	t.contentHeight, t.pageSize = savedH, savedPageSize
 	listOut = t.fillGapWithArt(listOut)
 
-	pinned := t.m.boards.renderPinnedTabs(t.width)
-	strip := t.m.boards.renderStrip(t.width, stripHeight)
-
 	var b strings.Builder
 	b.WriteString(listOut)
 	b.WriteString("\n")
-	b.WriteString(strip)
-	if pinned != "" {
-		b.WriteString("\n")
-		b.WriteString(pinned)
-	}
+	b.WriteString(t.m.lanes.render(t.width))
 	return padToHeight(b.String(), t.contentHeight)
 }
 

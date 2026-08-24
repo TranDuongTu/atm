@@ -123,7 +123,7 @@ func (t *tasksModel) SetSize(w, h int) {
 	// listContentHeight(), which also accounts for the fixed tabbed pinned box
 	// (SetSize never re-runs on a pin toggle and would otherwise leave this
 	// value stale).
-	t.pageSize = h - stripHeight - 6
+	t.pageSize = h - laneStripHeight - 6
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}

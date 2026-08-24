@@ -221,7 +221,7 @@ func TestPaneModelsRenderWithinAssignedPaneWidth(t *testing.T) {
 	}
 	assertLinesWithinWidth("projects", m.projects.View(), innerPaneWidth(leftW))
 	assertLinesWithinWidth("tasks", m.tasks.View(), innerPaneWidth(rightW))
-	wantPageSize := innerPaneHeight(m.contentHeight) - stripHeight - 6
+	wantPageSize := innerPaneHeight(m.contentHeight) - laneStripHeight - 6
 	if wantPageSize < 1 {
 		wantPageSize = 1
 	}

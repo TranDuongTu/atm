@@ -26,7 +26,22 @@ func titledBox(style lipgloss.Style, w int, title, inner string) string {
 	return titledBoxHeight(style, w, title, inner, 0)
 }
 
+// boxChars is one box-drawing set. Two exist: rounded is every pane's frame,
+// double is the emphasis frame — a border a user reads as "you are here"
+// without needing color, which the selected lane card needs and which no
+// amount of foreground styling conveys on a monochrome terminal.
+type boxChars struct {
+	tl, h, tr, v, bl, br string
+}
+
+var roundedBox = boxChars{tl: "╭", h: "─", tr: "╮", v: "│", bl: "╰", br: "╯"}
+var doubleBox = boxChars{tl: "╔", h: "═", tr: "╗", v: "║", bl: "╚", br: "╝"}
+
 func titledBoxHeight(style lipgloss.Style, w int, title, inner string, height int) string {
+	return titledBoxChars(style, w, title, inner, height, roundedBox)
+}
+
+func titledBoxChars(style lipgloss.Style, w int, title, inner string, height int, bc boxChars) string {
 	innerW := w - 2 // border left + right
 	if innerW < 1 {
 		innerW = 1
@@ -55,19 +70,19 @@ func titledBoxHeight(style lipgloss.Style, w int, title, inner string, height in
 	label := " " + title + " "
 	topFill := innerW
 	if lw := lipgloss.Width(label); lw < topFill {
-		label += strings.Repeat("─", topFill-lw)
+		label += strings.Repeat(bc.h, topFill-lw)
 	} else {
 		label = fitLine(label, topFill)
 	}
-	top := style.Render("╭" + label + "╮")
-	bottom := style.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	top := style.Render(bc.tl + label + bc.tr)
+	bottom := style.Render(bc.bl + strings.Repeat(bc.h, innerW) + bc.br)
 	lines := []string{top}
 	for _, line := range bodyLines {
 		fit := fitLine(line, innerW)
 		if lw := lipgloss.Width(fit); lw < innerW {
 			fit += spaces(innerW - lw)
 		}
-		lines = append(lines, style.Render("│")+fit+style.Render("│"))
+		lines = append(lines, style.Render(bc.v)+fit+style.Render(bc.v))
 	}
 	lines = append(lines, bottom)
 	return strings.Join(lines, "\n")
