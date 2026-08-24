@@ -3,8 +3,6 @@ package scrum
 import (
 	"atm/internal/capability"
 	"atm/internal/core"
-
-	"github.com/spf13/cobra"
 )
 
 // Cap is the scrum capability. It implements capability.Flow: the interface is
@@ -48,8 +46,3 @@ func (Cap) Lanes(code string) capability.LaneSet {
 
 // Annotate lands in the reporter/annotate task; nothing to say until then.
 func (Cap) Annotate(core.Task) *capability.Cell { return nil }
-
-// Command is replaced by the real verb tree when the recorder lands.
-func (Cap) Command(capability.Env) *cobra.Command {
-	return &cobra.Command{Short: "Scrum flow capability"}
-}

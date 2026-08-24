@@ -96,7 +96,7 @@ func TestCapabilityRegistryImportsOnlyCore(t *testing.T) {
 // reaches nothing but the registry seam and the domain leaf — never the
 // store, the cli, or the tui.
 func TestCapabilityPackagesImportOnlyRegistryAndCore(t *testing.T) {
-	for _, dir := range []string{"internal/capability/contextmap", "internal/capability/workflow", "internal/capability/workflowai", "internal/capability/workflowrpi", "internal/capability/channel", "internal/capability/checklist"} {
+	for _, dir := range []string{"internal/capability/contextmap", "internal/capability/workflow", "internal/capability/workflowai", "internal/capability/workflowrpi", "internal/capability/channel", "internal/capability/checklist", "internal/capability/scrum"} {
 		for f, imps := range internalImports(t, dir) {
 			for _, p := range imps {
 				if p != "atm/internal/capability" && p != "atm/internal/core" {
