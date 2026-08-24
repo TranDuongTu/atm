@@ -114,7 +114,7 @@ func TestBuiltinCapabilitiesLoad(t *testing.T) {
 	}
 	// Named, not counted: the set grows and shrinks as capabilities ship and
 	// retire, and a magic total only ever fails for the wrong reason.
-	for _, want := range []string{"workflow_ai", "workflow_rpi", "scrum"} {
+	for _, want := range []string{"workflow_ai", "workflow_rpi", "scrum", "qa"} {
 		if _, ok := Capability(want); !ok {
 			t.Errorf("%s missing", want)
 		}
