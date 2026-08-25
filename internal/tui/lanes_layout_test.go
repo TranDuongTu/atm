@@ -85,3 +85,69 @@ func TestPaneArtFillsTheGapAboveTheFooter(t *testing.T) {
 		t.Fatalf("the gap between the last row and the footer is empty; art did not fill it:\n%s", gap)
 	}
 }
+
+// TestPaneTitleAdvertisesTheCapabilitySwitch pins the mock's top border: the
+// pane names its capability on the left and the key that changes it on the
+// right. With no key-hint footer, the border is the only place [C] can
+// announce itself to someone who has not opened the spotlight.
+func TestPaneTitleAdvertisesTheCapabilitySwitch(t *testing.T) {
+	m := setupLaneWalk(t)
+	m.focused = paneTasks
+
+	view := stripANSI(m.View())
+	top := strings.Split(view, "\n")[0]
+	if !strings.Contains(top, "[2] Tasks · scrum") {
+		t.Fatalf("top border = %q, want the pane title", top)
+	}
+	if !strings.Contains(top, "[C] switch") {
+		t.Fatalf("top border = %q, want the [C] switch hint right-aligned in it", top)
+	}
+	if strings.Index(top, "[C] switch") < strings.Index(top, "[2] Tasks") {
+		t.Fatalf("the [C] hint renders left of the title: %q", top)
+	}
+}
+
+// TestListClosesWithADividerAboveTheGap: when the rows do not fill the block,
+// a divider closes the list so the space below reads as background rather
+// than as a list that trailed off. A full list gets no such rule — two
+// dividers in a row would be noise.
+func TestListClosesWithADividerAboveTheGap(t *testing.T) {
+	m := setupLaneWalk(t)
+	lines := paneLines(t, m)
+
+	rowIdx := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "being built") {
+			rowIdx = i
+		}
+	}
+	if rowIdx < 0 {
+		t.Fatalf("no task row rendered:\n%s", strings.Join(lines, "\n"))
+	}
+	if got := strings.TrimSpace(lines[rowIdx+1]); got == "" || strings.Trim(got, "─") != "" {
+		t.Fatalf("line below the last row = %q, want a divider closing the list", lines[rowIdx+1])
+	}
+}
+
+func TestFullListGetsNoClosingDivider(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(120, 22) // short pane
+	for i := 0; i < 40; i++ {
+		seedTask(t, m, "ATM", "claimed "+string(rune('a'+i%26)), "ATM:scrum:task")
+	}
+	m.refreshAll()
+	m.lanes.selectDefault()
+
+	lines := paneLines(t, m)
+	rules := 0
+	for _, ln := range lines {
+		if s := strings.TrimSpace(ln); s != "" && strings.Trim(s, "─") == "" {
+			rules++
+		}
+	}
+	if rules != 2 {
+		t.Fatalf("a full list rendered %d dividers, want 2 (column rule + footer rule):\n%s",
+			rules, strings.Join(lines, "\n"))
+	}
+}

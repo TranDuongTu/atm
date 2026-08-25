@@ -38,10 +38,18 @@ var roundedBox = boxChars{tl: "╭", h: "─", tr: "╮", v: "│", bl: "╰", b
 var doubleBox = boxChars{tl: "╔", h: "═", tr: "╗", v: "║", bl: "╚", br: "╝"}
 
 func titledBoxHeight(style lipgloss.Style, w int, title, inner string, height int) string {
-	return titledBoxChars(style, w, title, inner, height, roundedBox)
+	return titledBoxChars(style, w, title, "", inner, height, roundedBox)
 }
 
-func titledBoxChars(style lipgloss.Style, w int, title, inner string, height int, bc boxChars) string {
+// titledBoxHint is titledBoxHeight with a hint parked at the RIGHT end of the
+// top border. It is where a pane advertises the key that changes what the
+// title names — the one place a key can announce itself to someone who has
+// not opened the launcher.
+func titledBoxHint(style lipgloss.Style, w int, title, hint, inner string, height int) string {
+	return titledBoxChars(style, w, title, hint, inner, height, roundedBox)
+}
+
+func titledBoxChars(style lipgloss.Style, w int, title, hint, inner string, height int, bc boxChars) string {
 	innerW := w - 2 // border left + right
 	if innerW < 1 {
 		innerW = 1
@@ -69,10 +77,18 @@ func titledBoxChars(style lipgloss.Style, w int, title, inner string, height int
 
 	label := " " + title + " "
 	topFill := innerW
-	if lw := lipgloss.Width(label); lw < topFill {
-		label += strings.Repeat(bc.h, topFill-lw)
+	// The hint is dropped rather than crowded when the border cannot hold
+	// both: a title truncated to fit an advertisement is the wrong trade.
+	tail := ""
+	if hint != "" {
+		if t := " " + hint + " "; lipgloss.Width(label)+lipgloss.Width(t)+1 <= topFill {
+			tail = t + bc.h
+		}
+	}
+	if lw := lipgloss.Width(label) + lipgloss.Width(tail); lw < topFill {
+		label += strings.Repeat(bc.h, topFill-lw) + tail
 	} else {
-		label = fitLine(label, topFill)
+		label = fitLine(label+tail, topFill)
 	}
 	top := style.Render(bc.tl + label + bc.tr)
 	bottom := style.Render(bc.bl + strings.Repeat(bc.h, innerW) + bc.br)

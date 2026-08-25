@@ -312,6 +312,15 @@ func (m *Model) tasksPaneTitle() string {
 	return "[2] Tasks · " + m.capability.current
 }
 
+// tasksPaneHint is the key that changes what the pane title names. Absent
+// without a project, where [C] has nothing to switch between.
+func (m *Model) tasksPaneHint() string {
+	if m.projectScope == "" {
+		return ""
+	}
+	return "[C] switch"
+}
+
 func (m *Model) refreshAll() {
 	m.capability.refresh()
 	m.projects.refresh()
@@ -1106,17 +1115,17 @@ func (m *Model) View() string {
 
 func (m *Model) renderWorkspace() string {
 	leftW, rightW := splitWorkspaceWidths(m.width)
-	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", m.projects.View())
-	tasks := m.renderPane(paneTasks, rightW, m.contentHeight, m.tasksPaneTitle(), m.tasks.View())
+	projects := m.renderPane(paneProjects, leftW, m.contentHeight, "[1] Projects", "", m.projects.View())
+	tasks := m.renderPane(paneTasks, rightW, m.contentHeight, m.tasksPaneTitle(), m.tasksPaneHint(), m.tasks.View())
 	return lipgloss.JoinHorizontal(lipgloss.Top, projects, tasks)
 }
 
-func (m *Model) renderPane(pane workspacePane, width int, height int, title string, body string) string {
+func (m *Model) renderPane(pane workspacePane, width int, height int, title, hint string, body string) string {
 	style := m.styles.PaneInactive
 	if m.focused == pane {
 		style = m.styles.PaneActive
 	}
-	return titledBoxHeight(style, width, title, body, height)
+	return titledBoxHint(style, width, title, hint, body, height)
 }
 
 func (m *Model) renderStatusLine() string {

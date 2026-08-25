@@ -214,13 +214,27 @@ func (t *tasksModel) renderList() string {
 	// The footer sits on the block's last line, not directly under the rows:
 	// a count that floats up to meet a short list reads as part of the list.
 	// Everything between the last row and it is the gap the art fills.
-	body := padToHeight(b.String(), t.contentHeight-footerHeight)
-	return t.fillGapWithArt(body) + "\n" + footer
+	return t.fillGapWithArt(t.closeList(b.String())) + "\n" + footer
 }
 
 // footerHeight is what dashboardFooter draws: its divider and its one line
 // of text.
 const footerHeight = 2
+
+// closeList pads the list body to its block height and, when the rows leave
+// dead space behind, rules it off. Without the rule a short list trails into
+// the background art and reads as a list that ran out mid-render; with it,
+// the space below is plainly not part of the list. A full list gets no rule —
+// it would sit directly above the footer's own divider.
+func (t *tasksModel) closeList(body string) string {
+	h := t.contentHeight - footerHeight
+	used := len(strings.Split(strings.TrimRight(body, "\n"), "\n"))
+	if h-used >= 2 {
+		body = strings.TrimRight(body, "\n") + "\n" +
+			dashboardLine(t.width, repeat("─", dashboardContentWidth(t.width))) + "\n"
+	}
+	return padToHeight(body, h)
+}
 
 // renderEmptyState appends a vertically+horizontally centered empty-state
 // block (each line center-aligned independently) into b.
