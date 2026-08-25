@@ -16,15 +16,15 @@ func TestBoardsConfigCapabilityRoundTrip(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Acme", testActor); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Capability: "workflow"}, testActor); err != nil {
+	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Capability: "scrum"}, testActor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
 	}
 	got, err := s.GetBoardsConfig("ATM")
 	if err != nil {
 		t.Fatalf("GetBoardsConfig: %v", err)
 	}
-	if got == nil || got.Capability != "workflow" {
-		t.Fatalf("Capability = %+v, want workflow", got)
+	if got == nil || got.Capability != "scrum" {
+		t.Fatalf("Capability = %+v, want scrum", got)
 	}
 	cfg, err := s.GetProjectConfig("ATM")
 	if err != nil || cfg == nil || cfg.Boards == nil {

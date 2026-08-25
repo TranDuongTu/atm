@@ -9,7 +9,7 @@ func TestGoldenProjectCreateWithCapabilities(t *testing.T) {
 	h := newGoldenHarness(t)
 	out, _, code := h.run("--output", "json", "project", "create",
 		"--code", "PCX", "--name", "cap demo",
-		"--capabilities", "workflow",
+		"--capabilities", "scrum",
 		"--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
@@ -24,7 +24,7 @@ func TestProjectCreateRejectsUnknownCapability(t *testing.T) {
 	if code == 0 {
 		t.Fatal("expected usage error")
 	}
-	if !strings.Contains(stderr, "nosuch") || !strings.Contains(stderr, "workflow") {
+	if !strings.Contains(stderr, "nosuch") || !strings.Contains(stderr, "scrum") {
 		t.Errorf("error must name the unknown capability and the valid names, got %q", stderr)
 	}
 }
@@ -32,7 +32,7 @@ func TestProjectCreateRejectsUnknownCapability(t *testing.T) {
 func TestGoldenProjectCapabilityListAddRemove(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "PCX", "--name", "cap demo",
-		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+		"--capabilities", "scrum", "--actor", "admin@cli:unset")
 	out, _, code := h.run("--output", "json", "project", "capability", "list", "--project", "PCX")
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -42,7 +42,7 @@ func TestGoldenProjectCapabilityListAddRemove(t *testing.T) {
 	if _, _, code := h.run("project", "capability", "add", "--project", "PCX", "--name", "scrum", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("add exit %d", code)
 	}
-	if _, _, code := h.run("project", "capability", "remove", "--project", "PCX", "--name", "workflow", "--actor", "admin@cli:unset"); code != 0 {
+	if _, _, code := h.run("project", "capability", "remove", "--project", "PCX", "--name", "scrum", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("remove exit %d", code)
 	}
 	out2, _, _ := h.run("--output", "json", "project", "capability", "list", "--project", "PCX")

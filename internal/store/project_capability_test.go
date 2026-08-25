@@ -11,20 +11,20 @@ func TestProjectCapabilityEnableDisable(t *testing.T) {
 	if _, err := s.CreateProject("PCA", "cap demo", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableProjectCapability("PCA", "workflow", actor); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.EnableProjectCapability("PCA", "scrum", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DisableProjectCapability("PCA", "scrum", actor); err != nil {
+	if err := s.EnableProjectCapability("PCA", "qa", actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DisableProjectCapability("PCA", "qa", actor); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.GetProject("PCA")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.Capabilities, []string{"workflow"}; !reflect.DeepEqual(got, want) {
+	if got, want := p.Capabilities, []string{"scrum"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Capabilities = %v, want %v", got, want)
 	}
 }
@@ -35,10 +35,10 @@ func TestProjectCapabilityDisableAllReadsNonNilEmpty(t *testing.T) {
 	if _, err := s.CreateProject("PCE", "cap empty", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableProjectCapability("PCE", "workflow", actor); err != nil {
+	if err := s.EnableProjectCapability("PCE", "scrum", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DisableProjectCapability("PCE", "workflow", actor); err != nil {
+	if err := s.DisableProjectCapability("PCE", "scrum", actor); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.GetProject("PCE")

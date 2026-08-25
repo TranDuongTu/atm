@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/store"
 	"github.com/charmbracelet/lipgloss"
@@ -107,20 +107,20 @@ func TestBoardCountSumsMatchingTasks(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := scrum.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open1", "ATM:status:open")
-	seedTask(t, m, "ATM", "open2", "ATM:status:open")
-	seedTask(t, m, "ATM", "done1", "ATM:status:done")
+	seedTask(t, m, "ATM", "claimed1", "ATM:scrum:task")
+	seedTask(t, m, "ATM", "claimed2", "ATM:scrum:bug")
+	seedTask(t, m, "ATM", "evicted1", "ATM:scrum-out:duplicate")
 
-	// open-tasks is workflow-exposed with Expr "status:open" -> 2 matches.
-	count, broken := m.boardCount("ATM:open-tasks")
+	// scrum-pipeline has Expr "scrum:* AND NOT scrum-out:*" -> 2 matches.
+	count, broken := m.boardCount("ATM:scrum-pipeline")
 	if count != 2 {
-		t.Errorf("open-tasks count = %d want 2 (matching tasks)", count)
+		t.Errorf("scrum-pipeline count = %d want 2 (matching tasks)", count)
 	}
 	if broken {
-		t.Errorf("open-tasks marked broken; expression status:open is valid")
+		t.Errorf("scrum-pipeline marked broken; its expression is valid")
 	}
 }
 

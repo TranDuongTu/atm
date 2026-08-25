@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -33,7 +33,7 @@ func TestTasksRefreshResolvesRegistryOncePerRefresh(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 	svc := &countingService{Service: s}
-	m, err := NewModel(NewModelOpts{Service: svc, Actor: testActor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: svc, Actor: testActor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}

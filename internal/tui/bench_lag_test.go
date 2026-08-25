@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/store"
 )
 
@@ -19,7 +19,7 @@ func BenchmarkView_SelectedProject(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -54,7 +54,7 @@ func BenchmarkRefreshAll(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}
@@ -87,7 +87,7 @@ func BenchmarkView_NoSelection(b *testing.B) {
 	if err := s.Init(""); err != nil {
 		b.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}

@@ -11,7 +11,6 @@ import (
 	"atm/internal/capability/qa"
 	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
-	"atm/internal/capability/workflow"
 	"atm/internal/cli"
 	"atm/internal/core"
 	"atm/internal/dispatch"
@@ -24,7 +23,7 @@ import (
 // domain or presentation logic here.
 func main() {
 	reg := capability.NewRegistry(
-		workflow.New(), channel.New(), checklist.New(),
+		channel.New(), checklist.New(),
 		scrum.New(), qa.New(), codereview.New(), release.New(),
 	)
 	open := func(storePath string) (*store.Store, error) {

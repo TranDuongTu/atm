@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/store"
 )
 
@@ -21,7 +21,7 @@ func openRealStore(b *testing.B) (*store.Store, *Model) {
 	if err != nil {
 		b.Fatalf("store.Open: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		b.Fatalf("NewModel: %v", err)
 	}

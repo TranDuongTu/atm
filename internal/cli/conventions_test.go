@@ -106,9 +106,8 @@ func TestConventionsActorText(t *testing.T) {
 // static text. These fragments now live only in the capability guides.
 func TestConventionsCarryNoCapabilityProse(t *testing.T) {
 	for _, banned := range []string{
-		"atm workflow start", "exactly-one-status",
-		"atm context stamp", "atm context supersede",
-		"DRIFT", "UNVERIFIED",
+		"atm capability scrum claim", "exactly-one-status",
+		"exactly-one-stage", "DRIFT", "UNVERIFIED",
 	} {
 		if strings.Contains(conventionsCoreText, banned) {
 			t.Errorf("conventionsCoreText still restates capability prose %q", banned)

@@ -600,7 +600,7 @@ func TestEnableChecklistCapability(t *testing.T) {
 	}
 	// Recording any capability makes the enabled set explicit, so checklist is
 	// no longer covered by the legacy "nil means all built-ins" rule.
-	if err := m.store.EnableProjectCapability("WEB", "workflow", testActor); err != nil {
+	if err := m.store.EnableProjectCapability("WEB", "scrum", testActor); err != nil {
 		t.Fatalf("EnableProjectCapability: %v", err)
 	}
 	m.projectScope = "WEB"

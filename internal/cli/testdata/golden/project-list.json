@@ -2,8 +2,8 @@
   "projects": [
     {
       "capabilities": [
-        "scrum",
-        "workflow"
+        "qa",
+        "scrum"
       ],
       "code": "ATM",
       "created_at": "TIMESTAMP",

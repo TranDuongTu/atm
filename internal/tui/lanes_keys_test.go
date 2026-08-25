@@ -6,15 +6,13 @@ import (
 	"atm/internal/capability"
 	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
-	"atm/internal/capability/workflow"
 	"atm/internal/core"
 	"atm/internal/store"
 )
 
-// newFlowMixTestModel registers a legacy non-flow capability (workflow), a
-// flow (scrum) and a registry capability (release), which is the state plan
-// 3/4 has not yet cleaned up: pane [2] must already behave as if only the
-// flow existed.
+// newFlowMixTestModel registers one flow (scrum) alongside a registry
+// capability (release): pane [2] is one flow × one lane, so the registry
+// capability must stay out of the [C] list and out of resolution.
 func newFlowMixTestModel(t *testing.T) *Model {
 	t.Helper()
 	s, err := store.Open(t.TempDir())
@@ -24,7 +22,7 @@ func newFlowMixTestModel(t *testing.T) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	reg := capability.NewRegistry(workflow.New(), scrum.New(), release.New())
+	reg := capability.NewRegistry(scrum.New(), release.New())
 	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: reg})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
@@ -71,7 +69,7 @@ func TestCapabilitySwitcherListsFlowsOnly(t *testing.T) {
 func TestCapabilityResolutionFallsBackWhenPersistedIsNotAFlow(t *testing.T) {
 	m := newFlowMixTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Capability: "workflow"}, m.actor); err != nil {
+	if err := m.store.SetProjectBoards("ATM", &core.BoardsConfig{Capability: "release"}, m.actor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
 	}
 	m.projectScope = "ATM"
@@ -82,7 +80,7 @@ func TestCapabilityResolutionFallsBackWhenPersistedIsNotAFlow(t *testing.T) {
 	}
 	// Resolution must not write back — only an explicit switch persists.
 	cfg, _ := m.store.GetBoardsConfig("ATM")
-	if cfg.Capability != "workflow" {
+	if cfg.Capability != "release" {
 		t.Fatalf("persisted = %q; resolution must not write back", cfg.Capability)
 	}
 }
@@ -93,7 +91,7 @@ func TestSwitchingCapabilityLandsOnItsPipelineLane(t *testing.T) {
 	m.lanes.selectDefault()
 	m.lanes.move(-1) // sitting on Inbox
 
-	m.capability.current = "workflow" // pretend a stale in-session value
+	m.capability.current = "release" // pretend a stale in-session value
 	m.capability.switchTo("scrum")
 
 	if m.lanes.selected != lanePipeline {

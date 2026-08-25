@@ -238,8 +238,11 @@ func TestTaskListAllTasksBoardAndStarFilterPinsTautology(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
-	// project create calls workflow.EnsureVocabulary, seeding all-tasks.
 	h.run("project", "create", "--store", sp, "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	// No capability seeds a catch-all board any more, so the tautology this
+	// test pins gets its board authored the substrate way.
+	h.run("label", "add", "--store", sp, "--name", "ATM:all-tasks", "--expr", "*",
+		"--description", "every task", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "open-task", "--label", "ATM:status:open", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "done-task", "--label", "ATM:status:done", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--store", sp, "--project", "ATM", "--title", "wip-task", "--label", "ATM:status:in-progress", "--actor", "admin@cli:unset")

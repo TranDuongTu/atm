@@ -1,7 +1,5 @@
 {
-  "capabilities": [
-    "scrum"
-  ],
+  "capabilities": [],
   "explicit": true,
   "project": "PCX"
 }

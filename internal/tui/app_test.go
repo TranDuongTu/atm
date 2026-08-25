@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/store"
 	"atm/internal/version"
@@ -43,7 +43,7 @@ func newTestModelWithActor(t *testing.T, actor string) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	m, err := NewModel(NewModelOpts{Service: s, Actor: actor, Registry: capability.NewRegistry(workflow.New())})
+	m, err := NewModel(NewModelOpts{Service: s, Actor: actor, Registry: capability.NewRegistry(scrum.New())})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestStatusLineStatsFollowProjectSelection(t *testing.T) {
 		t.Errorf("AAA (%d events) should out-count BBB (%d)", aaaLive, bbbLive)
 	}
 
-	// Selecting a project seeds its workflow vocabulary, which itself
+	// Selecting a project seeds its capability vocabulary, which itself
 	// appends events — so the store grows as this test navigates. Take the
 	// three totals now, after navigation has settled, or the arithmetic
 	// compares reads from different points in time.
@@ -1237,7 +1237,7 @@ func TestTasksFlatListEmptyFilter(t *testing.T) {
 	mustContain(t, body, "TITLE")
 	mustNotContain(t, body, "LABELS") // Task 7: LABELS column removed from the tasks table.
 	mustContain(t, body, "UPDATED")
-	mustContain(t, v, "[2] Tasks · workflow")
+	mustContain(t, v, "[2] Tasks · scrum")
 	mustContain(t, v, "task one")
 	mustContain(t, v, tk.ID)
 	// Task 7: LABELS column removed from the tasks table — the label
@@ -1507,12 +1507,12 @@ func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(160, 50)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	seedTask(t, m, "ATM", "chip task", "ATM:status:open", "ATM:type:bug")
+	seedTask(t, m, "ATM", "chip task", "ATM:scrum:task", "ATM:type:bug")
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")
 	v := m.tasks.View()
-	mustContain(t, v, " ATM:status:open ")
+	mustContain(t, v, " ATM:scrum:task ")
 	mustContain(t, v, " ATM:type:bug ")
 }
 
@@ -1520,7 +1520,7 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
 	seedProject(t, m, "ATM", "Acme Task Manager")
-	tk := seedTask(t, m, "ATM", "inside pane task", "ATM:status:open")
+	tk := seedTask(t, m, "ATM", "inside pane task", "ATM:scrum:task")
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")

@@ -8,7 +8,7 @@ import (
 // foldCapabilityFixture builds:
 //
 //	e1 project.created         (code P, name P)
-//	e2 project.capability-enabled  parents [e1], payload {"capability": "workflow"}
+//	e2 project.capability-enabled  parents [e1], payload {"capability": "scrum"}
 //	e3 project.capability-enabled  parents [e2], payload {"capability": "scrum"}
 //	e4 project.capability-disabled parents [e3], payload {"capability": "scrum"}
 //
@@ -19,7 +19,7 @@ func foldCapabilityFixture(t *testing.T) *State {
 	e1 := testEvent(t, c, replicaA, nil, ActionProjectCreated,
 		Subject{Kind: "project", Code: "P"}, map[string]any{"alias": "P", "name": "proj"})
 	e2 := testEvent(t, c, replicaA, []string{e1.ID}, ActionProjectCapabilityEnabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "workflow"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	e3 := testEvent(t, c, replicaA, []string{e2.ID}, ActionProjectCapabilityEnabled,
 		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	e4 := testEvent(t, c, replicaA, []string{e3.ID}, ActionProjectCapabilityDisabled,
@@ -45,9 +45,9 @@ func foldEnableThenDisableFixture(t *testing.T) *State {
 	e1 := testEvent(t, c, replicaA, nil, ActionProjectCreated,
 		Subject{Kind: "project", Code: "P"}, map[string]any{"alias": "P", "name": "proj"})
 	e2 := testEvent(t, c, replicaA, []string{e1.ID}, ActionProjectCapabilityEnabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "workflow"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	e3 := testEvent(t, c, replicaA, []string{e2.ID}, ActionProjectCapabilityDisabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "workflow"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	return fold(t, e1, e2, e3)
 }
 
@@ -74,7 +74,7 @@ func singleProject(t *testing.T, st *State) *ProjectState {
 func TestCapabilityMembershipFolds(t *testing.T) {
 	st := foldCapabilityFixture(t)
 	p := singleProject(t, st)
-	if got, want := p.Capabilities, []string{"workflow"}; !reflect.DeepEqual(got, want) {
+	if got, want := p.Capabilities, []string{"scrum"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Capabilities = %v, want %v", got, want)
 	}
 }
@@ -89,7 +89,7 @@ func TestNoCapabilityEventsMeansNil(t *testing.T) {
 }
 
 func TestAllDisabledIsEmptyNotNil(t *testing.T) {
-	// enable workflow then disable workflow
+	// enable scrum then disable scrum
 	st := foldEnableThenDisableFixture(t)
 	p := singleProject(t, st)
 	if p.Capabilities == nil || len(p.Capabilities) != 0 {

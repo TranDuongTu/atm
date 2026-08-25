@@ -61,7 +61,7 @@ func TestVersionImportsNoInternalPackage(t *testing.T) {
 //
 // The architecture doc's table says tui may import "core, tui/components —
 // nothing else". That is the TARGET, and it does not hold yet: tui production
-// files also import internal/{workflow, activity, seed, embed}. Step 5
+// files also import internal/{activity, seed, embed}. Step 5
 // (ATM-08db6e) relocated the capabilities and put the TUI on the registry;
 // the satellites (activity, seed, embed) remain acknowledged thin leaves.
 // Purging them is out of scope, so this test asserts the edge that was
@@ -96,7 +96,7 @@ func TestCapabilityRegistryImportsOnlyCore(t *testing.T) {
 // reaches nothing but the registry seam and the domain leaf — never the
 // store, the cli, or the tui.
 func TestCapabilityPackagesImportOnlyRegistryAndCore(t *testing.T) {
-	for _, dir := range []string{"internal/capability/workflow", "internal/capability/channel", "internal/capability/checklist", "internal/capability/scrum", "internal/capability/qa", "internal/capability/codereview", "internal/capability/release"} {
+	for _, dir := range []string{"internal/capability/channel", "internal/capability/checklist", "internal/capability/scrum", "internal/capability/qa", "internal/capability/codereview", "internal/capability/release"} {
 		for f, imps := range internalImports(t, dir) {
 			for _, p := range imps {
 				if p != "atm/internal/capability" && p != "atm/internal/core" {
@@ -160,7 +160,7 @@ func TestCLIDoesNotImportStore(t *testing.T) {
 func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
 	for _, dir := range []string{
 		"cmd/atm", "internal/activity", "internal/actor", "internal/agent",
-		"internal/capability", "internal/capability/workflow",
+		"internal/capability",
 		"internal/capability/channel", "internal/capability/checklist",
 		"internal/cli", "internal/core", "internal/developing", "internal/embed",
 		"internal/dispatch",

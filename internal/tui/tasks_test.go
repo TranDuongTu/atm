@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/scrum"
 	"atm/internal/store"
 )
 
@@ -73,10 +73,10 @@ func TestTasksPaneRendersLaneStrip(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := scrum.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "open one", "ATM:scrum:task")
 	m.SetSize(100, 40)
 	v := stripANSI(m.tasks.View())
 	for _, lane := range []string{"Inbox", "Pipeline", "Out"} {
@@ -93,10 +93,10 @@ func TestListViewLayoutOrderLaneStripThenList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := scrum.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "open one", "ATM:scrum:task")
 	m.SetSize(100, 40)
 
 	lines := strings.Split(stripANSI(m.tasks.View()), "\n")
@@ -122,9 +122,9 @@ func TestPaneTitleNamesTheCurrentCapability(t *testing.T) {
 	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "open one", "ATM:scrum:task")
 	m.refreshAll()
-	if got, want := m.tasksPaneTitle(), "[2] Tasks · workflow"; got != want {
+	if got, want := m.tasksPaneTitle(), "[2] Tasks · scrum"; got != want {
 		t.Fatalf("tasksPaneTitle = %q, want %q", got, want)
 	}
 }
@@ -168,7 +168,7 @@ func TestFlatListDropsLabelsColumn(t *testing.T) {
 	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "open one", "ATM:scrum:task")
 	m.refreshAll()
 	m.lanes.selectDefault()
 	out := m.tasks.renderList()
@@ -181,9 +181,8 @@ func TestFlatListDropsLabelsColumn(t *testing.T) {
 }
 
 // TestTasksListContextualColumn verifies the flat list shows the current
-// capability's annotation column: WORKFLOW header + the workflow cell text
-// ("in-progress") when workflow is current, and hides the column entirely
-// when the unmanaged pseudo-capability becomes current.
+// capability's annotation column: the ANNOTATE header plus the current
+// capability's cell text for the task ("task · review" from scrum).
 func TestTasksListContextualColumn(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "PXA", "Acme")
@@ -191,7 +190,7 @@ func TestTasksListContextualColumn(t *testing.T) {
 	if _, err := m.regFor("PXA").EnsureVocabulary(m.store, "PXA", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	if _, err := m.store.CreateTask("PXA", "annotated task", "", []string{"PXA:status:in-progress"}, m.actor); err != nil {
+	if _, err := m.store.CreateTask("PXA", "annotated task", "", []string{"PXA:scrum:task", "PXA:scrum-stage:review"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	m.refreshAll()
@@ -201,8 +200,8 @@ func TestTasksListContextualColumn(t *testing.T) {
 	if !strings.Contains(view, "ANNOTATE") {
 		t.Errorf("column header missing the annotation column:\n%s", view)
 	}
-	if !strings.Contains(view, "in-progress") {
-		t.Errorf("column missing workflow cell:\n%s", view)
+	if !strings.Contains(view, "task · review") {
+		t.Errorf("column missing the scrum cell:\n%s", view)
 	}
 }
 
@@ -217,7 +216,7 @@ func TestTasksListContextualColumnHiddenOnNarrowPane(t *testing.T) {
 	if _, err := m.regFor("PXA").EnsureVocabulary(m.store, "PXA", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	if _, err := m.store.CreateTask("PXA", "annotated task", "", []string{"PXA:status:in-progress"}, m.actor); err != nil {
+	if _, err := m.store.CreateTask("PXA", "annotated task", "", []string{"PXA:scrum:task", "PXA:scrum-stage:review"}, m.actor); err != nil {
 		t.Fatal(err)
 	}
 	m.refreshAll()
@@ -246,10 +245,10 @@ func TestTasksPaneFillsGapWithArt(t *testing.T) {
 	}
 	m.artOn["ATM"] = true
 	m.artPair["ATM"] = []string{"galaxy", "constellation"}
-	if _, err := workflow.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+	if _, err := scrum.EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	seedTask(t, m, "ATM", "open one", "ATM:status:open")
+	seedTask(t, m, "ATM", "open one", "ATM:scrum:task")
 	m.lanes.refresh()
 	m.lanes.selectDefault()
 

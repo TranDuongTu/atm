@@ -190,9 +190,9 @@ func TestPersonaManagerLaunch(t *testing.T) {
 // full registry first (typo → registered list), then the enabled set.
 func TestCapabilityScopeValidation(t *testing.T) {
 	h := newGoldenHarness(t)
-	// Create with only workflow enabled so scrum is known-but-disabled.
+	// Create with only scrum enabled so qa is known-but-disabled.
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management",
-		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+		"--capabilities", "scrum", "--actor", "admin@cli:unset")
 	stubLookPath(h)
 	captureChild(h)
 	h.reset()
@@ -206,8 +206,8 @@ func TestCapabilityScopeValidation(t *testing.T) {
 		t.Errorf("unknown-capability error should list registered:\n%s", stderr)
 	}
 
-	// Known-but-disabled capability (scrum is registered but not enabled).
-	_, stderr, code = h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--capability", "scrum")
+	// Known-but-disabled capability (qa is registered but not enabled).
+	_, stderr, code = h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--capability", "qa")
 	if code == ExitSuccess {
 		t.Fatal("expected non-zero exit for not-enabled capability")
 	}
@@ -216,7 +216,7 @@ func TestCapabilityScopeValidation(t *testing.T) {
 	}
 
 	// Enabled capability succeeds.
-	_, _, code = h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--capability", "workflow")
+	_, _, code = h.run("--persona", "manager", "--project", "ATM", "--agent", "claude", "--capability", "scrum")
 	if code != ExitSuccess {
 		t.Fatalf("enabled capability should succeed; exit=%d stderr=%s", code, h.stderr.String())
 	}

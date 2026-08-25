@@ -99,8 +99,9 @@ func TestFreshProjectSeedsOnlyCapabilityLabels(t *testing.T) {
 	// The old internal/seed set seeded comment:progress/decision/open-question.
 	// No capability owns those, so a fresh project must NOT carry them; we
 	// assert the specific dropped suffixes rather than the broad
-	// "PRJ:comment:" prefix. priority:* is owned by the workflow capability
-	// (planning concern), so it IS seeded on a fresh project.
+	// "PRJ:comment:" prefix. What a fresh project DOES carry is exactly the
+	// enabled capabilities' vocabulary — scrum's claim/stage labels and its
+	// lane boards.
 	for _, gone := range []string{
 		"PRJ:comment:progress", "PRJ:comment:decision", "PRJ:comment:open-question",
 	} {
@@ -109,7 +110,7 @@ func TestFreshProjectSeedsOnlyCapabilityLabels(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"PRJ:status:open", "PRJ:all-tasks", "PRJ:priority:high", "PRJ:priority:*",
+		"PRJ:scrum:*", "PRJ:scrum:task", "PRJ:scrum-stage:done", "PRJ:scrum-inbox",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("fresh project missing capability-owned %s", want)

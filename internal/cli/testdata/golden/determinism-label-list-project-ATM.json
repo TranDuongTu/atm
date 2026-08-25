@@ -1,44 +1,51 @@
 {
   "labels": [
     {
-      "description": "every task in the project, ordered by recent activity. Default board in the TUI.",
-      "expr": "*",
-      "name": "ATM:all-tasks"
-    },
-    {
-      "description": "tasks with no status label: incoming jottings awaiting triage. Review queue alongside open-tasks.",
-      "expr": "NOT status:*",
-      "name": "ATM:backlog"
-    },
-    {
       "description": "",
       "name": "ATM:context:agent"
     },
     {
-      "description": "tasks someone is actively working on (status:in-progress).",
-      "expr": "status:in-progress",
-      "name": "ATM:in-progress-tasks"
+      "description": "qa Inbox lane: finished work qa has not decided about. Non-empty means dispatch the manager.",
+      "expr": "NOT qa:* AND NOT qa-out:*",
+      "name": "ATM:qa-inbox"
     },
     {
-      "description": "every open task: the project's active work.",
-      "expr": "status:open",
-      "name": "ATM:open-tasks"
+      "description": "qa Out lane: settled evictions; qa release returns one to the pool.",
+      "expr": "qa-out:*",
+      "name": "ATM:qa-out-board"
     },
     {
-      "description": "urgency ranking for planning; at most one priority label per task, absent means default priority",
-      "name": "ATM:priority:*"
+      "description": "qa EVICT SOCKET: considered and declined by qa; permanent until qa release returns the task to the pool",
+      "name": "ATM:qa-out:*"
     },
     {
-      "description": "planning priority: high; do this first, everything untagged is default priority",
-      "name": "ATM:priority:high"
+      "description": "qa evict reason: verified as part of another task (see the covered_by payload field)",
+      "name": "ATM:qa-out:covered-by"
     },
     {
-      "description": "planning priority: low; do when no higher-priority work remains",
-      "name": "ATM:priority:low"
+      "description": "qa evict reason: verification failed — the backward-flow signal the manager routes",
+      "name": "ATM:qa-out:failed"
     },
     {
-      "description": "planning priority: medium; do after high-priority work",
-      "name": "ATM:priority:medium"
+      "description": "qa evict reason: nothing here to verify",
+      "name": "ATM:qa-out:not-relevant"
+    },
+    {
+      "description": "qa Pipeline lane: originals under verification and their scaffolds; certified originals stay visible.",
+      "expr": "qa:* AND NOT qa-out:*",
+      "name": "ATM:qa-pipeline"
+    },
+    {
+      "description": "qa claim axis; presence means the task is in qa's pipeline",
+      "name": "ATM:qa:*"
+    },
+    {
+      "description": "qa FINISH SOCKET: this original is verified. Only ever stamped on an absorbed original, NEVER on a test scaffold. Downstream capabilities wire their inbox eligibility to this label.",
+      "name": "ATM:qa:done"
+    },
+    {
+      "description": "qa state: under verification (originals and their test scaffolds alike)",
+      "name": "ATM:qa:testing"
     },
     {
       "description": "scrum Inbox lane: eligible work scrum has not decided about. Non-empty means dispatch the manager.",
@@ -124,23 +131,7 @@
       "name": "ATM:scrum:task"
     },
     {
-      "description": "lifecycle state of a task; exactly one status label should be present",
-      "name": "ATM:status:*"
-    },
-    {
-      "description": "workflow state: blocked; task cannot proceed pending something else",
-      "name": "ATM:status:blocked"
-    },
-    {
-      "description": "workflow state: done; task is complete",
-      "name": "ATM:status:done"
-    },
-    {
-      "description": "workflow state: in-progress; someone is actively working on this",
-      "name": "ATM:status:in-progress"
-    },
-    {
-      "description": "workflow state: open; task is not started or is being considered",
+      "description": "",
       "name": "ATM:status:open"
     },
     {

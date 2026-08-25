@@ -7,7 +7,7 @@ import (
 
 // TestCapabilityListShowsDisabled proves `atm capability list` enumerates
 // the FULL registry and reports the per-project enabled flag: a project that
-// removed scrum must show it as enabled=false while workflow stays
+// removed scrum must show it as enabled=false while qa stays
 // enabled=true. The list always enumerates every registered capability; the
 // hard gate (unmount) is asserted separately.
 func TestCapabilityListShowsDisabled(t *testing.T) {
@@ -22,7 +22,7 @@ func TestCapabilityListShowsDisabled(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	compareGolden(t, "capability-list-scrum-disabled", stdout)
-	if !strings.Contains(stdout, `"scrum"`) || !strings.Contains(stdout, `"workflow"`) {
+	if !strings.Contains(stdout, `"scrum"`) || !strings.Contains(stdout, `"qa"`) {
 		t.Fatalf("list must enumerate both capabilities: %s", stdout)
 	}
 }
@@ -41,14 +41,14 @@ func TestCapabilityMountHardGate(t *testing.T) {
 		t.Fatal("disabled capability's subtree still mounted under atm capability")
 	}
 	h.reset()
-	// workflow status requires --task, not --project; the point is the command
-	// must be FOUND (mounted), so assert the failure is not "unknown command".
-	_, stderr, code := h.run("capability", "workflow", "status", "--project", "ATM")
+	// qa is still enabled; the point is its subtree must be FOUND (mounted),
+	// so assert the failure — if any — is not "unknown command".
+	_, stderr, code := h.run("capability", "qa", "lanes", "--project", "ATM")
 	if code == 0 {
 		return // unexpectedly succeeded; still fine — it is mounted
 	}
 	if strings.Contains(stderr, "unknown command") {
-		t.Fatalf("enabled capability (workflow) not mounted under atm capability: %s", stderr)
+		t.Fatalf("enabled capability (qa) not mounted under atm capability: %s", stderr)
 	}
 }
 
@@ -64,22 +64,22 @@ func TestCapabilityGuideMountedByName(t *testing.T) {
 }
 
 // TestGoldenCapabilityUnmanaged: the manager's triage read — labels no
-// enabled capability owns, with usage counts. Workflow-owned labels
-// (status:open via the seeded vocabulary) must NOT appear.
+// enabled capability owns, with usage counts. Scrum-owned labels
+// (scrum:task via the seeded vocabulary) must NOT appear.
 func TestGoldenCapabilityUnmanaged(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "PCX", "--name", "cap demo",
-		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+		"--capabilities", "scrum", "--actor", "admin@cli:unset")
 	h.run("label", "add", "--name", "PCX:type:bug", "--actor", "admin@cli:unset")
 	h.run("label", "add", "--name", "PCX:urgent", "--actor", "admin@cli:unset")
 	h.run("task", "create", "--project", "PCX", "--title", "t1",
-		"--label", "PCX:type:bug", "--label", "PCX:status:open", "--actor", "admin@cli:unset")
+		"--label", "PCX:type:bug", "--label", "PCX:scrum:task", "--actor", "admin@cli:unset")
 	out, _, code := h.run("--output", "json", "capability", "unmanaged", "--project", "PCX")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
-	if strings.Contains(out, "status:open") {
-		t.Fatalf("workflow-owned label leaked into unmanaged: %s", out)
+	if strings.Contains(out, "scrum:task") {
+		t.Fatalf("scrum-owned label leaked into unmanaged: %s", out)
 	}
 	compareGolden(t, "capability-unmanaged", out)
 }

@@ -18,13 +18,13 @@ func BenchmarkNoopSeedReal(b *testing.B) {
 		b.Fatalf("Open: %v", err)
 	}
 	const actor = "developer@claude:fable-5"
-	if err := s.LabelSeed("ATM:status:open", "workflow state: open; task is not started or is being considered", "", actor); err != nil {
+	if err := s.LabelSeed("ATM:status:open", "scrum stage: the unit is under review", "", actor); err != nil {
 		b.Fatalf("warm seed: %v", err)
 	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if err := s.LabelSeed("ATM:status:open", "workflow state: open; task is not started or is being considered", "", actor); err != nil {
+		if err := s.LabelSeed("ATM:status:open", "scrum stage: the unit is under review", "", actor); err != nil {
 			b.Fatalf("seed: %v", err)
 		}
 	}

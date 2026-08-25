@@ -226,7 +226,7 @@ func parityTasksScope(t *testing.T, m *Model) {
 func parityTaskDetail(t *testing.T, m *Model) {
 	t.Helper()
 	parityTasksSeed(t, m)
-	seedTask(t, m, "ATM", "parity task")
+	seedTask(t, m, "ATM", "parity task", "ATM:scrum:task")
 }
 
 // TestMenuEntriesConsumedByHandlers is the spec's parity test (decision 9):

@@ -186,7 +186,7 @@ func (s *Store) cacheDB() (*sql.DB, error) {
 // nil-vs-empty Capabilities slice through the cache's single nullable TEXT
 // column: NULL for nil (legacy/no capability event), and a JSON array
 // otherwise — "[]" for a non-nil empty slice (explicitly none) and
-// `["workflow",...]` for a populated one. JSON (rather than comma-joining) is
+// `["scrum",...]` for a populated one. JSON (rather than comma-joining) is
 // robust to capability names containing commas or other separators.
 func capabilitiesToCache(caps []string) any {
 	if caps == nil {

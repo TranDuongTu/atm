@@ -16,7 +16,7 @@ func TestGoldenProjectCreate(t *testing.T) {
 	compareGolden(t, "project-create", out)
 }
 
-func TestProjectCreateEnsuresOpenTasksBoard(t *testing.T) {
+func TestProjectCreateEnsuresLaneBoards(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
@@ -24,12 +24,12 @@ func TestProjectCreateEnsuresOpenTasksBoard(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, h.stderr.String())
 	}
-	l, err := h.store.LabelShow("FOO:open-tasks")
+	l, err := h.store.LabelShow("FOO:scrum-inbox")
 	if err != nil {
-		t.Fatalf("open-tasks board missing after project create: %v", err)
+		t.Fatalf("scrum-inbox lane board missing after project create: %v", err)
 	}
 	if l.Expr == "" {
-		t.Error("open-tasks board has no expression")
+		t.Error("scrum-inbox board has no expression")
 	}
 }
 
@@ -208,10 +208,10 @@ func TestGoldenProjectShowChat(t *testing.T) {
 func TestGoldenProjectBoardsHideShowReorder(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "PBX", "--name", "boards demo",
-		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+		"--capabilities", "scrum", "--actor", "admin@cli:unset")
 
 	out, _, code := h.run("--output", "json", "project", "boards", "hide",
-		"--project", "PBX", "--name", "PBX:backlog", "--actor", "admin@cli:unset")
+		"--project", "PBX", "--name", "PBX:scrum-inbox", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("hide exit %d: %s", code, out)
 	}
@@ -219,19 +219,19 @@ func TestGoldenProjectBoardsHideShowReorder(t *testing.T) {
 
 	// Hiding is idempotent.
 	if _, _, code := h.run("project", "boards", "hide", "--project", "PBX",
-		"--name", "PBX:backlog", "--actor", "admin@cli:unset"); code != 0 {
+		"--name", "PBX:scrum-inbox", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("second hide exit %d", code)
 	}
 
 	out2, _, code := h.run("--output", "json", "project", "boards", "reorder",
-		"--project", "PBX", "--name", "PBX:status:*", "--first", "--actor", "admin@cli:unset")
+		"--project", "PBX", "--name", "PBX:scrum-pipeline", "--first", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("reorder exit %d: %s", code, out2)
 	}
 	compareGolden(t, "project-boards-reorder-first", out2)
 
 	out3, _, code := h.run("--output", "json", "project", "boards", "show",
-		"--project", "PBX", "--name", "PBX:backlog", "--actor", "admin@cli:unset")
+		"--project", "PBX", "--name", "PBX:scrum-inbox", "--actor", "admin@cli:unset")
 	if code != 0 {
 		t.Fatalf("show exit %d: %s", code, out3)
 	}
@@ -241,14 +241,14 @@ func TestGoldenProjectBoardsHideShowReorder(t *testing.T) {
 func TestProjectBoardsReorderValidation(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "PBX", "--name", "boards demo",
-		"--capabilities", "workflow", "--actor", "admin@cli:unset")
+		"--capabilities", "scrum", "--actor", "admin@cli:unset")
 	// Exactly one placement flag required.
 	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
-		"--name", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		"--name", "PBX:scrum-inbox", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder with no placement flag must fail")
 	}
 	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
-		"--name", "PBX:backlog", "--first", "--last", "--actor", "admin@cli:unset"); code == 0 {
+		"--name", "PBX:scrum-inbox", "--first", "--last", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder with two placement flags must fail")
 	}
 	// Unknown board name errors (nothing to move).
@@ -258,11 +258,11 @@ func TestProjectBoardsReorderValidation(t *testing.T) {
 	}
 	// name == anchor is a usage error, not a panic.
 	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
-		"--name", "PBX:backlog", "--before", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		"--name", "PBX:scrum-inbox", "--before", "PBX:scrum-inbox", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder --name X --before X must fail (not panic)")
 	}
 	if _, _, code := h.run("project", "boards", "reorder", "--project", "PBX",
-		"--name", "PBX:backlog", "--after", "PBX:backlog", "--actor", "admin@cli:unset"); code == 0 {
+		"--name", "PBX:scrum-inbox", "--after", "PBX:scrum-inbox", "--actor", "admin@cli:unset"); code == 0 {
 		t.Fatal("reorder --name X --after X must fail (not panic)")
 	}
 }

@@ -15,16 +15,16 @@ func TestMountProjectCode(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"project flag", []string{"workflow", "guide", "--project", "ATM"}, nil, "ATM"},
+		{"project flag", []string{"scrum", "guide", "--project", "ATM"}, nil, "ATM"},
 		{"project eq flag", []string{"--project=ATM", "conventions"}, nil, "ATM"},
-		{"task id prefix", []string{"workflow", "start", "--task", "ATM-3b873c"}, nil, "ATM"},
-		{"task id eq", []string{"workflow", "start", "--task=MY-PROJ-4f"}, nil, "MY-PROJ"},
-		{"legacy id flag", []string{"workflow", "start", "--id", "ATM-0042"}, nil, "ATM"},
+		{"task id prefix", []string{"scrum", "claim", "--task", "ATM-3b873c"}, nil, "ATM"},
+		{"task id eq", []string{"scrum", "claim", "--task=MY-PROJ-4f"}, nil, "MY-PROJ"},
+		{"legacy id flag", []string{"scrum", "claim", "--id", "ATM-0042"}, nil, "ATM"},
 		{"env fallback", []string{"conventions"}, map[string]string{"ATM_PROJECT": "ENV"}, "ENV"},
 		{"flag beats env", []string{"--project", "FLAG"}, map[string]string{"ATM_PROJECT": "ENV"}, "FLAG"},
 		{"nothing", []string{"conventions"}, nil, ""},
-		{"task id no dash", []string{"workflow", "start", "--task", "nodash"}, nil, ""},
-		{"dangling flag", []string{"workflow", "start", "--task"}, nil, ""},
+		{"task id no dash", []string{"scrum", "claim", "--task", "nodash"}, nil, ""},
+		{"dangling flag", []string{"scrum", "claim", "--task"}, nil, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -35,9 +35,9 @@ func TestMountProjectCode(t *testing.T) {
 	}
 }
 
-// The gate end-to-end: a project that disabled workflow does not get the
-// workflow command mounted under `atm capability`; a project that kept it
-// does; resolution failure mounts everything (degrade open).
+// The gate end-to-end: a project that did not enable qa does not get the qa
+// command mounted under `atm capability`; a capability it did enable is
+// mounted; resolution failure mounts everything (degrade open).
 func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 	h := newGoldenHarness(t)
 	// NOCAP is a valid project code (^[A-Z]{3,6}$); a code that fails validation
@@ -48,9 +48,9 @@ func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 		t.Fatalf("create NOCAP: exit %d; stderr=%q", code, stderr)
 	}
 
-	_, _, code := h.run("capability", "workflow", "seed", "--project", "NOCAP", "--actor", "admin@cli:unset")
+	_, _, code := h.run("capability", "qa", "seed", "--project", "NOCAP", "--actor", "admin@cli:unset")
 	if code == 0 {
-		t.Fatalf("workflow must be unmounted for NOCAP")
+		t.Fatalf("qa must be unmounted for NOCAP")
 	}
 	// A scrum verb may legitimately fail on its own arguments; the point is the
 	// command must be FOUND. Assert the failure is not "unknown command".
@@ -59,8 +59,8 @@ func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 			t.Fatal("scrum must stay mounted for NOCAP")
 		}
 	}
-	// Unknown project: degrade open — workflow under `atm capability` must be found.
-	if _, stderr, _ := h.run("capability", "workflow", "--help", "--project", "NOPE"); strings.Contains(stderr, "unknown command") {
+	// Unknown project: degrade open — qa under `atm capability` must be found.
+	if _, stderr, _ := h.run("capability", "qa", "--help", "--project", "NOPE"); strings.Contains(stderr, "unknown command") {
 		t.Fatal("resolution failure must mount the full registry under atm capability")
 	}
 }

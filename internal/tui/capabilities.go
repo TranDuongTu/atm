@@ -274,7 +274,7 @@ func (c *capabilityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 
 // renderOverlay draws the centered switcher modal. Row shape:
 //
-//	▶ ● workflow     status verbs and boards · 6 boards
+//	▶ ● scrum        the build flow · 3 lanes
 func (c *capabilityModel) renderOverlay() string {
 	styles := c.m.styles
 	bw := c.m.width * 60 / 100

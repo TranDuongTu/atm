@@ -761,7 +761,7 @@ func TestScrollEventsFeedClampsToVisibleWindow(t *testing.T) {
 	// count (`rows`) is stable and comfortably larger than the feed
 	// selecting a project produces on its own (EnsureVocabulary seeds a
 	// handful of label events).
-	m.projects.contentHeight = 63
+	m.projects.contentHeight = 85
 	_, _, eventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	rows := eventsFeedVisibleRows(eventsH)
 
@@ -980,7 +980,7 @@ func TestRenderEventsFeedClampFollowsWindowGrowth(t *testing.T) {
 
 	// Grow the terminal (no key press): a bigger window means more visible
 	// rows, but logsOffset does not move on its own.
-	m.projects.contentHeight = 63
+	m.projects.contentHeight = 85
 	_, _, bigEventsH, _ := projectPaneSplitHeights(m.projects.contentHeight)
 	bigRows := eventsFeedVisibleRows(bigEventsH)
 	if bigRows <= smallRows {

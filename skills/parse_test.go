@@ -96,13 +96,13 @@ func TestParsePersonaErrors(t *testing.T) {
 	}
 }
 
-const workflowDoc = `---
-name: workflow
+const flowDoc = `---
+name: demoflow
 description: Status transitions.
 labels: [status:*, priority:*]
 boards: [backlog, all-tasks]
 ---
-# Workflow
+# Demoflow
 
 ## Semantics
 
@@ -118,11 +118,11 @@ C.
 `
 
 func TestParseCapability(t *testing.T) {
-	c, err := ParseCapability("workflow", []byte(workflowDoc))
+	c, err := ParseCapability("demoflow", []byte(flowDoc))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Name != "workflow" || c.Description != "Status transitions." {
+	if c.Name != "demoflow" || c.Description != "Status transitions." {
 		t.Fatalf("%+v", c)
 	}
 	if strings.Join(c.Labels, ",") != "status:*,priority:*" || strings.Join(c.Boards, ",") != "backlog,all-tasks" {

@@ -1,11 +1,8 @@
 {
   "order": [
-    "PBX:status:*",
-    "PBX:all-tasks",
-    "PBX:open-tasks",
-    "PBX:in-progress-tasks",
-    "PBX:backlog",
-    "PBX:priority:*",
+    "PBX:scrum-pipeline",
+    "PBX:scrum-inbox",
+    "PBX:scrum-out-board",
     "PBX:unmanaged"
   ],
   "project": "PBX"

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"atm/internal/capability"
-	"atm/internal/capability/workflow"
 	"atm/internal/capability/qa"
+	"atm/internal/capability/scrum"
 	"atm/internal/store"
 )
 
@@ -25,7 +25,7 @@ func TestSelectPathTimings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	reg := capability.NewRegistry(workflow.New(), qa.New())
+	reg := capability.NewRegistry(scrum.New(), qa.New())
 	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: reg})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)

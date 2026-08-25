@@ -67,8 +67,8 @@ func TestChannelGateWhenCapabilityDisabled(t *testing.T) {
 	if _, err := st.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if err := st.store.EnableProjectCapability("ATM", "workflow", "admin@cli:unset"); err != nil {
-		t.Fatalf("enable workflow: %v", err)
+	if err := st.store.EnableProjectCapability("ATM", "scrum", "admin@cli:unset"); err != nil {
+		t.Fatalf("enable scrum: %v", err)
 	}
 
 	errText, code := runChannelErrText(t, st, "channel", "list", "--project", "ATM")

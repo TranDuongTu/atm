@@ -112,7 +112,7 @@ func TestChecklistGateWhenCapabilityDisabled(t *testing.T) {
 	if _, err := st.store.CreateProject("ATM", "x", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.store.EnableProjectCapability("ATM", "workflow", "admin@cli:unset"); err != nil {
+	if err := st.store.EnableProjectCapability("ATM", "scrum", "admin@cli:unset"); err != nil {
 		t.Fatal(err)
 	}
 	errText, code := runChecklistErrText(t, st, "checklist", "list", "--project", "ATM", "--persona", "developer")
