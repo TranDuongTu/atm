@@ -9,8 +9,8 @@ import (
 //
 //	e1 project.created         (code P, name P)
 //	e2 project.capability-enabled  parents [e1], payload {"capability": "workflow"}
-//	e3 project.capability-enabled  parents [e2], payload {"capability": "contextmap"}
-//	e4 project.capability-disabled parents [e3], payload {"capability": "contextmap"}
+//	e3 project.capability-enabled  parents [e2], payload {"capability": "scrum"}
+//	e4 project.capability-disabled parents [e3], payload {"capability": "scrum"}
 //
 // and folds it.
 func foldCapabilityFixture(t *testing.T) *State {
@@ -21,9 +21,9 @@ func foldCapabilityFixture(t *testing.T) *State {
 	e2 := testEvent(t, c, replicaA, []string{e1.ID}, ActionProjectCapabilityEnabled,
 		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "workflow"})
 	e3 := testEvent(t, c, replicaA, []string{e2.ID}, ActionProjectCapabilityEnabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "contextmap"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	e4 := testEvent(t, c, replicaA, []string{e3.ID}, ActionProjectCapabilityDisabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "contextmap"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	return fold(t, e1, e2, e3, e4)
 }
 

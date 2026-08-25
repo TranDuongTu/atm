@@ -39,7 +39,7 @@ func TestGoldenProjectCapabilityListAddRemove(t *testing.T) {
 	}
 	compareGolden(t, "project-capability-list", out)
 
-	if _, _, code := h.run("project", "capability", "add", "--project", "PCX", "--name", "contextmap", "--actor", "admin@cli:unset"); code != 0 {
+	if _, _, code := h.run("project", "capability", "add", "--project", "PCX", "--name", "scrum", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("add exit %d", code)
 	}
 	if _, _, code := h.run("project", "capability", "remove", "--project", "PCX", "--name", "workflow", "--actor", "admin@cli:unset"); code != 0 {

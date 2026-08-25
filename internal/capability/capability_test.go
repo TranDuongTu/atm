@@ -53,12 +53,12 @@ func (f *fakeCap) Annotate(core.Task) *Cell { return nil }
 func TestCommandsPreserveRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(
-		&fakeCap{name: "workflow", calls: &calls},
-		&fakeCap{name: "contextmap", calls: &calls},
+		&fakeCap{name: "alpha", calls: &calls},
+		&fakeCap{name: "beta", calls: &calls},
 	)
 	cmds := reg.Commands(nil)
-	if len(cmds) != 2 || cmds[0].Use != "workflow" || cmds[1].Use != "contextmap" {
-		t.Fatalf("Commands = %v, want [workflow contextmap]", cmds)
+	if len(cmds) != 2 || cmds[0].Use != "alpha" || cmds[1].Use != "beta" {
+		t.Fatalf("Commands = %v, want [alpha beta]", cmds)
 	}
 }
 
@@ -85,11 +85,11 @@ func TestEnsureVocabularyBatchesAcrossCapabilities(t *testing.T) {
 	var calls []string
 	svc := &fakeSeedService{}
 	reg := NewRegistry(
-		&fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{
+		&fakeCap{name: "alpha", calls: &calls, vocab: []core.Label{
 			{Name: "ATM:status:open", Description: "open"},
 			{Name: "ATM:open-tasks", Description: "board", Expr: "status:open"},
 		}},
-		&fakeCap{name: "contextmap", calls: &calls, vocab: []core.Label{
+		&fakeCap{name: "beta", calls: &calls, vocab: []core.Label{
 			{Name: "ATM:context-current", Description: "board", Expr: "context:*"},
 		}},
 	)
@@ -129,7 +129,7 @@ func TestEnsureVocabularyStopsAtFirstError(t *testing.T) {
 	boom := errors.New("boom")
 	svc := &fakeSeedService{err: boom}
 	var calls []string
-	reg := NewRegistry(&fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{{Name: "ATM:x", Description: "d"}}})
+	reg := NewRegistry(&fakeCap{name: "alpha", calls: &calls, vocab: []core.Label{{Name: "ATM:x", Description: "d"}}})
 	if boards, err := reg.EnsureVocabulary(svc, "ATM", "tester"); !errors.Is(err, boom) || boards != nil {
 		t.Fatalf("EnsureVocabulary = (%v, %v), want (nil, boom)", boards, err)
 	}
@@ -176,18 +176,18 @@ func (s *listOnlyService) LabelUsageGrouped(projectCode string) (map[string]int,
 func TestRegistryExposedTagsOwnerInRegistrationOrder(t *testing.T) {
 	var calls []string
 	reg := NewRegistry(
-		&fakeCap{name: "workflow", calls: &calls, exposed: []core.Label{
+		&fakeCap{name: "alpha", calls: &calls, exposed: []core.Label{
 			{Name: "ATM:all-tasks", Expr: "*"}, {Name: "ATM:status:*"},
 		}},
-		&fakeCap{name: "contextmap", calls: &calls, exposed: []core.Label{
+		&fakeCap{name: "beta", calls: &calls, exposed: []core.Label{
 			{Name: "ATM:context-current", Expr: "context:*"},
 		}},
 	)
 	got := reg.Exposed("ATM")
 	want := []ExposedLabel{
-		{Label: core.Label{Name: "ATM:all-tasks", Expr: "*"}, Owner: "workflow"},
-		{Label: core.Label{Name: "ATM:status:*"}, Owner: "workflow"},
-		{Label: core.Label{Name: "ATM:context-current", Expr: "context:*"}, Owner: "contextmap"},
+		{Label: core.Label{Name: "ATM:all-tasks", Expr: "*"}, Owner: "alpha"},
+		{Label: core.Label{Name: "ATM:status:*"}, Owner: "alpha"},
+		{Label: core.Label{Name: "ATM:context-current", Expr: "context:*"}, Owner: "beta"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Exposed = %+v, want %+v", got, want)
@@ -209,7 +209,7 @@ func TestRegistryExposedTagsOwnerInRegistrationOrder(t *testing.T) {
 // managed; loose tags, unowned namespaces, and leftover descriptors are not.
 func TestRegistryUnmanagedSubtractsOwnership(t *testing.T) {
 	var calls []string
-	wf := &fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{
+	wf := &fakeCap{name: "alpha", calls: &calls, vocab: []core.Label{
 		{Name: "ATM:status:*"}, {Name: "ATM:status:open"},
 		{Name: "ATM:all-tasks", Expr: "*"},
 	}}
@@ -246,7 +246,7 @@ func TestRegistryUnmanagedSubtractsOwnership(t *testing.T) {
 
 func TestRegistryUnmanagedEmptyWhenAllOwned(t *testing.T) {
 	var calls []string
-	wf := &fakeCap{name: "workflow", calls: &calls, vocab: []core.Label{{Name: "ATM:status:*"}}}
+	wf := &fakeCap{name: "alpha", calls: &calls, vocab: []core.Label{{Name: "ATM:status:*"}}}
 	svc := &listOnlyService{labels: []core.Label{{Name: "ATM:status:*"}, {Name: "ATM:status:open"}}}
 	got, err := NewRegistry(wf).Unmanaged(svc, "ATM")
 	if err != nil || len(got) != 0 {
@@ -284,7 +284,7 @@ func TestUmbrellaFullName(t *testing.T) {
 
 func TestRegistryAnnotateResolvesByName(t *testing.T) {
 	var calls []string
-	reg := NewRegistry(&fakeCap{name: "workflow", calls: &calls})
+	reg := NewRegistry(&fakeCap{name: "alpha", calls: &calls})
 	if got := reg.Annotate("nope", core.Task{}); got != nil {
 		t.Errorf("unknown name = %+v, want nil", got)
 	}
@@ -292,7 +292,7 @@ func TestRegistryAnnotateResolvesByName(t *testing.T) {
 		t.Errorf("unmanaged pseudo-capability = %+v, want nil", got)
 	}
 	var nilReg *Registry
-	if got := nilReg.Annotate("workflow", core.Task{}); got != nil {
+	if got := nilReg.Annotate("alpha", core.Task{}); got != nil {
 		t.Errorf("nil registry = %+v, want nil", got)
 	}
 }

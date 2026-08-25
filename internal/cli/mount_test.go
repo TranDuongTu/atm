@@ -44,7 +44,7 @@ func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 	// would leave the project uncreated, GetProject would fail, and the mount
 	// would degrade-open the FULL registry — masking the gate under test.
 	if _, stderr, code := h.run("project", "create", "--code", "NOCAP", "--name", "no caps",
-		"--capabilities", "contextmap", "--actor", "admin@cli:unset"); code != 0 {
+		"--capabilities", "scrum", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("create NOCAP: exit %d; stderr=%q", code, stderr)
 	}
 
@@ -52,11 +52,11 @@ func TestHardGateMountsOnlyEnabledCapabilities(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("workflow must be unmounted for NOCAP")
 	}
-	// contextmap check may legitimately fail on a non-repo cwd; the point is the
+	// A scrum verb may legitimately fail on its own arguments; the point is the
 	// command must be FOUND. Assert the failure is not "unknown command".
-	if _, stderr, code := h.run("capability", "contextmap", "check", "--project", "NOCAP"); code != 0 {
+	if _, stderr, code := h.run("capability", "scrum", "lanes", "--project", "NOCAP"); code != 0 {
 		if strings.Contains(stderr, "unknown command") {
-			t.Fatal("contextmap must stay mounted for NOCAP")
+			t.Fatal("scrum must stay mounted for NOCAP")
 		}
 	}
 	// Unknown project: degrade open — workflow under `atm capability` must be found.

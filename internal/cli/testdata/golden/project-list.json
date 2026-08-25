@@ -2,7 +2,7 @@
   "projects": [
     {
       "capabilities": [
-        "contextmap",
+        "scrum",
         "workflow"
       ],
       "code": "ATM",

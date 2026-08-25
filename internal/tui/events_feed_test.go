@@ -142,8 +142,8 @@ func TestEventDigestMessage(t *testing.T) {
 		{"comment.removed", "", "comment removed"},
 		{"project.created", "", "project created"},
 		{"project.name-changed", `{"name":"Acme"}`, `renamed "Acme"`},
-		{"project.capability-enabled", `{"capability":"contextmap"}`, "+contextmap"},
-		{"project.capability-disabled", `{"capability":"contextmap"}`, "−contextmap"},
+		{"project.capability-enabled", `{"capability":"scrum"}`, "+scrum"},
+		{"project.capability-disabled", `{"capability":"scrum"}`, "−scrum"},
 	}
 	for _, c := range cases {
 		e := feedEntry(c.action, c.payload)

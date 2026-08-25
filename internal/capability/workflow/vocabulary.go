@@ -1,6 +1,6 @@
 // Package workflow owns the vocabulary for the TUI's default board surface
 // and the status-transition paved road. It is a capability mirroring
-// internal/contextmap: it ensures its own vocabulary idempotently, exposes
+// the capability contract: it ensures its own vocabulary idempotently, exposes
 // intent-level verbs (see recorder.go / reporter.go), and owns the status
 // label namespace. The store enforces nothing; this capability is a paved
 // road, not a fence. A human may edit or delete any board or status label;

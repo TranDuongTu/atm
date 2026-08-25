@@ -96,7 +96,7 @@ func TestCapabilityRegistryImportsOnlyCore(t *testing.T) {
 // reaches nothing but the registry seam and the domain leaf — never the
 // store, the cli, or the tui.
 func TestCapabilityPackagesImportOnlyRegistryAndCore(t *testing.T) {
-	for _, dir := range []string{"internal/capability/contextmap", "internal/capability/workflow", "internal/capability/workflowai", "internal/capability/workflowrpi", "internal/capability/channel", "internal/capability/checklist", "internal/capability/scrum", "internal/capability/qa", "internal/capability/codereview", "internal/capability/release"} {
+	for _, dir := range []string{"internal/capability/workflow", "internal/capability/workflowai", "internal/capability/workflowrpi", "internal/capability/channel", "internal/capability/checklist", "internal/capability/scrum", "internal/capability/qa", "internal/capability/codereview", "internal/capability/release"} {
 		for f, imps := range internalImports(t, dir) {
 			for _, p := range imps {
 				if p != "atm/internal/capability" && p != "atm/internal/core" {
@@ -160,7 +160,7 @@ func TestCLIDoesNotImportStore(t *testing.T) {
 func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
 	for _, dir := range []string{
 		"cmd/atm", "internal/activity", "internal/actor", "internal/agent",
-		"internal/capability", "internal/capability/contextmap", "internal/capability/workflow",
+		"internal/capability", "internal/capability/workflow",
 		"internal/capability/channel", "internal/capability/checklist",
 		"internal/cli", "internal/core", "internal/developing", "internal/embed",
 		"internal/dispatch",

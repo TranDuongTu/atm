@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"atm/internal/capability"
-	"atm/internal/capability/contextmap"
 	"atm/internal/capability/workflow"
 	"atm/internal/capability/workflowai"
 	"atm/internal/store"
@@ -26,7 +25,7 @@ func TestSelectPathTimings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	reg := capability.NewRegistry(workflow.New(), contextmap.New(), workflowai.New())
+	reg := capability.NewRegistry(workflow.New(), workflowai.New())
 	m, err := NewModel(NewModelOpts{Service: s, Actor: benchActor, Registry: reg})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)

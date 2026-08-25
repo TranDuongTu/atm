@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/contextmap"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/qa"
+	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -15,10 +15,10 @@ import (
 // --- fixture + helpers (mirror app_test.go's newTestModel/update style) ---
 
 // newCapabilityFixtureModel builds a Model over a two-capability registry
-// (workflow, contextmap — registration order matters: it drives Names()
+// (scrum, qa — registration order matters: it drives Names()
 // order and therefore the capability cursor order) with:
 //
-//	project EXP — explicit capabilities: only "workflow" enabled
+//	project EXP — explicit capabilities: only "scrum" enabled
 //	project LEG — legacy: no capability events recorded (Capabilities == nil)
 func newCapabilityFixtureModel(t *testing.T) *Model {
 	t.Helper()
@@ -29,12 +29,12 @@ func newCapabilityFixtureModel(t *testing.T) *Model {
 	if err := s.Init(""); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	reg := capability.NewRegistry(workflow.New(), contextmap.New())
+	reg := capability.NewRegistry(scrum.New(), qa.New())
 	m, err := NewModel(NewModelOpts{Service: s, Actor: testActor, Registry: reg})
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
-	// Wide enough that the "capabilities: [x] workflow  [ ] contextmap"
+	// Wide enough that the "capabilities: [x] scrum  [ ] qa"
 	// line isn't clipped by the Projects pane's fitLine truncation (mirrors
 	// the wide SetSize other detail-view tests use, e.g.
 	// TestProjectDetailDashboardSections in app_test.go).
@@ -42,8 +42,8 @@ func newCapabilityFixtureModel(t *testing.T) *Model {
 	if _, err := m.store.CreateProject("EXP", "Explicit Caps", testActor); err != nil {
 		t.Fatalf("CreateProject EXP: %v", err)
 	}
-	if err := m.store.EnableProjectCapability("EXP", "workflow", testActor); err != nil {
-		t.Fatalf("EnableProjectCapability EXP/workflow: %v", err)
+	if err := m.store.EnableProjectCapability("EXP", "scrum", testActor); err != nil {
+		t.Fatalf("EnableProjectCapability EXP/scrum: %v", err)
 	}
 	if _, err := m.store.CreateProject("LEG", "Legacy", testActor); err != nil {
 		t.Fatalf("CreateProject LEG: %v", err)
@@ -80,7 +80,7 @@ func TestDetailViewRendersCapabilities(t *testing.T) {
 	m := newCapabilityFixtureModel(t)
 	openProjectDetail(t, m, "EXP")
 	v := m.View()
-	if !strings.Contains(v, "[x] workflow") || !strings.Contains(v, "[ ] contextmap") {
+	if !strings.Contains(v, "[x] scrum") || !strings.Contains(v, "[ ] qa") {
 		t.Fatalf("detail view must render the enabled set, got:\n%s", v)
 	}
 	if strings.Contains(v, "(default)") {
@@ -89,7 +89,7 @@ func TestDetailViewRendersCapabilities(t *testing.T) {
 
 	openProjectDetail(t, m, "LEG")
 	v = m.View()
-	if !strings.Contains(v, "[x] workflow") || !strings.Contains(v, "[x] contextmap") {
+	if !strings.Contains(v, "[x] scrum") || !strings.Contains(v, "[x] qa") {
 		t.Fatalf("legacy project must render all capabilities enabled, got:\n%s", v)
 	}
 	if !strings.Contains(v, "(default)") {
@@ -101,7 +101,7 @@ func TestDetailViewRendersCapabilities(t *testing.T) {
 // no longer toggles capabilities: capability management lives entirely in
 // the C overlay now, so c (cursor) and space (toggle) are inert on the
 // detail view. Uses EXP, whose Capabilities are explicit and non-empty
-// (["workflow"]), so the assertion would genuinely fail if either key still
+// (["scrum"]), so the assertion would genuinely fail if either key still
 // mutated the stored set.
 func TestProjectDetailCapabilityToggleRemoved(t *testing.T) {
 	m := newCapabilityFixtureModel(t)

@@ -66,7 +66,7 @@ type Cell struct {
 // Capability is one registered capability command: it owns its label slice,
 // seeds its own vocabulary, and mounts its cobra verb tree.
 type Capability interface {
-	// Name is the stable identifier ("contextmap", "workflow").
+	// Name is the stable identifier ("scrum", "checklist").
 	Name() string
 	// Summary is a one-line description for enumeration surfaces
 	// (conventions, manager prompt). No trailing newline.

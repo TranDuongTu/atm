@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"atm/internal/capability/contextmap"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/qa"
+	"atm/internal/capability/scrum"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -150,7 +150,7 @@ func TestSuccessfulDispatchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
 // Sibling of the dispatch regression above: capabilityModel.switchTo's
 // success path set c.open = false but never cleared spotlightReturn.
 func TestSuccessfulCapabilitySwitchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
-	m := newTestModelWithCaps(t, workflow.New(), contextmap.New())
+	m := newTestModelWithCaps(t, scrum.New(), qa.New())
 	m.SetSize(120, 40)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"

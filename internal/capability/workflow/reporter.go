@@ -9,7 +9,7 @@ import (
 
 // Reporter is the read-only side of the workflow capability. It never
 // mutates the store; the project log is byte-identical before and after
-// any Reporter call (testable, like contextmap's reporter contract).
+// any Reporter call (testable, like every reporter contract).
 type Reporter struct {
 	Store core.TaskService
 }

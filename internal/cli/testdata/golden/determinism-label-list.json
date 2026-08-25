@@ -11,46 +11,13 @@
       "name": "ATM:backlog"
     },
     {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
-      "name": "ATM:comment:provenance"
-    },
-    {
-      "description": "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.",
-      "expr": "context:* AND NOT knowledge:superseded",
-      "name": "ATM:context-current"
-    },
-    {
-      "description": "index tasks whose description is the payload: agent directions, repos, docs, conventions",
-      "name": "ATM:context:*"
-    },
-    {
-      "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
+      "description": "",
       "name": "ATM:context:agent"
-    },
-    {
-      "description": "the task's description records a project convention the agent must follow: branch naming, commit style, PR template, build/test/lint hygiene, or any working rule inferred from the repo and confirmed by the human",
-      "name": "ATM:context:convention"
-    },
-    {
-      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-      "name": "ATM:context:documentation"
-    },
-    {
-      "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
-      "name": "ATM:context:repository"
     },
     {
       "description": "tasks someone is actively working on (status:in-progress).",
       "expr": "status:in-progress",
       "name": "ATM:in-progress-tasks"
-    },
-    {
-      "description": "lifecycle of a piece of recorded knowledge; absence means current",
-      "name": "ATM:knowledge:*"
-    },
-    {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
-      "name": "ATM:knowledge:superseded"
     },
     {
       "description": "every open task: the project's active work.",
@@ -72,6 +39,89 @@
     {
       "description": "planning priority: medium; do after high-priority work",
       "name": "ATM:priority:medium"
+    },
+    {
+      "description": "scrum Inbox lane: eligible work scrum has not decided about. Non-empty means dispatch the manager.",
+      "expr": "NOT scrum:* AND NOT scrum-out:*",
+      "name": "ATM:scrum-inbox"
+    },
+    {
+      "description": "scrum Out lane: settled evictions; scrum release returns one to the pool.",
+      "expr": "scrum-out:*",
+      "name": "ATM:scrum-out-board"
+    },
+    {
+      "description": "scrum EVICT SOCKET: considered and declined by scrum; permanent until scrum release returns the task to the pool",
+      "name": "ATM:scrum-out:*"
+    },
+    {
+      "description": "scrum evict reason: covered by another task (see the covered_by payload field)",
+      "name": "ATM:scrum-out:covered-by"
+    },
+    {
+      "description": "scrum evict reason: duplicate of another task",
+      "name": "ATM:scrum-out:duplicate"
+    },
+    {
+      "description": "scrum evict reason: not worth pursuing",
+      "name": "ATM:scrum-out:not-worth-it"
+    },
+    {
+      "description": "scrum evict reason: not this project's dev work",
+      "name": "ATM:scrum-out:out-of-scope"
+    },
+    {
+      "description": "scrum Pipeline lane: what scrum is building; finished units stay visible.",
+      "expr": "scrum:* AND NOT scrum-out:*",
+      "name": "ATM:scrum-pipeline"
+    },
+    {
+      "description": "scrum working stage for claimed units",
+      "name": "ATM:scrum-stage:*"
+    },
+    {
+      "description": "scrum stage: approach has been brainstormed",
+      "name": "ATM:scrum-stage:brainstormed"
+    },
+    {
+      "description": "scrum FINISH SOCKET: this unit is built and converged (task built; story/epic = every child done). Downstream capabilities wire their inbox eligibility to this label.",
+      "name": "ATM:scrum-stage:done"
+    },
+    {
+      "description": "scrum stage: implementation is in progress",
+      "name": "ATM:scrum-stage:implementing"
+    },
+    {
+      "description": "scrum stage: implementation plan exists",
+      "name": "ATM:scrum-stage:planned"
+    },
+    {
+      "description": "scrum stage: ready for or under review",
+      "name": "ATM:scrum-stage:review"
+    },
+    {
+      "description": "scrum claim/type axis; presence means the task is in scrum's pipeline; exactly one type per claimed task",
+      "name": "ATM:scrum:*"
+    },
+    {
+      "description": "scrum type: defect to fix",
+      "name": "ATM:scrum:bug"
+    },
+    {
+      "description": "scrum type: design/spec work whose deliverable is an executable plan; never flows downstream",
+      "name": "ATM:scrum:design"
+    },
+    {
+      "description": "scrum type: product-level requirement decomposed into stories",
+      "name": "ATM:scrum:epic"
+    },
+    {
+      "description": "scrum type: user story — a portion of an epic's design, decomposed into tasks",
+      "name": "ATM:scrum:story"
+    },
+    {
+      "description": "scrum type: PR-sized implementation unit",
+      "name": "ATM:scrum:task"
     },
     {
       "description": "lifecycle state of a task; exactly one status label should be present",
@@ -112,46 +162,9 @@
       "name": "DEMO:backlog"
     },
     {
-      "description": "task comment kind: a machine-written provenance stamp recording what a context pointer was derived from, and the evidence, at a moment in time. Written and read only by `atm capability contextmap` -- do not hand-edit.",
-      "name": "DEMO:comment:provenance"
-    },
-    {
-      "description": "every context pointer that has not been superseded: the project's current knowledge. Agents read this board rather than the raw context:* namespace, so a query always returns the latest.",
-      "expr": "context:* AND NOT knowledge:superseded",
-      "name": "DEMO:context-current"
-    },
-    {
-      "description": "index tasks whose description is the payload: agent directions, repos, docs, conventions",
-      "name": "DEMO:context:*"
-    },
-    {
-      "description": "the task's description captures agent-direction notes for this project: build/test/lint commands, conventions, and gotchas a working agent must know",
-      "name": "DEMO:context:agent"
-    },
-    {
-      "description": "the task's description records a project convention the agent must follow: branch naming, commit style, PR template, build/test/lint hygiene, or any working rule inferred from the repo and confirmed by the human",
-      "name": "DEMO:context:convention"
-    },
-    {
-      "description": "the task's description points at a specific document (file path or URL) and summarizes what it covers, so a later agent can decide whether to read it",
-      "name": "DEMO:context:documentation"
-    },
-    {
-      "description": "the task's description names a code repository (path or URL), what it contains, and how to work in it; a later agent reads this to orient",
-      "name": "DEMO:context:repository"
-    },
-    {
       "description": "tasks someone is actively working on (status:in-progress).",
       "expr": "status:in-progress",
       "name": "DEMO:in-progress-tasks"
-    },
-    {
-      "description": "lifecycle of a piece of recorded knowledge; absence means current",
-      "name": "DEMO:knowledge:*"
-    },
-    {
-      "description": "this context pointer is obsolete; its successor is named in the description. Kept for history -- it retains its kind, narrative, and provenance stamps. Applied by `atm capability contextmap supersede`.",
-      "name": "DEMO:knowledge:superseded"
     },
     {
       "description": "every open task: the project's active work.",
@@ -173,6 +186,89 @@
     {
       "description": "planning priority: medium; do after high-priority work",
       "name": "DEMO:priority:medium"
+    },
+    {
+      "description": "scrum Inbox lane: eligible work scrum has not decided about. Non-empty means dispatch the manager.",
+      "expr": "NOT scrum:* AND NOT scrum-out:*",
+      "name": "DEMO:scrum-inbox"
+    },
+    {
+      "description": "scrum Out lane: settled evictions; scrum release returns one to the pool.",
+      "expr": "scrum-out:*",
+      "name": "DEMO:scrum-out-board"
+    },
+    {
+      "description": "scrum EVICT SOCKET: considered and declined by scrum; permanent until scrum release returns the task to the pool",
+      "name": "DEMO:scrum-out:*"
+    },
+    {
+      "description": "scrum evict reason: covered by another task (see the covered_by payload field)",
+      "name": "DEMO:scrum-out:covered-by"
+    },
+    {
+      "description": "scrum evict reason: duplicate of another task",
+      "name": "DEMO:scrum-out:duplicate"
+    },
+    {
+      "description": "scrum evict reason: not worth pursuing",
+      "name": "DEMO:scrum-out:not-worth-it"
+    },
+    {
+      "description": "scrum evict reason: not this project's dev work",
+      "name": "DEMO:scrum-out:out-of-scope"
+    },
+    {
+      "description": "scrum Pipeline lane: what scrum is building; finished units stay visible.",
+      "expr": "scrum:* AND NOT scrum-out:*",
+      "name": "DEMO:scrum-pipeline"
+    },
+    {
+      "description": "scrum working stage for claimed units",
+      "name": "DEMO:scrum-stage:*"
+    },
+    {
+      "description": "scrum stage: approach has been brainstormed",
+      "name": "DEMO:scrum-stage:brainstormed"
+    },
+    {
+      "description": "scrum FINISH SOCKET: this unit is built and converged (task built; story/epic = every child done). Downstream capabilities wire their inbox eligibility to this label.",
+      "name": "DEMO:scrum-stage:done"
+    },
+    {
+      "description": "scrum stage: implementation is in progress",
+      "name": "DEMO:scrum-stage:implementing"
+    },
+    {
+      "description": "scrum stage: implementation plan exists",
+      "name": "DEMO:scrum-stage:planned"
+    },
+    {
+      "description": "scrum stage: ready for or under review",
+      "name": "DEMO:scrum-stage:review"
+    },
+    {
+      "description": "scrum claim/type axis; presence means the task is in scrum's pipeline; exactly one type per claimed task",
+      "name": "DEMO:scrum:*"
+    },
+    {
+      "description": "scrum type: defect to fix",
+      "name": "DEMO:scrum:bug"
+    },
+    {
+      "description": "scrum type: design/spec work whose deliverable is an executable plan; never flows downstream",
+      "name": "DEMO:scrum:design"
+    },
+    {
+      "description": "scrum type: product-level requirement decomposed into stories",
+      "name": "DEMO:scrum:epic"
+    },
+    {
+      "description": "scrum type: user story — a portion of an epic's design, decomposed into tasks",
+      "name": "DEMO:scrum:story"
+    },
+    {
+      "description": "scrum type: PR-sized implementation unit",
+      "name": "DEMO:scrum:task"
     },
     {
       "description": "lifecycle state of a task; exactly one status label should be present",

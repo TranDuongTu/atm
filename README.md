@@ -162,7 +162,6 @@ atm task list --project ATM --label ATM:next-sprint
 | Capability | Verbs | Namespaces | Seeded Boards |
 |-----------|-------|------------|---------------|
 | `workflow` | `start`, `open`, `block`, `complete`, `status` | `status:*`, `priority:*` | `backlog`, `open-tasks`, `in-progress-tasks`, `all-tasks` |
-| `contextmap` | `add`, `stamp`, `retarget`, `supersede`, `check` | `context:*`, `knowledge:*` | `context-current` |
 | `channel` | `add`, `list`, `show`, `edit`, `remove`, `wire`, `stamp`, `migrate-repos` | `channel:*` | `channels` |
 | `checklist` | `list`, `show`, `add`, `edit`, `remove` | `checklist:*` | `checklists` |
 
@@ -179,7 +178,6 @@ Each capability ships a self-contained agent guide — read it to understand its
 
 ```sh
 atm capability workflow guide
-atm capability contextmap guide
 atm capability list                     # summaries for every registered capability
 ```
 

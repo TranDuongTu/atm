@@ -21,14 +21,14 @@ func TestSetTaskCapabilityMetaRoundTrip(t *testing.T) {
 	if err := s.SetTaskCapabilityMeta(tk.ID, "workflow_ai", `{"v":1,"stage":"planned"}`, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetTaskCapabilityMeta(tk.ID, "contextmap", "cm", testActor); err != nil {
+	if err := s.SetTaskCapabilityMeta(tk.ID, "scrum", "cm", testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetTask(tk.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Meta["workflow_ai"] != `{"v":1,"stage":"planned"}` || got.Meta["contextmap"] != "cm" {
+	if got.Meta["workflow_ai"] != `{"v":1,"stage":"planned"}` || got.Meta["scrum"] != "cm" {
 		t.Errorf("Meta = %+v", got.Meta)
 	}
 
@@ -37,7 +37,7 @@ func TestSetTaskCapabilityMetaRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ = s.GetTask(tk.ID)
-	if got.Meta["workflow_ai"] != `{"v":2}` || got.Meta["contextmap"] != "cm" {
+	if got.Meta["workflow_ai"] != `{"v":2}` || got.Meta["scrum"] != "cm" {
 		t.Errorf("after overwrite Meta = %+v", got.Meta)
 	}
 
@@ -52,7 +52,7 @@ func TestSetTaskCapabilityMetaRoundTrip(t *testing.T) {
 
 	// The list path carries Meta too (the TUI reads through ListTasks).
 	ts := s.ListTasks(core.QueryFilters{Project: "PXA"})
-	if len(ts) != 1 || ts[0].Meta["contextmap"] != "cm" {
+	if len(ts) != 1 || ts[0].Meta["scrum"] != "cm" {
 		t.Errorf("ListTasks Meta = %+v", ts)
 	}
 }

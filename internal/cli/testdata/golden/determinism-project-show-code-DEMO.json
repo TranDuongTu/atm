@@ -1,7 +1,7 @@
 {
   "project": {
     "capabilities": [
-      "contextmap",
+      "scrum",
       "workflow"
     ],
     "code": "DEMO",
@@ -30,7 +30,7 @@
         "action": "project.name-changed",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 28
+        "seq": 39
       }
     ],
     "name": "Demo Project",

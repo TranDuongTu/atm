@@ -379,13 +379,13 @@ func TestFoldTaskCapabilityMeta(t *testing.T) {
 	setWF := testEvent(t, c, replicaA, []string{created.ID}, ActionTaskCapabilityMetaSet,
 		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": `{"v":1}`})
 	setCM := testEvent(t, c, replicaA, []string{setWF.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "contextmap", "payload": "cm-state"})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "scrum", "payload": "cm-state"})
 	st := fold(t, created, setWF, setCM)
 	tk := st.Tasks[created.ID]
 	if tk == nil {
 		t.Fatal("task missing")
 	}
-	if tk.Meta["workflow_ai"] != `{"v":1}` || tk.Meta["contextmap"] != "cm-state" {
+	if tk.Meta["workflow_ai"] != `{"v":1}` || tk.Meta["scrum"] != "cm-state" {
 		t.Errorf("meta = %+v, want both capabilities' payloads independent", tk.Meta)
 	}
 
@@ -396,7 +396,7 @@ func TestFoldTaskCapabilityMeta(t *testing.T) {
 	if got := st.Tasks[created.ID].Meta["workflow_ai"]; got != `{"v":2}` {
 		t.Errorf("overwrite = %q, want v2 payload", got)
 	}
-	if got := st.Tasks[created.ID].Meta["contextmap"]; got != "cm-state" {
+	if got := st.Tasks[created.ID].Meta["scrum"]; got != "cm-state" {
 		t.Errorf("sibling key disturbed by overwrite: %q", got)
 	}
 

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"atm/internal/capability"
-	"atm/internal/capability/contextmap"
-	"atm/internal/capability/workflow"
+	"atm/internal/capability/qa"
+	"atm/internal/capability/scrum"
 	"atm/internal/core"
 )
 
@@ -22,16 +22,16 @@ type fakeLabelList struct {
 func (f fakeLabelList) LabelList(project, namespace string) []core.Label { return f.labels }
 
 func TestOwnedLabelsReturnsNamedCapabilityVocabulary(t *testing.T) {
-	reg := capability.NewRegistry(workflow.New(), contextmap.New())
-	got := reg.OwnedLabels("ATM", "workflow")
-	if len(got) != 13 {
-		t.Fatalf("workflow OwnedLabels len = %d, want 13", len(got))
+	reg := capability.NewRegistry(scrum.New(), qa.New())
+	got := reg.OwnedLabels("ATM", "scrum")
+	if want := len(scrum.Vocabulary("ATM")); len(got) != want {
+		t.Fatalf("scrum OwnedLabels len = %d, want %d", len(got), want)
 	}
 	if reg.OwnedLabels("ATM", "nope") != nil {
 		t.Fatalf("unknown capability should return nil")
 	}
 	var nilReg *capability.Registry
-	if nilReg.OwnedLabels("ATM", "workflow") != nil {
+	if nilReg.OwnedLabels("ATM", "scrum") != nil {
 		t.Fatalf("nil registry should return nil")
 	}
 }
@@ -40,12 +40,12 @@ func TestOwnedLabelsReturnsNamedCapabilityVocabulary(t *testing.T) {
 // property: LabelList minus the union of every capability's OwnedLabels
 // (via LabelSet) equals Unmanaged, label for label.
 func TestUnmanagedMatchesOwnedLabelsSubtraction(t *testing.T) {
-	reg := capability.NewRegistry(workflow.New(), contextmap.New())
+	reg := capability.NewRegistry(scrum.New(), qa.New())
 	svc := fakeLabelList{labels: append(
-		append(workflow.Vocabulary("ATM"), contextmap.Vocabulary("ATM")...),
-		core.Label{Name: "ATM:type:bug"},     // unmanaged namespace member
-		core.Label{Name: "ATM:needs-triage"}, // unmanaged loose tag
-		core.Label{Name: "ATM:status:wip"},   // ad-hoc member of an OWNED namespace -> managed
+		append(scrum.Vocabulary("ATM"), qa.Vocabulary("ATM")...),
+		core.Label{Name: "ATM:type:bug"},           // unmanaged namespace member
+		core.Label{Name: "ATM:needs-triage"},       // unmanaged loose tag
+		core.Label{Name: "ATM:scrum-stage:parked"}, // ad-hoc member of an OWNED namespace -> managed
 	)}
 	un, err := reg.Unmanaged(svc, "ATM")
 	if err != nil {
@@ -65,7 +65,7 @@ func TestUnmanagedMatchesOwnedLabelsSubtraction(t *testing.T) {
 			t.Errorf("%s: owned=%v but in-unmanaged=%v — the two surfaces disagree", l.Name, owned.Contains(l.Name), inUn[l.Name])
 		}
 	}
-	if !inUn["ATM:type:bug"] || !inUn["ATM:needs-triage"] || inUn["ATM:status:wip"] {
+	if !inUn["ATM:type:bug"] || !inUn["ATM:needs-triage"] || inUn["ATM:scrum-stage:parked"] {
 		t.Errorf("spot checks failed: unmanaged = %v", inUn)
 	}
 }

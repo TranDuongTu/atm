@@ -16,7 +16,6 @@ import (
 	"atm/internal/capability/channel"
 	"atm/internal/capability/checklist"
 	"atm/internal/capability/codereview"
-	"atm/internal/capability/contextmap"
 	"atm/internal/capability/qa"
 	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
@@ -88,7 +87,7 @@ var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")
 // exercise the same command surface the binary ships. Keep the two in sync:
 // a capability registered in main.go but not here is invisible to goldens.
 func testRegistry() *capability.Registry {
-	return capability.NewRegistry(workflow.New(), contextmap.New())
+	return capability.NewRegistry(workflow.New(), scrum.New())
 }
 
 // productionRegistry mirrors cmd/atm's composition root exactly, so tests
@@ -97,7 +96,7 @@ func testRegistry() *capability.Registry {
 // binary ships.
 func productionRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		workflow.New(), contextmap.New(), workflowai.New(), workflowrpi.New(), channel.New(), checklist.New(),
+		workflow.New(), workflowai.New(), workflowrpi.New(), channel.New(), checklist.New(),
 		scrum.New(), qa.New(), codereview.New(), release.New(),
 	)
 }

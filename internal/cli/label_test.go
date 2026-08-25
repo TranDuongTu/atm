@@ -97,10 +97,9 @@ func TestFreshProjectSeedsOnlyCapabilityLabels(t *testing.T) {
 	h.reset()
 	stdout, _, _ := h.run("label", "list", "--project", "PRJ")
 	// The old internal/seed set seeded comment:progress/decision/open-question.
-	// No capability owns those, so a fresh project must NOT carry them.
-	// (contextmap DOES seed comment:provenance, which is a capability-owned
-	// label, so we assert the specific dropped suffixes rather than the broad
-	// "PRJ:comment:" prefix.) priority:* is owned by the workflow capability
+	// No capability owns those, so a fresh project must NOT carry them; we
+	// assert the specific dropped suffixes rather than the broad
+	// "PRJ:comment:" prefix. priority:* is owned by the workflow capability
 	// (planning concern), so it IS seeded on a fresh project.
 	for _, gone := range []string{
 		"PRJ:comment:progress", "PRJ:comment:decision", "PRJ:comment:open-question",
@@ -110,8 +109,7 @@ func TestFreshProjectSeedsOnlyCapabilityLabels(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"PRJ:status:open", "PRJ:all-tasks", "PRJ:context:*", "PRJ:context-current",
-		"PRJ:priority:high", "PRJ:priority:*",
+		"PRJ:status:open", "PRJ:all-tasks", "PRJ:priority:high", "PRJ:priority:*",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("fresh project missing capability-owned %s", want)

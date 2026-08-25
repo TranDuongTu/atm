@@ -14,10 +14,10 @@ func TestProjectCapabilityEnableDisable(t *testing.T) {
 	if err := s.EnableProjectCapability("PCA", "workflow", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableProjectCapability("PCA", "contextmap", actor); err != nil {
+	if err := s.EnableProjectCapability("PCA", "scrum", actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DisableProjectCapability("PCA", "contextmap", actor); err != nil {
+	if err := s.DisableProjectCapability("PCA", "scrum", actor); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.GetProject("PCA")
