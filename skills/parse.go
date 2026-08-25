@@ -176,12 +176,14 @@ var validExpects = map[string]bool{
 	"PROJECT_NAME": true,
 	"ACTOR":        true,
 	"TASK_ID":      true,
+	"CAPABILITY":   true,
+	"LANE":         true,
 }
 
 func validateExpects(expects []string) error {
 	for _, e := range expects {
 		if !validExpects[e] {
-			return fmt.Errorf("unknown expects value %q (valid: CODE, PROJECT_NAME, ACTOR, TASK_ID)", e)
+			return fmt.Errorf("unknown expects value %q (valid: CODE, PROJECT_NAME, ACTOR, TASK_ID, CAPABILITY, LANE)", e)
 		}
 	}
 	return nil

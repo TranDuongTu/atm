@@ -30,8 +30,8 @@ func TestManagerPersonaShape(t *testing.T) {
 	if len(m.Optional) == 0 {
 		t.Fatal("manager must declare optional params")
 	}
-	if !strings.Contains(m.Body, "Converge") {
-		t.Fatal("manager prompt should drive toward capability Converge sections")
+	if !strings.Contains(m.Body, "## Duty") || !strings.Contains(m.Body, "sweep") {
+		t.Fatal("manager prompt should run the sweep over guide Duty sections")
 	}
 }
 
