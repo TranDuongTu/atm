@@ -162,6 +162,29 @@ func (r *Registry) Flows() []Flow {
 	return out
 }
 
+// DefaultFlow is the flow capability a new project starts on. One flow is
+// the whole point of the default: a project that enables every registered
+// flow at birth gets downstream lanes (qa, codereview) fed by nothing, and
+// a [C] switcher listing stages nobody has reached yet.
+const DefaultFlow = "scrum"
+
+// DefaultNames is the capability set a project enables when it does not
+// choose: every registry capability (ambient vocabularies with no lanes —
+// channel, checklist, release) plus DefaultFlow. Registration order is
+// preserved. A registry missing DefaultFlow simply contributes no flow.
+func (r *Registry) DefaultNames() []string {
+	if r == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range r.caps {
+		if _, isFlow := c.(Flow); !isFlow || c.Name() == DefaultFlow {
+			out = append(out, c.Name())
+		}
+	}
+	return out
+}
+
 // DefaultPoolExpr is the unclaimed work pool over the registry's flow set:
 // tasks claimed by no flow capability. "*" (every task) when there are no
 // flows. This is the DEFAULT inbox eligibility for first-stage flow

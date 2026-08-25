@@ -208,3 +208,45 @@ func TestDescribeBriefFallsBackToSummary(t *testing.T) {
 		t.Fatalf("fallback = %q", d[1].Brief)
 	}
 }
+
+// TestDefaultNamesIsEveryRegistryCapabilityPlusTheDefaultFlow pins the
+// enablement default: a project that does not choose gets one flow, not
+// every flow, plus the lane-less capabilities.
+func TestDefaultNamesIsEveryRegistryCapabilityPlusTheDefaultFlow(t *testing.T) {
+	var calls []string
+	reg := NewRegistry(
+		&fakeCap{name: "channel", calls: &calls},
+		&fakeFlowCap{fakeCap: fakeCap{name: DefaultFlow, calls: &calls}},
+		&fakeFlowCap{fakeCap: fakeCap{name: "downstream", calls: &calls}},
+		&fakeCap{name: "checklist", calls: &calls},
+	)
+	want := []string{"channel", DefaultFlow, "checklist"}
+	got := reg.DefaultNames()
+	if len(got) != len(want) {
+		t.Fatalf("DefaultNames = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("DefaultNames = %v, want %v (registration order preserved)", got, want)
+		}
+	}
+	var nilReg *Registry
+	if nilReg.DefaultNames() != nil {
+		t.Error("nil registry must return nil")
+	}
+}
+
+// fakeFlowCap is a fakeCap that also satisfies Flow, so kind-sensitive
+// registry methods can be exercised without a real capability package.
+type fakeFlowCap struct{ fakeCap }
+
+func (f *fakeFlowCap) ClaimExprs() []string { return []string{f.name + ":*"} }
+func (f *fakeFlowCap) FinishLabel(code string) core.Label {
+	return core.Label{Name: code + ":" + f.name + "-stage:done"}
+}
+func (f *fakeFlowCap) EvictLabel(code string) core.Label {
+	return core.Label{Name: code + ":" + f.name + "-out:*"}
+}
+func (f *fakeFlowCap) Lanes(code string) LaneSet {
+	return LaneSet{Inbox: code + ":in", Pipeline: code + ":pipe", Out: code + ":out"}
+}

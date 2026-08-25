@@ -5,49 +5,6 @@
       "name": "ATM:context:agent"
     },
     {
-      "description": "qa Inbox lane: finished work qa has not decided about. Non-empty means dispatch the manager.",
-      "expr": "NOT qa:* AND NOT qa-out:*",
-      "name": "ATM:qa-inbox"
-    },
-    {
-      "description": "qa Out lane: settled evictions; qa release returns one to the pool.",
-      "expr": "qa-out:*",
-      "name": "ATM:qa-out-board"
-    },
-    {
-      "description": "qa EVICT SOCKET: considered and declined by qa; permanent until qa release returns the task to the pool",
-      "name": "ATM:qa-out:*"
-    },
-    {
-      "description": "qa evict reason: verified as part of another task (see the covered_by payload field)",
-      "name": "ATM:qa-out:covered-by"
-    },
-    {
-      "description": "qa evict reason: verification failed — the backward-flow signal the manager routes",
-      "name": "ATM:qa-out:failed"
-    },
-    {
-      "description": "qa evict reason: nothing here to verify",
-      "name": "ATM:qa-out:not-relevant"
-    },
-    {
-      "description": "qa Pipeline lane: originals under verification and their scaffolds; certified originals stay visible.",
-      "expr": "qa:* AND NOT qa-out:*",
-      "name": "ATM:qa-pipeline"
-    },
-    {
-      "description": "qa claim axis; presence means the task is in qa's pipeline",
-      "name": "ATM:qa:*"
-    },
-    {
-      "description": "qa FINISH SOCKET: this original is verified. Only ever stamped on an absorbed original, NEVER on a test scaffold. Downstream capabilities wire their inbox eligibility to this label.",
-      "name": "ATM:qa:done"
-    },
-    {
-      "description": "qa state: under verification (originals and their test scaffolds alike)",
-      "name": "ATM:qa:testing"
-    },
-    {
       "description": "scrum Inbox lane: eligible work scrum has not decided about. Non-empty means dispatch the manager.",
       "expr": "NOT scrum:* AND NOT scrum-out:*",
       "name": "ATM:scrum-inbox"
@@ -141,49 +98,6 @@
     {
       "description": "",
       "name": "ATM:type:epic"
-    },
-    {
-      "description": "qa Inbox lane: finished work qa has not decided about. Non-empty means dispatch the manager.",
-      "expr": "NOT qa:* AND NOT qa-out:*",
-      "name": "DEMO:qa-inbox"
-    },
-    {
-      "description": "qa Out lane: settled evictions; qa release returns one to the pool.",
-      "expr": "qa-out:*",
-      "name": "DEMO:qa-out-board"
-    },
-    {
-      "description": "qa EVICT SOCKET: considered and declined by qa; permanent until qa release returns the task to the pool",
-      "name": "DEMO:qa-out:*"
-    },
-    {
-      "description": "qa evict reason: verified as part of another task (see the covered_by payload field)",
-      "name": "DEMO:qa-out:covered-by"
-    },
-    {
-      "description": "qa evict reason: verification failed — the backward-flow signal the manager routes",
-      "name": "DEMO:qa-out:failed"
-    },
-    {
-      "description": "qa evict reason: nothing here to verify",
-      "name": "DEMO:qa-out:not-relevant"
-    },
-    {
-      "description": "qa Pipeline lane: originals under verification and their scaffolds; certified originals stay visible.",
-      "expr": "qa:* AND NOT qa-out:*",
-      "name": "DEMO:qa-pipeline"
-    },
-    {
-      "description": "qa claim axis; presence means the task is in qa's pipeline",
-      "name": "DEMO:qa:*"
-    },
-    {
-      "description": "qa FINISH SOCKET: this original is verified. Only ever stamped on an absorbed original, NEVER on a test scaffold. Downstream capabilities wire their inbox eligibility to this label.",
-      "name": "DEMO:qa:done"
-    },
-    {
-      "description": "qa state: under verification (originals and their test scaffolds alike)",
-      "name": "DEMO:qa:testing"
     },
     {
       "description": "scrum Inbox lane: eligible work scrum has not decided about. Non-empty means dispatch the manager.",

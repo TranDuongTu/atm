@@ -2,7 +2,6 @@
   "projects": [
     {
       "capabilities": [
-        "qa",
         "scrum"
       ],
       "code": "ATM",
@@ -16,7 +15,6 @@
     },
     {
       "capabilities": [
-        "qa",
         "scrum"
       ],
       "code": "DEMO",

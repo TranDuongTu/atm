@@ -79,20 +79,20 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&code, "code", "", "project code (^[A-Z]{3,6}$)")
 	cmd.Flags().StringVar(&name, "name", "", "project name")
 	cmd.Flags().StringSliceVar(&capabilities, "capabilities", nil,
-		"capabilities to enable for the project (default: all registered)")
+		"capabilities to enable for the project (default: the registry capabilities plus "+capability.DefaultFlow+")")
 	_ = cmd.MarkFlagRequired("code")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
 // resolveCapabilityChoice validates requested capability names against the
-// registry; nil/empty request means every registered capability. New
-// projects always record an explicit choice — only pre-enablement projects
-// read as nil/all.
+// registry; a nil/empty request means the registry's default set (every
+// registry capability plus the default flow). New projects always record an
+// explicit choice — only pre-enablement projects read as nil/all.
 func resolveCapabilityChoice(reg *capability.Registry, requested []string) ([]string, error) {
 	known := reg.Names()
 	if len(requested) == 0 {
-		return known, nil
+		return reg.DefaultNames(), nil
 	}
 	valid := make(map[string]bool, len(known))
 	for _, n := range known {

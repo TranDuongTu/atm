@@ -28,7 +28,10 @@ func runWiringErrText(t *testing.T, h *testCLI, args ...string) (string, int) {
 func newWiringCLI(t *testing.T) *testCLI {
 	t.Helper()
 	h := newRegistryTestCLI(t)
-	if _, _, code := h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset"); code != 0 {
+	// Wiring is about edges BETWEEN flows, so this fixture opts into the
+	// downstream ones a default project does not enable.
+	if _, _, code := h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management",
+		"--capabilities", "scrum,qa,codereview,release,channel,checklist", "--actor", "admin@cli:unset"); code != 0 {
 		t.Fatalf("project create exit %d", code)
 	}
 	return h

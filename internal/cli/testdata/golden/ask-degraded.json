@@ -8,7 +8,7 @@
   "error": "no chat model configured; run 'atm project set-chat'",
   "hits": [
     {
-      "id": "FOO-a793f6",
+      "id": "FOO-9aefc9",
       "kind": "task",
       "match": "text",
       "score": 3,

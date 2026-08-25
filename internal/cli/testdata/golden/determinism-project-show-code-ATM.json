@@ -1,7 +1,6 @@
 {
   "project": {
     "capabilities": [
-      "qa",
       "scrum"
     ],
     "code": "ATM",
@@ -19,12 +18,6 @@
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
         "seq": 2
-      },
-      {
-        "action": "project.capability-enabled",
-        "actor": "admin@cli:unset",
-        "at": "TIMESTAMP",
-        "seq": 3
       }
     ],
     "name": "Agent Tasks Management",

@@ -1,7 +1,6 @@
 {
   "project": {
     "capabilities": [
-      "qa",
       "scrum"
     ],
     "code": "DEMO",
@@ -21,16 +20,10 @@
         "seq": 2
       },
       {
-        "action": "project.capability-enabled",
-        "actor": "admin@cli:unset",
-        "at": "TIMESTAMP",
-        "seq": 3
-      },
-      {
         "action": "project.name-changed",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 36
+        "seq": 25
       }
     ],
     "name": "Demo Project",

@@ -6,7 +6,7 @@
       "summary": "Scrum flow capability: absorbs raw work into an EPIC -> Story -> Task/Bug/Design pipeline with spec/plan tracking."
     },
     {
-      "enabled": true,
+      "enabled": false,
       "name": "qa",
       "summary": "QA flow capability: verifies finished development work through born-claimed test scaffolds, certifying originals only."
     }

@@ -8,17 +8,16 @@
         "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 37
+        "seq": 24
       }
     ],
-    "id": "ATM-faf82f",
+    "id": "DEMO-0d12b2",
     "labels": [
-      "ATM:status:open",
-      "ATM:type:bug"
+      "DEMO:status:open"
     ],
     "ordinal": 1,
-    "project_code": "ATM",
-    "title": "Fix label reconciliation",
+    "project_code": "DEMO",
+    "title": "Demo task",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
