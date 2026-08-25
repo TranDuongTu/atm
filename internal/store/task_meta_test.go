@@ -18,7 +18,7 @@ func TestSetTaskCapabilityMetaRoundTrip(t *testing.T) {
 	}
 
 	// Set two capabilities' payloads; they are independent keys.
-	if err := s.SetTaskCapabilityMeta(tk.ID, "workflow_ai", `{"v":1,"stage":"planned"}`, testActor); err != nil {
+	if err := s.SetTaskCapabilityMeta(tk.ID, "qa", `{"v":1,"stage":"planned"}`, testActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTaskCapabilityMeta(tk.ID, "scrum", "cm", testActor); err != nil {
@@ -28,25 +28,25 @@ func TestSetTaskCapabilityMetaRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Meta["workflow_ai"] != `{"v":1,"stage":"planned"}` || got.Meta["scrum"] != "cm" {
+	if got.Meta["qa"] != `{"v":1,"stage":"planned"}` || got.Meta["scrum"] != "cm" {
 		t.Errorf("Meta = %+v", got.Meta)
 	}
 
 	// Overwrite one key; the sibling survives.
-	if err := s.SetTaskCapabilityMeta(tk.ID, "workflow_ai", `{"v":2}`, testActor); err != nil {
+	if err := s.SetTaskCapabilityMeta(tk.ID, "qa", `{"v":2}`, testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetTask(tk.ID)
-	if got.Meta["workflow_ai"] != `{"v":2}` || got.Meta["scrum"] != "cm" {
+	if got.Meta["qa"] != `{"v":2}` || got.Meta["scrum"] != "cm" {
 		t.Errorf("after overwrite Meta = %+v", got.Meta)
 	}
 
 	// Clear via empty payload: key absent.
-	if err := s.SetTaskCapabilityMeta(tk.ID, "workflow_ai", "", testActor); err != nil {
+	if err := s.SetTaskCapabilityMeta(tk.ID, "qa", "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetTask(tk.ID)
-	if _, ok := got.Meta["workflow_ai"]; ok {
+	if _, ok := got.Meta["qa"]; ok {
 		t.Errorf("cleared key present: %+v", got.Meta)
 	}
 
@@ -69,10 +69,10 @@ func TestSetTaskCapabilityMetaGuards(t *testing.T) {
 	if err := s.SetTaskCapabilityMeta(tk.ID, "", "x", testActor); !errors.Is(err, core.ErrUsage) {
 		t.Errorf("empty capability: err = %v, want ErrUsage", err)
 	}
-	if err := s.SetTaskCapabilityMeta(tk.ID, "workflow_ai", "x", ""); err == nil {
+	if err := s.SetTaskCapabilityMeta(tk.ID, "qa", "x", ""); err == nil {
 		t.Error("missing actor accepted")
 	}
-	if err := s.SetTaskCapabilityMeta("PXA-ffffff", "workflow_ai", "x", testActor); !errors.Is(err, core.ErrNotFound) {
+	if err := s.SetTaskCapabilityMeta("PXA-ffffff", "qa", "x", testActor); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("unknown task: err = %v, want ErrNotFound", err)
 	}
 }

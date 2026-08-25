@@ -377,7 +377,7 @@ func TestFoldTaskCapabilityMeta(t *testing.T) {
 	created := testEvent(t, c, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
 		map[string]any{"alias": "T-1", "title": "t"})
 	setWF := testEvent(t, c, replicaA, []string{created.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": `{"v":1}`})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "qa", "payload": `{"v":1}`})
 	setCM := testEvent(t, c, replicaA, []string{setWF.ID}, ActionTaskCapabilityMetaSet,
 		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "scrum", "payload": "cm-state"})
 	st := fold(t, created, setWF, setCM)
@@ -385,15 +385,15 @@ func TestFoldTaskCapabilityMeta(t *testing.T) {
 	if tk == nil {
 		t.Fatal("task missing")
 	}
-	if tk.Meta["workflow_ai"] != `{"v":1}` || tk.Meta["scrum"] != "cm-state" {
+	if tk.Meta["qa"] != `{"v":1}` || tk.Meta["scrum"] != "cm-state" {
 		t.Errorf("meta = %+v, want both capabilities' payloads independent", tk.Meta)
 	}
 
 	// Overwrite: a later write to the same key wins.
 	over := testEvent(t, c, replicaA, []string{setCM.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": `{"v":2}`})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "qa", "payload": `{"v":2}`})
 	st = fold(t, created, setWF, setCM, over)
-	if got := st.Tasks[created.ID].Meta["workflow_ai"]; got != `{"v":2}` {
+	if got := st.Tasks[created.ID].Meta["qa"]; got != `{"v":2}` {
 		t.Errorf("overwrite = %q, want v2 payload", got)
 	}
 	if got := st.Tasks[created.ID].Meta["scrum"]; got != "cm-state" {
@@ -402,9 +402,9 @@ func TestFoldTaskCapabilityMeta(t *testing.T) {
 
 	// Clear via empty payload: the key is absent, not empty.
 	clr := testEvent(t, c, replicaA, []string{over.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": ""})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "qa", "payload": ""})
 	st = fold(t, created, setWF, setCM, over, clr)
-	if _, ok := st.Tasks[created.ID].Meta["workflow_ai"]; ok {
+	if _, ok := st.Tasks[created.ID].Meta["qa"]; ok {
 		t.Errorf("cleared key still present: %+v", st.Tasks[created.ID].Meta)
 	}
 
@@ -421,18 +421,18 @@ func TestFoldTaskCapabilityMetaLWWAndContested(t *testing.T) {
 	created := testEvent(t, ca, replicaA, nil, ActionTaskCreated, Subject{Kind: "task"},
 		map[string]any{"alias": "T-1", "title": "t"})
 	a := testEvent(t, ca, replicaA, []string{created.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": "from A"})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "qa", "payload": "from A"})
 	b := testEvent(t, cb, replicaB, []string{created.ID}, ActionTaskCapabilityMetaSet,
-		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "workflow_ai", "payload": "from B"})
+		Subject{Kind: "task", ID: created.ID}, map[string]any{"capability": "qa", "payload": "from B"})
 	st := fold(t, created, a, b)
-	if got := st.Tasks[created.ID].Meta["workflow_ai"]; got != "from B" {
+	if got := st.Tasks[created.ID].Meta["qa"]; got != "from B" {
 		t.Errorf("LWW winner = %q, want the higher HLC", got)
 	}
 	if len(st.Contested) != 1 {
 		t.Fatalf("contested = %+v, want exactly the meta slot", st.Contested)
 	}
 	cs := st.Contested[0]
-	if cs.Entity != created.ID || cs.Kind != SlotScalar || cs.Field != "meta!workflow_ai" {
+	if cs.Entity != created.ID || cs.Kind != SlotScalar || cs.Field != "meta!qa" {
 		t.Errorf("contested slot = %+v", cs)
 	}
 }

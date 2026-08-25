@@ -26,7 +26,7 @@ type ChecklistRecord struct {
 
 // DecodeChecklistPayload parses a payload string; "" is a valid empty payload.
 // A malformed payload is an ERROR — verbs fail rather than overwrite state
-// they cannot read (the channel/workflowai doctrine).
+// they cannot read (the same doctrine as every capability payload).
 func DecodeChecklistPayload(s string) (map[string]any, error) {
 	if s == "" {
 		return map[string]any{}, nil

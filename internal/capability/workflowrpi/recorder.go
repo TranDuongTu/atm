@@ -78,7 +78,7 @@ func laneState(tk *core.Task, code, target string) (existing []string, vals []st
 
 // swapNamespaceLabels makes target the only label in ns. Add-first, then
 // remove the rest: no transactions here, so the worst case is a recoverable
-// extra label and re-running converges (the workflowai recovery behavior).
+// extra label and re-running converges (the recovery behavior).
 func (r *Recorder) swapNamespaceLabels(taskID, code, ns, target string) error {
 	tk, err := r.Store.GetTask(taskID)
 	if err != nil {

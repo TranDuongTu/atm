@@ -116,7 +116,7 @@ func ChannelStatus(v ChannelView, now time.Time) (string, string) {
 
 // DecodeChannelPayload parses a payload string; "" is a valid empty payload.
 // A malformed payload is an ERROR — verbs fail rather than overwrite state
-// they cannot read (same doctrine as workflowai's payload).
+// they cannot read (the same doctrine as every capability payload).
 func DecodeChannelPayload(s string) (map[string]any, error) {
 	if s == "" {
 		return map[string]any{}, nil
