@@ -86,10 +86,10 @@ func TestTasksPaneRendersLaneStrip(t *testing.T) {
 	}
 }
 
-// TestListViewLayoutOrderListThenLaneStripBottom verifies the list-view
-// layout: top-to-bottom the pane stacks task list -> lane strip, so the strip
-// is the LAST laneStripHeight lines and nothing renders below it.
-func TestListViewLayoutOrderListThenLaneStripBottom(t *testing.T) {
+// TestListViewLayoutOrderLaneStripThenList verifies the list-view layout:
+// top-to-bottom the pane stacks lane strip -> task list, so the strip is the
+// FIRST laneStripHeight lines and the list runs below it.
+func TestListViewLayoutOrderLaneStripThenList(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
@@ -100,15 +100,15 @@ func TestListViewLayoutOrderListThenLaneStripBottom(t *testing.T) {
 	m.SetSize(100, 40)
 
 	lines := strings.Split(stripANSI(m.tasks.View()), "\n")
-	stripBlock := strings.Join(lines[len(lines)-laneStripHeight:], "\n")
+	stripBlock := strings.Join(lines[:laneStripHeight], "\n")
 	for _, lane := range []string{"Inbox", "Pipeline", "Out"} {
 		if !strings.Contains(stripBlock, lane) {
-			t.Errorf("lane strip (last %d lines) missing %s:\n%s", laneStripHeight, lane, stripBlock)
+			t.Errorf("lane strip (first %d lines) missing %s:\n%s", laneStripHeight, lane, stripBlock)
 		}
 	}
-	above := strings.Join(lines[:len(lines)-laneStripHeight], "\n")
-	if strings.Contains(above, "Pipeline") {
-		t.Errorf("the lane strip leaked above its %d-line slot:\n%s", laneStripHeight, above)
+	below := strings.Join(lines[laneStripHeight:], "\n")
+	if strings.Contains(below, "Inbox") {
+		t.Errorf("the lane strip leaked below its %d-line slot:\n%s", laneStripHeight, below)
 	}
 }
 

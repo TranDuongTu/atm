@@ -74,13 +74,16 @@ func (l *lanesModel) renderCard(w int, row laneRow) string {
 	if !row.Broken {
 		count = strconv.Itoa(row.Count)
 	}
-	head := count
+	title := row.Kind.String() + " " + count
 	if row.Kind == laneInbox && !row.Broken && row.Count > 0 {
-		head += " " + toneStyle(capability.ToneAttention).Render("●")
+		title += " " + toneStyle(capability.ToneAttention).Render("●")
 	}
 
-	body := append([]string{head}, wrapAnswer(l.hintFor(row), w-2)...)
-	return titledBoxChars(style, w, row.Kind.String(), strings.Join(body, "\n"), laneStripHeight, chars)
+	// The count rides in the frame title so all three body lines belong to
+	// the hint: the Inbox's hint names the key that acts on it, and a hint
+	// clipped before its key is worse than no hint.
+	body := wrapAnswer(l.hintFor(row), w-2)
+	return titledBoxChars(style, w, title, strings.Join(body, "\n"), laneStripHeight, chars)
 }
 
 // hintFor is the lane's role in one line: what the lane means and, where

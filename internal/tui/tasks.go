@@ -108,14 +108,10 @@ func (t *tasksModel) SetSize(w, h int) {
 	}
 	t.width = w
 	t.contentHeight = h
-	// header line + blank + column header + rule + footer + margin, plus the
-	// board strip reserved in the list view. This is only a placeholder value
-	// for t.pageSize until the first render — listPageSize() and
+	// A placeholder until the first render: listPageSize() and
 	// renderListWithStrip() both recompute the real page size from
-	// listContentHeight(), which also accounts for the fixed tabbed pinned box
-	// (SetSize never re-runs on a pin toggle and would otherwise leave this
-	// value stale).
-	t.pageSize = h - laneStripHeight - 6
+	// listContentHeight(), which is the single source both agree on.
+	t.pageSize = h - laneStripHeight - listChromeHeight
 	if t.pageSize < 1 {
 		t.pageSize = 1
 	}

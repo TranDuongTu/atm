@@ -92,9 +92,9 @@ func TestLanePaneKeepsItsFooterAndHeight(t *testing.T) {
 	if len(lines) != m.tasks.contentHeight {
 		t.Fatalf("pane rendered %d lines, want exactly contentHeight %d", len(lines), m.tasks.contentHeight)
 	}
-	// The lane strip is the last laneStripHeight lines, and the list keeps
-	// everything above it.
-	strip := strings.Join(lines[len(lines)-laneStripHeight:], "\n")
+	// The lane strip is the first laneStripHeight lines; the list runs below
+	// it and ends with the footer.
+	strip := strings.Join(lines[:laneStripHeight], "\n")
 	for _, lane := range []string{"Inbox", "Pipeline", "Out"} {
 		if !strings.Contains(strip, lane) {
 			t.Fatalf("lane strip missing %s:\n%s", lane, strip)

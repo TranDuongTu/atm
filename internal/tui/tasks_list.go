@@ -135,36 +135,32 @@ func (t *tasksModel) selectedRow() (taskRow, bool) {
 }
 
 // renderListWithStrip renders the list view top to bottom: the task list
-// (fills), then the board thumbnail strip, then the single tabbed pinned box
-// pinned at the very bottom of the pane (the detail view keeps the full pane
-// since the strip is contextual to browsing). It reuses the existing
-// renderList() by temporarily shrinking t.contentHeight/t.pageSize to the
-// list's sub-height (from listContentHeight()) rather than refactoring
-// renderList itself — renderList already ends with padToHeight(...,
-// t.contentHeight), so the shrink makes it pad to the sub-height, and the
-// outer padToHeight below clamps any rounding.
+// renderListWithStrip composes the list view: the lane strip on top, then
+// the task list. The strip leads because it captions what follows — which
+// lane these rows are — and a caption read after its rows is not a caption.
+// It reuses renderList() by temporarily shrinking t.contentHeight/t.pageSize
+// to the list's sub-height (listContentHeight()) rather than refactoring
+// renderList itself; the outer padToHeight below clamps any rounding.
 func (t *tasksModel) renderListWithStrip() string {
-	listH := t.listContentHeight()
+	// Both computed BEFORE the shrink: listPageSize derives from the full
+	// pane height, and reading it afterwards would subtract the strip twice.
+	listH, pageSize := t.listContentHeight(), t.listPageSize()
 	savedH, savedPageSize := t.contentHeight, t.pageSize
 	t.contentHeight = listH
-	t.pageSize = listH - 6
-	if t.pageSize < 1 {
-		t.pageSize = 1
-	}
+	t.pageSize = pageSize
 	listOut := t.renderList()
 	t.contentHeight, t.pageSize = savedH, savedPageSize
-	listOut = t.fillGapWithArt(listOut)
 
 	var b strings.Builder
-	b.WriteString(listOut)
-	b.WriteString("\n")
 	b.WriteString(t.m.lanes.render(t.width))
+	b.WriteString("\n")
+	b.WriteString(listOut)
 	return padToHeight(b.String(), t.contentHeight)
 }
 
 // fillGapWithArt replaces the task table's trailing blank padding (the dead
-// space between the last rendered row and the boards ring) with background
-// art for the scoped project. The table block keeps its exact height —
+// space between the last rendered row and the footer divider) with
+// background art for the scoped project. The block keeps its exact height —
 // padToHeight pads with empty lines ("" — see padToHeight), so trailing
 // lines that trim to empty are exactly the reclaimable gap. Below art.MinH
 // blank lines the gap stays as-is (spec collapse threshold). No project
@@ -209,9 +205,22 @@ func (t *tasksModel) renderList() string {
 		return padToHeight(b.String(), t.contentHeight)
 	}
 
-	t.renderFlatList(&b)
-	return padToHeight(b.String(), t.contentHeight)
+	footer := t.renderFlatList(&b)
+	if footer == "" {
+		// An empty state is centered in the whole block and has no count to
+		// report, so there is no footer to pin and no gap to fill.
+		return padToHeight(b.String(), t.contentHeight)
+	}
+	// The footer sits on the block's last line, not directly under the rows:
+	// a count that floats up to meet a short list reads as part of the list.
+	// Everything between the last row and it is the gap the art fills.
+	body := padToHeight(b.String(), t.contentHeight-footerHeight)
+	return t.fillGapWithArt(body) + "\n" + footer
 }
+
+// footerHeight is what dashboardFooter draws: its divider and its one line
+// of text.
+const footerHeight = 2
 
 // renderEmptyState appends a vertically+horizontally centered empty-state
 // block (each line center-aligned independently) into b.
@@ -309,14 +318,17 @@ func toneStyle(tone capability.Tone) lipgloss.Style {
 	return lipgloss.NewStyle()
 }
 
-func (t *tasksModel) renderFlatList(b *strings.Builder) {
+// renderFlatList writes the column header and the visible rows into b and
+// RETURNS the footer, which the caller pins to the bottom of the block.
+// Empty states return "" — they have nothing to count.
+func (t *tasksModel) renderFlatList(b *strings.Builder) string {
 	if len(t.rows) == 0 {
 		t.renderEmptyState(b, []string{
 			t.m.styles.EmptyHead.Render("no tasks match this focus"),
 			"",
 			t.m.styles.EmptyText.Render("switch lanes with [ / ]"),
 		})
-		return
+		return ""
 	}
 	idW, metaW, updatedW, titleW := t.taskColumnWidths()
 	var header string
@@ -359,19 +371,23 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) {
 		b.WriteString(dashboardLine(t.width, line))
 		b.WriteString("\n")
 	}
-	b.WriteString(dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(t.rows)))))
+	return dashboardFooter(t.width, t.m.styles.Muted.Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(t.rows))))
 }
 
 func (t *tasksModel) pageWindow(total int) (int, int) {
 	return windowLines(total, t.cursor, t.pageSize)
 }
 
-// listPageSize returns the list's page size, used by the pgdown / pgup
-// page-jump keys. It derives from listContentHeight() (the list sub-height)
-// so a jump always lands on the exact page boundary the renderer draws: the
-// body reserves 7 lines of chrome.
+// listChromeHeight is what the list block spends on anything that is not a
+// row: the column header, its rule, and the footer's divider and count line —
+// plus the blank line the row loop's trailing newline leaves behind.
+const listChromeHeight = 5
+
+// listPageSize returns how many rows fit in the list block. It is the single
+// source for both the renderer and the pgup/pgdn page jumps, so a jump always
+// lands on the exact page boundary that was drawn.
 func (t *tasksModel) listPageSize() int {
-	size := t.listContentHeight() - 7
+	size := t.listContentHeight() - listChromeHeight
 	if size < 1 {
 		size = 1
 	}
