@@ -136,10 +136,10 @@ These features are optional after the 30-second start. They are useful when you 
 
 ### Labels And Boards
 
-**Labels** are the substrate everything builds on — free-form, namespaced names (`status:open`, `priority:high`, `context:agent`) with no fixed workflow fields. Each project grows its own vocabulary, visible with `atm label list --project <CODE>`. Labels come in three kinds:
+**Labels** are the substrate everything builds on — free-form, namespaced names (`scrum:task`, `scrum-stage:planned`, `type:bug`) with no fixed workflow fields. Each project grows its own vocabulary, visible with `atm label list --project <CODE>`. Labels come in three kinds:
 
 - **Stored labels** — directly assigned to tasks (`ATM:type:bug`, `ATM:component:cli`).
-- **Namespace labels** — emergent from task use; a wildcard like `ATM:status:*` matches any task carrying a `status:*` label, and the TUI groups by namespace for faceted browsing.
+- **Namespace labels** — emergent from task use; a wildcard like `ATM:scrum:*` matches any task carrying a `scrum:*` label, and faceting groups by namespace.
 - **Boards** — computed labels whose membership is defined by a boolean expression over other labels, not asserted task-by-task.
 
 A **board** is authored with `--expr`:
@@ -157,31 +157,36 @@ A board name is a valid `--label` value, so listing its members reads like any o
 atm task list --project ATM --label ATM:next-sprint
 ```
 
-**Capabilities build on the label substrate.** Four built-in capabilities ship with ATM and mount their own boards, verbs, and vocabulary:
+**Capabilities build on the label substrate.** Six built-in capabilities ship with ATM, in two kinds. A **flow** capability moves work toward a finish through three lanes (Inbox → Pipeline → Out) and is what the Tasks pane renders; a **registry** capability owns a vocabulary and verbs, with no lanes.
 
-| Capability | Verbs | Namespaces | Seeded Boards |
-|-----------|-------|------------|---------------|
-| `workflow` | `start`, `open`, `block`, `complete`, `status` | `status:*`, `priority:*` | `backlog`, `open-tasks`, `in-progress-tasks`, `all-tasks` |
-| `channel` | `add`, `list`, `show`, `edit`, `remove`, `wire`, `stamp`, `migrate-repos` | `channel:*` | `channels` |
-| `checklist` | `list`, `show`, `add`, `edit`, `remove` | `checklist:*` | `checklists` |
+| Capability | Kind | Verbs | Namespaces | Seeded Boards |
+|-----------|------|-------|------------|---------------|
+| `scrum` | flow | `absorb`, `add`, `stage`, `evict`, `release`, `reopen`, `link`, `report` | `scrum:*`, `scrum-stage:*`, `scrum-out:*` | `scrum-inbox`, `scrum-pipeline`, `scrum-out-board` |
+| `qa` | flow | `absorb`, `scaffold`, `pass`, `evict`, `release`, `report` | `qa:*`, `qa-out:*` | `qa-inbox`, `qa-pipeline`, `qa-out-board` |
+| `codereview` | flow | `absorb`, `begin`, `finish`, `evict`, `release`, `report` | `codereview:*`, `codereview-out:*` | `codereview-inbox`, `codereview-pipeline`, `codereview-out-board` |
+| `release` | registry | `cut`, `ship`, `report` | `release:*` | — |
+| `channel` | registry | `add`, `list`, `show`, `edit`, `remove`, `wire`, `stamp`, `migrate-repos` | `channel:*` | `channels` |
+| `checklist` | registry | `list`, `show`, `add`, `edit`, `remove` | `checklist:*` | `checklists` |
+
+A new project enables `scrum` plus the registry capabilities; the downstream flows are an explicit choice, and `atm project wiring` decides what reaches each one's inbox.
 
 Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`, with seeded concierge starter checklists.
 
 Enable capabilities per project and scope manager actions to one:
 
 ```sh
-atm project capability add workflow --project ATM
-atm --persona manager --project ATM --mode autopilot --capability workflow
+atm project capability add --name qa --project ATM
+atm --persona manager --project ATM --mode autopilot --capability scrum
 ```
 
 Each capability ships a self-contained agent guide — read it to understand its semantics, actions, and converged state:
 
 ```sh
-atm capability workflow guide
+atm capability scrum guide
 atm capability list                     # summaries for every registered capability
 ```
 
-The Boards pane in the TUI is the human's review surface for boards and namespaces, with a pinned-board strip, per-namespace drilldown, and live board-editor feedback.
+The Tasks pane in the TUI is the human's review surface for the current flow: its three lanes across the top, the lane's tasks below, and `[C]` to switch which flow the pane is scoped to.
 
 ### Semantic Search And Indexing
 
@@ -432,7 +437,7 @@ atm --persona developer --project ATM --agent claude --task ATM-4b7e24
 
 - **▤ Project** — create, select, rename, dispatch, remove.
 - **☰ Task** — add a task, or search one to act on it.
-- **▦ Board** — author boards and labels, pin jump slots, seed the enabled capabilities' vocabulary.
+- **▦ Lane** — go straight to a lane, sort the list, seed the enabled capabilities' vocabulary.
 - **§ Reference** — the keymap reference, the CLI↔TUI parity table, and the conventions primer.
 - Inline: dispatch `[D]`, channels `[E]`, personas `[V]`, capabilities `[C]` (once a project is scoped), cycle theme `[T]` — the bracketed keys are the real TUI bindings each row documents; inside the spotlight they type into the search, and `Enter` on the row is what runs them.
 

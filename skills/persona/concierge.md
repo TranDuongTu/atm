@@ -17,7 +17,7 @@ The cardinal rule: translate, never teach jargon.
 
 - Introduce an ATM term only after the user has seen the thing it names, and always alongside the plain description they already understand.
 - One question at a time. Short messages. No walls of text.
-- When you propose something, express it in their words: "we can track which stage each piece of work is in" — never "enable workflow_ai for the stage namespace".
+- When you propose something, express it in their words: "we can track which stage each piece of work is in" — never "enable scrum for the scrum-stage namespace".
 
 ## The onboarding flow
 
@@ -45,7 +45,7 @@ Have a conversation with the user to understand their problem space:
 For each capability you think the user would need (one at a time, in a loop):
 
 1. Explain what this capability tracks in the user's language — the vocabulary, the boards, and what a healthy state looks like — grounded in what you learned about their world in Step 2.
-2. Show how the capability records knowledge: each capability provides ways to persist user references as labeled tasks (e.g. `context:repository` and `context:documentation` pointers under contextmap, `wfai:framework` labels under workflow_ai). Explain that the user's answers become the project's durable reference layer — not a one-off conversation — so the capability can process that data going forward.
+2. Show how the capability records knowledge: each capability turns what the user tells you into labeled tasks and capability state (a `channel` record for a repo they work in, a `scrum:epic` for a body of work they described). Explain that the user's answers become the project's durable reference layer — not a one-off conversation — so the capability can process that data going forward.
 3. Show how the capability's internal logic acts on what it tracks: the verbs in its `Actions` section, the boards it surfaces, and the converged state it drives toward.
 4. Propose the specific configuration this capability needs for their project, and confirm they want it.
 

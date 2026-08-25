@@ -10,7 +10,7 @@ The architecture is hexagonal: a dependency-free domain core in the middle, adap
 cmd/atm ─────────────── composition root: constructs the store, injects it everywhere
   ├── internal/cli ──────── adapter: cobra ⇄ core services + capability registry
   ├── internal/tui ──────── adapter: bubbletea ⇄ core service interface
-  ├── internal/capability/* ── capability commands (contextmap, …), each owning a label slice
+  ├── internal/capability/* ── capability commands (scrum, qa, …), each owning a label slice
   │        │
   │        ▼
   │   internal/core ─────── domain leaf: types, label algebra, faceting, service + repository interfaces
@@ -32,7 +32,7 @@ cmd/atm ─────────────── composition root: construc
 | `internal/store/fsio` | Leaf: the file-lock primitive and atomic-JSON write helper shared by `store` and `store/eventlog`. | Import `store` or `store/eventlog`. |
 | `internal/cli` | The terminal adapter. Cobra command tree: parse flags → call core services → emit text/JSON. Mounts the capability registry's commands; the registry itself is assembled by `cmd/atm`. | Contain business logic; be imported by anything except `cmd/atm`. |
 | `internal/tui` | The interactive adapter. Bubble Tea panes over the core service interface, with live features (watch, reindex) via that interface. | Import `cli` or the concrete store type; reimplement core algebra (faceting, wildcard matching). |
-| `internal/capability/*` | One package per capability command (first: `contextmap`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
+| `internal/capability/*` | One package per capability command — a flow (`scrum`, `qa`, `codereview`) or a registry capability (`channel`, `checklist`, `release`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
 | `libs/eventsource` | Nested Go module (own `go.mod`, stitched via `go.work`). Root package: event canon, hashing, HLC, DAG, fold, replay. `sync/` subpackage: sync engine, `LocalStore`/`SyncTarget` interfaces, dir and git transports. | Import anything from this repo. Depend on more than the standard library (plus `jcs`). |
 
 Satellites keep their current roles: `internal/actor` stays a small leaf consumed by core or store; `internal/embed`, `internal/activity`, `internal/agent`, `internal/version` remain thin, with `version` restored to a pure leaf. The top-level `skills/` folder ships built-in personas inside the binary (no longer seeded into the store); `internal/session` owns the unified `atm --persona` launcher and the persona-generic context template. `internal/developing` and `internal/manager` are reduced to plugin-asset hosting (they no longer drive launch).
@@ -70,7 +70,7 @@ The order is deliberate: mechanical splits first (make everything after reviewab
 | 2 | ATM-f125d9 | God-file splits: `cli/root.go` init wizard → `cli/init.go`; `cli/store.go` → integrity / migrate / sync files; `tui/tasks.go` → list / detail / grouping / mutations; `store/cache.go` DDL → `cache_schema.go`. No signature changes. | Low |
 | 3 | ATM-cca7b0 | Create `internal/core`; write faceting/wildcard parity tests against both implementations, then move the algebra into `core` and delete both copies (`store/query.go` and `tui/tasks.go` variants). | Medium |
 | 4 | ATM-b9d83a | Move domain types into `core`; define the core service/repository interfaces; TUI depends only on the interface; composition root moves to `cmd/atm`; fix backwards edges (`version → store`, `cli → tui` via the runner seam). | Medium |
-| 5 | ATM-08db6e | Capability registry in `cli`; move `contextmap` to `internal/capability/contextmap`; `cli` stops importing capability internals. | Medium |
+| 5 | ATM-08db6e | Capability registry in `cli`; move the first capability into `internal/capability/<name>`; `cli` stops importing capability internals. | Medium |
 | 6 | ATM-3b873c | Carve the event-log write-engine inside `store` behind `core`'s repository interfaces; collapse the twelve `eventsource_*.go` wrappers into a coherent adapter. | High |
 
 Each task is written to be executed in a fresh session: it carries its own context, file pointers, and acceptance criteria, and it names this document as the specification. ATM-9eb7dc is the umbrella; progress lives there.
