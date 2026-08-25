@@ -8,18 +8,19 @@ import (
 // foldCapabilityFixture builds:
 //
 //	e1 project.created         (code P, name P)
-//	e2 project.capability-enabled  parents [e1], payload {"capability": "scrum"}
+//	e2 project.capability-enabled  parents [e1], payload {"capability": "qa"}
 //	e3 project.capability-enabled  parents [e2], payload {"capability": "scrum"}
 //	e4 project.capability-disabled parents [e3], payload {"capability": "scrum"}
 //
-// and folds it.
+// and folds it. The two capabilities must be DISTINCT: the scenario is "one
+// capability stays enabled while another is enabled then disabled".
 func foldCapabilityFixture(t *testing.T) *State {
 	t.Helper()
 	c := testClock(1000)
 	e1 := testEvent(t, c, replicaA, nil, ActionProjectCreated,
 		Subject{Kind: "project", Code: "P"}, map[string]any{"alias": "P", "name": "proj"})
 	e2 := testEvent(t, c, replicaA, []string{e1.ID}, ActionProjectCapabilityEnabled,
-		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
+		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "qa"})
 	e3 := testEvent(t, c, replicaA, []string{e2.ID}, ActionProjectCapabilityEnabled,
 		Subject{Kind: "project", ID: e1.ID, Code: "P"}, map[string]any{"capability": "scrum"})
 	e4 := testEvent(t, c, replicaA, []string{e3.ID}, ActionProjectCapabilityDisabled,
@@ -74,7 +75,7 @@ func singleProject(t *testing.T, st *State) *ProjectState {
 func TestCapabilityMembershipFolds(t *testing.T) {
 	st := foldCapabilityFixture(t)
 	p := singleProject(t, st)
-	if got, want := p.Capabilities, []string{"scrum"}; !reflect.DeepEqual(got, want) {
+	if got, want := p.Capabilities, []string{"qa"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Capabilities = %v, want %v", got, want)
 	}
 }
