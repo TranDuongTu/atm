@@ -19,15 +19,6 @@ func vocabulary(code string) []core.Label {
 
 func Vocabulary(code string) []core.Label { return vocabulary(code) }
 
-func Exposed(code string) []core.Label {
-	for _, l := range vocabulary(code) {
-		if l.Name == BoardChecklists(code) {
-			return []core.Label{l}
-		}
-	}
-	return nil
-}
-
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	vocab := vocabulary(code)
 	if err := s.LabelSeedBatch(vocab, actor); err != nil {

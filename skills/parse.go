@@ -51,13 +51,26 @@ func parseFrontmatter(src []byte) (frontmatter, string, error) {
 				fm.lists[k] = []string{}
 			}
 		} else {
-			fm.scalars[k] = v
+			fm.scalars[k] = unquoteScalar(v)
 		}
 	}
 	if end < 0 {
 		return fm, "", fmt.Errorf("unterminated frontmatter: closing --- not found")
 	}
 	return fm, strings.Join(lines[end+1:], "\n"), nil
+}
+
+// unquoteScalar strips one layer of matching YAML quotes. A description
+// containing a colon must be quoted in the frontmatter; the quotes are
+// syntax, and every surface that renders the value (capability list, the
+// [C] switcher, session Capabilities blocks) wants the value itself.
+func unquoteScalar(v string) string {
+	if len(v) >= 2 {
+		if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
+			return v[1 : len(v)-1]
+		}
+	}
+	return v
 }
 
 // splitKV splits "key: value" (value may be empty, and may contain colons).

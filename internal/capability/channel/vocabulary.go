@@ -20,16 +20,6 @@ func vocabulary(code string) []core.Label {
 // Vocabulary returns every label this capability owns for code. Pure.
 func Vocabulary(code string) []core.Label { return vocabulary(code) }
 
-// Exposed returns the ring surface: exactly the channels board.
-func Exposed(code string) []core.Label {
-	for _, l := range vocabulary(code) {
-		if l.Name == BoardChannels(code) {
-			return []core.Label{l}
-		}
-	}
-	return nil
-}
-
 // EnsureVocabulary seeds the labels and board in one LabelSeedBatch
 // transaction and returns the board labels it owns.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {

@@ -31,8 +31,8 @@ func outExpr() string      { return "scrum-out:*" }
 
 // vocabulary is the single literal list every contract method derives from:
 // stored/namespace labels first (Expr == ""), then the three lanes, in seed
-// order. Ownership (Vocabulary), ring display (Exposed), and seeding
-// (EnsureVocabulary) all read this list, so they cannot diverge.
+// order. Ownership (Vocabulary) and seeding (EnsureVocabulary) both read
+// this list, so they cannot diverge.
 func vocabulary(code string) []core.Label {
 	return []core.Label{
 		{Name: code + ":scrum:*", Description: "scrum claim/type axis; presence means the task is in scrum's pipeline; exactly one type per claimed task"},
@@ -60,21 +60,6 @@ func vocabulary(code string) []core.Label {
 
 // Vocabulary returns every label this capability owns for code. Pure.
 func Vocabulary(code string) []core.Label { return vocabulary(code) }
-
-// Exposed returns the labels this capability surfaces in the TUI ring: its
-// three lanes, in lane order.
-func Exposed(code string) []core.Label {
-	byName := map[string]core.Label{}
-	for _, l := range vocabulary(code) {
-		byName[l.Name] = l
-	}
-	names := []string{BoardInbox(code), BoardPipeline(code), BoardOut(code)}
-	out := make([]core.Label, 0, len(names))
-	for _, n := range names {
-		out = append(out, byName[n])
-	}
-	return out
-}
 
 // EnsureVocabulary seeds this capability's full vocabulary idempotently in one
 // LabelSeedBatch transaction, and returns the lane boards it seeded. Seeding is

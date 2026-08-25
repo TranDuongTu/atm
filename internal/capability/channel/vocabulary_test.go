@@ -20,7 +20,4 @@ func TestVocabularyShape(t *testing.T) {
 	if expr := names["ATM:channels"]; expr != "channel:*" {
 		t.Fatalf("channels board expr = %q", expr)
 	}
-	if len(Exposed("ATM")) != 1 || Exposed("ATM")[0].Name != "ATM:channels" {
-		t.Fatalf("exposed: %v", Exposed("ATM"))
-	}
 }

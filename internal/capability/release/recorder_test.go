@@ -17,10 +17,9 @@ func TestReleaseIsARegistryCapabilityNotAFlow(t *testing.T) {
 	var _ capability.Capability = New()
 }
 
-func TestExposedIsTheNamespaceAndThereAreNoBoards(t *testing.T) {
-	exposed := Exposed("ATM")
-	if len(exposed) != 1 || exposed[0].Name != "ATM:release:*" {
-		t.Fatalf("exposed = %+v, want just the namespace descriptor", exposed)
+func TestARegistryCapabilitySeedsNoBoards(t *testing.T) {
+	if got := Vocabulary("ATM")[0].Name; got != "ATM:release:*" {
+		t.Fatalf("vocabulary starts with %q, want the namespace descriptor", got)
 	}
 	for _, l := range Vocabulary("ATM") {
 		if l.Expr != "" {

@@ -62,24 +62,3 @@ func TestCapabilityGuideMountedByName(t *testing.T) {
 		t.Fatalf("atm capability scrum guide: exit %d, out %q", code, stdout)
 	}
 }
-
-// TestGoldenCapabilityUnmanaged: the manager's triage read — labels no
-// enabled capability owns, with usage counts. Scrum-owned labels
-// (scrum:task via the seeded vocabulary) must NOT appear.
-func TestGoldenCapabilityUnmanaged(t *testing.T) {
-	h := newGoldenHarness(t)
-	h.run("project", "create", "--code", "PCX", "--name", "cap demo",
-		"--capabilities", "scrum", "--actor", "admin@cli:unset")
-	h.run("label", "add", "--name", "PCX:type:bug", "--actor", "admin@cli:unset")
-	h.run("label", "add", "--name", "PCX:urgent", "--actor", "admin@cli:unset")
-	h.run("task", "create", "--project", "PCX", "--title", "t1",
-		"--label", "PCX:type:bug", "--label", "PCX:scrum:task", "--actor", "admin@cli:unset")
-	out, _, code := h.run("--output", "json", "capability", "unmanaged", "--project", "PCX")
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, out)
-	}
-	if strings.Contains(out, "scrum:task") {
-		t.Fatalf("scrum-owned label leaked into unmanaged: %s", out)
-	}
-	compareGolden(t, "capability-unmanaged", out)
-}

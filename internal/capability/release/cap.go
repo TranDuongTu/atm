@@ -17,7 +17,6 @@ func New() capability.Capability { return Cap{} }
 func (Cap) Name() string { return CapabilityName }
 
 func (Cap) Vocabulary(code string) []core.Label { return Vocabulary(code) }
-func (Cap) Exposed(code string) []core.Label    { return Exposed(code) }
 func (Cap) EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {
 	return EnsureVocabulary(s, code, actor)
 }

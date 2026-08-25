@@ -50,12 +50,6 @@ func vocabulary(code string) []core.Label {
 // Vocabulary returns every label this capability owns for code. Pure.
 func Vocabulary(code string) []core.Label { return vocabulary(code) }
 
-// Exposed returns the one ring entry a registry capability has: its namespace
-// descriptor. It surfaces no lanes, because it has none.
-func Exposed(code string) []core.Label {
-	return []core.Label{vocabulary(code)[0]}
-}
-
 // EnsureVocabulary seeds the vocabulary idempotently. It returns no boards,
 // because a registry capability seeds none.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {

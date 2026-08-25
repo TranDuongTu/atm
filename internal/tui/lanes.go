@@ -59,8 +59,7 @@ func (l *lanesModel) clear() {
 }
 
 // currentFlow resolves the flow capability pane [2] is scoped to, or nil when
-// the scope is a registry capability, the unmanaged pseudo-capability, or no
-// project at all. The adapter never names a capability: it asks the registry
+// the scope is a registry capability or there is no project at all. The adapter never names a capability: it asks the registry
 // for its flows and matches by the current name.
 func (l *lanesModel) currentFlow() capability.Flow {
 	scope := l.m.projectScope
@@ -68,7 +67,7 @@ func (l *lanesModel) currentFlow() capability.Flow {
 		return nil
 	}
 	cur := l.m.capability.current
-	if cur == "" || cur == unmanagedCapability {
+	if cur == "" {
 		return nil
 	}
 	for _, f := range l.m.regFor(scope).Flows() {

@@ -26,13 +26,12 @@ type ChatConfig struct {
 // event-log entry, and entries naming boards that don't exist are ignored by
 // readers (defensive against typos and disabled capabilities).
 type BoardsConfig struct {
-	Order  []string `json:"order,omitempty"`  // CLI board order override (partial, FullName list)
-	Hidden []string `json:"hidden,omitempty"` // CLI hidden FullNames
-	// Capability is pane [2]'s current flow capability. Written only on an
-	// explicit switch in the TUI; readers fall back silently when it names
-	// nothing enabled. Pins are gone with the pin slots that read them —
-	// unknown JSON keys are ignored on read, so a config carrying the old
-	// "pins" key still loads.
+	// Capability is pane [2]'s current flow capability, and the whole of
+	// this config now: written only on an explicit switch in the TUI, and
+	// read back with a silent fallback when it names nothing enabled.
+	// Pins, order and hidden are gone with the ring that read them —
+	// unknown JSON keys are ignored on read, so a config still carrying
+	// those keys loads unchanged.
 	Capability string `json:"capability,omitempty"`
 }
 

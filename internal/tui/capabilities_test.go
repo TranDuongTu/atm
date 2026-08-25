@@ -91,11 +91,9 @@ func TestCapabilityResolutionFallsBackWhenPersistedInvalid(t *testing.T) {
 	}
 }
 
-// TestCapabilityResolutionZeroEnabledFallsBackToLegacy pins the transitional
-// tail: a project with no enabled flow keeps the pre-revamp resolution, so a
-// project that has not adopted a flow still has a working pane. Plan 3/4
-// removes the tail with the legacy capabilities.
-func TestCapabilityResolutionZeroEnabledFallsBackToLegacy(t *testing.T) {
+// With no flow capability enabled there is nothing for pane [2] to be scoped
+// to: resolution yields "" rather than inventing a pseudo-capability.
+func TestCapabilityResolutionZeroEnabledResolvesToNothing(t *testing.T) {
 	m := newCapTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	for _, name := range m.reg.Names() {
@@ -105,8 +103,8 @@ func TestCapabilityResolutionZeroEnabledFallsBackToLegacy(t *testing.T) {
 	}
 	m.projectScope = "ATM"
 	m.refreshAll()
-	if m.capability.current != unmanagedCapability {
-		t.Fatalf("current = %q, want the legacy unmanaged fallback", m.capability.current)
+	if m.capability.current != "" {
+		t.Fatalf("current = %q, want no current capability", m.capability.current)
 	}
 }
 
@@ -126,22 +124,6 @@ func TestSwitchToPersistsAndKeepsInMemoryCurrent(t *testing.T) {
 	m.refreshAll()
 	if m.capability.current != "qa" {
 		t.Fatalf("current after refresh = %q, want qa", m.capability.current)
-	}
-}
-
-func TestCapabilityTaskCountOwnershipBased(t *testing.T) {
-	m := newCapTestModel(t)
-	setupCapProject(t, m)
-	// "open one" carries ATM:scrum:task (scrum-owned); "stray" carries only
-	// ATM:needs-triage (unmanaged).
-	if got := m.capabilityTaskCount("scrum"); got != 1 {
-		t.Errorf("scrum count = %d, want 1", got)
-	}
-	if got := m.capabilityTaskCount(unmanagedCapability); got != 1 {
-		t.Errorf("unmanaged count = %d, want 1", got)
-	}
-	if got := m.capabilityTaskCount("qa"); got != 0 {
-		t.Errorf("qa count = %d, want 0", got)
 	}
 }
 

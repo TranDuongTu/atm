@@ -1,6 +1,7 @@
 package qa
 
 import (
+	"atm/internal/core"
 	"testing"
 
 	"atm/internal/capability"
@@ -58,18 +59,21 @@ func TestSocketsAreSeededVocabulary(t *testing.T) {
 	}
 }
 
-func TestExposedIsTheThreeLanes(t *testing.T) {
-	vocab := map[string]bool{}
+// The three lanes a flow declares must be seeded boards in its own
+// vocabulary — the pane selects lanes by name and renders them by expression.
+func TestLanesAreSeededBoardsInVocabulary(t *testing.T) {
+	byName := map[string]core.Label{}
 	for _, l := range Vocabulary("ATM") {
-		vocab[l.Name] = true
+		byName[l.Name] = l
 	}
-	exposed := Exposed("ATM")
-	if len(exposed) != 3 {
-		t.Fatalf("exposed = %d labels, want 3", len(exposed))
-	}
-	for _, l := range exposed {
-		if !vocab[l.Name] || l.Expr == "" {
-			t.Fatalf("exposed %q is not a seeded board", l.Name)
+	lanes := New().Lanes("ATM")
+	for _, n := range []string{lanes.Inbox, lanes.Pipeline, lanes.Out} {
+		l, ok := byName[n]
+		if !ok {
+			t.Fatalf("lane %q is not in the vocabulary", n)
+		}
+		if l.Expr == "" {
+			t.Fatalf("lane %q has no expression", n)
 		}
 	}
 }

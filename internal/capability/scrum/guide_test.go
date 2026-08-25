@@ -65,12 +65,10 @@ func TestGuideNamesTheSocketsAndLanes(t *testing.T) {
 func TestGuideFrontmatterMatchesTheCode(t *testing.T) {
 	c := New()
 	lanes := c.Lanes("ATM")
-	exposed := c.Exposed("ATM")
-	got := []string{exposed[0].Name, exposed[1].Name, exposed[2].Name}
-	want := []string{lanes.Inbox, lanes.Pipeline, lanes.Out}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("exposed[%d] = %q, want %q", i, got[i], want[i])
+	guide := c.Guide()
+	for _, n := range []string{lanes.Inbox, lanes.Pipeline, lanes.Out} {
+		if !strings.Contains(guide, strings.TrimPrefix(n, "ATM:")) {
+			t.Fatalf("guide does not name the %q lane board", n)
 		}
 	}
 	var _ capability.Flow = c

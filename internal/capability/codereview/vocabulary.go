@@ -43,21 +43,6 @@ func vocabulary(code string) []core.Label {
 // Vocabulary returns every label this capability owns for code. Pure.
 func Vocabulary(code string) []core.Label { return vocabulary(code) }
 
-// Exposed returns the labels this capability surfaces in the TUI ring: its
-// three lanes, in lane order.
-func Exposed(code string) []core.Label {
-	byName := map[string]core.Label{}
-	for _, l := range vocabulary(code) {
-		byName[l.Name] = l
-	}
-	names := []string{BoardInbox(code), BoardPipeline(code), BoardOut(code)}
-	out := make([]core.Label, 0, len(names))
-	for _, n := range names {
-		out = append(out, byName[n])
-	}
-	return out
-}
-
 // EnsureVocabulary seeds this capability's full vocabulary idempotently in one
 // LabelSeedBatch transaction, and returns the lane boards it seeded.
 func EnsureVocabulary(s core.LabelService, code, actor string) ([]core.Label, error) {

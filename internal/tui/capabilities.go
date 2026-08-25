@@ -10,18 +10,11 @@ import (
 	"atm/internal/core"
 )
 
-// unmanagedCapability is the pseudo-capability of the capability view: the
-// labels no enabled capability owns, browsed via the label drill-down. It is
-// always selectable and never appears in Project.Capabilities.
-const unmanagedCapability = "unmanaged"
-
 // capEntry is one row of the [C] switcher overlay.
 type capEntry struct {
-	name      string
-	summary   string
-	enabled   bool
-	unmanaged bool
-	count     string // "6 boards" / "5 labels · 12 tasks"
+	name    string
+	summary string
+	enabled bool
 }
 
 // capabilityModel owns the capability concern of pane [2]: which capabilities
@@ -39,20 +32,12 @@ type capabilityModel struct {
 
 func newCapabilityModel(m *Model) capabilityModel { return capabilityModel{m: m} }
 
-func (c *capabilityModel) unmanagedCurrent() bool { return c.current == unmanagedCapability }
-
 // refresh rebuilds the switcher entries and re-resolves current. It MUST run
 // before lanesModel.refresh in refreshAll — the lanes are scoped to current.
 //
 // Only FLOW capabilities are listed. Pane [2] is one flow capability × one
-// lane: a registry capability has no lanes to show, and the unmanaged
-// pseudo-entry named a label drill-down the pane no longer has. Disabled
-// flows stay listed so the overlay can still enable one.
-//
-// TRANSITIONAL: a project with no enabled flow at all keeps the pre-revamp
-// listing and resolution (every capability, plus the unmanaged entry), so a
-// project that has not adopted a flow yet still has a working pane. Plan 3/4
-// deletes the legacy capabilities and this tail with them.
+// lane, so a registry capability has no lanes to show. Disabled flows stay
+// listed so the overlay can still enable one.
 func (c *capabilityModel) refresh() {
 	c.entries = nil
 	scope := c.m.projectScope
@@ -60,12 +45,7 @@ func (c *capabilityModel) refresh() {
 		c.current = ""
 		return
 	}
-	enabledFlows := c.flowNames(c.m.regFor(scope))
-	legacy := len(enabledFlows) == 0
-	names := enabledFlows
-	if legacy {
-		names = c.m.regFor(scope).Names()
-	}
+	names := c.flowNames(c.m.regFor(scope))
 	enabled := map[string]bool{}
 	for _, n := range names {
 		enabled[n] = true
@@ -74,34 +54,17 @@ func (c *capabilityModel) refresh() {
 	for _, n := range c.flowNames(c.m.reg) {
 		listed[n] = true
 	}
-	boardsPer := map[string]int{}
-	for _, e := range c.m.reg.Exposed(scope) {
-		boardsPer[e.Owner]++
-	}
 	for _, d := range c.m.reg.Describe() {
-		if !legacy && !listed[d.Name] {
+		if !listed[d.Name] {
 			continue
 		}
-		n := boardsPer[d.Name]
 		c.entries = append(c.entries, capEntry{
 			name:    d.Name,
 			summary: d.Summary,
 			enabled: enabled[d.Name],
-			count:   fmt.Sprintf("%d %s", n, pluralBoards(n)),
 		})
 	}
-	if legacy {
-		un, _ := c.m.regFor(scope).Unmanaged(c.m.store, scope)
-		c.entries = append(c.entries, capEntry{
-			name:      unmanagedCapability,
-			summary:   "labels no enabled capability owns",
-			unmanaged: true,
-			count: fmt.Sprintf("%d %s · %d %s",
-				len(un), pluralLabels(len(un)),
-				c.m.countTasksCarrying(scope, capability.NewLabelSet(un)), pluralTasks(c.m.countTasksCarrying(scope, capability.NewLabelSet(un)))),
-		})
-	}
-	c.current = c.resolveCurrent(names, legacy)
+	c.current = c.resolveCurrent(names)
 	if c.cursor >= len(c.entries) {
 		c.cursor = len(c.entries) - 1
 	}
@@ -120,31 +83,14 @@ func (c *capabilityModel) flowNames(reg *capability.Registry) []string {
 	return out
 }
 
-func pluralBoards(n int) string {
-	if n == 1 {
-		return "board"
-	}
-	return "boards"
-}
-
-func pluralLabels(n int) string {
-	if n == 1 {
-		return "label"
-	}
-	return "labels"
-}
-
 // resolveCurrent applies the resolution rule: the in-session current if still
 // valid, else the persisted boards.capability if valid, else the first
 // enabled flow, else "". Valid means "an enabled FLOW" — a project that
-// persisted a capability which is no longer one (a legacy capability, or a
+// persisted a capability which is no longer one (a deleted capability, or a
 // registry capability) falls back silently rather than showing a pane with
 // no lanes. Never writes back — only switchTo persists.
-func (c *capabilityModel) resolveCurrent(enabledNames []string, legacy bool) string {
+func (c *capabilityModel) resolveCurrent(enabledNames []string) string {
 	valid := func(v string) bool {
-		if legacy && v == unmanagedCapability {
-			return true
-		}
 		for _, n := range enabledNames {
 			if n == v {
 				return true
@@ -160,9 +106,6 @@ func (c *capabilityModel) resolveCurrent(enabledNames []string, legacy bool) str
 	}
 	if len(enabledNames) > 0 {
 		return enabledNames[0]
-	}
-	if legacy {
-		return unmanagedCapability
 	}
 	return ""
 }
@@ -232,7 +175,7 @@ func (c *capabilityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		e := c.entries[c.cursor]
-		if !e.enabled && !e.unmanaged {
+		if !e.enabled {
 			if err := c.m.store.EnableProjectCapability(c.m.projectScope, e.name, c.m.actor); err != nil {
 				c.m.showToast("enable " + e.name + ": " + err.Error())
 				return nil
@@ -245,9 +188,6 @@ func (c *capabilityModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		e := c.entries[c.cursor]
-		if e.unmanaged {
-			return nil
-		}
 		if e.enabled {
 			if err := c.m.store.DisableProjectCapability(c.m.projectScope, e.name, c.m.actor); err != nil {
 				c.m.showToast("disable " + e.name + ": " + err.Error())
@@ -317,19 +257,12 @@ func (c *capabilityModel) previewBody(w int) string {
 		}
 		state := "● "
 		st := c.m.styles.Body
-		switch {
-		case e.unmanaged:
-			state = "— "
-		case !e.enabled:
+		if !e.enabled {
 			state = "○ "
 			st = c.m.styles.Muted
 		}
 		name := fmt.Sprintf("%-*s", nameW, e.name)
-		detail := e.summary
-		if e.count != "" {
-			detail += "  ·  " + e.count
-		}
-		line := marker + state + name + "  " + detail
+		line := marker + state + name + "  " + e.summary
 		if i == c.cursor {
 			line = c.m.styles.RowCursor.Render(line)
 		} else {

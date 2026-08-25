@@ -1,9 +1,0 @@
-{
-  "order": [
-    "PBX:scrum-pipeline",
-    "PBX:scrum-inbox",
-    "PBX:scrum-out-board",
-    "PBX:unmanaged"
-  ],
-  "project": "PBX"
-}

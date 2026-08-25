@@ -29,8 +29,7 @@ type tasksModel struct {
 	// annReg is the capability registry annotate renders cells from,
 	// resolved ONCE at the top of refresh — regFor runs a GetProject
 	// freshness probe, and per-row resolution made refresh O(rows) probes
-	// (ATM-4c476c). Nil when no scope is set or the unmanaged
-	// pseudo-capability is current.
+	// (ATM-4c476c). Nil when no scope is set.
 	annReg *capability.Registry
 
 	// detail
@@ -125,9 +124,7 @@ func (t *tasksModel) refresh() {
 		return
 	}
 	scope := t.m.projectScope
-	if !t.m.capability.unmanagedCurrent() {
-		t.annReg = t.m.regFor(scope)
-	}
+	t.annReg = t.m.regFor(scope)
 	filters := core.ParseFilter(t.filter)
 	for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})) {
 		t.rows = append(t.rows, t.toRow(tk))
@@ -148,8 +145,8 @@ func (t *tasksModel) toRow(tk *core.Task) taskRow {
 
 // annotate renders the current capability's cell at refresh time so the
 // per-frame render path stays pure formatting. Nil (no cell, no column) when
-// no project is scoped or the unmanaged pseudo-capability is current. Uses
-// the registry refresh resolved once (annReg), never regFor per row.
+// no project is scoped. Uses the registry refresh resolved once (annReg),
+// never regFor per row.
 func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
 	if t.annReg == nil {
 		return nil

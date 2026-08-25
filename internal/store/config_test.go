@@ -213,13 +213,10 @@ func TestBoardsConfigRoundTripAndMerge(t *testing.T) {
 	if err != nil || b == nil {
 		t.Fatalf("GetBoardsConfig absent = (%v, %v), want empty non-nil", b, err)
 	}
-	if len(b.Order) != 0 || len(b.Hidden) != 0 {
+	if b.Capability != "" {
 		t.Fatalf("absent config not empty: %+v", b)
 	}
-	want := &core.BoardsConfig{
-		Order:  []string{"ATM:all-tasks", "ATM:unmanaged"},
-		Hidden: []string{"ATM:context-current"},
-	}
+	want := &core.BoardsConfig{Capability: "scrum"}
 	if err := s.SetProjectBoards("ATM", want, testActor); err != nil {
 		t.Fatalf("SetProjectBoards: %v", err)
 	}
@@ -227,7 +224,7 @@ func TestBoardsConfigRoundTripAndMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Order[0] != "ATM:all-tasks" || got.Hidden[0] != "ATM:context-current" {
+	if got.Capability != "scrum" {
 		t.Errorf("round-trip = %+v, want %+v", got, want)
 	}
 	// Boards write preserves other config fields.
@@ -248,7 +245,7 @@ func TestGetProjectConfigBoardsOnlyIsNotAbsent(t *testing.T) {
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Hidden: []string{"ATM:backlog"}}, testActor); err != nil {
+	if err := s.SetProjectBoards("ATM", &core.BoardsConfig{Capability: "scrum"}, testActor); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetProjectConfig("ATM")

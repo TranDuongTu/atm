@@ -1319,35 +1319,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-
-// countTasksCarrying counts distinct project tasks carrying at least one
-// label the set owns. Runs on refresh, never per frame.
-func (m *Model) countTasksCarrying(scope string, set capability.LabelSet) int {
-	count := 0
-	for _, tk := range m.store.ListTasks(core.QueryFilters{Project: scope}) {
-		for _, full := range tk.Labels {
-			if set.Contains(full) {
-				count++
-				break
-			}
-		}
-	}
-	return count
-}
-
-// capabilityTaskCount is the header's capability-owned total: tasks carrying
-// at least one label the named capability owns (ownership rule shared with
-// Registry.Unmanaged via LabelSet). For unmanaged it counts tasks carrying
-// any unmanaged label. Deliberate: workflow's count reflects the paved road
-// (status:/priority:-labeled tasks), not its all-tasks board match.
-func (m *Model) capabilityTaskCount(capName string) int {
-	scope := m.projectScope
-	if scope == "" || capName == "" {
-		return 0
-	}
-	if capName == unmanagedCapability {
-		un, _ := m.regFor(scope).Unmanaged(m.store, scope)
-		return m.countTasksCarrying(scope, capability.NewLabelSet(un))
-	}
-	return m.countTasksCarrying(scope, capability.NewLabelSet(m.reg.OwnedLabels(scope, capName)))
-}
