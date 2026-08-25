@@ -20,7 +20,6 @@ import (
 	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
 	"atm/internal/capability/workflow"
-	"atm/internal/capability/workflowrpi"
 	"atm/internal/core"
 	"atm/internal/store"
 )
@@ -95,7 +94,7 @@ func testRegistry() *capability.Registry {
 // binary ships.
 func productionRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		workflow.New(), workflowrpi.New(), channel.New(), checklist.New(),
+		workflow.New(), channel.New(), checklist.New(),
 		scrum.New(), qa.New(), codereview.New(), release.New(),
 	)
 }
