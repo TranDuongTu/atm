@@ -68,3 +68,22 @@ A converged project reads like this:
 - Nothing sits in `reviewing` that nobody is reviewing. There is no threshold for this: the manager reads the roster and decides.
 - Every eviction carries a reason.
 - No `report` finding is left standing: each is resolved or answered with a recorded decision.
+
+## Duty: manager
+
+### Triage
+List the inbox. For each finished dev task, find its PR (search task comments;
+`atm search` for the PR reference). Found → `atm capability codereview absorb --task <ID> --pr <ref>`.
+Review not warranted (trivial/chore) → evict `not-warranted`. NO PR FOUND → leave it in
+the inbox and move on: the swelling inbox IS the missing-PR warning; do not evict for a
+missing PR, and do not nag per task — one summary comment on the session task suffices.
+
+### Advance
+Run `atm capability codereview report --project <CODE>`. Scheduled reviews → dispatch the
+staff persona (`begin` when the review starts). Finished reviews → `finish --report <locator>`.
+
+### Route
+A fresh `codereview-out:superseded` needs no action. Review verdicts requesting changes
+are routed like qa failures: follow-up task for improvements (review verdict stands,
+`finish` normally), or for a wrong "done" run the backward pair:
+`scrum reopen` + `codereview release`.

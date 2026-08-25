@@ -91,3 +91,26 @@ A converged project reads like this:
 - Every eviction carries a reason, and `covered-by`/`duplicate` evictions carry `covered_by`.
 - Every finished design task records its `plan` locator.
 - No `report` finding is left standing: each is resolved or answered with a recorded decision.
+
+## Duty: manager
+
+### Triage
+List the inbox: `atm task list --project <CODE> --label <CODE>:scrum-inbox`.
+For each task: absorb real dev work with `atm capability scrum absorb --task <ID> --type <t>` —
+pick `epic` for product-level requirements needing decomposition, `task`/`bug` for direct
+PR-sized work, `design` for spec work; historical already-done work absorbs with `--stage done`.
+Evict non-dev work (`out-of-scope`), duplicates (`duplicate` with `--covered-by`), and noise
+(`not-worth-it`). Defer only with a recorded comment.
+
+### Advance
+Run `atm capability scrum report --project <CODE>`. Findings and their resolutions:
+orphan children → re-link (`scrum link`) or release; parents with all children done but
+not stamped → verify then `scrum stage --stage done`; unresolved depends_on → dispatch or
+wait, comment either way. Decompose clarified epics into stories and stories into
+PR-sized tasks/designs with `scrum add --part-of`. Keep priority current (guide Semantics);
+dispatch developer personas for tasks whose plan exists and dependencies are clear.
+
+### Route
+Fresh `scrum-out:*` evictions need no routing (scrum is first-stage; its evictions are
+terminal judgments). Fresh evictions ARRIVING from downstream (qa/codereview Route rules)
+land here as reopen calls — expect them, don't originate them.

@@ -74,3 +74,26 @@ A converged project reads like this:
 - No scaffold carries the finish socket.
 - Every eviction carries a reason, and `covered-by` evictions carry `covered_by`.
 - No `report` finding is left standing: each is resolved or answered with a recorded decision.
+
+## Duty: manager
+
+### Triage
+List the inbox. Absorb finished dev work with `atm capability qa absorb --task <ID>`,
+then create its test scaffolds (`qa scaffold --task <ID> --title "test: staging — ..."`)
+per the project's test surface. Prefer the highest converged unit: when a story arrives
+converged, absorb it as the INTEGRATION pass (children were unit certification); in the
+lighter mode, evict the story `covered-by` its children instead. Evict non-testable work
+(`not-relevant`).
+
+### Advance
+Run `atm capability qa report --project <CODE>`. Originals whose scaffolds all passed →
+`qa pass --task <ORIGINAL>`. Stalled scaffolds → dispatch a tester/developer persona.
+Never stamp `qa pass` on an original with live scaffolds — the verb refuses; fix the
+scaffolds instead.
+
+### Route
+A fresh `qa-out:failed` eviction means certified-done work is NOT done. Run the backward
+pair: `atm capability scrum reopen --task <ID> --reason "<what failed>"` then
+`atm capability qa release --task <ID> --reason "re-spiral after failed verification"`.
+If the failure is new scope rather than broken work, create a follow-up task in the pool
+instead and leave the eviction settled.
