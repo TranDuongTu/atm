@@ -228,7 +228,41 @@ func ParseCapability(stem string, src []byte) (CapabilitySpec, error) {
 			return CapabilitySpec{}, fmt.Errorf("capability %s: missing required section `## %s`", stem, required)
 		}
 	}
+	duty, err := DutyOf(c.Body)
+	if err != nil {
+		return CapabilitySpec{}, fmt.Errorf("capability %s: %w", stem, err)
+	}
+	c.Duty = duty
 	return c, nil
+}
+
+// DutyOf extracts the persona from a guide body's `## Duty: <persona>`
+// section — the persona that runs the capability's lanes. "" when the body
+// carries no duty section (a registry capability). Error when the contract
+// is malformed: more than one duty section, a persona name failing nameRe,
+// or a section missing any of ### Triage / ### Advance / ### Route.
+func DutyOf(body string) (string, error) {
+	_, secs := splitSections(body)
+	duty := ""
+	for _, s := range secs {
+		if !strings.HasPrefix(s.title, "Duty:") {
+			continue
+		}
+		if duty != "" {
+			return "", fmt.Errorf("guide carries more than one ## Duty section")
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(s.title, "Duty:"))
+		if !nameRe.MatchString(name) {
+			return "", fmt.Errorf("## Duty persona %q: invalid name", name)
+		}
+		for _, sub := range []string{"### Triage", "### Advance", "### Route"} {
+			if !strings.Contains(s.body, sub) {
+				return "", fmt.Errorf("## Duty: %s section missing `%s`", name, sub)
+			}
+		}
+		duty = name
+	}
+	return duty, nil
 }
 
 // ParseChecklistSeed parses one shipped seed checklist file: frontmatter

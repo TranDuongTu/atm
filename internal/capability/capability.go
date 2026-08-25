@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"atm/internal/core"
+	"atm/skills"
 
 	"github.com/spf13/cobra"
 )
@@ -143,8 +144,25 @@ type Registry struct {
 }
 
 // NewRegistry builds a registry; order is significant (mount order,
-// EnsureVocabulary order).
-func NewRegistry(caps ...Capability) *Registry { return &Registry{caps: caps} }
+// EnsureVocabulary order). It enforces the duty contract at construction —
+// a flow capability's guide must carry a well-formed `## Duty: <persona>`
+// section and a registry capability's guide must not — and panics on a
+// violation: a mis-shaped capability is a composition-root programmer
+// error, same as skills.MustCapability on a missing file.
+func NewRegistry(caps ...Capability) *Registry {
+	for _, c := range caps {
+		duty, err := skills.DutyOf(c.Guide())
+		if err != nil {
+			panic(fmt.Sprintf("capability %s: %v", c.Name(), err))
+		}
+		if _, isFlow := c.(Flow); isFlow && duty == "" {
+			panic(fmt.Sprintf("capability %s: flow guide lacks a ## Duty section", c.Name()))
+		} else if !isFlow && duty != "" {
+			panic(fmt.Sprintf("capability %s: registry guide must not carry ## Duty", c.Name()))
+		}
+	}
+	return &Registry{caps: caps}
+}
 
 // Flows returns the registered capabilities that implement Flow, in
 // registration order. Callers narrow to the enabled set first:

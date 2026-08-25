@@ -46,5 +46,9 @@ type CapabilitySpec struct {
 	Brief       string // optional one-line session-injection imperative ("" = fall back to Description)
 	Labels      []string
 	Boards      []string
-	Body        string // the full guide served by `atm capability <name> guide`
+	// Duty is the persona targeted by the guide's `## Duty: <persona>`
+	// section — the persona that runs this capability's lanes. "" for
+	// registry capabilities, whose guides carry no duty section.
+	Duty string
+	Body string // the full guide served by `atm capability <name> guide`
 }

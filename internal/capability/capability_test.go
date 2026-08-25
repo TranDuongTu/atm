@@ -240,6 +240,11 @@ func TestDefaultNamesIsEveryRegistryCapabilityPlusTheDefaultFlow(t *testing.T) {
 // registry methods can be exercised without a real capability package.
 type fakeFlowCap struct{ fakeCap }
 
+// Guide satisfies NewRegistry's duty contract for flow fakes.
+func (f *fakeFlowCap) Guide() string {
+	return "## Duty: manager\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n"
+}
+
 func (f *fakeFlowCap) ClaimExprs() []string { return []string{f.name + ":*"} }
 func (f *fakeFlowCap) FinishLabel(code string) core.Label {
 	return core.Label{Name: code + ":" + f.name + "-stage:done"}

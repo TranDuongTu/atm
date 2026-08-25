@@ -21,6 +21,24 @@ func init() {
 	builtinPersonas = mustLoadPersonas()
 	builtinCapabilities = mustLoadCapabilities()
 	builtinChecklistSeeds = mustLoadChecklistSeeds()
+	if err := dutyPersonaErr(builtinCapabilities, builtinPersonas); err != nil {
+		panic("skills: " + err.Error())
+	}
+}
+
+// dutyPersonaErr rejects a capability whose duty section targets a persona
+// that does not exist: a duty nobody can execute is a contract violation.
+func dutyPersonaErr(caps []CapabilitySpec, personas []PersonaSpec) error {
+	known := make(map[string]bool, len(personas))
+	for _, p := range personas {
+		known[p.Name] = true
+	}
+	for _, c := range caps {
+		if c.Duty != "" && !known[c.Duty] {
+			return fmt.Errorf("capability %s: duty persona %q is not a known persona", c.Name, c.Duty)
+		}
+	}
+	return nil
 }
 
 func mustLoadPersonas() []PersonaSpec {

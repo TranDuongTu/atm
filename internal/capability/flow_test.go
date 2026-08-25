@@ -14,6 +14,12 @@ type fakeFlow struct {
 }
 
 func (f fakeFlow) Name() string { return f.name }
+
+// Guide returns the minimal well-formed duty section: NewRegistry enforces
+// the duty contract, so a flow fake must satisfy it to be constructible.
+func (f fakeFlow) Guide() string {
+	return "## Duty: manager\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n"
+}
 func (f fakeFlow) ClaimExprs() []string {
 	return []string{f.name + ":*", f.name + "-out:*"}
 }
