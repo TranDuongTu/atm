@@ -81,13 +81,13 @@ func TestParsePersonaOptionalFlags(t *testing.T) {
 
 func TestParsePersonaErrors(t *testing.T) {
 	cases := map[string]struct{ stem, doc string }{
-		"no frontmatter":       {"x", "just text"},
-		"name mismatch":        {"other", "---\nname: x\ndescription: d\n---\nb"},
-		"missing desc":         {"x", "---\nname: x\n---\nb"},
-		"bad launch":           {"x", "---\nname: x\ndescription: d\nlaunch: warp\n---\nb"},
-		"invalid name chars":   {"X!", "---\nname: X!\ndescription: d\n---\nb"},
-		"bad expects":          {"x", "---\nname: x\ndescription: d\nexpects: [UNKNOWN]\n---\nb"},
-		"bad optional":         {"x", "---\nname: x\ndescription: d\noptional: [UNKNOWN]\n---\nb"},
+		"no frontmatter":     {"x", "just text"},
+		"name mismatch":      {"other", "---\nname: x\ndescription: d\n---\nb"},
+		"missing desc":       {"x", "---\nname: x\n---\nb"},
+		"bad launch":         {"x", "---\nname: x\ndescription: d\nlaunch: warp\n---\nb"},
+		"invalid name chars": {"X!", "---\nname: X!\ndescription: d\n---\nb"},
+		"bad expects":        {"x", "---\nname: x\ndescription: d\nexpects: [UNKNOWN]\n---\nb"},
+		"bad optional":       {"x", "---\nname: x\ndescription: d\noptional: [UNKNOWN]\n---\nb"},
 	}
 	for label, c := range cases {
 		if _, err := ParsePersona(c.stem, []byte(c.doc)); err == nil {
