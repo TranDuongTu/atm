@@ -753,9 +753,11 @@ func TestAskDegradedWithChatConfiguredShowsReasonNotSetChatHint(t *testing.T) {
 // looks for the answer -- stayed blank. A degraded pane read as a plain search
 // result list, and users asked where the conversation went (ATM-bc717f). The
 // outcome must therefore stand IN the transcript, under the question, where
-// the answer would have been.
+// the answer would have been -- and in the assistant's own voice, because this
+// level is a conversation: a terse system line in the answer's place reads as
+// chrome, not as a reply.
 func TestAskDegradedNoticeRendersInTranscript(t *testing.T) {
-	t.Run("unconfigured chat names the fix", func(t *testing.T) {
+	t.Run("unconfigured chat names the fix conversationally", func(t *testing.T) {
 		withInstantSpotSearch(t)
 		withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
 			answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
@@ -764,10 +766,11 @@ func TestAskDegradedNoticeRendersInTranscript(t *testing.T) {
 		m, p := openAsk(t, "indexer")
 		drainAskTicks(t, m, p)
 
-		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), "\n"))
+		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), " "))
+		mustContain(t, body, "I found 1 related item")
 		mustContain(t, body, "atm project set-chat")
 	})
-	t.Run("configured chat shows the reason", func(t *testing.T) {
+	t.Run("configured chat speaks the reason", func(t *testing.T) {
 		withInstantSpotSearch(t)
 		withAsker(t, &fakeAsker{events: []answer.Event{
 			answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
@@ -776,12 +779,57 @@ func TestAskDegradedNoticeRendersInTranscript(t *testing.T) {
 		m, p := openAsk(t, "indexer")
 		drainAskTicks(t, m, p)
 
-		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), "\n"))
+		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), " "))
 		mustContain(t, body, "the chat endpoint returned no answer")
 		if strings.Contains(body, "set-chat") {
 			t.Error("chat is already configured -- the transcript notice must not send the user to configure it")
 		}
 	})
+	t.Run("no sources says so instead of counting to zero", func(t *testing.T) {
+		withInstantSpotSearch(t)
+		withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
+			answer.Retrieved{},
+			answer.Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"},
+		}})
+		m, p := openAsk(t, "indexer")
+		drainAskTicks(t, m, p)
+
+		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), " "))
+		mustContain(t, body, "nothing close enough")
+		if strings.Contains(body, "0 related") {
+			t.Error("an empty retrieval must not be narrated as a count")
+		}
+	})
+}
+
+// The box inherits the LIST level's width so tab does not resize it -- but
+// tab reaches the ask level from every level, including ones whose rows were
+// short labels or a single hint, and a SOURCES row prepends "[n] ATM-xxxxxx "
+// to a title the list showed bare. Inherited-narrow plus a 15-column prefix
+// chopped titles to a handful of letters (ATM-bc717f: "Semanti", "Spotlig").
+// The SOURCES column therefore floors its share of the inside at
+// spotAskMinSources -- taken from the transcript, never by widening the box
+// -- and a title that still cannot fit says so with an ellipsis instead of
+// stopping mid-word.
+func TestAskSourcesColumnGetsRoomAndEllipsis(t *testing.T) {
+	withInstantSpotSearch(t)
+	withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "semantic search over the whole ledger, cosine plus text fallback"}}},
+		answer.Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	if w := p.sourcesWidth(); w < spotAskMinSources {
+		t.Errorf("sources column = %d columns, want at least %d", w, spotAskMinSources)
+	}
+	if got, want := p.sourcesWidth()+spotPaneGap+p.transcriptWidth(), m.spotlight.innerWidth(); got != want {
+		t.Errorf("columns + gap = %d, want the inner width %d -- the floor must come from the transcript, not the box", got, want)
+	}
+	lines := p.sourceLines(4, p.sourcesWidth())
+	joined := stripANSI(strings.Join(lines, "\n"))
+	mustContain(t, joined, "[1] ATM-0001 semantic search")
+	mustContain(t, joined, "…")
 }
 
 // The user's own key stopped it. Nothing here is an error and nothing offers a

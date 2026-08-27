@@ -37,7 +37,7 @@ func (p *askPane) view() string {
 	sm := p.sm
 	st := sm.m.styles
 	inner := sm.innerWidth()
-	leftW := sm.leftPaneWidth()
+	leftW := p.sourcesWidth()
 	rightW := p.transcriptWidth()
 	bodyH := sm.blockHeight()
 
@@ -133,7 +133,9 @@ func (p *askPane) sourceLines(h, w int) []string {
 		if i == p.cursor {
 			glyph, glyphStyle = "▸ ", p.sm.cursorStyle()
 		}
-		text := fitLine(label, w-lipgloss.Width(glyph))
+		// fitLineTail, not fitLine: a title that does not fit ends in an
+		// ellipsis, so it reads as cropped rather than as broken mid-word.
+		text := fitLineTail(label, w-lipgloss.Width(glyph))
 		pad := w - lipgloss.Width(glyph) - lipgloss.Width(text)
 		out = append(out, glyphStyle.Render(glyph)+st.Body.Render(text)+spaces(pad))
 	}
@@ -196,9 +198,12 @@ func (p *askPane) transcriptBody(w int) []string {
 		// is one dim row at the bottom in the footer's own style -- quiet
 		// enough that the pane read as a plain search-result list
 		// (ATM-bc717f). The outcome stands here too, under the question, where
-		// the answer would have been: the one place the user is looking.
+		// the answer would have been: the one place the user is looking. It
+		// renders unstyled, exactly as an answer would, because it is written
+		// as one -- this level is a conversation, and a terse system line in
+		// the answer's place reads as chrome, not as a reply.
 		if !p.streaming && p.degraded {
-			appendWrapped(st.Warning.Render("⚠ " + p.degradedMessage()))
+			appendWrapped(p.degradedTranscriptMessage())
 		}
 	}
 	return out
@@ -236,12 +241,32 @@ func wrapAnswer(s string, w int) []string {
 
 func (p *askPane) transcriptHeight() int { return p.sm.blockHeight() }
 
+// sourcesWidth is the SOURCES column's measure INSIDE the box. The box is
+// sized around the inherited list width (leftPaneWidth) and tab must not
+// resize it — but a SOURCES row spends 15 columns on "[n] ATM-xxxxxx " before
+// the title starts, and a column inherited from a level with short rows
+// showed a handful of title letters per source (ATM-bc717f: "Semanti",
+// "Spotlig"). So the column floors at spotAskMinSources and takes the
+// difference from the transcript, never from the box. Capped at half the
+// inner width so a narrow terminal still has a transcript, and never narrower
+// than the inherited column, whose width the box was derived from.
+func (p *askPane) sourcesWidth() int {
+	w := spotAskMinSources
+	if half := p.sm.innerWidth() / 2; w > half {
+		w = half
+	}
+	if lw := p.sm.leftPaneWidth(); w < lw {
+		w = lw
+	}
+	return w
+}
+
 // transcriptWidth is the right column's measure: the inner width less the
 // SOURCES column and the gap between them. One function because three callers
 // wrapping to three independently-derived widths is how a scroll bound comes
 // to disagree with what was actually rendered.
 func (p *askPane) transcriptWidth() int {
-	return p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
+	return p.sm.innerWidth() - p.sourcesWidth() - spotPaneGap
 }
 
 // scrollToBottom pins the window to the tail.
@@ -295,12 +320,13 @@ func (p *askPane) statusLine() string {
 	return ""
 }
 
-// degradedMessage is the one text a degraded turn shows, on both surfaces
-// that show it (the status line and the transcript notice) -- two strings
-// drifting apart would read as two different outcomes. When chat was never
-// configured it names the command that would enable answers; when chat IS
-// configured that command would fix nothing, so the reason stands alone (see
-// statusLine's outcome table).
+// degradedMessage is the status line's terse record of a degraded turn. The
+// transcript speaks the same outcome in the assistant's voice
+// (degradedTranscriptMessage); both are derived from the same three fields, so
+// they cannot disagree about WHAT happened -- only about register. When chat
+// was never configured it names the command that would enable answers; when
+// chat IS configured that command would fix nothing, so the reason stands
+// alone (see statusLine's outcome table).
 func (p *askPane) degradedMessage() string {
 	if !p.chatConfigured {
 		return "no chat model configured · run `atm project set-chat` to enable answers"
@@ -309,6 +335,30 @@ func (p *askPane) degradedMessage() string {
 		return p.degradedReason
 	}
 	return "no answer generated"
+}
+
+// degradedTranscriptMessage is the same outcome written as the reply it stands
+// in for: first what WAS delivered (the sources, counted, or the honest
+// nothing), then why there is no answer under it. An empty retrieval is a
+// sentence, not a count -- "0 related items" narrates the data structure, not
+// the situation.
+func (p *askPane) degradedTranscriptMessage() string {
+	var lead string
+	switch n := len(p.sources); n {
+	case 0:
+		lead = "I looked through this project's ledger and found nothing close enough to answer from."
+	case 1:
+		lead = "I found 1 related item — it's under SOURCES on the left."
+	default:
+		lead = fmt.Sprintf("I found %d related items — they're under SOURCES on the left.", n)
+	}
+	if !p.chatConfigured {
+		return lead + " I can't write an answer yet: this project has no chat model configured. Run `atm project set-chat` to give me one."
+	}
+	if p.degradedReason != "" {
+		return lead + " I couldn't generate an answer, though: " + p.degradedReason + "."
+	}
+	return lead + " I couldn't generate an answer, though."
 }
 
 // footer names what Enter means right now, because what Enter means depends on

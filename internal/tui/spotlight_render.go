@@ -16,6 +16,14 @@ const (
 	spotPreviewCols = 64 // the panel's prose measure: wide enough to read, narrow enough to scan
 	spotMinBlock    = 4  // the block never collapses below this many rows
 	spotKeyCol      = 4  // "[D] " — the key column entries align their icons after
+
+	// The ask level's SOURCES floor: "[8] ATM-xxxxxx " is 15 columns before a
+	// single letter of title, so a column inherited from a level with short
+	// rows leaves a handful of title letters per source. 44 carries the
+	// prefix plus ~27 columns of title — enough to recognise a task. Claimed
+	// inside the box (askPane.sourcesWidth), never by widening it: tab must
+	// not resize the box.
+	spotAskMinSources = 44
 )
 
 // menuBoxWidth is the overlay width. It is derived from what the launcher
@@ -96,8 +104,9 @@ func (sm *spotlightModel) leftPaneWidth() int {
 		// falling to the minimum — which is how the box came to visibly narrow
 		// on Tab. Inherited rather than re-measured from p.sources because the
 		// sources arrive a frame or two after the level does: measuring them
-		// would widen the box mid-turn, and the left column is showing the
-		// same kind of thing the list just showed anyway.
+		// would widen the box mid-turn. This measurement keeps the BOX stable;
+		// the SOURCES column itself may claim more of the inside than this
+		// (askPane.sourcesWidth), at the transcript's expense, never the box's.
 		w = sm.ask.leftW
 		if w < spotMinLeftPane {
 			w = spotMinLeftPane
