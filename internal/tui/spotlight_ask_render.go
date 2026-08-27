@@ -192,6 +192,14 @@ func (p *askPane) transcriptBody(w int) []string {
 	if p.streaming || !recorded {
 		appendWrapped(st.KeyMenuDim.Render("> " + p.question))
 		appendWrapped(p.transcript)
+		// A degraded turn leaves this column blank, and the status line alone
+		// is one dim row at the bottom in the footer's own style -- quiet
+		// enough that the pane read as a plain search-result list
+		// (ATM-bc717f). The outcome stands here too, under the question, where
+		// the answer would have been: the one place the user is looking.
+		if !p.streaming && p.degraded {
+			appendWrapped(st.Warning.Render("⚠ " + p.degradedMessage()))
+		}
 	}
 	return out
 }
@@ -282,15 +290,25 @@ func (p *askPane) statusLine() string {
 	case p.failed:
 		return "⚠ answer interrupted (" + p.failedReason + ") · ctrl+r to retry"
 	case p.degraded:
-		if !p.chatConfigured {
-			return "no chat model configured · run `atm project set-chat` to enable answers"
-		}
-		if p.degradedReason != "" {
-			return p.degradedReason
-		}
-		return "no answer generated"
+		return p.degradedMessage()
 	}
 	return ""
+}
+
+// degradedMessage is the one text a degraded turn shows, on both surfaces
+// that show it (the status line and the transcript notice) -- two strings
+// drifting apart would read as two different outcomes. When chat was never
+// configured it names the command that would enable answers; when chat IS
+// configured that command would fix nothing, so the reason stands alone (see
+// statusLine's outcome table).
+func (p *askPane) degradedMessage() string {
+	if !p.chatConfigured {
+		return "no chat model configured · run `atm project set-chat` to enable answers"
+	}
+	if p.degradedReason != "" {
+		return p.degradedReason
+	}
+	return "no answer generated"
 }
 
 // footer names what Enter means right now, because what Enter means depends on

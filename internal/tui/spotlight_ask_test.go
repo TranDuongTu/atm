@@ -748,6 +748,42 @@ func TestAskDegradedWithChatConfiguredShowsReasonNotSetChatHint(t *testing.T) {
 	}
 }
 
+// The status line alone was too quiet: one dim row at the bottom, in the same
+// style as the footer under it, while the transcript column -- where the eye
+// looks for the answer -- stayed blank. A degraded pane read as a plain search
+// result list, and users asked where the conversation went (ATM-bc717f). The
+// outcome must therefore stand IN the transcript, under the question, where
+// the answer would have been.
+func TestAskDegradedNoticeRendersInTranscript(t *testing.T) {
+	t.Run("unconfigured chat names the fix", func(t *testing.T) {
+		withInstantSpotSearch(t)
+		withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
+			answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
+			answer.Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"},
+		}})
+		m, p := openAsk(t, "indexer")
+		drainAskTicks(t, m, p)
+
+		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), "\n"))
+		mustContain(t, body, "atm project set-chat")
+	})
+	t.Run("configured chat shows the reason", func(t *testing.T) {
+		withInstantSpotSearch(t)
+		withAsker(t, &fakeAsker{events: []answer.Event{
+			answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "wire the indexer"}}},
+			answer.Done{Degraded: true, Reason: "the chat endpoint returned no answer"},
+		}})
+		m, p := openAsk(t, "indexer")
+		drainAskTicks(t, m, p)
+
+		body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), "\n"))
+		mustContain(t, body, "the chat endpoint returned no answer")
+		if strings.Contains(body, "set-chat") {
+			t.Error("chat is already configured -- the transcript notice must not send the user to configure it")
+		}
+	})
+}
+
 // The user's own key stopped it. Nothing here is an error and nothing offers a
 // retry.
 func TestAskCanceledKeepsThePartialAndOffersNoRetry(t *testing.T) {
