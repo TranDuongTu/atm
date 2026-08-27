@@ -15,7 +15,7 @@ func TestIsWildcard(t *testing.T) {
 		{"ATM:status:open", false},
 		{"ATM:urgent", false},
 		{"", false},
-		{"*", false},        // no ":" prefix — not a wildcard token
+		{"*", false},        // no ":" prefix — not a facet token
 		{"ATM:status:", false},
 	} {
 		if got := IsWildcard(tc.label); got != tc.want {
@@ -44,15 +44,15 @@ func TestLabelMatchesWildcard(t *testing.T) {
 	}
 }
 
-func TestWildcardAndRestrictingTokensPartition(t *testing.T) {
+func TestWildcardAndFilterTokensPartition(t *testing.T) {
 	labels := []string{"ATM:status:*", "ATM:type:bug", "ATM:*", "ATM:urgent"}
 	if got, want := WildcardTokens(labels), []string{"ATM:status:*", "ATM:*"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("WildcardTokens = %v, want %v", got, want)
 	}
-	if got, want := RestrictingTokens(labels), []string{"ATM:type:bug", "ATM:urgent"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("RestrictingTokens = %v, want %v", got, want)
+	if got, want := FilterTokens(labels), []string{"ATM:type:bug", "ATM:urgent"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("FilterTokens = %v, want %v", got, want)
 	}
-	if WildcardTokens(nil) != nil || RestrictingTokens(nil) != nil {
+	if WildcardTokens(nil) != nil || FilterTokens(nil) != nil {
 		t.Error("nil input must yield nil output")
 	}
 }

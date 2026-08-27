@@ -13,8 +13,9 @@ type Label struct {
 }
 
 // IsComputed reports whether membership is derived rather than asserted.
-// True for boards (Expr set) and for namespace labels (name ends in ":*",
-// whose expression is the prefix pattern implicit in the name).
+// True for boards (Expr set) and for namespace labels (a facet token whose
+// name ends in ":*", whose expression is the prefix pattern implicit in the
+// name).
 func (l Label) IsComputed() bool { return l.Expr != "" || IsNamespaceName(l.Name) }
 
 type Project struct {

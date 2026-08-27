@@ -9,20 +9,25 @@ package core
 
 import "strings"
 
-// IsWildcard reports whether a label is a facet declaration — a token ending
-// in ":*", e.g. "ATM:status:*" or "ATM:*". A wildcard declares a facet and
-// does NOT restrict a query; see RestrictingTokens.
+// IsWildcard reports whether a label is a facet token — a token ending in ":*"
+// (e.g. "ATM:status:*" or "ATM:*"). A facet token declares a facet: it groups
+// (with --facets / GroupTasksErr) but does NOT filter a query by itself. To
+// filter by namespace membership use a namespace predicate in an expression
+// (e.g. --expr "status:*"); see resolve.go's evalAtom. The bare "*" tautology
+// atom is NOT a facet token (no ":*" suffix) — it is a filter token resolved
+// in evalAtom to "match every task".
 func IsWildcard(label string) bool { return strings.HasSuffix(label, ":*") }
 
-// LabelMatchesWildcard reports whether label falls under wildcard, e.g.
+// LabelMatchesWildcard reports whether label falls under a facet token, e.g.
 // "ATM:status:open" matches both "ATM:status:*" and "ATM:*". The match is a
-// plain prefix test against the wildcard minus its "*", so it does not require
-// the prefix to end on a segment boundary.
+// plain prefix test against the facet token minus its "*", so it does not
+// require the prefix to end on a segment boundary.
 func LabelMatchesWildcard(label, wildcard string) bool {
 	return strings.HasPrefix(label, strings.TrimSuffix(wildcard, "*"))
 }
 
-// WildcardTokens returns the facet-declaring tokens of labels, in order.
+// WildcardTokens returns the facet tokens of labels, in order. A facet token
+// declares a facet for grouping (GroupTasksErr); it does not filter.
 func WildcardTokens(labels []string) []string {
 	var out []string
 	for _, l := range labels {
@@ -33,9 +38,12 @@ func WildcardTokens(labels []string) []string {
 	return out
 }
 
-// RestrictingTokens returns the query-restricting (non-wildcard) tokens of
-// labels, in order. Together with WildcardTokens it partitions the input.
-func RestrictingTokens(labels []string) []string {
+// FilterTokens returns the filter tokens of labels, in order: the
+// non-facet tokens that restrict a query (concrete labels and board names).
+// Together with WildcardTokens it partitions the input. Renamed from
+// RestrictingTokens; "filter" reads as a noun next to "facet" and avoids the
+// "restricting wildcard" oxymoron that confused ATM-8289dc.
+func FilterTokens(labels []string) []string {
 	var out []string
 	for _, l := range labels {
 		if !IsWildcard(l) {

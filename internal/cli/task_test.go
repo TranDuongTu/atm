@@ -62,14 +62,41 @@ func TestGoldenTaskListFacets(t *testing.T) {
 	compareGolden(t, "task-list-facets", out)
 }
 
-func TestGoldenTaskListWildcardLabel(t *testing.T) {
+// TestTaskListRejectsFacetTokenWithoutFacets covers ATM-8289dc: the --label
+// flag advertises wildcard suffixes but silently drops them, returning the
+// full roster. A facet token (ending in :*) is a facet declaration, not a
+// filter token; without --facets it has no meaning, so the CLI must reject it
+// and point the user at --expr (which accepts namespace predicates like
+// "status:*"). The bare "*" tautology atom is NOT a facet token (it has no ":"
+// prefix) and remains a valid filter token — covered separately by
+// TestTaskListAllTasksBoardAndStarFilterPinsTautology.
+func TestTaskListRejectsFacetTokenWithoutFacets(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.seedScenario1()
-	out, _, code := h.run("task", "list", "--project", "ATM", "--label", "ATM:status:*")
-	if code != 0 {
-		t.Fatalf("exit = %d stderr=%s", code, h.stderr)
+
+	// A facet token (namespace wildcard) without --facets is a usage error.
+	_, stderr, code := h.run("task", "list", "--project", "ATM", "--label", "ATM:status:*")
+	if code == ExitSuccess {
+		t.Fatalf("ATM:status:* without --facets: got exit 0, want non-zero; stderr=%s", h.stderr.String())
 	}
-	compareGolden(t, "task-list-wildcard-label", out)
+	if !strings.Contains(stderr, "--expr") {
+		t.Errorf("error must point at --expr for namespace predicates; stderr=%s", stderr)
+	}
+
+	// A board-style facet token (whole-namespace wildcard) is also rejected.
+	_, stderr, code = h.run("task", "list", "--project", "ATM", "--label", "ATM:*")
+	if code == ExitSuccess {
+		t.Fatalf("ATM:* without --facets: got exit 0, want non-zero; stderr=%s", h.stderr.String())
+	}
+	if !strings.Contains(stderr, "--expr") {
+		t.Errorf("error must point at --expr; stderr=%s", stderr)
+	}
+
+	// The same token WITH --facets stays valid: it is a facet declaration.
+	_, _, code = h.run("task", "list", "--project", "ATM", "--label", "ATM:status:*", "--facets")
+	if code != ExitSuccess {
+		t.Fatalf("ATM:status:* with --facets must still work; exit=%d stderr=%s", code, h.stderr.String())
+	}
 }
 
 func TestGoldenTaskShow(t *testing.T) {
@@ -223,17 +250,18 @@ func TestTaskListWithExpr(t *testing.T) {
 // board (expr '*') and the standalone '*' filter token end-to-end through the
 // CLI. Both must return every task, including an unlabeled naked jotting. The
 // unlabeled task is the load-bearing assertion: a board expression that used
-// the <CODE>:* namespace wildcard as its membership predicate would miss it
+// the <CODE>:* namespace predicate as its membership would miss it
 // (qualify('*') in evalAtom yields <CODE>:* and reads as "has any label"),
 // which is exactly the bug the '*' tautology atom exists to fix — see
 // internal/store/resolve.go and TestResolverStarTautologyMatchesEveryTask.
 //
 // Note: this test does NOT contrast with `--label ATM:*` at the CLI, because
-// that token is a FACET (IsWildcard true), not a restricting atom — it groups
-// rather than filters, so unlabeled tasks land in its `others` bucket. The
-// '*' vs <CODE>:* distinction lives in the expression evaluator
-// (evalAtom), which is where the tautology short-circuits; the unit test
-// there pins the contrast directly.
+// that token is a facet token (IsWildcard true), not a filter token — it
+// declares a facet for grouping rather than filtering, so unlabeled tasks
+// land in its `others` bucket. The CLI rejects `--label ATM:*` without
+// --facets (see TestTaskListRejectsFacetTokenWithoutFacets); the '*' vs
+// <CODE>:* distinction lives in the expression evaluator (evalAtom), where
+// the tautology short-circuits, and the unit test there pins the contrast.
 func TestTaskListAllTasksBoardAndStarFilterPinsTautology(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
@@ -262,9 +290,10 @@ func TestTaskListAllTasksBoardAndStarFilterPinsTautology(t *testing.T) {
 		}
 	}
 
-	// The standalone '*' restricting token reaches evalAtom with Name="*"
+	// The standalone '*' filter token reaches evalAtom with Name="*"
 	// and short-circuits to true. Passed as a literal Go arg so no shell
-	// glob interferes.
+	// glob interferes. ('*' is a filter token, not a facet token: no ":*"
+	// suffix, so it passes the CLI reject gate.)
 	outStar, _, code := h.run("task", "list", "--store", sp, "--project", "ATM", "--label", "*")
 	if code != 0 {
 		t.Fatalf("'*' filter exit = %d stderr=%s", code, h.stderr.String())

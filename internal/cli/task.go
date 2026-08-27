@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"atm/internal/core"
 
@@ -109,6 +110,26 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 					return err
 				}
 			}
+			// --label accepts filter tokens (concrete labels and board names),
+			// not facet tokens. A facet token (ending in ":*") is a facet
+			// declaration: it only has meaning with --facets, where it picks
+			// the namespace to group by. Without --facets it would silently
+			// no-op (FilterTokens drops it) and return the full roster —
+			// the ATM-8289dc footgun. Reject it and point the user at --expr,
+			// which accepts namespace predicates like "status:*" for actual
+			// membership filtering. The bare "*" tautology atom is not a facet
+			// token (no ":*" suffix) and stays a valid filter token.
+			if !facets {
+				for _, tok := range labels {
+					if core.IsWildcard(tok) {
+						// tok is "<CODE>:<ns>:*"; strip the project prefix to
+						// get the bare namespace predicate "<ns>:*" for --expr.
+						pred := strings.TrimPrefix(tok, project+":")
+						return fmt.Errorf("--label %q is a facet token (ends in :*); use --facets to group by it, or --expr for a namespace predicate like %q",
+							tok, pred)
+					}
+				}
+			}
 			filters := core.QueryFilters{Project: project, Labels: labels, Expr: expr}
 			if facets {
 				groups, others, gerr := s.GroupTasksErr(filters)
@@ -133,8 +154,8 @@ func newTaskListCmd(st *cliState) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "filter by project code")
-	cmd.Flags().StringArrayVar(&labels, "label", nil, "label filter (repeatable; full name or wildcard suffix e.g. ATM:status:*)")
-	cmd.Flags().BoolVar(&facets, "facets", false, "group output by wildcard label facets")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "filter token: concrete label or board name, repeatable (AND-ed). For namespace predicates like status:* use --expr; with --facets a :* token declares the facet.")
+	cmd.Flags().BoolVar(&facets, "facets", false, "group output by facet tokens (labels ending in :*)")
 	cmd.Flags().StringVar(&expr, "expr", "", "board expression filter (AND/OR/NOT/parens over bare label names)")
 	return cmd
 }
