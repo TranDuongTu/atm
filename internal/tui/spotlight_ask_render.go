@@ -10,22 +10,23 @@ import (
 )
 
 // view is the ask level's whole box: the follow-up input across the top, then
-// SOURCES beside the transcript, then the staleness chip and the footer.
+// two titled panes -- Conversation on the left, Results on the right -- then
+// the staleness chip and the footer (ATM-62adc9).
 //
-// It goes through the same width and height helpers the list level does --
-// "pushes a level over the same spotlight box" -- and those helpers now carry
-// the ask level's own cases, because the list's are content-derived and this
-// level has no rows and no preview lines to derive from. The width is the
-// list's own, carried across on push (leftPaneWidth); the height is whatever
-// the terminal leaves after the chrome (blockHeight), since the transcript is
-// a scroll window rather than a block of content with a length.
+// The box is terminal-derived (menuBoxWidth's levelAsk case): nothing here is
+// content-sized, so the level takes the terminal's width the same way it
+// already takes its height (blockHeight). The Conversation pane holds a
+// readable prose measure and the Results pane gets every remaining column --
+// titles are what need the room.
 //
 // The line budget below is exact and worth counting before adding to it. The
 // box is bodyH+6 rows, of which titledBoxHeight spends 2 on borders: bodyH+4
 // lines of body. This spends 1 on the input where the list spends 3 on its
 // search box, and those 2 spare lines are exactly what the status line and the
 // staleness chip take when both are showing. One more unconditional row and
-// titledBoxHeight's bodyLines[:innerH] silently eats the footer.
+// titledBoxHeight's bodyLines[:innerH] silently eats the footer. The two panes
+// spend their own borders INSIDE the bodyH rows they are given, so they cannot
+// move it.
 //
 // A row does not have to be ADDED to overrun the budget -- an existing one
 // growing does it just as well, and more quietly. The input is the one that
@@ -37,18 +38,18 @@ func (p *askPane) view() string {
 	sm := p.sm
 	st := sm.m.styles
 	inner := sm.innerWidth()
-	leftW := sm.leftPaneWidth()
-	rightW := p.transcriptWidth()
+	convW := p.conversationPaneWidth()
+	resW := inner - convW - spotPaneGap
 	bodyH := sm.blockHeight()
 
 	var lines []string
 	for _, line := range strings.Split(p.inputBox(inner), "\n") {
 		lines = append(lines, " "+line)
 	}
-	left := p.sourceLines(bodyH, leftW)
-	right := p.transcriptLines(bodyH, rightW)
+	conv := p.paneLines(convW, "Conversation", p.transcriptLines(bodyH-2, p.transcriptWidth()), bodyH)
+	res := p.paneLines(resW, "Results", p.resultLines(bodyH-2, resW-4), bodyH)
 	for i := 0; i < bodyH; i++ {
-		lines = append(lines, " "+fitLine(left[i], leftW)+spaces(spotPaneGap)+fitLine(right[i], rightW))
+		lines = append(lines, " "+conv[i]+spaces(spotPaneGap)+res[i])
 	}
 	// The status line, the chip and the footer sit together at the bottom, and
 	// the two conditional ones must not shove the footer up off the last row
@@ -98,34 +99,50 @@ func (p *askPane) inputBox(w int) string {
 	return st.DialogBody.Width(w - 2).Render(st.KeyMenuDim.Render("> ") + st.Body.Render(in) + "█")
 }
 
-// sourceLines is the left column: a header, then one numbered row per hit.
-// [n] is the hit's position in THIS turn's retrieval, restarting at 1 each
-// turn -- the same rule ATM-d4ceed settled for the CLI's cited-sources footer,
-// so a citation means the same thing on both surfaces.
+// paneLines renders one titled pane and hands back its rows for side-by-side
+// composition -- the same idiom previewPanel uses at the list level, so the
+// ask level's panes look like the launcher's panes rather than inventing a
+// frame of their own. The quiet border style on purpose: this level has no
+// pane focus to advertise, so no frame gets to be the loud one. Body rows get
+// a one-column gutter; titledBoxChars pads the right edge itself.
+func (p *askPane) paneLines(w int, title string, body []string, h int) []string {
+	for i, l := range body {
+		body[i] = " " + l
+	}
+	box := titledBoxHeight(p.sm.m.styles.KeyMenuDim, w, title, strings.Join(body, "\n"), h)
+	return strings.Split(box, "\n")
+}
+
+// resultLines is the Results pane's body: one numbered row per hit, no header
+// -- the pane's title is the header now. [n] is the hit's position in THIS
+// turn's retrieval, restarting at 1 each turn -- the same rule ATM-d4ceed
+// settled for the CLI's cited-sources footer, so a citation means the same
+// thing on both surfaces. The kind sits between the number and the id,
+// straight from Hit.Kind: results are not only tasks, and a future searchable
+// entity displays here with no new code.
+//
+// blockHeight normally leaves room for every hit, but on a terminal too short
+// for eight the pane scrolls with the cursor rather than truncating: `down`
+// walks the cursor onto the last hit whether or not it is on screen, and
+// Enter opens -- and logs a click-through for -- whatever it lands on. A
+// result the cursor can reach has to be a result the user can see.
 //
 // The cursor treatment mirrors renderListRow (spotlight_render.go) exactly --
-// glyph, then text, then pad to width -- so SOURCES looks like just another
+// glyph, then text, then pad to width -- so Results looks like just another
 // list rather than inventing its own cursor idiom. There is no Styles.Selected
 // field; sm.cursorStyle() is the real glyph style the list uses.
-func (p *askPane) sourceLines(h, w int) []string {
+func (p *askPane) resultLines(h, w int) []string {
 	st := p.sm.m.styles
 	out := make([]string, 0, h)
-	out = append(out, st.KeyMenuDim.Render("SOURCES"))
-	// The header takes a row; the rest is the sources'. blockHeight normally
-	// leaves room for all of them, but on a terminal too short for eight hits
-	// the column scrolls with the cursor rather than truncating: `down` walks
-	// the cursor onto the last hit whether or not it is on screen, and Enter
-	// opens -- and logs a click-through for -- whatever it lands on. A source
-	// the cursor can reach has to be a source the user can see.
 	start := 0
-	if room := h - 1; room > 0 && p.cursor >= room {
-		start = p.cursor - room + 1
+	if h > 0 && p.cursor >= h {
+		start = p.cursor - h + 1
 	}
 	for i := start; i < len(p.sources) && len(out) < h; i++ {
 		hit := p.sources[i]
 		// [n] is the hit's position in the whole retrieval, not in this
 		// window: it is the number the answer cites.
-		label := fmt.Sprintf("[%d] %s", i+1, hit.ID)
+		label := fmt.Sprintf("[%d] %s %s", i+1, hit.Kind, hit.ID)
 		if hit.Title != "" {
 			label += " " + hit.Title
 		}
@@ -133,7 +150,9 @@ func (p *askPane) sourceLines(h, w int) []string {
 		if i == p.cursor {
 			glyph, glyphStyle = "▸ ", p.sm.cursorStyle()
 		}
-		text := fitLine(label, w-lipgloss.Width(glyph))
+		// fitLineTail, not fitLine: a title that does not fit ends in an
+		// ellipsis, so it reads as cropped rather than as broken mid-word.
+		text := fitLineTail(label, w-lipgloss.Width(glyph))
 		pad := w - lipgloss.Width(glyph) - lipgloss.Width(text)
 		out = append(out, glyphStyle.Render(glyph)+st.Body.Render(text)+spaces(pad))
 	}
@@ -163,10 +182,13 @@ func (p *askPane) transcriptLines(h, w int) []string {
 	return out
 }
 
-// transcriptBody is every turn, oldest first, each question above its answer.
-// The question stays because [n] restarts every turn: an older answer's numbers
-// refer to a source list that is no longer on screen, and the question is what
-// makes that answer legible without them.
+// transcriptBody is the LATEST exchange only: the current question, dim,
+// above whatever stands in for its answer -- the streamed text, or the
+// degraded reply. Older turns do not render (ATM-62adc9): the memory is the
+// engine's, which still replays p.turns as history on every follow-up, not
+// the pane's. p.transcript survives its turn's Done and is only reset by the
+// next start(), so a completed answer stays on screen until a follow-up
+// replaces it.
 func (p *askPane) transcriptBody(w int) []string {
 	st := p.sm.m.styles
 	var out []string
@@ -176,22 +198,18 @@ func (p *askPane) transcriptBody(w int) []string {
 		}
 		out = append(out, wrapAnswer(s, w)...)
 	}
-	for _, t := range p.turns {
-		appendWrapped(st.KeyMenuDim.Render("> " + t.question))
-		appendWrapped(t.answer)
-		out = append(out, "")
-	}
-	// recorded mirrors applyTick's own append condition (spotlight_ask.go)
-	// exactly, rather than approximating it with len(p.turns) == 0: that
-	// approximation reads "any turn was ever recorded" as "the current turn
-	// was recorded", which only holds while there is one turn. A SECOND turn
-	// that ends canceled or degraded is never appended to p.turns, and with
-	// the approximation the live block was suppressed anyway -- the question
-	// and any partial answer vanished with no trace the user ever asked it.
-	recorded := !p.canceled && strings.TrimSpace(p.transcript) != ""
-	if p.streaming || !recorded {
-		appendWrapped(st.KeyMenuDim.Render("> " + p.question))
-		appendWrapped(p.transcript)
+	appendWrapped(st.KeyMenuDim.Render("> " + p.question))
+	appendWrapped(p.transcript)
+	// A degraded turn leaves this pane blank, and the status line alone is
+	// one dim row at the bottom in the footer's own style -- quiet enough
+	// that the pane read as a plain search-result list (ATM-bc717f). The
+	// outcome stands here too, under the question, where the answer would
+	// have been: the one place the user is looking. It renders unstyled,
+	// exactly as an answer would, because it is written as one -- this level
+	// is a conversation, and a terse system line in the answer's place reads
+	// as chrome, not as a reply.
+	if !p.streaming && p.degraded {
+		appendWrapped(p.degradedTranscriptMessage())
 	}
 	return out
 }
@@ -226,14 +244,43 @@ func wrapAnswer(s string, w int) []string {
 	return strings.Split(wrap.String(ww.String(), w), "\n")
 }
 
-func (p *askPane) transcriptHeight() int { return p.sm.blockHeight() }
+// transcriptHeight is the Conversation pane's content rows: the block less
+// the pane's own two border rows, which it spends inside its allotment.
+func (p *askPane) transcriptHeight() int {
+	h := p.sm.blockHeight() - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
 
-// transcriptWidth is the right column's measure: the inner width less the
-// SOURCES column and the gap between them. One function because three callers
+// conversationPaneWidth is the Conversation pane's total width, borders
+// included. It holds the launcher's prose measure (spotPreviewCols) --
+// readability is a property of line length, not of the terminal -- and on a
+// terminal too narrow for that it cedes ground, but never takes more than
+// 3/5 of the inside: the Results pane is what needs the remaining columns,
+// because titles are what the user reads there (ATM-62adc9).
+func (p *askPane) conversationPaneWidth() int {
+	w := spotPreviewCols + 4 // the measure, two borders, two gutter columns
+	if max := p.sm.innerWidth() * 3 / 5; w > max {
+		w = max
+	}
+	if w < 8 {
+		w = 8
+	}
+	return w
+}
+
+// transcriptWidth is the Conversation pane's prose measure: its width less
+// two borders and two gutter columns. One function because three callers
 // wrapping to three independently-derived widths is how a scroll bound comes
 // to disagree with what was actually rendered.
 func (p *askPane) transcriptWidth() int {
-	return p.sm.innerWidth() - p.sm.leftPaneWidth() - spotPaneGap
+	w := p.conversationPaneWidth() - 4
+	if w < 1 {
+		w = 1
+	}
+	return w
 }
 
 // scrollToBottom pins the window to the tail.
@@ -282,15 +329,50 @@ func (p *askPane) statusLine() string {
 	case p.failed:
 		return "⚠ answer interrupted (" + p.failedReason + ") · ctrl+r to retry"
 	case p.degraded:
-		if !p.chatConfigured {
-			return "no chat model configured · run `atm project set-chat` to enable answers"
-		}
-		if p.degradedReason != "" {
-			return p.degradedReason
-		}
-		return "no answer generated"
+		return p.degradedMessage()
 	}
 	return ""
+}
+
+// degradedMessage is the status line's terse record of a degraded turn. The
+// transcript speaks the same outcome in the assistant's voice
+// (degradedTranscriptMessage); both are derived from the same three fields, so
+// they cannot disagree about WHAT happened -- only about register. When chat
+// was never configured it names the command that would enable answers; when
+// chat IS configured that command would fix nothing, so the reason stands
+// alone (see statusLine's outcome table).
+func (p *askPane) degradedMessage() string {
+	if !p.chatConfigured {
+		return "no chat model configured · run `atm project set-chat` to enable answers"
+	}
+	if p.degradedReason != "" {
+		return p.degradedReason
+	}
+	return "no answer generated"
+}
+
+// degradedTranscriptMessage is the same outcome written as the reply it stands
+// in for: first what WAS delivered (the sources, counted, or the honest
+// nothing), then why there is no answer under it. An empty retrieval is a
+// sentence, not a count -- "0 related items" narrates the data structure, not
+// the situation.
+func (p *askPane) degradedTranscriptMessage() string {
+	var lead string
+	switch n := len(p.sources); n {
+	case 0:
+		lead = "I looked through this project's ledger and found nothing close enough to answer from."
+	case 1:
+		lead = "I found 1 related item — it's under Results on the right."
+	default:
+		lead = fmt.Sprintf("I found %d related items — they're under Results on the right.", n)
+	}
+	if !p.chatConfigured {
+		return lead + " I can't write an answer yet: this project has no chat model configured. Run `atm project set-chat` to give me one."
+	}
+	if p.degradedReason != "" {
+		return lead + " I couldn't generate an answer, though: " + p.degradedReason + "."
+	}
+	return lead + " I couldn't generate an answer, though."
 }
 
 // footer names what Enter means right now, because what Enter means depends on
@@ -299,5 +381,5 @@ func (p *askPane) footer() string {
 	if strings.TrimSpace(p.input) != "" {
 		return "enter ask · ⇅ scroll · esc back"
 	}
-	return "↑↓ sources · enter open · ⇅ scroll · esc back"
+	return "↑↓ results · enter open · ⇅ scroll · esc back"
 }
