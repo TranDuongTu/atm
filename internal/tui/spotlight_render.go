@@ -17,13 +17,6 @@ const (
 	spotMinBlock    = 4  // the block never collapses below this many rows
 	spotKeyCol      = 4  // "[D] " — the key column entries align their icons after
 
-	// The ask level's SOURCES floor: "[8] ATM-xxxxxx " is 15 columns before a
-	// single letter of title, so a column inherited from a level with short
-	// rows leaves a handful of title letters per source. 44 carries the
-	// prefix plus ~27 columns of title — enough to recognise a task. Claimed
-	// inside the box (askPane.sourcesWidth), never by widening it: tab must
-	// not resize the box.
-	spotAskMinSources = 44
 )
 
 // menuBoxWidth is the overlay width. It is derived from what the launcher
@@ -32,7 +25,22 @@ const (
 // laptop and on a wide monitor and simply sits in more space. A percentage
 // width grew to 160 columns on a 200-column terminal to show rows 26 columns
 // wide.
+//
+// The ask level is the exception, and terminal-derived on purpose
+// (ATM-62adc9). It used to inherit the entry level's width, which made the
+// layout path-dependent — tab from a level with short rows gave a cramped
+// conversation on a wide terminal. Nothing at this level is content-sized
+// anyway: the transcript is a scroll window and the Results pane wants every
+// column it can get for titles, so the box takes the terminal, the same way
+// the level's HEIGHT already does (blockHeight).
 func (sm *spotlightModel) menuBoxWidth() int {
+	if sm.level == levelAsk && sm.ask != nil {
+		bw := sm.m.width - 4
+		if bw < spotMinLeftPane {
+			bw = spotMinLeftPane
+		}
+		return bw
+	}
 	// leftPaneWidth + the gap + the panel (its prose measure, two borders and
 	// a column of padding), then the outer border and one column of breathing
 	// room each side.
@@ -97,21 +105,10 @@ func (sm *spotlightModel) innerWidth() int { return sm.menuBoxWidth() - 4 }
 // actually holds so the list neither truncates nor trails empty space. Neither
 // this nor previewWidth may consult menuBoxWidth: the box is derived from them.
 func (sm *spotlightModel) leftPaneWidth() int {
+	// No levelAsk case: the ask level's box is terminal-derived
+	// (menuBoxWidth) and its panes split the inside themselves
+	// (askPane.conversationPaneWidth), so nothing at that level reads this.
 	w := spotMinLeftPane
-	if sm.level == levelAsk && sm.ask != nil {
-		// The ask level has no rows to measure, so it carries the width the
-		// list was using when the level was pushed (askPane.leftW) rather than
-		// falling to the minimum — which is how the box came to visibly narrow
-		// on Tab. Inherited rather than re-measured from p.sources because the
-		// sources arrive a frame or two after the level does: measuring them
-		// would widen the box mid-turn. This measurement keeps the BOX stable;
-		// the SOURCES column itself may claim more of the inside than this
-		// (askPane.sourcesWidth), at the transcript's expense, never the box's.
-		w = sm.ask.leftW
-		if w < spotMinLeftPane {
-			w = spotMinLeftPane
-		}
-	}
 	for _, r := range sm.rows {
 		// two columns for the cursor glyph, then the row's own text
 		if rw := 2 + lipgloss.Width(sm.rowText(r)); rw > w {

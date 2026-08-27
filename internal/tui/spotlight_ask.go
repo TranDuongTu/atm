@@ -40,14 +40,9 @@ type askPane struct {
 	transcript string
 	streaming  bool
 
-	cursor int  // SOURCES cursor
-	offset int  // transcript scroll
+	cursor int  // Results cursor
+	offset int  // conversation scroll
 	follow bool // pinned to the tail; dropped when the user scrolls up
-
-	// leftW is the list's left-pane width at the instant this level was
-	// pushed, so the box does not narrow on Tab. leftPaneWidth reads it; see
-	// its comment for why the column is inherited rather than re-measured.
-	leftW int
 
 	// gen retires ticks belonging to a stream the user has moved on from --
 	// the same guard sm.searchGen provides on the search path. stream is the
@@ -96,18 +91,14 @@ type askPane struct {
 // reaches here from every level, including the ones that never render the row,
 // and an ask with no project in scope retrieves from nothing while reporting no
 // error at all (see askRowVisible for the whole reason).
-//
-// leftPaneWidth is read BEFORE setLevel, for the same reason the query is:
-// setLevel rebuilds, and the rows the width is measured from are gone after it.
 func (sm *spotlightModel) enterAsk() tea.Cmd {
 	q := strings.TrimSpace(sm.query)
 	if q == "" || sm.m.projectScope == "" {
 		return nil
 	}
 	snap := sm.snapshot()
-	leftW := sm.leftPaneWidth()
 	sm.setLevel(levelAsk, groupNone)
-	sm.ask = &askPane{sm: sm, question: q, snap: snap, follow: true, leftW: leftW}
+	sm.ask = &askPane{sm: sm, question: q, snap: snap, follow: true}
 	return sm.ask.start()
 }
 
@@ -215,11 +206,16 @@ func (p *askPane) scroll(delta int) {
 	p.follow = p.offset >= max
 }
 
-// openSelected opens the highlighted source's task and ends the ask session.
+// openSelected opens the highlighted result and ends the ask session. Enter
+// is "open the thing", resolved PER KIND: a task opens its detail, a comment
+// resolves to the task it belongs to. The switch is the contextual seam --
+// when retrieval grows a new entity kind (project, lane, capability), its arm
+// says what "open" means for it. A kind with no arm yet degrades honestly: a
+// toast naming it, the ask still standing -- never a silent no-op.
 //
 // The same shape activateTaskAction uses (spotlight.go:823): re-read the
 // target first, then close the launcher and hand off to the tasks pane. No
-// spotlightReturn is recorded -- opening a source is the end of the ask, not
+// spotlightReturn is recorded -- opening a result is the end of the ask, not
 // a detour out of it, which is why spotlightSnapshot never has to learn how
 // to carry a transcript.
 func (p *askPane) openSelected() tea.Cmd {
@@ -229,8 +225,10 @@ func (p *askPane) openSelected() tea.Cmd {
 	hit := p.sources[p.cursor]
 	id := hit.ID
 	m := p.sm.m
-	if hit.Kind == "comment" {
-		// A comment is how the source was found, not a thing with a detail view
+	switch hit.Kind {
+	case "task":
+	case "comment":
+		// A comment is how the result was found, not a thing with a detail view
 		// of its own -- the same rule a comment row follows in the list.
 		c, err := m.store.GetComment(hit.ID)
 		if err != nil {
@@ -238,6 +236,9 @@ func (p *askPane) openSelected() tea.Cmd {
 			return nil
 		}
 		id = c.TaskID
+	default:
+		m.showToast("cannot open a " + hit.Kind + " result from here yet")
+		return nil
 	}
 	// Re-read: the rows are a snapshot of a store another process can write
 	// to, same reason activateTaskAction re-reads before replaying.

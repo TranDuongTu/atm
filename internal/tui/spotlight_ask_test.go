@@ -402,8 +402,10 @@ func drainAskTicks(t *testing.T, m *Model, p *askPane) {
 	t.Fatal("the stream never reported done")
 }
 
-// The layout the spec fixes: input on top, SOURCES left, transcript right,
-// footer under both.
+// The layout the redesign fixes (ATM-62adc9): input on top, then two titled
+// panes -- Conversation LEFT, Results RIGHT -- and the footer under both. Each
+// result row names its entity kind, and the footer says "results", not the
+// old "sources".
 func TestAskSplitLayout(t *testing.T) {
 	withInstantSpotSearch(t)
 	withAsker(t, &fakeAsker{events: []answer.Event{
@@ -418,25 +420,32 @@ func TestAskSplitLayout(t *testing.T) {
 	drainAskTicks(t, m, p)
 
 	view := stripANSI(p.view())
-	mustContain(t, view, "SOURCES")
-	mustContain(t, view, "[1] ATM-0001")
-	mustContain(t, view, "[2] ATM-0002")
+	mustContain(t, view, "Conversation")
+	mustContain(t, view, "Results")
+	mustContain(t, view, "[1] task ATM-0001")
+	mustContain(t, view, "[2] task ATM-0002")
 	mustContain(t, view, "The indexer is a watcher [1].")
-	mustContain(t, view, "\u2191\u2193 sources")
+	mustContain(t, view, "\u2191\u2193 results")
 	mustContain(t, view, "esc back")
 
 	lines := strings.Split(view, "\n")
-	src, footer := -1, -1
+	titles, footer := -1, -1
 	for i, l := range lines {
-		if strings.Contains(l, "SOURCES") {
-			src = i
+		if strings.Contains(l, "Conversation") && strings.Contains(l, "Results") {
+			titles = i
+			if strings.Index(l, "Conversation") > strings.Index(l, "Results") {
+				t.Fatalf("Conversation must sit LEFT of Results:\n%s", l)
+			}
 		}
 		if strings.Contains(l, "esc back") {
 			footer = i
 		}
 	}
-	if src < 0 || footer < 0 || src >= footer {
-		t.Fatalf("SOURCES at %d must sit above the footer at %d:\n%s", src, footer, view)
+	if titles < 0 {
+		t.Fatalf("the two pane titles must share the top border row:\n%s", view)
+	}
+	if footer < 0 || titles >= footer {
+		t.Fatalf("pane titles at %d must sit above the footer at %d:\n%s", titles, footer, view)
 	}
 }
 
@@ -721,7 +730,7 @@ func TestAskDegradedShowsSourcesAndNamesTheFix(t *testing.T) {
 	drainAskTicks(t, m, p)
 
 	view := stripANSI(p.view())
-	mustContain(t, view, "[1] ATM-0001")
+	mustContain(t, view, "[1] task ATM-0001")
 	mustContain(t, view, "atm project set-chat")
 	if strings.Contains(view, "interrupted") {
 		t.Error("a degraded answer is not a broken one")
@@ -802,34 +811,79 @@ func TestAskDegradedNoticeRendersInTranscript(t *testing.T) {
 	})
 }
 
-// The box inherits the LIST level's width so tab does not resize it -- but
-// tab reaches the ask level from every level, including ones whose rows were
-// short labels or a single hint, and a SOURCES row prepends "[n] ATM-xxxxxx "
-// to a title the list showed bare. Inherited-narrow plus a 15-column prefix
-// chopped titles to a handful of letters (ATM-bc717f: "Semanti", "Spotlig").
-// The SOURCES column therefore floors its share of the inside at
-// spotAskMinSources -- taken from the transcript, never by widening the box
-// -- and a title that still cannot fit says so with an ellipsis instead of
-// stopping mid-word.
-func TestAskSourcesColumnGetsRoomAndEllipsis(t *testing.T) {
+// A Results row is "[n] kind ID title": the kind comes straight from
+// Hit.Kind, so a future searchable entity displays with no new code here. A
+// title that still cannot fit the pane ends in an ellipsis instead of
+// stopping mid-word (ATM-bc717f: "Semanti", "Spotlig").
+func TestAskResultsRowsShowKindAndEllipsis(t *testing.T) {
 	withInstantSpotSearch(t)
 	withUnconfiguredAsker(t, &fakeAsker{events: []answer.Event{
-		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "semantic search over the whole ledger, cosine plus text fallback"}}},
+		answer.Retrieved{Hits: []core.Hit{{ID: "ATM-0001", Kind: "task", Title: "semantic search over the whole ledger, cosine plus text fallback and a tail long enough to overflow any pane"}}},
 		answer.Done{Degraded: true, Reason: "no chat model configured; run 'atm project set-chat'"},
 	}})
 	m, p := openAsk(t, "indexer")
 	drainAskTicks(t, m, p)
 
-	if w := p.sourcesWidth(); w < spotAskMinSources {
-		t.Errorf("sources column = %d columns, want at least %d", w, spotAskMinSources)
+	view := stripANSI(p.view())
+	mustContain(t, view, "[1] task ATM-0001 semantic search")
+	mustContain(t, view, "…")
+}
+
+// The Conversation pane shows the LATEST exchange only (ATM-62adc9): the
+// current question and its answer. Older turns still feed the model as
+// history -- the memory is the engine's, not the pane's -- but they do not
+// render.
+func TestAskConversationShowsOnlyTheLatestExchange(t *testing.T) {
+	withInstantSpotSearch(t)
+	f := &fakeAsker{events: []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "the first answer, about watchers"}, answer.Done{},
+	}}
+	withAsker(t, f)
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	f.events = []answer.Event{
+		answer.Retrieved{}, answer.Delta{Text: "the second answer, about embeddings"}, answer.Done{},
 	}
-	if got, want := p.sourcesWidth()+spotPaneGap+p.transcriptWidth(), m.spotlight.innerWidth(); got != want {
-		t.Errorf("columns + gap = %d, want the inner width %d -- the floor must come from the transcript, not the box", got, want)
+	for _, r := range "and embeddings?" {
+		p.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	lines := p.sourceLines(4, p.sourcesWidth())
-	joined := stripANSI(strings.Join(lines, "\n"))
-	mustContain(t, joined, "[1] ATM-0001 semantic search")
-	mustContain(t, joined, "…")
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	drainAskTicks(t, m, p)
+
+	body := stripANSI(strings.Join(p.transcriptBody(p.transcriptWidth()), " "))
+	mustContain(t, body, "and embeddings?")
+	mustContain(t, body, "the second answer, about embeddings")
+	if strings.Contains(body, "the first answer") {
+		t.Error("the pane must show only the latest exchange -- the first answer belongs to history, not the screen")
+	}
+	if len(p.turns) != 2 {
+		t.Fatalf("turns = %d, want both exchanges recorded as model history", len(p.turns))
+	}
+}
+
+// Enter on a result is "open the thing", resolved per kind: a task opens its
+// detail, a comment resolves to its parent task (both covered elsewhere). A
+// kind this dispatch does not know yet -- retrieval may grow projects, lanes,
+// capabilities -- degrades honestly: a toast naming the kind, the ask level
+// still standing. Never a silent no-op, never a crash.
+func TestAskEnterOnUnknownKindToasts(t *testing.T) {
+	withInstantSpotSearch(t)
+	withAsker(t, &fakeAsker{events: []answer.Event{
+		answer.Retrieved{Hits: []core.Hit{{ID: "LANE-inbox", Kind: "lane", Title: "Inbox"}}},
+		answer.Done{},
+	}})
+	m, p := openAsk(t, "indexer")
+	drainAskTicks(t, m, p)
+
+	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.toastMsg == "" || !strings.Contains(m.toastMsg, "lane") {
+		t.Errorf("toast = %q, want it to name the kind it cannot open", m.toastMsg)
+	}
+	if m.spotlight.ask == nil || !m.spotlight.open {
+		t.Error("an unopenable result must not end the ask")
+	}
 }
 
 // The user's own key stopped it. Nothing here is an error and nothing offers a
@@ -1195,7 +1249,7 @@ func TestAskRendersEveryRetrievedSource(t *testing.T) {
 
 	view := stripANSI(p.view())
 	for i := 1; i <= spotSearchK; i++ {
-		mustContain(t, view, fmt.Sprintf("[%d] ATM-%04d", i, i))
+		mustContain(t, view, fmt.Sprintf("[%d] task ATM-%04d", i, i))
 	}
 
 	for i := 0; i < spotSearchK; i++ {
@@ -1204,16 +1258,17 @@ func TestAskRendersEveryRetrievedSource(t *testing.T) {
 	if p.cursor != spotSearchK-1 {
 		t.Fatalf("cursor = %d, want the last of %d sources", p.cursor, spotSearchK)
 	}
-	mustContain(t, stripANSI(p.view()), fmt.Sprintf("▸ [%d] ATM-%04d", spotSearchK, spotSearchK))
+	mustContain(t, stripANSI(p.view()), fmt.Sprintf("▸ [%d] task ATM-%04d", spotSearchK, spotSearchK))
 }
 
-// The ask level is pushed over the same spotlight box, so tab must not resize
-// it. It used to do exactly that: at levelAsk sm.rows is empty and sm.lines is
-// nil, so the list level's content-derived helpers both fell to their floors
-// and the box narrowed AND shortened on the way in. Width must be identical;
-// height may grow (the ask block takes the terminal, because a transcript is a
-// scroll window rather than content with a length) but must never shrink.
-func TestAskBoxDoesNotShrinkWhenTheLevelIsPushed(t *testing.T) {
+// The ask level's size is derived from the terminal alone (ATM-62adc9). Its
+// predecessor rule -- "tab must not resize the box" -- kept the box from
+// NARROWING on entry, but it did so by inheriting the entry level's width,
+// which made the layout path-dependent: tab from a level with short rows gave
+// a cramped ask view on a wide terminal. The invariant is now stronger: the
+// ask box is the SAME terminal-derived size from every entry level, and it
+// takes the terminal's width rather than the entry level's.
+func TestAskBoxIsTerminalSizedFromEveryEntryLevel(t *testing.T) {
 	withInstantSpotSearch(t)
 	withAsker(t, &fakeAsker{events: []answer.Event{answer.Retrieved{}, answer.Done{}}})
 	m := newTestModel(t)
@@ -1222,20 +1277,32 @@ func TestAskBoxDoesNotShrinkWhenTheLevelIsPushed(t *testing.T) {
 	selectProject(t, m, "ATM")
 	seedTask(t, m, "ATM", "wire the indexer")
 
+	// Entry 1: from the Task group's content search.
 	m.spotlight.openSpotlight()
 	moveCursorToGroup(t, m, "Task")
 	searchQuery(t, m, "indexer")
-	listRows, listCols := overlaySize(m)
-
 	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	drainAskTicks(t, m, m.spotlight.ask)
-	askRows, askCols := overlaySize(m)
+	taskRows, taskCols := overlaySize(m)
+	m.spotlight.ask.stop()
+	m.spotlight.ask = nil
+	m.spotlight.open = false
 
-	if askCols != listCols {
-		t.Errorf("box width = %d at the ask level, %d at the list -- tab must not resize the box", askCols, listCols)
+	// Entry 2: from the root, whose rows are short labels (or one hint) --
+	// the entry that used to produce the cramped view.
+	m.spotlight.openSpotlight()
+	for _, r := range "indexer" {
+		m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	if askRows < listRows {
-		t.Errorf("box height = %d at the ask level, %d at the list -- the ask level must never be the shorter box", askRows, listRows)
+	m.spotlight.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	drainAskTicks(t, m, m.spotlight.ask)
+	rootRows, rootCols := overlaySize(m)
+
+	if taskCols != rootCols || taskRows != rootRows {
+		t.Errorf("ask box = %dx%d from the Task group but %dx%d from the root -- the size must not depend on the entry level", taskCols, taskRows, rootCols, rootRows)
+	}
+	if want := m.width - 4; taskCols != want {
+		t.Errorf("ask box width = %d, want the terminal-derived %d", taskCols, want)
 	}
 }
 
@@ -1338,7 +1405,7 @@ func TestAskRetryWithFewerSourcesRehomesTheCursor(t *testing.T) {
 	if p.cursor != 0 {
 		t.Errorf("cursor = %d, want it rehomed inside the retry's shorter source list", p.cursor)
 	}
-	mustContain(t, stripANSI(p.view()), "▸ [1] ATM-0001")
+	mustContain(t, stripANSI(p.view()), "▸ [1] task ATM-0001")
 }
 
 // The ask body's line budget is exact: the box is bodyH+6 rows, titledBoxHeight
