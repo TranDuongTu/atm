@@ -130,11 +130,11 @@ func TestResolverStarTautologyMatchesEveryTask(t *testing.T) {
 	}
 }
 
-// TestResolverStarStandaloneRestrictingToken mirrors the CLI --label '*'
-// path: a bare '*' restricting token reaches evalAtom with Name="*"
+// TestResolverStarStandaloneFilterToken mirrors the CLI --label '*'
+// path: a bare '*' filter token reaches evalAtom with Name="*"
 // (TrimPrefix("*", "<CODE>:") is still "*"). The short-circuit must fire
 // before qualify turns it into "<CODE>:*".
-func TestResolverStarStandaloneRestrictingToken(t *testing.T) {
+func TestResolverStarStandaloneFilterToken(t *testing.T) {
 	r := resolverFor()
 	task := &Task{ID: "ATM-0001", Labels: nil}
 	n, _ := core.ParseExpr("*")

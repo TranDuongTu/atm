@@ -26,7 +26,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 			codes = append(codes, p.Code)
 		}
 	}
-	restricting := core.RestrictingTokens(filters.Labels)
+	restricting := core.FilterTokens(filters.Labels)
 	db, err := s.cacheDB()
 	if err != nil {
 		return nil, err
@@ -71,9 +71,12 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 		}
 		r := newResolver(code, s.LabelList(code, ""))
 
-		// Each restricting token becomes an atom; they AND together. A token
+		// Each filter token becomes an atom; they AND together. A token
 		// naming a board resolves through its expression, which is what makes
-		// `--label ATM:next-sprint` work with no new flag.
+		// `--label ATM:next-sprint` work with no new flag. Facet tokens
+		// (ending in :*) are NOT filter tokens — they reach this path only
+		// via GroupTasksErr for faceting; the CLI rejects them on --label
+		// without --facets (ATM-8289dc).
 		var nodes []Node
 		for _, tok := range restricting {
 			nodes = append(nodes, &AtomNode{Name: strings.TrimPrefix(tok, code+":")})
@@ -130,7 +133,7 @@ func (s *Store) ListTasksErr(filters QueryFilters) ([]*Task, error) {
 	return out, nil
 }
 
-// ErrBoardNotAFacet is returned by GroupTasksErr when a wildcard token's base
+// ErrBoardNotAFacet is returned by GroupTasksErr when a facet token's base
 // names a board: a board has no members, so faceting by one is meaningless.
 var ErrBoardNotAFacet = errors.New("a board has no members and cannot be a facet")
 
