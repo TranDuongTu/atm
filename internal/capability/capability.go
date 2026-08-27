@@ -62,6 +62,11 @@ const (
 type Cell struct {
 	Text string
 	Tone Tone
+	// Rank is the capability's ordinal for how soon a reader should look at
+	// this state: lower sorts first. 0 means unranked — after all ranked
+	// cells, before nil cells. Computed at Annotate time, never persisted,
+	// and never compared across capabilities (sort is per-capability).
+	Rank int
 }
 
 // Capability is one registered capability command: it owns its label slice,
