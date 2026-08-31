@@ -71,29 +71,44 @@ func TestGroupedChildNestsUnderParent(t *testing.T) {
 	}
 }
 
+// TestGroupedBestRowLiftsStaleParent exercises bestRow's freshness
+// comparator directly: rows are built by hand with explicit UpdatedAt
+// values (the store round-trip truncates UpdatedAt to whole seconds —
+// internal/store/cache.go's RFC3339 encoding has no sub-second field — so
+// seeding through the store and racing that resolution with sleeps cannot
+// reliably separate timestamps within one test). applyGrouping is called
+// directly over the hand-built rows, mirroring the fixture pattern at
+// tasks_columns_test.go:140-148 (sortFixtureRows).
 func TestGroupedBestRowLiftsStaleParent(t *testing.T) {
 	m := newLanesTestModel(t)
 	setupLanesProject(t, m, true)
-
-	// Create in sequence, with a sleep between each so distinct wall-clock
-	// UpdatedAt values are guaranteed regardless of the store's timestamp
-	// resolution: P oldest, then O (orphan, middle age), then C (newest).
-	parent := seedTask(t, m, "ATM", "stale parent", "ATM:scrum:task")
-	time.Sleep(2 * time.Millisecond)
-	orphan := seedTask(t, m, "ATM", "orphan", "ATM:scrum:task")
-	time.Sleep(2 * time.Millisecond)
-	child := seedTask(t, m, "ATM", "fresh child", "ATM:scrum:task")
-	linkPartOf(t, m, child.ID, parent.ID)
-
 	m.refreshAll()
-	m.lanes.selectDefault()
+	m.lanes.selectDefault() // scopes annReg + capability.current ("scrum")
 	if m.tasks.sortMode != sortUpdatedDesc {
 		t.Fatalf("precondition: default sort must be updated-desc, got %v", m.tasks.sortMode)
 	}
-	m.tasks.grouped = true
-	m.tasks.refresh()
 
-	ids := rowIDs(m.tasks.rows)
+	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	parent := &core.Task{ID: "ATM-parent", Title: "stale parent", UpdatedAt: base}
+	orphan := &core.Task{ID: "ATM-orphan", Title: "orphan", UpdatedAt: base.Add(time.Hour)}
+	child := &core.Task{
+		ID: "ATM-child", Title: "fresh child", UpdatedAt: base.Add(2 * time.Hour),
+		Meta: map[string]string{"scrum": `{"part_of":"ATM-parent"}`},
+	}
+	rows := []taskRow{
+		{id: parent.ID, title: parent.Title, task: parent},
+		{id: orphan.ID, title: orphan.Title, task: orphan},
+		{id: child.ID, title: child.Title, task: child},
+	}
+
+	got := m.tasks.applyGrouping(m.tasks.applySort(rows))
+
+	// The group's best row is the fresh child (newest), so it outranks the
+	// orphan even though the parent itself is the oldest of the three. If
+	// bestRow degenerated to "always the node's own row" (ignoring
+	// children), the group's best would be the stale parent and the orphan
+	// would sort ahead of it — this assertion would then fail.
+	ids := rowIDs(got)
 	want := []string{parent.ID, child.ID, orphan.ID}
 	if len(ids) != len(want) {
 		t.Fatalf("rows = %v, want ids matching %v", ids, want)
@@ -158,39 +173,50 @@ func TestGroupedOutOfSetParentSynthesized(t *testing.T) {
 	}
 }
 
+// TestGroupedCycleDegradesToFlat builds its two rows by hand rather than
+// seeding through the store: which of the pair is "first-encountered" would
+// otherwise ride on store/creation order, which the store's whole-second
+// UpdatedAt truncation (internal/store/cache.go) can leave ambiguous. The
+// assertions below therefore avoid depending on which member comes first —
+// they only require that the cycle degrades safely: no row lost, no hang,
+// and exactly one member anchors the tree at depth 0 (the other may nest
+// beneath it, per the controller's ruling on this test).
 func TestGroupedCycleDegradesToFlat(t *testing.T) {
 	m := newLanesTestModel(t)
 	setupLanesProject(t, m, true)
-
-	a := seedTask(t, m, "ATM", "cycle a", "ATM:scrum:task")
-	b := seedTask(t, m, "ATM", "cycle b", "ATM:scrum:task")
-	linkPartOf(t, m, a.ID, b.ID)
-	linkPartOf(t, m, b.ID, a.ID)
-
 	m.refreshAll()
-	m.lanes.selectDefault()
-	m.tasks.grouped = true
+	m.lanes.selectDefault() // scopes annReg + capability.current ("scrum")
 
-	done := make(chan struct{})
-	go func() {
-		m.tasks.refresh()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("refresh() did not terminate — cycle caused a hang")
+	a := &core.Task{ID: "ATM-a", Title: "cycle a", Meta: map[string]string{"scrum": `{"part_of":"ATM-b"}`}}
+	b := &core.Task{ID: "ATM-b", Title: "cycle b", Meta: map[string]string{"scrum": `{"part_of":"ATM-a"}`}}
+	rows := []taskRow{
+		{id: a.ID, title: a.Title, task: a},
+		{id: b.ID, title: b.Title, task: b},
 	}
 
-	ids := rowIDs(m.tasks.rows)
+	done := make(chan []taskRow, 1)
+	go func() {
+		done <- m.tasks.applyGrouping(m.tasks.applySort(rows))
+	}()
+	var got []taskRow
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("applyGrouping did not terminate — cycle caused a hang")
+	}
+
+	ids := rowIDs(got)
 	if len(ids) != 2 {
 		t.Fatalf("rows = %v, want both cycle members present", ids)
 	}
-	// The first-encountered cycle member (store order: a before b) sits at
-	// depth 0. The controller ruling: the partner MAY nest beneath it rather
-	// than also rendering at depth 0.
-	if got := rowByID(t, m, a.ID).depth; got != 0 {
-		t.Fatalf("first cycle member (a) depth = %d, want 0", got)
+	depth0 := 0
+	for _, r := range got {
+		if r.depth == 0 {
+			depth0++
+		}
+	}
+	if depth0 != 1 {
+		t.Fatalf("want exactly one cycle member at depth 0, got %d: %+v", depth0, got)
 	}
 }
 
