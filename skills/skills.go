@@ -84,6 +84,9 @@ func mustLoadChecklistSeeds() []ChecklistSeed {
 		if err != nil {
 			panic(fmt.Sprintf("skills: %v", err))
 		}
+		if s.Origin == "" {
+			s.Origin = "shipped:atm"
+		}
 		out = append(out, s)
 	}
 	return out
