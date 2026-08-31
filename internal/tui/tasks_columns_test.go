@@ -143,6 +143,29 @@ func sortFixtureRows() []taskRow {
 	}
 }
 
+// TestApplySortIsStableAcrossEqualTimestamps pins the tie-break the UPDATED
+// sorts have always had and must keep: tasks written in the same second share
+// a persisted timestamp, so rows the comparator cannot separate must come out
+// in the store's order rather than in whatever order the algorithm happens to
+// leave them.
+func TestApplySortIsStableAcrossEqualTimestamps(t *testing.T) {
+	m := newColumnsTestModel(t)
+	same := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	var in []taskRow
+	for _, id := range []string{"ATM-a", "ATM-b", "ATM-c", "ATM-d"} {
+		in = append(in, taskRow{id: id, title: id, task: &core.Task{ID: id, Title: id, UpdatedAt: same}})
+	}
+
+	for _, mode := range []sortMode{sortUpdatedDesc, sortUpdatedAsc} {
+		m.tasks.sortMode = mode
+		for i, got := range m.tasks.applySort(in) {
+			if got.id != in[i].id {
+				t.Fatalf("%v: row[%d] = %s, want %s (equal timestamps must keep store order)", mode, i, got.id, in[i].id)
+			}
+		}
+	}
+}
+
 // TestApplySortMovesWholeRowsWithTheirCells pins the restructure that the
 // ANNOTATE sort needs: refresh builds rows with their cells attached in store
 // order, and applySort reorders ROWS, so a cell travels with its row. Sorting

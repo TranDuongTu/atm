@@ -168,23 +168,20 @@ func (t *tasksModel) applySort(rows []taskRow) []taskRow {
 	copy(out, rows)
 	switch t.sortMode {
 	case sortUpdatedDesc:
-		// stable: most recent first
-		// Use insertion-stable by index after a manual compare.
-		for i := 1; i < len(out); i++ {
-			for j := i; j > 0; j-- {
-				if out[j].task.UpdatedAt.After(out[j-1].task.UpdatedAt) {
-					out[j], out[j-1] = out[j-1], out[j]
-				}
-			}
-		}
+		// Most recent first. STABLE on purpose: tasks written in the same
+		// second share a timestamp, and rows the comparator cannot separate
+		// must keep the store's order. The hand-rolled insertion sort this
+		// replaced was stable too, but it never broke out of its inner loop,
+		// so it paid the full n^2 comparisons on every refresh — and once the
+		// sort moved from []*Task to []taskRow each of those swaps moved an
+		// 88-byte row instead of an 8-byte pointer.
+		sort.SliceStable(out, func(i, j int) bool {
+			return out[i].task.UpdatedAt.After(out[j].task.UpdatedAt)
+		})
 	case sortUpdatedAsc:
-		for i := 1; i < len(out); i++ {
-			for j := i; j > 0; j-- {
-				if out[j].task.UpdatedAt.Before(out[j-1].task.UpdatedAt) {
-					out[j], out[j-1] = out[j-1], out[j]
-				}
-			}
-		}
+		sort.SliceStable(out, func(i, j int) bool {
+			return out[i].task.UpdatedAt.Before(out[j].task.UpdatedAt)
+		})
 	case sortIDAsc:
 		// store already returns id-asc; no-op
 	case sortTitleAsc:
