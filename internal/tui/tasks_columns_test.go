@@ -57,6 +57,10 @@ func TestTaskListSortIndicatorSitsOnTheSortedColumn(t *testing.T) {
 		t.Fatalf("after three [s] header = %q, want the indicator on TITLE", got)
 	}
 	m.tasks.handleKey(keyMsg("s"))
+	if got := columnHeader(t, m); !strings.Contains(got, "ANNOTATE ↑") {
+		t.Fatalf("after four [s] header = %q, want the indicator on ANNOTATE", got)
+	}
+	m.tasks.handleKey(keyMsg("s"))
 	if got := columnHeader(t, m); !strings.Contains(got, "UPDATED ↓") {
 		t.Fatalf("the sort cycle did not return to updated-desc: %q", got)
 	}
@@ -196,4 +200,87 @@ func TestTaskListIDSortPreservesStoreOrder(t *testing.T) {
 			t.Fatalf("row[%d] = %s, want %s (store order must survive id-asc)", i, m.tasks.rows[i].id, tk.ID)
 		}
 	}
+}
+
+// annotateSortRow builds a row the way refresh does — cell attached, task
+// carrying the timestamp the tie-break reads.
+func annotateSortRow(id string, cell *capability.Cell, at time.Time) taskRow {
+	return taskRow{id: id, title: id, cell: cell, task: &core.Task{ID: id, Title: id, UpdatedAt: at}}
+}
+
+// The ANNOTATE sort's three groups, in order: ranked cells by Rank ascending,
+// then unranked cells (Rank 0), then rows the capability said nothing about.
+func TestApplySortAnnotateOrdersRankedThenUnrankedThenNil(t *testing.T) {
+	m := newColumnsTestModel(t)
+	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	in := []taskRow{
+		annotateSortRow("ATM-nil", nil, at),
+		annotateSortRow("ATM-unranked", &capability.Cell{Text: "unranked"}, at),
+		annotateSortRow("ATM-rank3", &capability.Cell{Text: "review", Rank: 3}, at),
+		annotateSortRow("ATM-rank1", &capability.Cell{Text: "unreadable", Rank: 1}, at),
+	}
+
+	m.tasks.sortMode = sortAnnotate
+	got := m.tasks.applySort(in)
+
+	want := []string{"ATM-rank1", "ATM-rank3", "ATM-unranked", "ATM-nil"}
+	for i, id := range want {
+		if got[i].id != id {
+			t.Fatalf("annotate sort row[%d] = %s, want %s (order: %v)", i, got[i].id, id, rowIDs(got))
+		}
+	}
+}
+
+// Within a group the annotate sort falls back to most-recently-updated first,
+// so rows the rank cannot separate still read newest-first.
+func TestApplySortAnnotateTieBreaksOnUpdatedDesc(t *testing.T) {
+	m := newColumnsTestModel(t)
+	old := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	recent := old.Add(time.Hour)
+	in := []taskRow{
+		annotateSortRow("ATM-ranked-old", &capability.Cell{Text: "review", Rank: 2}, old),
+		annotateSortRow("ATM-ranked-new", &capability.Cell{Text: "review", Rank: 2}, recent),
+		annotateSortRow("ATM-unranked-old", &capability.Cell{Text: "unranked"}, old),
+		annotateSortRow("ATM-unranked-new", &capability.Cell{Text: "unranked"}, recent),
+		annotateSortRow("ATM-nil-old", nil, old),
+		annotateSortRow("ATM-nil-new", nil, recent),
+	}
+
+	m.tasks.sortMode = sortAnnotate
+	got := m.tasks.applySort(in)
+
+	want := []string{
+		"ATM-ranked-new", "ATM-ranked-old",
+		"ATM-unranked-new", "ATM-unranked-old",
+		"ATM-nil-new", "ATM-nil-old",
+	}
+	for i, id := range want {
+		if got[i].id != id {
+			t.Fatalf("annotate tie-break row[%d] = %s, want %s (order: %v)", i, got[i].id, id, rowIDs(got))
+		}
+	}
+}
+
+// The [s] cycle must actually reach the new mode: a mode nothing can select
+// is a mode that does not exist.
+func TestTaskSortCycleReachesAnnotate(t *testing.T) {
+	m := newColumnsTestModel(t)
+	for i := 0; i < sortModeCount; i++ {
+		if m.tasks.sortMode == sortAnnotate {
+			if got := m.tasks.sortMode.String(); got != "annotate" {
+				t.Fatalf("sortAnnotate.String() = %q, want %q", got, "annotate")
+			}
+			return
+		}
+		m.tasks.handleKey(keyMsg("s"))
+	}
+	t.Fatalf("[s] never reached sortAnnotate in %d presses (mode=%v)", sortModeCount, m.tasks.sortMode)
+}
+
+func rowIDs(rows []taskRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.id)
+	}
+	return out
 }

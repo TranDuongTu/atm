@@ -299,6 +299,8 @@ func (t *tasksModel) sortIndicator(col string) string {
 		want = "ID"
 	case sortTitleAsc:
 		want = "TITLE"
+	case sortAnnotate:
+		want = "ANNOTATE"
 	}
 	if col != want {
 		return ""
@@ -347,7 +349,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) string {
 	idW, metaW, updatedW, titleW := t.taskColumnWidths()
 	var header string
 	if metaW > 0 {
-		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), metaW, t.metaColumnName(), updatedW, t.columnHead("UPDATED"))
+		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), metaW, t.columnHead(t.metaColumnName()), updatedW, t.columnHead("UPDATED"))
 	} else {
 		header = fmt.Sprintf(" %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), updatedW, t.columnHead("UPDATED"))
 	}

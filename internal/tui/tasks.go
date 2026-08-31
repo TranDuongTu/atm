@@ -54,12 +54,13 @@ const (
 	sortUpdatedAsc
 	sortIDAsc
 	sortTitleAsc
+	sortAnnotate
 )
 
 // sortModeCount bounds the [s] cycle. Deriving the cycle from this constant
 // rather than a literal is what keeps adding a mode from silently making the
 // last one unreachable.
-const sortModeCount = 4
+const sortModeCount = 5
 
 type taskFocusMode int
 
@@ -90,6 +91,8 @@ func (s sortMode) String() string {
 		return "id-asc"
 	case sortTitleAsc:
 		return "title-asc"
+	case sortAnnotate:
+		return "annotate"
 	}
 	return "?"
 }
@@ -180,8 +183,44 @@ func (t *tasksModel) applySort(rows []taskRow) []taskRow {
 		sort.SliceStable(out, func(i, j int) bool {
 			return strings.ToLower(out[i].title) < strings.ToLower(out[j].title)
 		})
+	case sortAnnotate:
+		sort.SliceStable(out, func(i, j int) bool {
+			gi, gj := annotateGroup(out[i].cell), annotateGroup(out[j].cell)
+			if gi != gj {
+				return gi < gj
+			}
+			if gi == annotateGroupRanked && out[i].cell.Rank != out[j].cell.Rank {
+				return out[i].cell.Rank < out[j].cell.Rank
+			}
+			// Rank cannot separate them: fall back to the list's own default
+			// so a group still reads newest-first rather than arbitrarily.
+			return out[i].task.UpdatedAt.After(out[j].task.UpdatedAt)
+		})
 	}
 	return out
+}
+
+// The ANNOTATE sort's three groups. Rank is only meaningful inside the
+// ranked group: an unranked cell (Rank 0) still says something about the
+// task, while a nil cell means the capability had nothing to say at all.
+const (
+	annotateGroupRanked = iota
+	annotateGroupUnranked
+	annotateGroupNone
+)
+
+// annotateGroup places a row's cell in the sort's group order. Ranks are
+// per-capability, so this never compares a rank to anything but a sibling
+// rank from the same annotator.
+func annotateGroup(c *capability.Cell) int {
+	switch {
+	case c == nil:
+		return annotateGroupNone
+	case c.Rank == 0:
+		return annotateGroupUnranked
+	default:
+		return annotateGroupRanked
+	}
 }
 
 // setFocus applies a complete Tasks-pane view state (focus + filter) in one
