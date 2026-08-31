@@ -3,25 +3,72 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 // ChecklistMetaKey is the Task.Meta key the checklist capability owns.
 const ChecklistMetaKey = "checklist"
 
-// ChecklistLabel is the stored label a checklist task for a persona carries.
-func ChecklistLabel(code, persona string) string { return code + ":checklist:" + persona }
+// ChecklistLabel is the stored label a v2 checklist task carries: bare and
+// name-keyed — the record's identity lives in the payload, not the label.
+func ChecklistLabel(code string) string { return code + ":checklist" }
 
-// ChecklistRecord is the ledger record decoded from a checklist task.
-// (persona, name) is the unique key within a project; Purpose is the one-line
-// selection surface `list` prints; Steps are the ordered prose imperatives.
+// ChecklistPersonaLabelPrefix is the v1 label prefix (<code>:checklist:<persona>).
+// v1 records stay readable under it and are relabelled on first edit.
+func ChecklistPersonaLabelPrefix(code string) string { return code + ":checklist:" }
+
+// ChecklistStep is one node of the recursive step tree.
+type ChecklistStep struct {
+	Text     string          `json:"text"`
+	Children []ChecklistStep `json:"children,omitempty"`
+}
+
+// ChecklistRequires declares what a checklist needs to be runnable. Unmet
+// requirements warn, never block (spec: DispatchV2 decision 4).
+type ChecklistRequires struct {
+	Capabilities []string `json:"capabilities,omitempty"`
+	Channels     []string `json:"channels,omitempty"`
+}
+
+// ChecklistRecord is the v2 ledger record decoded from a checklist task.
+// Name is the unique key within a project; Suits is a default-bind hint, not
+// ownership; Origin is reset provenance (user | shipped:atm | shipped:<cap>).
 // The json tags are the agent endpoint contract of `atm checklist --output json`.
 type ChecklistRecord struct {
-	TaskID  string   `json:"task_id"`
-	Persona string   `json:"persona"`
-	Name    string   `json:"name"`
-	Purpose string   `json:"purpose,omitempty"`
-	Steps   []string `json:"steps"`
+	TaskID   string            `json:"task_id"`
+	Name     string            `json:"name"`
+	Purpose  string            `json:"purpose,omitempty"`
+	Steps    []ChecklistStep   `json:"steps"`
+	Suits    []string          `json:"suits,omitempty"`
+	Requires ChecklistRequires `json:"requires,omitzero"`
+	Origin   string            `json:"origin"`
+}
+
+// ChecklistEdit is the partial-update argument for EditChecklist.
+// nil pointer / nil slice = unchanged; non-nil empty Suits = clear.
+type ChecklistEdit struct {
+	Purpose  *string
+	Steps    []ChecklistStep
+	Suits    []string
+	Requires *ChecklistRequires
+}
+
+var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
+
+// ValidChecklistOrigin reports whether origin is a legal provenance value.
+func ValidChecklistOrigin(o string) bool {
+	return o == "user" || o == "shipped:atm" || checklistOriginRe.MatchString(o)
+}
+
+// ChecklistStepCount is the total node count of the tree — the number every
+// surface that says "N steps" uses.
+func ChecklistStepCount(steps []ChecklistStep) int {
+	n := 0
+	for _, s := range steps {
+		n += 1 + ChecklistStepCount(s.Children)
+	}
+	return n
 }
 
 // DecodeChecklistPayload parses a payload string; "" is a valid empty payload.
@@ -38,7 +85,7 @@ func DecodeChecklistPayload(s string) (map[string]any, error) {
 	return m, nil
 }
 
-// EncodeChecklistPayload serializes, stamping v:1. Unknown fields survive
+// EncodeChecklistPayload serializes, stamping v:2. Unknown fields survive
 // because the map is the source of truth; the argument is copied, never mutated.
 func EncodeChecklistPayload(m map[string]any) (string, error) {
 	out := make(map[string]any, len(m)+1)
@@ -50,7 +97,7 @@ func EncodeChecklistPayload(m map[string]any) (string, error) {
 	if len(out) == 0 {
 		return "", nil
 	}
-	out["v"] = 1
+	out["v"] = 2
 	b, err := json.Marshal(out)
 	if err != nil {
 		return "", err
@@ -58,51 +105,166 @@ func EncodeChecklistPayload(m map[string]any) (string, error) {
 	return string(b), nil
 }
 
-// ChecklistPayloadFrom builds the payload map for a record.
+func checklistStepsToAny(steps []ChecklistStep) []any {
+	out := make([]any, len(steps))
+	for i, s := range steps {
+		m := map[string]any{"text": s.Text}
+		if len(s.Children) > 0 {
+			m["children"] = checklistStepsToAny(s.Children)
+		}
+		out[i] = m
+	}
+	return out
+}
+
+// checklistStepsFromAny tolerates BOTH payload generations per element: a
+// plain string (v1 flat step) becomes a leaf; a map decodes text + children.
+func checklistStepsFromAny(v any) []ChecklistStep {
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []ChecklistStep
+	for _, e := range raw {
+		switch n := e.(type) {
+		case string:
+			out = append(out, ChecklistStep{Text: n})
+		case map[string]any:
+			out = append(out, ChecklistStep{Text: checklistStr(n["text"]), Children: checklistStepsFromAny(n["children"])})
+		}
+	}
+	return out
+}
+
+func checklistStrsToAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
+func checklistStrsFromAny(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, e := range raw {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ChecklistPayloadFrom builds the v2 payload map for a record.
 func ChecklistPayloadFrom(rec ChecklistRecord) map[string]any {
-	m := map[string]any{"persona": rec.Persona, "name": rec.Name}
+	m := map[string]any{"name": rec.Name, "origin": rec.Origin}
 	if rec.Purpose != "" {
 		m["purpose"] = rec.Purpose
 	}
 	if len(rec.Steps) > 0 {
-		steps := make([]any, len(rec.Steps))
-		for i, s := range rec.Steps {
-			steps[i] = s
+		m["steps"] = checklistStepsToAny(rec.Steps)
+	}
+	if len(rec.Suits) > 0 {
+		m["suits"] = checklistStrsToAny(rec.Suits)
+	}
+	if len(rec.Requires.Capabilities) > 0 || len(rec.Requires.Channels) > 0 {
+		req := map[string]any{}
+		if len(rec.Requires.Capabilities) > 0 {
+			req["capabilities"] = checklistStrsToAny(rec.Requires.Capabilities)
 		}
-		m["steps"] = steps
+		if len(rec.Requires.Channels) > 0 {
+			req["channels"] = checklistStrsToAny(rec.Requires.Channels)
+		}
+		m["requires"] = req
 	}
 	return m
 }
 
+// MigrateChecklistMapV2 returns a COPY of m reshaped to v2: persona (argument
+// wins, the payload's own "persona" key is the fallback) becomes suits, flat
+// string steps become node maps, origin defaults to "user", the "persona" key
+// is dropped, and every other key is carried over verbatim.
+func MigrateChecklistMapV2(m map[string]any, persona string) map[string]any {
+	out := make(map[string]any, len(m)+2)
+	for k, v := range m {
+		if k != "persona" {
+			out[k] = v
+		}
+	}
+	if persona == "" {
+		persona = checklistStr(m["persona"])
+	}
+	if persona != "" {
+		out["suits"] = []any{persona}
+	}
+	if steps := checklistStepsFromAny(m["steps"]); len(steps) > 0 {
+		out["steps"] = checklistStepsToAny(steps)
+	}
+	if checklistStr(out["origin"]) == "" {
+		out["origin"] = "user"
+	}
+	return out
+}
+
 func checklistStr(v any) string { s, _ := v.(string); return s }
 
-// ChecklistFromTask decodes a checklist task. (nil, nil) when the task
-// carries no checklist:<persona> label; an error when it does but the payload
-// is unreadable.
+// ChecklistFromTask decodes a checklist task of either generation. (nil, nil)
+// when the task carries no checklist label; an error when it does but the
+// payload is unreadable.
 func ChecklistFromTask(code string, t Task) (*ChecklistRecord, error) {
-	prefix := code + ":checklist:"
-	persona := ""
+	bare := ChecklistLabel(code)
+	prefix := ChecklistPersonaLabelPrefix(code)
+	isV2Label, persona := false, ""
 	for _, l := range t.Labels {
+		if l == bare {
+			isV2Label = true
+			break
+		}
 		if strings.HasPrefix(l, prefix) {
 			persona = strings.TrimPrefix(l, prefix)
 			break
 		}
 	}
-	if persona == "" {
+	if !isV2Label && persona == "" {
 		return nil, nil
 	}
 	m, err := DecodeChecklistPayload(t.Meta[ChecklistMetaKey])
 	if err != nil {
 		return nil, fmt.Errorf("task %s: %w", t.ID, err)
 	}
-	rec := &ChecklistRecord{TaskID: t.ID, Persona: persona, Name: checklistStr(m["name"]), Purpose: checklistStr(m["purpose"])}
+	rec := &ChecklistRecord{TaskID: t.ID, Name: checklistStr(m["name"]), Purpose: checklistStr(m["purpose"])}
+	if v, _ := m["v"].(float64); v == 2 {
+		if rec.Name == "" {
+			rec.Name = t.Title
+		}
+		rec.Steps = checklistStepsFromAny(m["steps"])
+		rec.Suits = checklistStrsFromAny(m["suits"])
+		if req, ok := m["requires"].(map[string]any); ok {
+			rec.Requires = ChecklistRequires{
+				Capabilities: checklistStrsFromAny(req["capabilities"]),
+				Channels:     checklistStrsFromAny(req["channels"]),
+			}
+		}
+		rec.Origin = checklistStr(m["origin"])
+		if rec.Origin == "" {
+			rec.Origin = "user"
+		}
+		return rec, nil
+	}
+	// v1: persona-keyed record read as v2 (spec §4 migration mapping).
+	if persona == "" {
+		persona = checklistStr(m["persona"])
+	}
 	if rec.Name == "" {
 		rec.Name = strings.TrimPrefix(t.Title, persona+"/")
 	}
-	if raw, ok := m["steps"].([]any); ok {
-		for _, s := range raw {
-			rec.Steps = append(rec.Steps, checklistStr(s))
-		}
+	rec.Steps = checklistStepsFromAny(m["steps"])
+	if persona != "" {
+		rec.Suits = []string{persona}
 	}
+	rec.Origin = "user"
 	return rec, nil
 }
