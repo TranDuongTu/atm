@@ -79,7 +79,7 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		// through to a global handler.
 	case "s":
 		// cycle sort
-		t.sortMode = (t.sortMode + 1) % sortModeCount
+		t.sortMode = (t.sortMode + 1) % sortMode(sortModeCount)
 		t.refresh()
 	case "a":
 		if t.m.projectScope == "" {
@@ -288,22 +288,11 @@ func (t *tasksModel) metaColumnName() string {
 // acts on — a sort caption elsewhere makes the user map a mode name onto a
 // column every time they read it.
 func (t *tasksModel) sortIndicator(col string) string {
-	want := ""
-	arrow := "↑"
-	switch t.sortMode {
-	case sortUpdatedDesc:
-		want, arrow = "UPDATED", "↓"
-	case sortUpdatedAsc:
-		want = "UPDATED"
-	case sortIDAsc:
-		want = "ID"
-	case sortTitleAsc:
-		want = "TITLE"
-	}
-	if col != want {
+	spec := t.spec()
+	if col != spec.column {
 		return ""
 	}
-	return " " + arrow
+	return " " + spec.arrow
 }
 
 // columnHead is a column header with its sort indicator attached.
@@ -347,7 +336,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) string {
 	idW, metaW, updatedW, titleW := t.taskColumnWidths()
 	var header string
 	if metaW > 0 {
-		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), metaW, t.metaColumnName(), updatedW, t.columnHead("UPDATED"))
+		header = fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), metaW, t.columnHead(t.metaColumnName()), updatedW, t.columnHead("UPDATED"))
 	} else {
 		header = fmt.Sprintf(" %-*s %-*s %*s", idW, t.columnHead("ID"), titleW, t.columnHead("TITLE"), updatedW, t.columnHead("UPDATED"))
 	}

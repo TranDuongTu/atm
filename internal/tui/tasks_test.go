@@ -154,8 +154,11 @@ func TestCycleSortKeyAdvancesAndWraps(t *testing.T) {
 		t.Fatalf("s did not advance sortMode from %v", afterOne)
 	}
 
-	m.tasks.handleKey(keyMsg("s"))
-	m.tasks.handleKey(keyMsg("s"))
+	// The rest of the cycle is derived from sortModeCount, so adding a mode
+	// lengthens the wrap this asserts instead of breaking the test.
+	for i := 2; i < sortModeCount; i++ {
+		m.tasks.handleKey(keyMsg("s"))
+	}
 	if m.tasks.sortMode != start {
 		t.Errorf("sortMode after %d presses = %v, want wrap back to %v", sortModeCount, m.tasks.sortMode, start)
 	}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,10 @@ func TestTaskListSortIndicatorSitsOnTheSortedColumn(t *testing.T) {
 	m.tasks.handleKey(keyMsg("s"))
 	if got := columnHeader(t, m); !strings.Contains(got, "TITLE ↑") {
 		t.Fatalf("after three [s] header = %q, want the indicator on TITLE", got)
+	}
+	m.tasks.handleKey(keyMsg("s"))
+	if got := columnHeader(t, m); !strings.Contains(got, "ANNOTATE ↑") {
+		t.Fatalf("after four [s] header = %q, want the indicator on ANNOTATE", got)
 	}
 	m.tasks.handleKey(keyMsg("s"))
 	if got := columnHeader(t, m); !strings.Contains(got, "UPDATED ↓") {
@@ -177,23 +182,135 @@ func TestApplySortMovesWholeRowsWithTheirCells(t *testing.T) {
 	}
 }
 
-// id-asc is a no-op that leans on the store's own order; the restructure must
-// not disturb it.
-func TestTaskListIDSortPreservesStoreOrder(t *testing.T) {
+// id-asc must order by the ID COLUMN its arrow points at. It used to be a
+// no-op leaning on the store's own order, which was only ever id-asc under
+// v1 (the alias was a zero-padded creation counter); a v2 alias is a content
+// hash and ListTasks deliberately orders v2 projects by creation ordinal
+// instead (internal/store/query.go), so the no-op sorted nothing at all.
+// The input order is a real one: a v2 store hands back creation order, and
+// these hashes were minted in exactly this sequence by an earlier run. Built
+// as literal rows rather than seeded through the store so the fixture cannot
+// arrive already sorted by hash luck and quietly prove nothing.
+func TestTaskListIDSortOrdersByID(t *testing.T) {
 	m := newColumnsTestModel(t)
-	m.tasks.sortMode = sortIDAsc
-	m.tasks.refresh()
+	inCreationOrder := []string{"ATM-418130", "ATM-ac1b2e", "ATM-f9addb", "ATM-d8224e"}
+	if sort.StringsAreSorted(inCreationOrder) {
+		t.Fatalf("fixture %v is already ID-ordered; it cannot prove the comparator ran", inCreationOrder)
+	}
+	var in []taskRow
+	for _, id := range inCreationOrder {
+		in = append(in, annotateSortRow(id, nil, time.Time{}))
+	}
 
-	want := m.store.ListTasks(core.QueryFilters{Project: "ATM", Labels: core.ParseFilter(m.tasks.filter)})
-	if len(want) < 2 {
-		t.Fatalf("fixture has %d tasks in the lane; need at least 2 to pin an order", len(want))
-	}
-	if len(m.tasks.rows) != len(want) {
-		t.Fatalf("rows = %d, want %d", len(m.tasks.rows), len(want))
-	}
-	for i, tk := range want {
-		if m.tasks.rows[i].id != tk.ID {
-			t.Fatalf("row[%d] = %s, want %s (store order must survive id-asc)", i, m.tasks.rows[i].id, tk.ID)
+	m.tasks.sortMode = sortIDAsc
+	got := rowIDs(m.tasks.applySort(in))
+
+	want := []string{"ATM-418130", "ATM-ac1b2e", "ATM-d8224e", "ATM-f9addb"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("id-asc row[%d] = %s, want %s (order: %v)", i, got[i], want[i], got)
 		}
 	}
+}
+
+// The mode table is the enforcement the two hand-coordinated switches never
+// had: a mode that sorted by one column while pointing its arrow at another
+// used to compile and pass everything.
+func TestEverySortModeIsCompleteAndNamesARealColumn(t *testing.T) {
+	columns := map[string]bool{"ID": true, "TITLE": true, "ANNOTATE": true, "UPDATED": true}
+	for mode, spec := range sortSpecs {
+		if spec.name == "" || spec.column == "" || spec.arrow == "" || spec.less == nil {
+			t.Errorf("sortSpecs[%d] is incomplete: %+v", mode, spec)
+			continue
+		}
+		if !columns[spec.column] {
+			t.Errorf("sortSpecs[%d] (%s) sorts by %q, which is not a column the list renders", mode, spec.name, spec.column)
+		}
+		if spec.arrow != "↑" && spec.arrow != "↓" {
+			t.Errorf("sortSpecs[%d] (%s) arrow = %q, want an up or down arrow", mode, spec.name, spec.arrow)
+		}
+	}
+}
+
+// annotateSortRow builds a row the way refresh does — cell attached, task
+// carrying the timestamp the tie-break reads.
+func annotateSortRow(id string, cell *capability.Cell, at time.Time) taskRow {
+	return taskRow{id: id, title: id, cell: cell, task: &core.Task{ID: id, Title: id, UpdatedAt: at}}
+}
+
+// The ANNOTATE sort's three groups, in order: ranked cells by Rank ascending,
+// then unranked cells (Rank 0), then rows the capability said nothing about.
+func TestApplySortAnnotateOrdersRankedThenUnrankedThenNil(t *testing.T) {
+	m := newColumnsTestModel(t)
+	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	in := []taskRow{
+		annotateSortRow("ATM-nil", nil, at),
+		annotateSortRow("ATM-unranked", &capability.Cell{Text: "unranked"}, at),
+		annotateSortRow("ATM-rank3", &capability.Cell{Text: "review", Rank: 3}, at),
+		annotateSortRow("ATM-rank1", &capability.Cell{Text: "unreadable", Rank: 1}, at),
+	}
+
+	m.tasks.sortMode = sortAnnotate
+	got := m.tasks.applySort(in)
+
+	want := []string{"ATM-rank1", "ATM-rank3", "ATM-unranked", "ATM-nil"}
+	for i, id := range want {
+		if got[i].id != id {
+			t.Fatalf("annotate sort row[%d] = %s, want %s (order: %v)", i, got[i].id, id, rowIDs(got))
+		}
+	}
+}
+
+// Within a group the annotate sort falls back to most-recently-updated first,
+// so rows the rank cannot separate still read newest-first.
+func TestApplySortAnnotateTieBreaksOnUpdatedDesc(t *testing.T) {
+	m := newColumnsTestModel(t)
+	old := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	recent := old.Add(time.Hour)
+	in := []taskRow{
+		annotateSortRow("ATM-ranked-old", &capability.Cell{Text: "review", Rank: 2}, old),
+		annotateSortRow("ATM-ranked-new", &capability.Cell{Text: "review", Rank: 2}, recent),
+		annotateSortRow("ATM-unranked-old", &capability.Cell{Text: "unranked"}, old),
+		annotateSortRow("ATM-unranked-new", &capability.Cell{Text: "unranked"}, recent),
+		annotateSortRow("ATM-nil-old", nil, old),
+		annotateSortRow("ATM-nil-new", nil, recent),
+	}
+
+	m.tasks.sortMode = sortAnnotate
+	got := m.tasks.applySort(in)
+
+	want := []string{
+		"ATM-ranked-new", "ATM-ranked-old",
+		"ATM-unranked-new", "ATM-unranked-old",
+		"ATM-nil-new", "ATM-nil-old",
+	}
+	for i, id := range want {
+		if got[i].id != id {
+			t.Fatalf("annotate tie-break row[%d] = %s, want %s (order: %v)", i, got[i].id, id, rowIDs(got))
+		}
+	}
+}
+
+// The [s] cycle must actually reach the new mode: a mode nothing can select
+// is a mode that does not exist.
+func TestTaskSortCycleReachesAnnotate(t *testing.T) {
+	m := newColumnsTestModel(t)
+	for i := 0; i < sortModeCount; i++ {
+		if m.tasks.sortMode == sortAnnotate {
+			if got := m.tasks.sortMode.String(); got != "annotate" {
+				t.Fatalf("sortAnnotate.String() = %q, want %q", got, "annotate")
+			}
+			return
+		}
+		m.tasks.handleKey(keyMsg("s"))
+	}
+	t.Fatalf("[s] never reached sortAnnotate in %d presses (mode=%v)", sortModeCount, m.tasks.sortMode)
+}
+
+func rowIDs(rows []taskRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.id)
+	}
+	return out
 }
