@@ -185,6 +185,32 @@ func TestRegistryAnnotateResolvesByName(t *testing.T) {
 	}
 }
 
+type fakeParenterCap struct {
+	fakeCap
+	parent string
+}
+
+func (f *fakeParenterCap) ParentOf(core.Task) string { return f.parent }
+
+func TestRegistryParentOfResolvesByName(t *testing.T) {
+	var calls []string
+	reg := NewRegistry(&fakeParenterCap{fakeCap: fakeCap{name: "withparent", calls: &calls}, parent: "ATM-000042"},
+		&fakeCap{name: "plain", calls: &calls})
+	if got := reg.ParentOf("withparent", core.Task{}); got != "ATM-000042" {
+		t.Fatalf("ParentOf(withparent) = %q, want ATM-000042", got)
+	}
+	if got := reg.ParentOf("plain", core.Task{}); got != "" {
+		t.Fatalf("non-Parenter capability answered %q, want empty", got)
+	}
+	if got := reg.ParentOf("nope", core.Task{}); got != "" {
+		t.Fatalf("unknown capability answered %q, want empty", got)
+	}
+	var nilReg *Registry
+	if got := nilReg.ParentOf("withparent", core.Task{}); got != "" {
+		t.Fatalf("nil registry answered %q, want empty", got)
+	}
+}
+
 type fakeBriefCap struct{ brief string }
 
 func (f fakeBriefCap) Name() string                   { return "fake" }
