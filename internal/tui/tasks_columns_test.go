@@ -130,9 +130,8 @@ func TestTaskListDefaultsToMostRecentlyUpdatedFirst(t *testing.T) {
 	}
 }
 
-// sortFixtureRows is the two-row comparator fixture the sort tests share: one
-// older row and one newer row, each with a cell, built the way refresh builds
-// them (task attached, so the comparators can read UpdatedAt).
+// sortFixtureRows is the shared comparator fixture: an older and a newer row,
+// each with a cell, built the way refresh builds them.
 func sortFixtureRows() []taskRow {
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	older := &core.Task{ID: "ATM-old", Title: "older", UpdatedAt: base}
@@ -143,11 +142,8 @@ func sortFixtureRows() []taskRow {
 	}
 }
 
-// TestApplySortIsStableAcrossEqualTimestamps pins the tie-break the UPDATED
-// sorts have always had and must keep: tasks written in the same second share
-// a persisted timestamp, so rows the comparator cannot separate must come out
-// in the store's order rather than in whatever order the algorithm happens to
-// leave them.
+// Tasks written in the same second share a timestamp, so the UPDATED sorts
+// must leave rows they cannot separate in the store's order.
 func TestApplySortIsStableAcrossEqualTimestamps(t *testing.T) {
 	m := newColumnsTestModel(t)
 	same := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
@@ -166,11 +162,8 @@ func TestApplySortIsStableAcrossEqualTimestamps(t *testing.T) {
 	}
 }
 
-// TestApplySortMovesWholeRowsWithTheirCells pins the restructure that the
-// ANNOTATE sort needs: refresh builds rows with their cells attached in store
-// order, and applySort reorders ROWS, so a cell travels with its row. Sorting
-// tasks and annotating afterwards cannot express this — a rank comparator
-// would have no cell to read.
+// The seam the ANNOTATE sort needs: a cell travels with its row through the
+// sort, so a rank comparator has something to read.
 func TestApplySortMovesWholeRowsWithTheirCells(t *testing.T) {
 	m := newColumnsTestModel(t)
 
@@ -184,9 +177,8 @@ func TestApplySortMovesWholeRowsWithTheirCells(t *testing.T) {
 	}
 }
 
-// TestTaskListIDSortPreservesStoreOrder guards the no-op sort across the row
-// restructure: id-asc must hand back exactly the store's own order now that
-// the rows are built before the sort runs rather than after it.
+// id-asc is a no-op that leans on the store's own order; the restructure must
+// not disturb it.
 func TestTaskListIDSortPreservesStoreOrder(t *testing.T) {
 	m := newColumnsTestModel(t)
 	m.tasks.sortMode = sortIDAsc

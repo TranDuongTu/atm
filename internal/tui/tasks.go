@@ -126,10 +126,8 @@ func (t *tasksModel) refresh() {
 	scope := t.m.projectScope
 	t.annReg = t.m.regFor(scope)
 	filters := core.ParseFilter(t.filter)
-	// Rows first, sort second. Building the rows in the store's own order
-	// attaches every cell BEFORE the comparator runs, which is what lets a
-	// sort mode order by what the ANNOTATE column shows; sorting tasks and
-	// annotating afterwards leaves the comparator nothing to read.
+	// Rows first, sort second: the cell has to exist before a comparator can
+	// order by it.
 	tasks := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
 	rows := make([]taskRow, 0, len(tasks))
 	for _, tk := range tasks {
@@ -161,20 +159,14 @@ func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
 	return t.annReg.Annotate(t.m.capability.current, *tk)
 }
 
-// applySort orders whole ROWS, not the tasks behind them, so a row's cell
-// stays with it through the sort and a comparator may read either.
+// applySort orders whole rows, so a cell travels with its row and a
+// comparator may read either. Stable throughout: same-second timestamps are
+// common, and rows the comparator cannot separate keep the store's order.
 func (t *tasksModel) applySort(rows []taskRow) []taskRow {
 	out := make([]taskRow, len(rows))
 	copy(out, rows)
 	switch t.sortMode {
 	case sortUpdatedDesc:
-		// Most recent first. STABLE on purpose: tasks written in the same
-		// second share a timestamp, and rows the comparator cannot separate
-		// must keep the store's order. The hand-rolled insertion sort this
-		// replaced was stable too, but it never broke out of its inner loop,
-		// so it paid the full n^2 comparisons on every refresh — and once the
-		// sort moved from []*Task to []taskRow each of those swaps moved an
-		// 88-byte row instead of an 8-byte pointer.
 		sort.SliceStable(out, func(i, j int) bool {
 			return out[i].task.UpdatedAt.After(out[j].task.UpdatedAt)
 		})
