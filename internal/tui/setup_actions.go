@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"atm/internal/agent"
+	capchecklist "atm/internal/capability/checklist"
 	"atm/internal/core"
 	"atm/internal/developing"
 	"atm/internal/dispatch"
@@ -398,7 +399,7 @@ func (s *setupModel) seedStarters(code string) {
 		// model is only as new as the last reload, and CreateChecklist refuses
 		// a duplicate — so a starter authored elsewhere since would abort the
 		// whole seed.
-		_, err := s.m.store.GetChecklist(code, seed.Persona, seed.Name)
+		_, err := s.m.store.GetChecklist(code, seed.Name)
 		if err == nil {
 			continue
 		}
@@ -406,18 +407,8 @@ func (s *setupModel) seedStarters(code string) {
 			s.m.showToast("read checklists: " + err.Error())
 			return
 		}
-		steps := make([]string, len(seed.Steps))
-		for i, step := range seed.Steps {
-			steps[i] = setupSubCode(step, code)
-		}
-		rec := core.ChecklistRecord{
-			Persona: seed.Persona,
-			Name:    seed.Name,
-			Purpose: setupSubCode(seed.Purpose, code),
-			Steps:   steps,
-		}
-		if _, err := s.m.store.CreateChecklist(code, rec, s.m.actor); err != nil {
-			s.m.showToast("seed " + seed.Persona + "/" + seed.Name + ": " + err.Error())
+		if _, err := s.m.store.CreateChecklist(code, capchecklist.SeedRecord(code, seed), s.m.actor); err != nil {
+			s.m.showToast("seed " + seed.Name + ": " + err.Error())
 			return
 		}
 		created++
