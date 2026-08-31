@@ -24,6 +24,7 @@ type tasksModel struct {
 	// filter / sort / focus
 	filter   string
 	sortMode sortMode
+	grouped  bool
 	focus    taskFocus
 
 	// annReg is the capability registry annotate renders cells from,
@@ -181,7 +182,11 @@ func (t *tasksModel) refresh() {
 	for _, tk := range tasks {
 		rows = append(rows, t.toRow(tk))
 	}
-	t.rows = t.applySort(rows)
+	if t.grouped {
+		t.rows = t.applyGrouping(t.applySort(rows))
+	} else {
+		t.rows = t.applySort(rows)
+	}
 	t.clampCursor()
 }
 

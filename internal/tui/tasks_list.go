@@ -18,6 +18,11 @@ type taskRow struct {
 	updated string
 	cell    *capability.Cell // current capability's annotation, computed at refresh time
 	task    *core.Task
+
+	// depth and synthetic are stamped by applyGrouping (tasks_group.go) when
+	// tasksModel.grouped is set; zero-valued (0, false) in the flat view.
+	depth     int
+	synthetic bool
 }
 
 // listContentHeight is the single source of truth for how many lines the
