@@ -57,10 +57,52 @@ const (
 	sortAnnotate
 )
 
-// sortModeCount bounds the [s] cycle. Deriving the cycle from this constant
-// rather than a literal is what keeps adding a mode from silently making the
-// last one unreachable.
-const sortModeCount = 5
+// sortSpec is one entry of the [s] cycle: the name the mode reports, the
+// column its arrow hangs off, the arrow, and the comparator that orders the
+// rows. Order and indicator sit in ONE row because they used to sit in two
+// switches that nothing forced to agree — a mode could sort by one column
+// while pointing its arrow at another and still compile.
+type sortSpec struct {
+	name   string
+	column string
+	arrow  string
+	less   func(a, b taskRow) bool
+}
+
+// sortSpecs is the [s] cycle itself, indexed by sortMode and in cycle order.
+// Its length IS the cycle length, so a mode added here is reachable by the
+// key without a second edit to keep in step.
+var sortSpecs = [...]sortSpec{
+	sortUpdatedDesc: {
+		name: "updated-desc", column: "UPDATED", arrow: "↓",
+		less: func(a, b taskRow) bool { return a.task.UpdatedAt.After(b.task.UpdatedAt) },
+	},
+	sortUpdatedAsc: {
+		name: "updated-asc", column: "UPDATED", arrow: "↑",
+		less: func(a, b taskRow) bool { return a.task.UpdatedAt.Before(b.task.UpdatedAt) },
+	},
+	sortIDAsc: {
+		name: "id-asc", column: "ID", arrow: "↑",
+		// Compares the IDs rather than trusting the store's order. That order
+		// is id-asc only under v1, where the alias is a zero-padded creation
+		// counter; a v2 alias is a content hash, so ListTasks sorts v2
+		// projects by creation ordinal instead (internal/store/query.go) and
+		// this mode sorted nothing at all while it was a no-op.
+		less: func(a, b taskRow) bool { return a.id < b.id },
+	},
+	sortTitleAsc: {
+		name: "title-asc", column: "TITLE", arrow: "↑",
+		less: func(a, b taskRow) bool { return strings.ToLower(a.title) < strings.ToLower(b.title) },
+	},
+	sortAnnotate: {
+		name: "annotate", column: "ANNOTATE", arrow: "↑",
+		less: lessByAnnotateRank,
+	},
+}
+
+// sortModeCount bounds the [s] cycle. Derived from the table rather than
+// maintained by hand, so adding a mode cannot silently leave it unreachable.
+const sortModeCount = len(sortSpecs)
 
 type taskFocusMode int
 
@@ -82,19 +124,22 @@ type taskFocus struct {
 }
 
 func (s sortMode) String() string {
-	switch s {
-	case sortUpdatedDesc:
-		return "updated-desc"
-	case sortUpdatedAsc:
-		return "updated-asc"
-	case sortIDAsc:
-		return "id-asc"
-	case sortTitleAsc:
-		return "title-asc"
-	case sortAnnotate:
-		return "annotate"
+	if !s.valid() {
+		return "?"
 	}
-	return "?"
+	return sortSpecs[s].name
+}
+
+func (s sortMode) valid() bool { return s >= 0 && int(s) < len(sortSpecs) }
+
+// spec is the current mode's row. An out-of-range mode falls back to the
+// default rather than panicking: the cycle keeps sortMode in range, and a
+// corrupted one should degrade to the list's normal order.
+func (t *tasksModel) spec() sortSpec {
+	if !t.sortMode.valid() {
+		return sortSpecs[sortUpdatedDesc]
+	}
+	return sortSpecs[t.sortMode]
 }
 
 func newTasksModel(m *Model) tasksModel {
@@ -168,36 +213,24 @@ func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
 func (t *tasksModel) applySort(rows []taskRow) []taskRow {
 	out := make([]taskRow, len(rows))
 	copy(out, rows)
-	switch t.sortMode {
-	case sortUpdatedDesc:
-		sort.SliceStable(out, func(i, j int) bool {
-			return out[i].task.UpdatedAt.After(out[j].task.UpdatedAt)
-		})
-	case sortUpdatedAsc:
-		sort.SliceStable(out, func(i, j int) bool {
-			return out[i].task.UpdatedAt.Before(out[j].task.UpdatedAt)
-		})
-	case sortIDAsc:
-		// store already returns id-asc; no-op
-	case sortTitleAsc:
-		sort.SliceStable(out, func(i, j int) bool {
-			return strings.ToLower(out[i].title) < strings.ToLower(out[j].title)
-		})
-	case sortAnnotate:
-		sort.SliceStable(out, func(i, j int) bool {
-			gi, gj := annotateGroup(out[i].cell), annotateGroup(out[j].cell)
-			if gi != gj {
-				return gi < gj
-			}
-			if gi == annotateGroupRanked && out[i].cell.Rank != out[j].cell.Rank {
-				return out[i].cell.Rank < out[j].cell.Rank
-			}
-			// Rank cannot separate them: fall back to the list's own default
-			// so a group still reads newest-first rather than arbitrarily.
-			return out[i].task.UpdatedAt.After(out[j].task.UpdatedAt)
-		})
-	}
+	less := t.spec().less
+	sort.SliceStable(out, func(i, j int) bool { return less(out[i], out[j]) })
 	return out
+}
+
+// lessByAnnotateRank orders the ANNOTATE column by what the current
+// capability said about each row.
+func lessByAnnotateRank(a, b taskRow) bool {
+	ga, gb := annotateGroup(a.cell), annotateGroup(b.cell)
+	if ga != gb {
+		return ga < gb
+	}
+	if ga == annotateGroupRanked && a.cell.Rank != b.cell.Rank {
+		return a.cell.Rank < b.cell.Rank
+	}
+	// Rank cannot separate them: fall back to the list's own default so a
+	// group still reads newest-first rather than arbitrarily.
+	return a.task.UpdatedAt.After(b.task.UpdatedAt)
 }
 
 // The ANNOTATE sort's three groups. Rank is only meaningful inside the

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -181,23 +182,52 @@ func TestApplySortMovesWholeRowsWithTheirCells(t *testing.T) {
 	}
 }
 
-// id-asc is a no-op that leans on the store's own order; the restructure must
-// not disturb it.
-func TestTaskListIDSortPreservesStoreOrder(t *testing.T) {
+// id-asc must order by the ID COLUMN its arrow points at. It used to be a
+// no-op leaning on the store's own order, which was only ever id-asc under
+// v1 (the alias was a zero-padded creation counter); a v2 alias is a content
+// hash and ListTasks deliberately orders v2 projects by creation ordinal
+// instead (internal/store/query.go), so the no-op sorted nothing at all.
+// The input order is a real one: a v2 store hands back creation order, and
+// these hashes were minted in exactly this sequence by an earlier run. Built
+// as literal rows rather than seeded through the store so the fixture cannot
+// arrive already sorted by hash luck and quietly prove nothing.
+func TestTaskListIDSortOrdersByID(t *testing.T) {
 	m := newColumnsTestModel(t)
-	m.tasks.sortMode = sortIDAsc
-	m.tasks.refresh()
+	inCreationOrder := []string{"ATM-418130", "ATM-ac1b2e", "ATM-f9addb", "ATM-d8224e"}
+	if sort.StringsAreSorted(inCreationOrder) {
+		t.Fatalf("fixture %v is already ID-ordered; it cannot prove the comparator ran", inCreationOrder)
+	}
+	var in []taskRow
+	for _, id := range inCreationOrder {
+		in = append(in, annotateSortRow(id, nil, time.Time{}))
+	}
 
-	want := m.store.ListTasks(core.QueryFilters{Project: "ATM", Labels: core.ParseFilter(m.tasks.filter)})
-	if len(want) < 2 {
-		t.Fatalf("fixture has %d tasks in the lane; need at least 2 to pin an order", len(want))
+	m.tasks.sortMode = sortIDAsc
+	got := rowIDs(m.tasks.applySort(in))
+
+	want := []string{"ATM-418130", "ATM-ac1b2e", "ATM-d8224e", "ATM-f9addb"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("id-asc row[%d] = %s, want %s (order: %v)", i, got[i], want[i], got)
+		}
 	}
-	if len(m.tasks.rows) != len(want) {
-		t.Fatalf("rows = %d, want %d", len(m.tasks.rows), len(want))
-	}
-	for i, tk := range want {
-		if m.tasks.rows[i].id != tk.ID {
-			t.Fatalf("row[%d] = %s, want %s (store order must survive id-asc)", i, m.tasks.rows[i].id, tk.ID)
+}
+
+// The mode table is the enforcement the two hand-coordinated switches never
+// had: a mode that sorted by one column while pointing its arrow at another
+// used to compile and pass everything.
+func TestEverySortModeIsCompleteAndNamesARealColumn(t *testing.T) {
+	columns := map[string]bool{"ID": true, "TITLE": true, "ANNOTATE": true, "UPDATED": true}
+	for mode, spec := range sortSpecs {
+		if spec.name == "" || spec.column == "" || spec.arrow == "" || spec.less == nil {
+			t.Errorf("sortSpecs[%d] is incomplete: %+v", mode, spec)
+			continue
+		}
+		if !columns[spec.column] {
+			t.Errorf("sortSpecs[%d] (%s) sorts by %q, which is not a column the list renders", mode, spec.name, spec.column)
+		}
+		if spec.arrow != "↑" && spec.arrow != "↓" {
+			t.Errorf("sortSpecs[%d] (%s) arrow = %q, want an up or down arrow", mode, spec.name, spec.arrow)
 		}
 	}
 }

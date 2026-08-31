@@ -79,7 +79,7 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		// through to a global handler.
 	case "s":
 		// cycle sort
-		t.sortMode = (t.sortMode + 1) % sortModeCount
+		t.sortMode = (t.sortMode + 1) % sortMode(sortModeCount)
 		t.refresh()
 	case "a":
 		if t.m.projectScope == "" {
@@ -288,24 +288,11 @@ func (t *tasksModel) metaColumnName() string {
 // acts on — a sort caption elsewhere makes the user map a mode name onto a
 // column every time they read it.
 func (t *tasksModel) sortIndicator(col string) string {
-	want := ""
-	arrow := "↑"
-	switch t.sortMode {
-	case sortUpdatedDesc:
-		want, arrow = "UPDATED", "↓"
-	case sortUpdatedAsc:
-		want = "UPDATED"
-	case sortIDAsc:
-		want = "ID"
-	case sortTitleAsc:
-		want = "TITLE"
-	case sortAnnotate:
-		want = "ANNOTATE"
-	}
-	if col != want {
+	spec := t.spec()
+	if col != spec.column {
 		return ""
 	}
-	return " " + arrow
+	return " " + spec.arrow
 }
 
 // columnHead is a column header with its sort indicator attached.
