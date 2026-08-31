@@ -16,8 +16,14 @@ func TestAnnotate(t *testing.T) {
 	if cell == nil || cell.Text != "channel specs · notion" {
 		t.Fatalf("cell: %+v", cell)
 	}
+	if cell.Rank != 0 {
+		t.Fatalf("healthy channel cell must stay unranked, got %d", cell.Rank)
+	}
 	bad := c.Annotate(core.Task{ID: "ATM-2", Labels: []string{"ATM:channel:repo"}, Meta: map[string]string{core.ChannelMetaKey: "garbage"}})
 	if bad == nil || bad.Tone != 2 { // capability.ToneAttention
 		t.Fatalf("unreadable payload must degrade to an attention cell: %+v", bad)
+	}
+	if bad.Rank != 1 {
+		t.Fatalf("unreadable channel cell must rank first, got %d", bad.Rank)
 	}
 }
