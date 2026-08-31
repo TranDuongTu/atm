@@ -1,13 +1,13 @@
 ---
 name: channel
-description: Channels — repositories, Notion, and future surfaces personas communicate through; ledger-recorded identity and address, machine-local wiring, agent-side I/O.
+description: Channels — repositories, Notion, Slack, and future surfaces personas communicate through; ledger-recorded identity and address, machine-local wiring, agent-side I/O.
 brief: Before pasting large output or reaching an external surface, run `atm channel list` — channels are where big content and cross-tool handoffs go.
 labels: [channel:*]
 boards: [channels]
 ---
 # channel capability — agent guide
 
-A channel is how personas communicate with each other and with humans: a git repository, a Notion database, later Slack. ATM is the phone book, not the switchboard: it records what a channel is and how to address it, and agents do all channel I/O themselves through their own tools (git, MCP servers). The concierge is the point of contact for setting channels up and re-establishing them on new machines.
+A channel is how personas communicate with each other and with humans: a git repository, a Notion database, a Slack channel. ATM is the phone book, not the switchboard: it records what a channel is and how to address it, and agents do all channel I/O themselves through their own tools (git, MCP servers). The concierge is the point of contact for setting channels up and re-establishing them on new machines.
 
 Channels offload large-content communication; they do not replace the ledger. Journal intent, decisions, and progress as task comments as you normally would; when the content itself is too large for a comment, put it in the channel whose purpose fits it and leave a short comment pointing at the channel handle. Read a channel's purpose before using it — `atm channel show --project <CODE> --name <handle>` — and never use a channel for work its purpose does not describe.
 
@@ -15,7 +15,7 @@ How each persona uses channels:
 
 - **Developer** — journal as usual, and for large work content (a spec draft, a sizeable diff, a design doc, a long handoff write-up), place the content in the existing channel that fits — push to the repo channel, drop the doc in the Notion channel — instead of stuffing it into a task comment. Leave the task comment as a pointer: the channel handle plus what was placed there. If no channel fits, the default comment is fine; consider proposing a channel later.
 - **Manager** — broadcast work across the communication channel for everyone's awareness when one exists: post the status update to the Slack channel, drop the summary in Notion. If you need clarification from a developer, send it to the channel and follow up until it resolves — record the pending question in the ledger so a later session checks it. The ledger stays the source of truth; the channel is the broadcast.
-- **Other personas** — read each channel's purpose and pick the best fit for the work: a repo channel carries code-shaped handoffs, a Notion channel carries documents, a communication channel carries announcements and questions. Use the channel that improves communication for that work; do not invent a channel where none fits.
+- **Other personas** — read each channel's purpose and pick the best fit for the work: a repo channel carries code-shaped handoffs, a Notion channel carries documents, a Slack channel carries announcements and questions. Use the channel that improves communication for that work; do not invent a channel where none fits.
 
 Deciding where content goes:
 
@@ -27,13 +27,13 @@ Deciding where content goes:
 
 ## Semantics
 
-Three tiers. Tier 1, the ledger record (synced): a task labelled `channel:<type>` whose title is the unique handle, whose description is the purpose, and whose `channel` metadata payload carries the type-shaped address (repo: remote URL; notion: workspace + database/page). Addresses are not credentials. Tier 2, local wiring (`config.json`, this machine only, never synced): the repo clone path, the MCP server name agents here use, and verification stamps (actor + time + note) recorded when someone actually touches the channel. Tier 3 does not exist: ATM stores no tokens, passwords, or credentials, anywhere — authorization lives with the agent's own tooling (e.g. the Notion MCP server's OAuth store).
+Three tiers. Tier 1, the ledger record (synced): a task labelled `channel:<type>` whose title is the unique handle, whose description is the purpose, and whose `channel` metadata payload carries the type-shaped address (repo: remote URL; notion: workspace + database/page; slack: workspace slug + channel id). Addresses are not credentials. Tier 2, local wiring (`config.json`, this machine only, never synced): the repo clone path, the MCP server name agents here use, and verification stamps (actor + time + note) recorded when someone actually touches the channel. Tier 3 does not exist: ATM stores no tokens, passwords, or credentials, anywhere — authorization lives with the agent's own tooling (e.g. the Notion or Slack MCP server's OAuth store). A channel record carries no permissions or scopes either: a Slack app's bot scopes are granted at install time and its bot is invited to a channel in Slack's own UI, so two machines can share one record while holding different tokens, or none.
 
 Channel records are tasks only as plumbing: manage them exclusively through `atm channel`, never through raw task verbs. The `channels` board exists so queries can see them; workflow boards filter on their own namespaces and never show channels.
 
 ## Actions
 
-- `atm channel add --project <CODE> --name <handle> --type repo|notion --purpose "..." [--url <u>] [--workspace <w>] [--database <id>] [--page <id>]` — author the ledger record.
+- `atm channel add --project <CODE> --name <handle> --type repo|notion|slack --purpose "..." [--url <u>] [--workspace <w>] [--database <id>] [--page <id>] [--channel-id <id>]` — author the ledger record. A slack channel takes `--workspace` (the domain slug, the `acme` of `acme.slack.com`) and `--channel-id`.
 - `atm channel list --project <CODE>` / `atm channel show --project <CODE> --name <handle>` — the agent endpoint: with `--output json`, returns identity, purpose, address, this machine's wiring, and probe results. Resolve a channel once, then do I/O directly through your own tools.
 - `atm channel edit --project <CODE> --name <handle> [--purpose "..."] [address flags]` / `atm channel remove --project <CODE> --name <handle>` — tier-1 updates.
 - `atm channel wire --project <CODE> --name <handle> [--path <dir>] [--mcp-server <name>]` — record how THIS machine reaches the channel.
