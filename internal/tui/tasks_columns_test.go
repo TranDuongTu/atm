@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 )
 
@@ -119,16 +120,65 @@ func TestTaskListRendersDashForAnUnannotatedTask(t *testing.T) {
 // prove the tie-break, not the ordering.
 func TestTaskListDefaultsToMostRecentlyUpdatedFirst(t *testing.T) {
 	m := newColumnsTestModel(t)
-	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	in := []*core.Task{
-		{ID: "ATM-old", Title: "older", UpdatedAt: base},
-		{ID: "ATM-new", Title: "newer", UpdatedAt: base.Add(time.Hour)},
-	}
-	if got := m.tasks.applySort(in); got[0].ID != "ATM-new" {
-		t.Fatalf("first row = %s, want the most recently updated task first", got[0].ID)
+	in := sortFixtureRows()
+	if got := m.tasks.applySort(in); got[0].id != "ATM-new" {
+		t.Fatalf("first row = %s, want the most recently updated task first", got[0].id)
 	}
 	m.tasks.sortMode = sortTitleAsc
-	if got := m.tasks.applySort(in); got[0].Title != "newer" {
-		t.Fatalf("title sort first row = %q, want %q", got[0].Title, "newer")
+	if got := m.tasks.applySort(in); got[0].title != "newer" {
+		t.Fatalf("title sort first row = %q, want %q", got[0].title, "newer")
+	}
+}
+
+// sortFixtureRows is the two-row comparator fixture the sort tests share: one
+// older row and one newer row, each with a cell, built the way refresh builds
+// them (task attached, so the comparators can read UpdatedAt).
+func sortFixtureRows() []taskRow {
+	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	older := &core.Task{ID: "ATM-old", Title: "older", UpdatedAt: base}
+	newer := &core.Task{ID: "ATM-new", Title: "newer", UpdatedAt: base.Add(time.Hour)}
+	return []taskRow{
+		{id: older.ID, title: older.Title, cell: &capability.Cell{Text: "older cell"}, task: older},
+		{id: newer.ID, title: newer.Title, cell: &capability.Cell{Text: "newer cell"}, task: newer},
+	}
+}
+
+// TestApplySortMovesWholeRowsWithTheirCells pins the restructure that the
+// ANNOTATE sort needs: refresh builds rows with their cells attached in store
+// order, and applySort reorders ROWS, so a cell travels with its row. Sorting
+// tasks and annotating afterwards cannot express this — a rank comparator
+// would have no cell to read.
+func TestApplySortMovesWholeRowsWithTheirCells(t *testing.T) {
+	m := newColumnsTestModel(t)
+
+	got := m.tasks.applySort(sortFixtureRows())
+
+	if got[0].id != "ATM-new" {
+		t.Fatalf("first row = %s, want the most recently updated row first", got[0].id)
+	}
+	if got[0].cell == nil || got[0].cell.Text != "newer cell" {
+		t.Fatalf("the cell did not travel with its row: %+v", got[0].cell)
+	}
+}
+
+// TestTaskListIDSortPreservesStoreOrder guards the no-op sort across the row
+// restructure: id-asc must hand back exactly the store's own order now that
+// the rows are built before the sort runs rather than after it.
+func TestTaskListIDSortPreservesStoreOrder(t *testing.T) {
+	m := newColumnsTestModel(t)
+	m.tasks.sortMode = sortIDAsc
+	m.tasks.refresh()
+
+	want := m.store.ListTasks(core.QueryFilters{Project: "ATM", Labels: core.ParseFilter(m.tasks.filter)})
+	if len(want) < 2 {
+		t.Fatalf("fixture has %d tasks in the lane; need at least 2 to pin an order", len(want))
+	}
+	if len(m.tasks.rows) != len(want) {
+		t.Fatalf("rows = %d, want %d", len(m.tasks.rows), len(want))
+	}
+	for i, tk := range want {
+		if m.tasks.rows[i].id != tk.ID {
+			t.Fatalf("row[%d] = %s, want %s (store order must survive id-asc)", i, m.tasks.rows[i].id, tk.ID)
+		}
 	}
 }

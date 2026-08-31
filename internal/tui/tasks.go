@@ -126,9 +126,16 @@ func (t *tasksModel) refresh() {
 	scope := t.m.projectScope
 	t.annReg = t.m.regFor(scope)
 	filters := core.ParseFilter(t.filter)
-	for _, tk := range t.applySort(t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})) {
-		t.rows = append(t.rows, t.toRow(tk))
+	// Rows first, sort second. Building the rows in the store's own order
+	// attaches every cell BEFORE the comparator runs, which is what lets a
+	// sort mode order by what the ANNOTATE column shows; sorting tasks and
+	// annotating afterwards leaves the comparator nothing to read.
+	tasks := t.m.store.ListTasks(core.QueryFilters{Project: scope, Labels: filters})
+	rows := make([]taskRow, 0, len(tasks))
+	for _, tk := range tasks {
+		rows = append(rows, t.toRow(tk))
 	}
+	t.rows = t.applySort(rows)
 	t.clampCursor()
 }
 
@@ -154,16 +161,18 @@ func (t *tasksModel) annotate(tk *core.Task) *capability.Cell {
 	return t.annReg.Annotate(t.m.capability.current, *tk)
 }
 
-func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {
-	out := make([]*core.Task, len(ts))
-	copy(out, ts)
+// applySort orders whole ROWS, not the tasks behind them, so a row's cell
+// stays with it through the sort and a comparator may read either.
+func (t *tasksModel) applySort(rows []taskRow) []taskRow {
+	out := make([]taskRow, len(rows))
+	copy(out, rows)
 	switch t.sortMode {
 	case sortUpdatedDesc:
 		// stable: most recent first
 		// Use insertion-stable by index after a manual compare.
 		for i := 1; i < len(out); i++ {
 			for j := i; j > 0; j-- {
-				if out[j].UpdatedAt.After(out[j-1].UpdatedAt) {
+				if out[j].task.UpdatedAt.After(out[j-1].task.UpdatedAt) {
 					out[j], out[j-1] = out[j-1], out[j]
 				}
 			}
@@ -171,7 +180,7 @@ func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {
 	case sortUpdatedAsc:
 		for i := 1; i < len(out); i++ {
 			for j := i; j > 0; j-- {
-				if out[j].UpdatedAt.Before(out[j-1].UpdatedAt) {
+				if out[j].task.UpdatedAt.Before(out[j-1].task.UpdatedAt) {
 					out[j], out[j-1] = out[j-1], out[j]
 				}
 			}
@@ -180,7 +189,7 @@ func (t *tasksModel) applySort(ts []*core.Task) []*core.Task {
 		// store already returns id-asc; no-op
 	case sortTitleAsc:
 		sort.SliceStable(out, func(i, j int) bool {
-			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
+			return strings.ToLower(out[i].title) < strings.ToLower(out[j].title)
 		})
 	}
 	return out
