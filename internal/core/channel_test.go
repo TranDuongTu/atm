@@ -24,6 +24,28 @@ func TestChannelPayloadRoundTrip(t *testing.T) {
 	}
 }
 
+// A slack channel is addressed by the workspace slug plus the channel id.
+// The slug, not the T… team id, because it is what builds a permalink:
+// https://<workspace>.slack.com/archives/<channel_id>/p<ts>.
+func TestChannelPayloadRoundTripSlack(t *testing.T) {
+	rec := ChannelRecord{Name: "pr-reviews", Type: ChannelTypeSlack, Address: ChannelAddress{Workspace: "acme", ChannelID: "C0123ABC"}}
+	s, err := EncodeChannelPayload(ChannelPayloadFrom(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s, `"channel_id":"C0123ABC"`) {
+		t.Fatalf("payload key is a contract, got %s", s)
+	}
+	task := Task{ID: "ATM-x2", Description: "agents post every PR here", Labels: []string{"ATM:channel:slack"}, Meta: map[string]string{ChannelMetaKey: s}}
+	got, err := ChannelFromTask("ATM", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != ChannelTypeSlack || got.Address.Workspace != "acme" || got.Address.ChannelID != "C0123ABC" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 // The agent endpoint's JSON keys are a contract: pin them so a field rename
 // or a dropped tag cannot silently change what `--output json` emits.
 func TestChannelViewJSONKeys(t *testing.T) {

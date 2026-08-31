@@ -85,19 +85,61 @@ func TestChannelGateWhenCapabilityDisabled(t *testing.T) {
 	mustContain(t, errText, "atm project capability add --project ATM --name channel")
 }
 
-// TestChannelAddRejectsUnknownType proves an invalid --type surfaces the
-// store's usage error, which lists the valid types.
+// TestChannelAddSlackRoundTrip proves slack is a first-class type end to
+// end: the workspace slug and the channel id survive add -> show --output
+// json under the agent endpoint's snake_case keys.
+func TestChannelAddSlackRoundTrip(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+
+	out := runArgsOut(t, st, "channel", "add", "--project", "ATM", "--name", "pr-reviews", "--type", "slack",
+		"--purpose", "agents post every PR here", "--workspace", "acme", "--channel-id", "C0123ABC",
+		"--actor", "developer@test:unit")
+	mustContain(t, out, "created channel pr-reviews")
+
+	st.output = outputJSON
+	out = runArgsOut(t, st, "channel", "show", "--project", "ATM", "--name", "pr-reviews")
+	mustContain(t, out, `"type": "slack"`)
+	mustContain(t, out, `"workspace": "acme"`)
+	mustContain(t, out, `"channel_id": "C0123ABC"`)
+}
+
+// TestChannelEditChannelIDMergesPerField proves edit merges the address
+// field by field rather than replacing it: rewriting the channel id must
+// leave the workspace standing. The regression this pins is a new address
+// flag added to the merge table but forgotten in the Changed() guard that
+// decides whether to build an address at all — the edit would then be a
+// silent no-op.
+func TestChannelEditChannelIDMergesPerField(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "channel", "add", "--project", "ATM", "--name", "pr-reviews", "--type", "slack",
+		"--workspace", "acme", "--channel-id", "C0123ABC", "--actor", "developer@test:unit")
+
+	_, _, _ = runArgs(st, "channel", "edit", "--project", "ATM", "--name", "pr-reviews",
+		"--channel-id", "C9999ZZZ", "--actor", "developer@test:unit")
+
+	st.output = outputJSON
+	out := runArgsOut(t, st, "channel", "show", "--project", "ATM", "--name", "pr-reviews")
+	mustContain(t, out, `"channel_id": "C9999ZZZ"`)
+	mustContain(t, out, `"workspace": "acme"`)
+}
+
+// TestChannelAddRejectsUnknownType proves the enum stays CLOSED: an
+// unrecognized --type surfaces the store's usage error, which lists the
+// valid types.
 func TestChannelAddRejectsUnknownType(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 
 	errText, code := runChannelErrText(t, st, "channel", "add", "--project", "ATM", "--name", "x",
-		"--type", "slack", "--actor", "developer@test:unit")
+		"--type", "carrier-pigeon", "--actor", "developer@test:unit")
 	if code != ExitUsage {
 		t.Fatalf("expected ExitUsage for an unknown channel type, got %d (%s)", code, errText)
 	}
 	mustContain(t, errText, "repo")
 	mustContain(t, errText, "notion")
+	mustContain(t, errText, "slack")
 }
 
 // TestChannelAddRequiresName proves --name is mandatory.
