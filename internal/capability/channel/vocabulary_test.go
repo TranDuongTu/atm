@@ -1,6 +1,10 @@
 package channel
 
-import "testing"
+import (
+	"testing"
+
+	"atm/internal/core"
+)
 
 func TestVocabularyShape(t *testing.T) {
 	v := Vocabulary("ATM")
@@ -11,11 +15,14 @@ func TestVocabularyShape(t *testing.T) {
 	if _, ok := names["ATM:channel:*"]; !ok {
 		t.Fatal("missing namespace descriptor")
 	}
-	if _, ok := names["ATM:channel:repo"]; !ok {
-		t.Fatal("missing repo type label")
-	}
-	if _, ok := names["ATM:channel:notion"]; !ok {
-		t.Fatal("missing notion type label")
+	// Every recognized type carries a label: a type the store accepts but
+	// the vocabulary never describes is a channel record no reader can
+	// interpret. Driven off core.ChannelTypes so opening the enum without
+	// seeding the label fails here rather than in production.
+	for _, typ := range core.ChannelTypes {
+		if _, ok := names["ATM:channel:"+typ]; !ok {
+			t.Fatalf("missing %s type label", typ)
+		}
 	}
 	if expr := names["ATM:channels"]; expr != "channel:*" {
 		t.Fatalf("channels board expr = %q", expr)

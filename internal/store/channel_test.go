@@ -35,8 +35,17 @@ func TestChannelCreateListEditRemove(t *testing.T) {
 	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "specs", Type: core.ChannelTypeRepo}, chActor); !errors.Is(err, core.ErrUsage) {
 		t.Fatalf("dup: %v", err)
 	}
-	// unknown type rejected
-	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "x", Type: "slack"}, chActor); !errors.Is(err, core.ErrUsage) {
+	// slack is a recognized type, addressed by workspace + channel id
+	sl, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "pr-reviews", Type: core.ChannelTypeSlack,
+		Address: core.ChannelAddress{Workspace: "acme", ChannelID: "C0123ABC"}}, chActor)
+	if err != nil {
+		t.Fatalf("slack: %v", err)
+	}
+	if err := s.RemoveChannel("ATM", "pr-reviews", chActor); err != nil {
+		t.Fatalf("remove slack %s: %v", sl.ID, err)
+	}
+	// unknown type still rejected — the enum stays closed
+	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "x", Type: "carrier-pigeon"}, chActor); !errors.Is(err, core.ErrUsage) {
 		t.Fatalf("type: %v", err)
 	}
 	// edit purpose + address

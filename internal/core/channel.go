@@ -14,21 +14,26 @@ const ChannelMetaKey = "channel"
 const (
 	ChannelTypeRepo   = "repo"
 	ChannelTypeNotion = "notion"
+	ChannelTypeSlack  = "slack"
 )
 
-var ChannelTypes = []string{ChannelTypeRepo, ChannelTypeNotion}
+var ChannelTypes = []string{ChannelTypeRepo, ChannelTypeNotion, ChannelTypeSlack}
 
 // ChannelLabel is the stored label a channel task of the given type carries.
 func ChannelLabel(code, typ string) string { return code + ":channel:" + typ }
 
 // ChannelAddress is the machine-independent address of a channel — tier 1,
 // synced. An address is not a credential. Type-shaped: repo uses URL; notion
-// uses Workspace plus Database or Page.
+// uses Workspace plus Database or Page; slack uses Workspace plus ChannelID.
+// Slack shares Workspace because workspace is Slack's own noun for it, and it
+// holds the domain SLUG ("acme" of acme.slack.com), not the T… team id — the
+// slug is what builds a permalink, and the team id is not.
 type ChannelAddress struct {
 	URL       string `json:"url,omitempty"`
 	Workspace string `json:"workspace,omitempty"`
 	Database  string `json:"database,omitempty"`
 	Page      string `json:"page,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
 }
 
 // ChannelRecord is the tier-1 ledger record decoded from a channel task.
@@ -165,6 +170,9 @@ func ChannelPayloadFrom(rec ChannelRecord) map[string]any {
 	if rec.Address.Page != "" {
 		addr["page"] = rec.Address.Page
 	}
+	if rec.Address.ChannelID != "" {
+		addr["channel_id"] = rec.Address.ChannelID
+	}
 	m := map[string]any{"name": rec.Name, "type": rec.Type}
 	if len(addr) > 0 {
 		m["address"] = addr
@@ -197,7 +205,7 @@ func ChannelFromTask(code string, t Task) (*ChannelRecord, error) {
 		rec.Name = t.Title
 	}
 	if am, ok := m["address"].(map[string]any); ok {
-		rec.Address = ChannelAddress{URL: channelStr(am["url"]), Workspace: channelStr(am["workspace"]), Database: channelStr(am["database"]), Page: channelStr(am["page"])}
+		rec.Address = ChannelAddress{URL: channelStr(am["url"]), Workspace: channelStr(am["workspace"]), Database: channelStr(am["database"]), Page: channelStr(am["page"]), ChannelID: channelStr(am["channel_id"])}
 	}
 	return rec, nil
 }

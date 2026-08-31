@@ -74,7 +74,7 @@ func requireChannelCapability(s core.Service, project string) error {
 // purpose, and address. No credential flag exists here or anywhere in this
 // group — secrets never touch ATM.
 func newChannelAddCmd(st *cliState) *cobra.Command {
-	var typ, name, purpose, url, workspace, database, page string
+	var typ, name, purpose, url, workspace, database, page, channelID string
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Author a channel's ledger record (identity + purpose + address; synced, never credentials)",
@@ -95,7 +95,7 @@ func newChannelAddCmd(st *cliState) *cobra.Command {
 			if err := requireChannelCapability(s, project); err != nil {
 				return err
 			}
-			rec := core.ChannelRecord{Name: name, Type: typ, Purpose: purpose, Address: core.ChannelAddress{URL: url, Workspace: workspace, Database: database, Page: page}}
+			rec := core.ChannelRecord{Name: name, Type: typ, Purpose: purpose, Address: core.ChannelAddress{URL: url, Workspace: workspace, Database: database, Page: page, ChannelID: channelID}}
 			tk, err := s.CreateChannel(project, rec, actor)
 			if err != nil {
 				return err
@@ -107,12 +107,13 @@ func newChannelAddCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().StringVar(&name, "name", "", "unique channel handle")
-	cmd.Flags().StringVar(&typ, "type", "", "channel type: repo|notion")
+	cmd.Flags().StringVar(&typ, "type", "", "channel type: repo|notion|slack")
 	cmd.Flags().StringVar(&purpose, "purpose", "", "what this channel is for (the searchable narrative)")
 	cmd.Flags().StringVar(&url, "url", "", "repo: remote URL")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "notion: workspace")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "notion: workspace; slack: workspace domain slug (the \"acme\" of acme.slack.com)")
 	cmd.Flags().StringVar(&database, "database", "", "notion: database id")
 	cmd.Flags().StringVar(&page, "page", "", "notion: parent page id")
+	cmd.Flags().StringVar(&channelID, "channel-id", "", "slack: channel id (C0123ABC) or #handle")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
@@ -205,7 +206,7 @@ func newChannelShowCmd(st *cliState) *cobra.Command {
 // field (a --database edit dropping --workspace), and the address lives
 // nowhere else.
 func newChannelEditCmd(st *cliState) *cobra.Command {
-	var name, purpose, url, workspace, database, page string
+	var name, purpose, url, workspace, database, page, channelID string
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit a channel's purpose and/or address",
@@ -231,7 +232,7 @@ func newChannelEditCmd(st *cliState) *cobra.Command {
 				purposePtr = &purpose
 			}
 			var addrPtr *core.ChannelAddress
-			if cmd.Flags().Changed("url") || cmd.Flags().Changed("workspace") || cmd.Flags().Changed("database") || cmd.Flags().Changed("page") {
+			if cmd.Flags().Changed("url") || cmd.Flags().Changed("workspace") || cmd.Flags().Changed("database") || cmd.Flags().Changed("page") || cmd.Flags().Changed("channel-id") {
 				cur, err := s.GetChannelByName(project, name)
 				if err != nil {
 					return err
@@ -246,6 +247,7 @@ func newChannelEditCmd(st *cliState) *cobra.Command {
 					{"workspace", &next.Workspace, workspace},
 					{"database", &next.Database, database},
 					{"page", &next.Page, page},
+					{"channel-id", &next.ChannelID, channelID},
 				} {
 					if cmd.Flags().Changed(f.flag) {
 						*f.dst = f.src
@@ -265,9 +267,10 @@ func newChannelEditCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "channel handle")
 	cmd.Flags().StringVar(&purpose, "purpose", "", "what this channel is for (the searchable narrative)")
 	cmd.Flags().StringVar(&url, "url", "", "repo: remote URL")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "notion: workspace")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "notion: workspace; slack: workspace domain slug (the \"acme\" of acme.slack.com)")
 	cmd.Flags().StringVar(&database, "database", "", "notion: database id")
 	cmd.Flags().StringVar(&page, "page", "", "notion: parent page id")
+	cmd.Flags().StringVar(&channelID, "channel-id", "", "slack: channel id (C0123ABC) or #handle")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -350,7 +353,7 @@ func newChannelWireCmd(st *cliState) *cobra.Command {
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().StringVar(&name, "name", "", "channel handle")
 	cmd.Flags().StringVar(&path, "path", "", "local path (repo channels)")
-	cmd.Flags().StringVar(&mcpServer, "mcp-server", "", "MCP server name (notion channels)")
+	cmd.Flags().StringVar(&mcpServer, "mcp-server", "", "MCP server name the agents on this machine reach the channel through (notion, slack, …)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
