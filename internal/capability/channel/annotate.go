@@ -17,10 +17,15 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 	}
 	rec, err := core.ChannelFromTask(code, t)
 	if err != nil {
-		return &capability.Cell{Text: "channel: unreadable payload", Tone: capability.ToneAttention}
+		return &capability.Cell{Text: "channel: unreadable payload", Tone: capability.ToneAttention, Rank: rankUnreadable}
 	}
 	if rec == nil {
 		return nil
 	}
 	return &capability.Cell{Text: "channel " + rec.Name + " · " + rec.Type, Tone: capability.ToneNeutral}
 }
+
+// rankUnreadable is the only ranked cell a channel produces: a broken channel
+// needs eyes first. A healthy channel row is unranked (0) — a registry
+// record with no order to impose on a reader.
+const rankUnreadable = 1
