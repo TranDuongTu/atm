@@ -345,3 +345,37 @@ func TestAnnotateColumnNeverStarvesTitle(t *testing.T) {
 		t.Fatalf("metaW = %d, want <= 28", metaW)
 	}
 }
+
+func TestAnnotateColumnClampProtectsTitleFloor(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(60, 40) // just above metaColumnMinPaneWidth
+	m.refreshAll()
+	m.lanes.selectDefault()
+
+	// Construct a row with a very wide cell (23 runes) to force the clamp.
+	// At width 60: max = 60 - 9 - 9 - 4 - 16 = 22
+	// A 23-rune cell should trigger the clamp, limiting metaW to 22 and titleW to 16.
+	longCellRow := taskRow{
+		id:    "ATM-clamped",
+		title: "should not be starved",
+		cell:  &capability.Cell{Text: "very long annotation text here"},
+		task:  &core.Task{ID: "ATM-clamped", Title: "should not be starved"},
+	}
+	m.tasks.rows = []taskRow{longCellRow}
+
+	idW, metaW, updatedW, titleW := m.tasks.taskColumnWidths()
+	if titleW < 16 {
+		t.Fatalf("titleW = %d, want = 16 when clamp triggers", titleW)
+	}
+	if metaW > 22 {
+		t.Fatalf("metaW = %d, want <= 22 (clamped to protect title)", metaW)
+	}
+
+	// Verify the row still fits: idW + metaW + updatedW + 4 + titleW <= pane width
+	totalW := idW + metaW + updatedW + 4 + titleW
+	if totalW > 60 {
+		t.Fatalf("rendered line width = %d, exceeds pane width 60 (idW=%d, metaW=%d, updatedW=%d, titleW=%d)",
+			totalW, idW, metaW, updatedW, titleW)
+	}
+}
