@@ -2,7 +2,7 @@
 name: checklist
 description: Checklists — named, per-persona standing operating procedures; the project's configured process that personas read at session start and follow.
 brief: List your checklists (`atm checklist list`) and read the ones matching this session's purpose before starting work. They are this project's operating procedure for your persona; they override nothing but must not be skipped.
-labels: [checklist:*]
+labels: [checklist, checklist:*]
 boards: [checklists]
 ---
 # checklist capability — agent guide

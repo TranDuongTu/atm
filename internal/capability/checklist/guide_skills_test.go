@@ -24,7 +24,7 @@ func TestSkillsFileMatchesVocabulary(t *testing.T) {
 			t.Fatalf("guide missing %s", sec)
 		}
 	}
-	if got, want := spec.Labels, []string{"checklist:*"}; !slices.Equal(got, want) {
+	if got, want := spec.Labels, []string{"checklist", "checklist:*"}; !slices.Equal(got, want) {
 		t.Fatalf("frontmatter labels %v, want %v", got, want)
 	}
 	if got, want := spec.Boards, []string{"checklists"}; !slices.Equal(got, want) {

@@ -53,25 +53,19 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 			for _, b := range boards {
 				names = append(names, b.Name)
 			}
-			sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", project) }
 			created := make([]string, 0)
 			skipped := make([]string, 0)
 			for _, seed := range skills.ChecklistSeeds() {
-				key := seed.Persona + "/" + seed.Name
-				if _, err := svc.GetChecklist(project, seed.Persona, seed.Name); err == nil {
-					skipped = append(skipped, key)
+				if _, err := svc.GetChecklist(project, seed.Name); err == nil {
+					skipped = append(skipped, seed.Name)
 					continue
 				} else if !errors.Is(err, core.ErrNotFound) {
 					return err
 				}
-				steps := make([]string, len(seed.Steps))
-				for i, s := range seed.Steps {
-					steps[i] = sub(s)
-				}
-				if _, err := svc.CreateChecklist(project, core.ChecklistRecord{Persona: seed.Persona, Name: seed.Name, Purpose: sub(seed.Purpose), Steps: steps}, actor); err != nil {
+				if _, err := svc.CreateChecklist(project, SeedRecord(project, seed), actor); err != nil {
 					return err
 				}
-				created = append(created, key)
+				created = append(created, seed.Name)
 			}
 			return env.Emit(map[string]any{"project": project, "boards": names, "created": created, "skipped": skipped}, func() {
 				fmt.Fprintf(env.Stdout(), "ensured checklist vocabulary for %s; created %d starter checklist(s), skipped %d existing\n", project, len(created), len(skipped))
@@ -83,4 +77,34 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 	env.BindActorFlag(cmd)
 	cmd.AddCommand(seed)
 	return cmd
+}
+
+// SeedRecord converts one shipped seed into the record the seed verb (and the
+// setup wizard) creates: <CODE> substituted in purpose and every step text,
+// suits/requires/origin carried verbatim. One converter so the two write
+// paths cannot diverge.
+func SeedRecord(code string, seed skills.ChecklistSeed) core.ChecklistRecord {
+	sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", code) }
+	var conv func(in []skills.SeedStep) []core.ChecklistStep
+	conv = func(in []skills.SeedStep) []core.ChecklistStep {
+		if len(in) == 0 {
+			return nil
+		}
+		out := make([]core.ChecklistStep, len(in))
+		for i, s := range in {
+			out[i] = core.ChecklistStep{Text: sub(s.Text), Children: conv(s.Children)}
+		}
+		return out
+	}
+	return core.ChecklistRecord{
+		Name:    seed.Name,
+		Purpose: sub(seed.Purpose),
+		Steps:   conv(seed.Steps),
+		Suits:   seed.Suits,
+		Requires: core.ChecklistRequires{
+			Capabilities: seed.Requires.Capabilities,
+			Channels:     seed.Requires.Channels,
+		},
+		Origin: seed.Origin,
+	}
 }

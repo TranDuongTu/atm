@@ -24,7 +24,7 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 	if rec == nil {
 		return nil
 	}
-	return &capability.Cell{Text: fmt.Sprintf("checklist %s/%s · %d steps", rec.Persona, rec.Name, len(rec.Steps)), Tone: capability.ToneNeutral}
+	return &capability.Cell{Text: fmt.Sprintf("checklist %s · %d steps", rec.Name, core.ChecklistStepCount(rec.Steps)), Tone: capability.ToneNeutral}
 }
 
 // rankUnreadable is the only ranked cell a checklist produces: a broken
