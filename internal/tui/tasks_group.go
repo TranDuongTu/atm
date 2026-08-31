@@ -46,7 +46,6 @@ func (t *tasksModel) applyGrouping(rows []taskRow) []taskRow {
 		order = append(order, n)
 	}
 	var top []*groupNode
-	attached := make(map[*groupNode]bool, len(rows))
 	for _, n := range order {
 		pid := t.parentIDOf(n.row)
 		if pid == "" || pid == n.row.id {
@@ -66,7 +65,6 @@ func (t *tasksModel) applyGrouping(rows []taskRow) []taskRow {
 			continue
 		}
 		parent.children = append(parent.children, n)
-		attached[n] = true
 	}
 	sortNodes(top, less)
 	out := make([]taskRow, 0, len(byID))
@@ -86,7 +84,7 @@ func (t *tasksModel) applyGrouping(rows []taskRow) []taskRow {
 	for _, n := range top {
 		flatten(n, 0)
 	}
-	// Cycle members: attached to a parent but reachable from no root.
+	// Cycle members: nodes in a cycle, not reachable from any root.
 	for _, n := range order {
 		if !visited[n] {
 			flatten(n, 0)

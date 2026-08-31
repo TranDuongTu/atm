@@ -43,9 +43,9 @@ func (t *tasksModel) clampCursor() {
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
-	// For grouped view, the cursor indexes into a flattened list of
-	// (group header, group rows, others header, others rows). We compute that
-	// lazily in render; clamp to total line count.
+	// The cursor indexes t.rows directly. In grouped mode, rows are already
+	// flattened at refresh time with depth stamped per node; in flat mode, depth
+	// is zero. Clamping to the row count is exact in both cases.
 	total := t.flatLineCount()
 	if t.cursor >= total {
 		t.cursor = total - 1
@@ -125,8 +125,8 @@ func (t *tasksModel) cursorUp() {
 }
 
 // flatLineCount returns the number of rows the list view presents — used for
-// cursor bounds and paging. One lane is one flat list, so it is just the row
-// count; the grouped tree went with the board ring that produced it.
+// cursor bounds and paging. Rows are flattened at refresh time, including
+// grouping, so the count is just len(t.rows).
 func (t *tasksModel) flatLineCount() int { return len(t.rows) }
 
 func (t *tasksModel) openDetailAtCursor() tea.Cmd {
@@ -271,7 +271,7 @@ func displayID(r taskRow) string {
 func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	idW, updatedW = 9, 9
 	for _, r := range t.rows {
-		if w := len(displayID(r)); w > idW {
+		if w := len([]rune(displayID(r))); w > idW {
 			idW = w
 		}
 	}
