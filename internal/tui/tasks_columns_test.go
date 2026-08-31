@@ -314,3 +314,34 @@ func rowIDs(rows []taskRow) []string {
 	}
 	return out
 }
+
+func TestAnnotateColumnWidensToFitCells(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(120, 40)
+	seedTask(t, m, "ATM", "widest cell", "ATM:scrum:task", "ATM:scrum-stage:brainstormed")
+	m.refreshAll()
+	m.lanes.selectDefault()
+
+	out := stripANSI(m.tasks.View())
+	if !strings.Contains(out, "task · brainstormed") {
+		t.Fatalf("ANNOTATE cell truncated on a 120-wide pane:\n%s", out)
+	}
+}
+
+func TestAnnotateColumnNeverStarvesTitle(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(60, 40) // just above metaColumnMinPaneWidth
+	seedTask(t, m, "ATM", "title floor stays", "ATM:scrum:task", "ATM:scrum-stage:brainstormed")
+	m.refreshAll()
+	m.lanes.selectDefault()
+
+	_, metaW, _, titleW := m.tasks.taskColumnWidths()
+	if titleW < 16 {
+		t.Fatalf("titleW = %d, want >= 16", titleW)
+	}
+	if metaW > 28 {
+		t.Fatalf("metaW = %d, want <= 28", metaW)
+	}
+}

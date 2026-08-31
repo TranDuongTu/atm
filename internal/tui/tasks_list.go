@@ -247,7 +247,8 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 // the header and data rows is " %-*s %-*s %*s" (leading space + 2
 // inter-column spaces = 3 extra columns of padding). idW sizing note as
 // before (IDs are "<CODE>-<hash>"). When the contextual column is present,
-// metaW = metaColumnWidth and the padding grows by one (four columns).
+// metaW is computed based on the widest visible cell (in [18, 28]) and the
+// padding grows by one (four columns).
 func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	idW, updatedW = 9, 9
 	for _, r := range t.rows {
@@ -260,14 +261,29 @@ func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	}
 	if t.metaColumnName() != "" && t.width >= metaColumnMinPaneWidth {
 		metaW = metaColumnWidth
+		for _, r := range t.rows {
+			if r.cell == nil {
+				continue
+			}
+			if w := len([]rune(r.cell.Text)); w > metaW {
+				metaW = w
+			}
+		}
+		if metaW > metaColumnMaxWidth {
+			metaW = metaColumnMaxWidth
+		}
+		// A wide cell may not push TITLE below its floor on mid-width panes.
+		if max := t.width - idW - updatedW - 4 - minTitleWidth; metaW > max {
+			metaW = max
+		}
 	}
 	pad := 3
 	if metaW > 0 {
 		pad = 4
 	}
 	titleW = t.width - idW - metaW - updatedW - pad
-	if titleW < 16 {
-		titleW = 16
+	if titleW < minTitleWidth {
+		titleW = minTitleWidth
 	}
 	return
 }
@@ -298,7 +314,9 @@ func (t *tasksModel) sortIndicator(col string) string {
 // columnHead is a column header with its sort indicator attached.
 func (t *tasksModel) columnHead(col string) string { return col + t.sortIndicator(col) }
 
-const metaColumnWidth = 18
+const metaColumnWidth = 18 // floor: keeps short-cell lists stable
+const metaColumnMaxWidth = 28
+const minTitleWidth = 16
 
 // metaColumnMinPaneWidth is the minimum pane width that can fit all four
 // columns (idW + metaW + updatedW + pad + titleW). Below this, the contextual
