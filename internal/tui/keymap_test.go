@@ -420,6 +420,14 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
+		probeID("t", scopeTasksList): {
+			setup: parityTasksSeed,
+			check: func(t *testing.T, m *Model) {
+				if !m.tasks.grouped {
+					t.Errorf("t on the tasks list must toggle the grouped view on, grouped=%v", m.tasks.grouped)
+				}
+			},
+		},
 	}
 
 	for _, e := range menuEntries {

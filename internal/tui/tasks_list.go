@@ -86,6 +86,11 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 		// cycle sort
 		t.sortMode = (t.sortMode + 1) % sortMode(sortModeCount)
 		t.refresh()
+	case "t":
+		// Grouping is a view arrangement, not a sort: [s] keeps cycling
+		// comparators and each applies inside the tree as well as flat.
+		t.grouped = !t.grouped
+		t.refresh()
 	case "a":
 		if t.m.projectScope == "" {
 			return nil
@@ -247,6 +252,15 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 	b.WriteString(centerLinesBoth(lines, t.width, t.contentHeight))
 }
 
+// displayID is the ID cell as rendered: nested rows carry their tree
+// marker so depth is readable in the one column that identifies the row.
+func displayID(r taskRow) string {
+	if r.depth <= 0 {
+		return r.id
+	}
+	return strings.Repeat("  ", r.depth-1) + "↳ " + r.id
+}
+
 // taskColumnWidths returns fixed widths for ID/UPDATED and a flexible TITLE
 // width that absorbs the remaining pane width. The format string used by both
 // the header and data rows is " %-*s %-*s %*s" (leading space + 2
@@ -257,7 +271,7 @@ func (t *tasksModel) renderEmptyState(b *strings.Builder, lines []string) {
 func (t *tasksModel) taskColumnWidths() (idW, metaW, updatedW, titleW int) {
 	idW, updatedW = 9, 9
 	for _, r := range t.rows {
-		if w := len(r.id); w > idW {
+		if w := len(displayID(r)); w > idW {
 			idW = w
 		}
 	}
@@ -371,6 +385,7 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) string {
 	start, end := t.pageWindow(len(t.rows))
 	for i := start; i < end; i++ {
 		r := t.rows[i]
+		id := displayID(r)
 		// A nil Cell is the capability saying nothing about this task. The
 		// dash says that out loud: an empty column reads as a rendering bug.
 		cellTxt := "—"
@@ -380,18 +395,29 @@ func (t *tasksModel) renderFlatList(b *strings.Builder) string {
 		}
 		var line string
 		if metaW > 0 {
-			plain := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), metaW, truncateRunes(cellTxt, metaW), updatedW, r.updated)
-			if i == t.cursor {
+			plain := fmt.Sprintf(" %-*s %-*s %-*s %*s", idW, truncateRunes(id, idW), titleW, truncateRunes(r.title, titleW), metaW, truncateRunes(cellTxt, metaW), updatedW, r.updated)
+			switch {
+			case i == t.cursor:
 				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(plain, " "))
-			} else {
-				line = fmt.Sprintf(" %-*s %-*s ", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW)) +
+			case r.synthetic:
+				// Synthesized rows (out-of-set parents, see applyGrouping) are
+				// real and selectable, but muted when not under the cursor so
+				// they read as context rather than a member of this lane.
+				line = " " + t.m.styles.Muted.Render(strings.TrimPrefix(plain, " "))
+			default:
+				line = fmt.Sprintf(" %-*s %-*s ", idW, truncateRunes(id, idW), titleW, truncateRunes(r.title, titleW)) +
 					toneStyle(cellTone).Render(fmt.Sprintf("%-*s", metaW, truncateRunes(cellTxt, metaW))) +
 					fmt.Sprintf(" %*s", updatedW, r.updated)
 			}
 		} else {
-			line = fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(r.id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
-			if i == t.cursor {
-				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(line, " "))
+			plain := fmt.Sprintf(" %-*s %-*s %*s", idW, truncateRunes(id, idW), titleW, truncateRunes(r.title, titleW), updatedW, r.updated)
+			switch {
+			case i == t.cursor:
+				line = " " + t.m.styles.RowCursor.Render(strings.TrimPrefix(plain, " "))
+			case r.synthetic:
+				line = " " + t.m.styles.Muted.Render(strings.TrimPrefix(plain, " "))
+			default:
+				line = plain
 			}
 		}
 		b.WriteString(dashboardLine(t.width, line))

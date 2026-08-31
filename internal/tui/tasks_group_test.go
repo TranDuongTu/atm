@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,87 @@ func TestGroupedCycleDegradesToFlat(t *testing.T) {
 	}
 	if depth0 != 1 {
 		t.Fatalf("want exactly one cycle member at depth 0, got %d: %+v", depth0, got)
+	}
+}
+
+// TestGroupToggleKeyAndIndentRender exercises the 't' key end to end: it
+// toggles tasksModel.grouped, a refresh nests the child under the parent, and
+// the rendered ID cell carries the "↳ " tree marker one indent level in.
+// Pressing 't' again must return to the flat list with no marker at all.
+func TestGroupToggleKeyAndIndentRender(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(120, 40)
+
+	parent := seedTask(t, m, "ATM", "parent", "ATM:scrum:task")
+	child := seedTask(t, m, "ATM", "child", "ATM:scrum:task")
+	linkPartOf(t, m, child.ID, parent.ID)
+
+	m.refreshAll()
+	m.lanes.selectDefault()
+
+	m.tasks.handleKey(keyMsg("t"))
+	if !m.tasks.grouped {
+		t.Fatalf("t must toggle grouped on")
+	}
+
+	out := stripANSI(m.tasks.View())
+	lines := strings.Split(out, "\n")
+	parentIdx, childIdx := -1, -1
+	for i, ln := range lines {
+		if parentIdx < 0 && strings.Contains(ln, parent.ID) {
+			parentIdx = i
+		}
+		if strings.Contains(ln, "↳ "+child.ID) {
+			childIdx = i
+		}
+	}
+	if parentIdx < 0 || childIdx < 0 {
+		t.Fatalf("expected parent line and an indented %q child line, got:\n%s", "↳ "+child.ID, out)
+	}
+	if childIdx != parentIdx+1 {
+		t.Fatalf("expected child line directly below parent (parent@%d, child@%d):\n%s", parentIdx, childIdx, out)
+	}
+
+	m.tasks.handleKey(keyMsg("t"))
+	if m.tasks.grouped {
+		t.Fatalf("second t must toggle grouped off")
+	}
+	if out2 := stripANSI(m.tasks.View()); strings.Contains(out2, "↳") {
+		t.Fatalf("flat view must not show the tree marker:\n%s", out2)
+	}
+}
+
+// TestSyntheticParentRendersInList covers the out-of-set parent case from
+// applyGrouping: a parent outside the lane's own result set is synthesized
+// as a real, selectable row, and the toggle-driven render must show it (and
+// the child nested under it) even though the lane filter excludes it.
+func TestSyntheticParentRendersInList(t *testing.T) {
+	m := newLanesTestModel(t)
+	setupLanesProject(t, m, true)
+	m.SetSize(120, 40)
+
+	// Parent left unclaimed by scrum: it has no ATM:scrum:* label, so it
+	// sits in the Inbox lane, not Pipeline.
+	parent := seedTask(t, m, "ATM", "unclaimed parent")
+	// Child claimed as a task: it has ATM:scrum:task, so it is in Pipeline.
+	child := seedTask(t, m, "ATM", "claimed child", "ATM:scrum:task")
+	linkPartOf(t, m, child.ID, parent.ID)
+
+	m.refreshAll()
+	m.lanes.selectDefault() // focuses Pipeline: parent is out of this result set
+	if m.tasks.filter == "" {
+		t.Fatalf("precondition: lane focus must set a filter")
+	}
+
+	m.tasks.handleKey(keyMsg("t"))
+
+	out := stripANSI(m.tasks.View())
+	if !strings.Contains(out, parent.ID) {
+		t.Fatalf("expected synthesized parent %s to appear in the grouped list:\n%s", parent.ID, out)
+	}
+	if !strings.Contains(out, "↳ "+child.ID) {
+		t.Fatalf("expected child %s indented under the synthesized parent:\n%s", child.ID, out)
 	}
 }
 

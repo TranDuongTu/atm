@@ -175,6 +175,7 @@ var menuEntries = []menuEntry{
 	{label: "Go to Pipeline lane", summary: "Show what this capability is building.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "◫", act: goToLane(lanePipeline)},
 	{label: "Go to Out lane", summary: "Show the work settled out of this capability.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "◨", act: goToLane(laneOut)},
 	{key: "s", label: "Sort tasks", summary: "Cycle the task list's sort: updated, id, title.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "⇅"},
+	{key: "t", label: "Group by parent", summary: "Toggle the tree view: children nest under their part_of parent.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "↳"},
 	{key: "S", label: "Seed capability vocabulary", summary: "Ensure the enabled capabilities' labels exist for this project.", kind: kindAction, scopes: []menuScope{scopeTasksList}, section: sectionActions, group: groupLane, icon: "↻"},
 
 	// Reference (no keys; Enter focuses the preview)
