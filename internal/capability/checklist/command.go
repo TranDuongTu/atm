@@ -79,10 +79,11 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 	return cmd
 }
 
-// SeedRecord converts one shipped seed into the record the seed verb (and the
-// setup wizard) creates: <CODE> substituted in purpose and every step text,
-// suits/requires/origin carried verbatim. One converter so the two write
-// paths cannot diverge.
+// SeedRecord converts one shipped seed into the record the seed verb creates:
+// <CODE> substituted in purpose and every step text, suits/requires/origin
+// carried verbatim. The setup wizard carries an identical twin
+// (internal/setup.SeedRecord) — the arch seam forbids either side importing
+// the other, so keep them in step.
 func SeedRecord(code string, seed skills.ChecklistSeed) core.ChecklistRecord {
 	sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", code) }
 	var conv func(in []skills.SeedStep) []core.ChecklistStep

@@ -3,6 +3,7 @@ package setup
 import (
 	"reflect"
 	"slices"
+	"strings"
 
 	"atm/internal/core"
 	"atm/skills"
@@ -17,6 +18,37 @@ func coreStepsOf(in []skills.SeedStep) []core.ChecklistStep {
 		out[i] = core.ChecklistStep{Text: s.Text, Children: coreStepsOf(s.Children)}
 	}
 	return out
+}
+
+// SeedRecord converts one shipped seed into the record the wizard's seed
+// action creates: <CODE> substituted in purpose and every step text,
+// suits/requires/origin carried verbatim. The checklist capability's seed
+// verb carries an identical twin (capability/checklist.SeedRecord) — the
+// arch seam forbids either side importing the other, so keep them in step.
+func SeedRecord(code string, seed skills.ChecklistSeed) core.ChecklistRecord {
+	sub := func(s string) string { return strings.ReplaceAll(s, "<CODE>", code) }
+	var conv func(in []skills.SeedStep) []core.ChecklistStep
+	conv = func(in []skills.SeedStep) []core.ChecklistStep {
+		if len(in) == 0 {
+			return nil
+		}
+		out := make([]core.ChecklistStep, len(in))
+		for i, s := range in {
+			out[i] = core.ChecklistStep{Text: sub(s.Text), Children: conv(s.Children)}
+		}
+		return out
+	}
+	return core.ChecklistRecord{
+		Name:    seed.Name,
+		Purpose: sub(seed.Purpose),
+		Steps:   conv(seed.Steps),
+		Suits:   seed.Suits,
+		Requires: core.ChecklistRequires{
+			Capabilities: seed.Requires.Capabilities,
+			Channels:     seed.Requires.Channels,
+		},
+		Origin: seed.Origin,
+	}
 }
 
 // BuildPersonas accounts each persona's suited checklists against the starters

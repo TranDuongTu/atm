@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"atm/internal/agent"
-	capchecklist "atm/internal/capability/checklist"
 	"atm/internal/core"
 	"atm/internal/developing"
 	"atm/internal/dispatch"
@@ -407,7 +406,7 @@ func (s *setupModel) seedStarters(code string) {
 			s.m.showToast("read checklists: " + err.Error())
 			return
 		}
-		if _, err := s.m.store.CreateChecklist(code, capchecklist.SeedRecord(code, seed), s.m.actor); err != nil {
+		if _, err := s.m.store.CreateChecklist(code, atmsetup.SeedRecord(code, seed), s.m.actor); err != nil {
 			s.m.showToast("seed " + seed.Name + ": " + err.Error())
 			return
 		}

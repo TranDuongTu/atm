@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,11 +132,11 @@ func probeOnce(t *testing.T, m *Model) {
 func checklistSeedNamed(t *testing.T, persona, name string) skills.ChecklistSeed {
 	t.Helper()
 	for _, s := range skills.ChecklistSeeds() {
-		if s.Persona == persona && s.Name == name {
+		if s.Name == name && slices.Contains(s.Suits, persona) {
 			return s
 		}
 	}
-	t.Fatalf("no shipped starter %s/%s", persona, name)
+	t.Fatalf("no shipped starter %s suited to %s", name, persona)
 	return skills.ChecklistSeed{}
 }
 
@@ -146,24 +147,32 @@ func seedOneStarterAndEditIt(t *testing.T, m *Model) {
 	t.Helper()
 	seedActionProject(t, m, "ATM")
 	seed := checklistSeedNamed(t, "concierge", "empty-project")
-	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
-		Persona: seed.Persona, Name: seed.Name, Purpose: seed.Purpose, Steps: seed.Steps,
-	}, testActor); err != nil {
+	if _, err := m.store.CreateChecklist("ATM", setup.SeedRecord("ATM", seed), testActor); err != nil {
 		t.Fatalf("CreateChecklist: %v", err)
 	}
-	mine := []string{"my own first step", "my own second step"}
-	if err := m.store.EditChecklist("ATM", seed.Persona, seed.Name, nil, mine, testActor); err != nil {
+	mine := []core.ChecklistStep{{Text: "my own first step"}, {Text: "my own second step"}}
+	if err := m.store.EditChecklist("ATM", seed.Name, core.ChecklistEdit{Steps: mine}, testActor); err != nil {
 		t.Fatalf("EditChecklist: %v", err)
 	}
 }
 
-func readChecklistSteps(t *testing.T, m *Model, persona, name string) []string {
+// readChecklistSteps flattens the record's step tree to its texts, depth-first.
+func readChecklistSteps(t *testing.T, m *Model, name string) []string {
 	t.Helper()
-	rec, err := m.store.GetChecklist("ATM", persona, name)
+	rec, err := m.store.GetChecklist("ATM", name)
 	if err != nil {
-		t.Fatalf("GetChecklist %s/%s: %v", persona, name, err)
+		t.Fatalf("GetChecklist %s: %v", name, err)
 	}
-	return rec.Steps
+	var flat func(steps []core.ChecklistStep) []string
+	flat = func(steps []core.ChecklistStep) []string {
+		var out []string
+		for _, s := range steps {
+			out = append(out, s.Text)
+			out = append(out, flat(s.Children)...)
+		}
+		return out
+	}
+	return flat(rec.Steps)
 }
 
 // --- the bootstrap paradox ---
@@ -727,9 +736,9 @@ func TestFooterAdvertisesTheFocusedSectionsFixes(t *testing.T) {
 func TestSeedStartersLeavesCustomisedRecordsAlone(t *testing.T) {
 	m := newTestModel(t)
 	seedOneStarterAndEditIt(t, m)
-	before := readChecklistSteps(t, m, "concierge", "empty-project")
+	before := readChecklistSteps(t, m, "empty-project")
 	m.setup.seedStarters("ATM")
-	after := readChecklistSteps(t, m, "concierge", "empty-project")
+	after := readChecklistSteps(t, m, "empty-project")
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("seeding must not overwrite a customised starter")
 	}
@@ -742,8 +751,8 @@ func TestSeedStartersAddsEveryAbsentStarterOnce(t *testing.T) {
 	seedOneStarterAndEditIt(t, m)
 	m.setup.seedStarters("ATM")
 	for _, s := range skills.ChecklistSeeds() {
-		if _, err := m.store.GetChecklist("ATM", s.Persona, s.Name); err != nil {
-			t.Fatalf("starter %s/%s not seeded: %v", s.Persona, s.Name, err)
+		if _, err := m.store.GetChecklist("ATM", s.Name); err != nil {
+			t.Fatalf("starter %s not seeded: %v", s.Name, err)
 		}
 	}
 	// A second press must be a no-op, not a pile of duplicates or an error.
@@ -764,7 +773,7 @@ func TestSeedStartersResolvesTheProjectCode(t *testing.T) {
 	m := newTestModel(t)
 	seedActionProject(t, m, "ATM")
 	m.setup.seedStarters("ATM")
-	for _, step := range readChecklistSteps(t, m, "concierge", "empty-project") {
+	for _, step := range readChecklistSteps(t, m, "empty-project") {
 		if strings.Contains(step, "<CODE>") {
 			t.Fatalf("unsubstituted step: %q", step)
 		}
@@ -781,12 +790,12 @@ func TestSeedKeySeedsTheScopedProject(t *testing.T) {
 	m.setup.section, m.setup.cursor = setupSectionPersonas, 0
 
 	m.setup.handleKey(keyMsg("S"))
-	if _, err := m.store.GetChecklist("ATM", "concierge", "empty-project"); err == nil {
+	if _, err := m.store.GetChecklist("ATM", "empty-project"); err == nil {
 		t.Fatal("[S] is not [s]: an uppercase key must not run the lowercase action")
 	}
 
 	m.setup.handleKey(keyMsg("s"))
-	if _, err := m.store.GetChecklist("ATM", "concierge", "empty-project"); err != nil {
+	if _, err := m.store.GetChecklist("ATM", "empty-project"); err != nil {
 		t.Fatalf("the personas section's [s] must seed: %v (toast %q)", err, m.toastMsg)
 	}
 }
