@@ -62,3 +62,63 @@ func TestAnnotateDegradesOnAnUnreadablePayload(t *testing.T) {
 		t.Fatalf("raw payload leaked: %q", c.Text)
 	}
 }
+
+// Rank orders the ANNOTATE column: attention first (a broken cell, then a
+// failed verdict the manager must route), then active testing, then finished,
+// then the settled evictions.
+func TestAnnotateRanksCellClasses(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels []string
+		meta   string
+		rank   int
+	}{
+		{"unreadable payload", []string{"ATM:qa:testing"}, "not json", 1},
+		{"out failed", []string{"ATM:qa-out:failed"}, "", 2},
+		{"testing original", []string{"ATM:qa:testing"}, "", 3},
+		{"testing scaffold", []string{"ATM:qa:testing"}, `{"v":1,"part_of":"ATM-orig11"}`, 3},
+		{"done", []string{"ATM:qa:done"}, "", 4},
+		{"done scaffold", []string{"ATM:qa:done"}, `{"v":1,"part_of":"ATM-orig11"}`, 4},
+		{"out not-relevant", []string{"ATM:qa-out:not-relevant"}, "", 5},
+		{"out covered-by", []string{"ATM:qa-out:covered-by"}, "", 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := cellFor(tc.labels, tc.meta)
+			if c == nil {
+				t.Fatalf("cell = nil, want rank %d", tc.rank)
+			}
+			if c.Rank != tc.rank {
+				t.Fatalf("rank = %d, want %d (cell %+v)", c.Rank, tc.rank, c)
+			}
+		})
+	}
+}
+
+// The ordering property behind the table: the failed verdict outranks active
+// work, and both sit between the attention cell and the finished/settled tail.
+func TestAnnotateRankOrderingProperty(t *testing.T) {
+	rank := func(labels []string, meta string) int {
+		c := cellFor(labels, meta)
+		if c == nil {
+			t.Fatalf("cell = nil for labels %v", labels)
+		}
+		return c.Rank
+	}
+	order := []struct {
+		name string
+		rank int
+	}{
+		{"unreadable", rank([]string{"ATM:qa:testing"}, "not json")},
+		{"out failed", rank([]string{"ATM:qa-out:failed"}, "")},
+		{"testing", rank([]string{"ATM:qa:testing"}, "")},
+		{"done", rank([]string{"ATM:qa:done"}, "")},
+		{"out settled", rank([]string{"ATM:qa-out:not-relevant"}, "")},
+	}
+	for i := 1; i < len(order); i++ {
+		prev, cur := order[i-1], order[i]
+		if prev.rank >= cur.rank {
+			t.Fatalf("%s (rank %d) should sort before %s (rank %d)", prev.name, prev.rank, cur.name, cur.rank)
+		}
+	}
+}

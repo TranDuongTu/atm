@@ -74,3 +74,65 @@ func TestAnnotateDegradesOnAnUnreadablePayload(t *testing.T) {
 		t.Fatalf("raw payload leaked: %q", c.Text)
 	}
 }
+
+// Rank orders the ANNOTATE column: attention first (a broken cell, then a
+// claim with no PR), then reviews in flight ahead of merely scheduled ones,
+// then finished, then the settled evictions.
+func TestAnnotateRanksCellClasses(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels []string
+		meta   string
+		rank   int
+	}{
+		{"unreadable payload", []string{"ATM:codereview:scheduled"}, "not json", 1},
+		{"scheduled no PR", []string{"ATM:codereview:scheduled"}, "", 2},
+		{"reviewing no PR", []string{"ATM:codereview:reviewing"}, "", 2},
+		{"reviewing", []string{"ATM:codereview:reviewing"}, `{"v":1,"pr":"#142"}`, 3},
+		{"reviewing long PR", []string{"ATM:codereview:reviewing"}, `{"v":1,"pr":"https://github.com/o/r/pull/142"}`, 3},
+		{"scheduled", []string{"ATM:codereview:scheduled"}, `{"v":1,"pr":"#142"}`, 4},
+		{"done", []string{"ATM:codereview:done"}, `{"v":1,"pr":"#142"}`, 5},
+		{"out not-warranted", []string{"ATM:codereview-out:not-warranted"}, "", 6},
+		{"out superseded", []string{"ATM:codereview-out:superseded"}, "", 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := cellFor(tc.labels, tc.meta)
+			if c == nil {
+				t.Fatalf("cell = nil, want rank %d", tc.rank)
+			}
+			if c.Rank != tc.rank {
+				t.Fatalf("rank = %d, want %d (cell %+v)", c.Rank, tc.rank, c)
+			}
+		})
+	}
+}
+
+// The ordering property behind the table: the attention cells lead, a review
+// in flight outranks a scheduled one, and the finished/settled tail closes.
+func TestAnnotateRankOrderingProperty(t *testing.T) {
+	rank := func(labels []string, meta string) int {
+		c := cellFor(labels, meta)
+		if c == nil {
+			t.Fatalf("cell = nil for labels %v", labels)
+		}
+		return c.Rank
+	}
+	order := []struct {
+		name string
+		rank int
+	}{
+		{"unreadable", rank([]string{"ATM:codereview:scheduled"}, "not json")},
+		{"no PR", rank([]string{"ATM:codereview:scheduled"}, "")},
+		{"reviewing", rank([]string{"ATM:codereview:reviewing"}, `{"v":1,"pr":"#142"}`)},
+		{"scheduled", rank([]string{"ATM:codereview:scheduled"}, `{"v":1,"pr":"#142"}`)},
+		{"done", rank([]string{"ATM:codereview:done"}, `{"v":1,"pr":"#142"}`)},
+		{"out", rank([]string{"ATM:codereview-out:not-warranted"}, "")},
+	}
+	for i := 1; i < len(order); i++ {
+		prev, cur := order[i-1], order[i]
+		if prev.rank >= cur.rank {
+			t.Fatalf("%s (rank %d) should sort before %s (rank %d)", prev.name, prev.rank, cur.name, cur.rank)
+		}
+	}
+}

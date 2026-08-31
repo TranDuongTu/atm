@@ -17,13 +17,12 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 		return nil
 	}
 	if reason := EvictedAs(&t, code); reason != "" {
-		tone := capability.ToneStale
 		if reason == OutFailed {
 			// A failed verification is a verdict the manager must route,
 			// not a settled matter to scroll past.
-			tone = capability.ToneAttention
+			return &capability.Cell{Text: "out · " + reason, Tone: capability.ToneAttention, Rank: rankOutFailed}
 		}
-		return &capability.Cell{Text: "out · " + reason, Tone: tone}
+		return &capability.Cell{Text: "out · " + reason, Tone: capability.ToneStale, Rank: rankOutSettled}
 	}
 	state := StateOf(&t, code)
 	if state == "" {
@@ -31,13 +30,27 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 	}
 	pl, err := DecodePayload(t.Meta[CapabilityName])
 	if err != nil {
-		return &capability.Cell{Text: CapabilityName + ": unreadable state", Tone: capability.ToneAttention}
-	}
-	if pl.PartOf() != "" {
-		return &capability.Cell{Text: "scaffold · " + state, Tone: capability.ToneNeutral}
+		return &capability.Cell{Text: CapabilityName + ": unreadable state", Tone: capability.ToneAttention, Rank: rankUnreadable}
 	}
 	if state == StateDone {
-		return &capability.Cell{Text: "✓ qa done", Tone: capability.ToneOK}
+		if pl.PartOf() != "" {
+			return &capability.Cell{Text: "scaffold · " + state, Tone: capability.ToneNeutral, Rank: rankDone}
+		}
+		return &capability.Cell{Text: "✓ qa done", Tone: capability.ToneOK, Rank: rankDone}
 	}
-	return &capability.Cell{Text: CapabilityName + " · " + state, Tone: capability.ToneNeutral}
+	if pl.PartOf() != "" {
+		return &capability.Cell{Text: "scaffold · " + state, Tone: capability.ToneNeutral, Rank: rankTesting}
+	}
+	return &capability.Cell{Text: CapabilityName + " · " + state, Tone: capability.ToneNeutral, Rank: rankTesting}
 }
+
+// Ranks order the ANNOTATE column: the broken cell needs eyes first, then the
+// failed verdict the manager must route (ahead of active work), then testing
+// — original and scaffold alike — then finished, then the settled evictions.
+const (
+	rankUnreadable = 1
+	rankOutFailed  = 2
+	rankTesting    = 3
+	rankDone       = 4
+	rankOutSettled = 5
+)

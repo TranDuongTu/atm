@@ -20,7 +20,7 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 		return nil
 	}
 	if reason := EvictedAs(&t, code); reason != "" {
-		return &capability.Cell{Text: "out · " + reason, Tone: capability.ToneStale}
+		return &capability.Cell{Text: "out · " + reason, Tone: capability.ToneStale, Rank: rankOut}
 	}
 	state := StateOf(&t, code)
 	if state == "" {
@@ -28,20 +28,34 @@ func (Cap) Annotate(t core.Task) *capability.Cell {
 	}
 	pl, err := DecodePayload(t.Meta[CapabilityName])
 	if err != nil {
-		return &capability.Cell{Text: CapabilityName + ": unreadable state", Tone: capability.ToneAttention}
+		return &capability.Cell{Text: CapabilityName + ": unreadable state", Tone: capability.ToneAttention, Rank: rankUnreadable}
 	}
 	if state == StateDone {
-		return &capability.Cell{Text: "✓ reviewed", Tone: capability.ToneOK}
+		return &capability.Cell{Text: "✓ reviewed", Tone: capability.ToneOK, Rank: rankDone}
 	}
 	text := "review · " + state
+	rank := rankScheduled
 	if state == StateReviewing {
 		text = "reviewing"
+		rank = rankReviewing
 	}
 	if pr := pl.PR(); pr != "" && utf8.RuneCountInString(pr) <= prCellLimit {
 		text += " · " + pr
 	} else if pr == "" {
 		// The verbs cannot produce this; a hand-assigned label can.
-		return &capability.Cell{Text: text + " · no PR", Tone: capability.ToneAttention}
+		return &capability.Cell{Text: text + " · no PR", Tone: capability.ToneAttention, Rank: rankNoPR}
 	}
-	return &capability.Cell{Text: text, Tone: capability.ToneNeutral}
+	return &capability.Cell{Text: text, Tone: capability.ToneNeutral, Rank: rank}
 }
+
+// Ranks order the ANNOTATE column: the broken cell needs eyes first, then the
+// claim no verb could have produced, then reviews in flight ahead of merely
+// scheduled ones, then finished, then the settled evictions.
+const (
+	rankUnreadable = 1
+	rankNoPR       = 2
+	rankReviewing  = 3
+	rankScheduled  = 4
+	rankDone       = 5
+	rankOut        = 6
+)
