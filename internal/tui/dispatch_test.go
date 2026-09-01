@@ -607,19 +607,6 @@ func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
 	}
 }
 
-func TestDispatchUnknownDefaultFallsBackToConcierge(t *testing.T) {
-	m := newTestModel(t)
-	m.SetSize(100, 30)
-	m.dispatcher = &fakeDispatcher{preview: "tmux"}
-	m.agentOptionsFn = testAgents
-	m.dispatchDlg.m = m
-
-	m.dispatchDlg.open("ghost", "", "", "", dispatchScope{})
-	if m.dispatchDlg.persona() != "concierge" {
-		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
-	}
-}
-
 func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -1076,6 +1063,127 @@ func TestDispatchLaunchOverrideCycle(t *testing.T) {
 	dispatchKey(m, "L")
 	if !strings.Contains(d.renderOverlay(), "Launch: hook") || d.launchOverride != "" {
 		t.Fatalf("third L must return to the persona default:\n%s", d.renderOverlay())
+	}
+}
+
+func TestDispatchArgvCarriesChecklistSelection(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	dispatchKey(m, " ") // mgr-sweep joins the default dev-cycle
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.HasSuffix(argv, "--checklist dev-cycle --checklist mgr-sweep") {
+		t.Errorf("argv must end with the explicit selection in row order: %s", argv)
+	}
+	if strings.Contains(argv, "--launch") {
+		t.Errorf("argv must not carry --launch without an override: %s", argv)
+	}
+}
+
+// TestDispatchArgvEmptySelection: deselect-all emits NO --checklist flags —
+// the launcher recomputes the default set, so deselect-all means "default
+// set", not "no checklists" (journaled plan decision; the one spot argv is
+// not a perfect record).
+func TestDispatchArgvEmptySelection(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	dispatchKey(m, " ") // toggle the sole default (dev-cycle) off
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "--checklist") {
+		t.Errorf("empty selection must emit no --checklist flags: %s", argv)
+	}
+}
+
+func TestDispatchArgvLaunchOverride(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	dispatchKey(m, "L") // hook → prompt override
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if argv := strings.Join(fd.spawned[0].Argv, " "); !strings.Contains(argv, "--launch prompt") {
+		t.Errorf("argv must carry the launch override: %s", argv)
+	}
+
+	// Override to tui: the argv is the minimal tui route plus the override —
+	// without it the spawned command would launch a session, not the TUI.
+	openDevDispatch(m)
+	dispatchKey(m, "L")
+	dispatchKey(m, "L")
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 2 {
+		t.Fatal("must spawn the tui-override dispatch")
+	}
+	want := []string{"atm", "--persona", "developer", "--launch", "tui"}
+	if got := strings.Join(fd.spawned[1].Argv, " "); got != strings.Join(want, " ") {
+		t.Errorf("argv = %s, want %s", got, strings.Join(want, " "))
+	}
+}
+
+// TestDispatchUnknownDefaultFallsBackToFirstPersona: the concierge
+// special-case is gone — an unknown default persona lands on the first
+// store persona (spec decision 10).
+func TestDispatchUnknownDefaultFallsBackToFirstPersona(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(100, 30)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("ghost", "", "", "", dispatchScope{})
+	if m.dispatchDlg.personaCursor != 0 {
+		t.Fatalf("personaCursor = %d, want 0 (first persona)", m.dispatchDlg.personaCursor)
+	}
+	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
+		t.Fatalf("persona = %q, want first persona %q", got, want)
+	}
+}
+
+func TestDispatchMissingRowNeverInArgv(t *testing.T) {
+	m := newTestModelWithCaps(t, &dispatchSeedCap{})
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("must spawn")
+	}
+	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "qa-backlog") {
+		t.Errorf("missing shipped checklist must never ride the argv: %s", argv)
 	}
 }
 

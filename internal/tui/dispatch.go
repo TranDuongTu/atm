@@ -223,12 +223,12 @@ func bwInner(width int) int {
 	return bw - 4
 }
 
-// loadFor preselects the given default persona (falling back to concierge
-// when it is not in the store list), sets the context defaults, and
-// refreshes the target preview — everything open does except flipping
-// active. open calls it and then activates; the spotlight preview calls it
-// alone, so previewing never activates the dialog. Dispatch logic never
-// branches on how it was opened.
+// loadFor preselects the given default persona (falling back to the first
+// store persona when it is not in the list — no name is special, spec
+// decision 10), sets the context defaults, and refreshes the target preview
+// — everything open does except flipping active. open calls it and then
+// activates; the spotlight preview calls it alone, so previewing never
+// activates the dialog. Dispatch logic never branches on how it was opened.
 func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle string, scope dispatchScope) {
 	d.project, d.taskID, d.taskTitle, d.scope = project, taskID, taskTitle, scope
 	d.personas = d.m.store.ListPersonas()
@@ -237,16 +237,6 @@ func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle strin
 		if p.Name == defaultPersona {
 			d.personaCursor = i
 			break
-		}
-	}
-	if d.persona() != defaultPersona {
-		// default not found: preselect concierge (project-optional, always
-		// dispatchable) so the dialog always opens with a usable persona.
-		for i, p := range d.personas {
-			if p.Name == "concierge" {
-				d.personaCursor = i
-				break
-			}
 		}
 	}
 	d.agents = d.m.agentOptionsFn()
@@ -413,6 +403,20 @@ func (d *dispatchModel) submit() {
 	}
 	if d.scope.Capability != "" && !tui {
 		argv = append(argv, "--capability", d.scope.Capability)
+	}
+	// The explicit selection rides the argv so the spawned command is a
+	// reproducible record (spec §6). A fully-empty selection emits nothing —
+	// the launcher recomputes the same default; deselect-all therefore means
+	// "default set", not "no checklists".
+	if d.project != "" && !tui {
+		for _, r := range d.rows {
+			if r.selected {
+				argv = append(argv, "--checklist", r.name)
+			}
+		}
+	}
+	if d.launchOverride != "" {
+		argv = append(argv, "--launch", d.launchOverride)
 	}
 	dir, err := os.Getwd()
 	if err != nil {
