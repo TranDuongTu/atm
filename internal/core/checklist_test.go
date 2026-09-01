@@ -173,6 +173,67 @@ func TestChecklistPayloadFromRoundTrips(t *testing.T) {
 	}
 }
 
+func TestDefaultChecklistSetNarrowsByCapabilityScope(t *testing.T) {
+	recs := []ChecklistRecord{
+		{Name: "neutral"},
+		{Name: "scrum-backlog", Requires: ChecklistRequires{Capabilities: []string{"scrum"}}},
+		{Name: "qa-backlog", Requires: ChecklistRequires{Capabilities: []string{"qa"}}},
+	}
+	names := func(in []ChecklistRecord) []string {
+		out := make([]string, len(in))
+		for i, r := range in {
+			out[i] = r.Name
+		}
+		return out
+	}
+	// A scoped session keeps capability-neutral checklists and those whose
+	// required capabilities include the scope; the rest drop. Order holds.
+	got := DefaultChecklistSet(recs, "scrum")
+	if want := []string{"neutral", "scrum-backlog"}; !reflect.DeepEqual(names(got), want) {
+		t.Fatalf("scoped set = %v, want %v", names(got), want)
+	}
+	// No scope selects everything.
+	got = DefaultChecklistSet(recs, "")
+	if want := []string{"neutral", "scrum-backlog", "qa-backlog"}; !reflect.DeepEqual(names(got), want) {
+		t.Fatalf("unscoped set = %v, want %v", names(got), want)
+	}
+	// The input slice is never mutated or aliased.
+	got[0].Name = "mutated"
+	if recs[0].Name != "neutral" {
+		t.Fatal("DefaultChecklistSet must copy, not alias, its input")
+	}
+	if DefaultChecklistSet(nil, "scrum") != nil {
+		t.Fatal("nil in, nil out")
+	}
+}
+
+func TestChecklistRequireWarnings(t *testing.T) {
+	rec := ChecklistRecord{
+		Name: "neutral",
+		Requires: ChecklistRequires{
+			Capabilities: []string{"scrum", "qa"},
+			Channels:     []string{"journal", "prs"},
+		},
+	}
+	channels := []ChannelView{
+		{ChannelRecord: ChannelRecord{Name: "journal", Type: "slack"}}, // exists, unwired
+	}
+	got := ChecklistRequireWarnings(rec, []string{"scrum"}, channels)
+	want := []string{
+		"checklist neutral: requires capability qa (not enabled)",
+		"checklist neutral: requires channel journal (unwired)",
+		"checklist neutral: requires channel prs (none exists)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("warnings = %v, want %v", got, want)
+	}
+	// A wired channel and an enabled capability warn about nothing.
+	channels[0].Wiring = &ChannelWiring{}
+	if got := ChecklistRequireWarnings(ChecklistRecord{Name: "n", Requires: ChecklistRequires{Capabilities: []string{"scrum"}, Channels: []string{"journal"}}}, []string{"scrum"}, channels); got != nil {
+		t.Fatalf("satisfied requires must yield nil, got %v", got)
+	}
+}
+
 func TestRenderChecklistStepsNumbering(t *testing.T) {
 	steps := []ChecklistStep{
 		{Text: "Triage the inbox", Children: []ChecklistStep{

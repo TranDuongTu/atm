@@ -11,7 +11,6 @@ package compose
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"atm/internal/core"
@@ -189,8 +188,8 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 
 // selectChecklists resolves the dispatch's checklist set: an explicit
 // override resolves exactly those names; otherwise the default set is every
-// suited checklist, narrowed by capability scope — a scoped session keeps
-// checklists whose required capabilities are empty or include the scope.
+// suited checklist, narrowed by capability scope (core.DefaultChecklistSet
+// — the rule itself is domain logic and lives in core).
 func (s *Service) selectChecklists(req Request) ([]core.ChecklistRecord, error) {
 	if req.Code == "" {
 		return nil, nil
@@ -210,21 +209,12 @@ func (s *Service) selectChecklists(req Request) ([]core.ChecklistRecord, error) 
 	if err != nil {
 		return nil, err
 	}
-	if req.Capability == "" {
-		return recs, nil
-	}
-	out := make([]core.ChecklistRecord, 0, len(recs))
-	for _, r := range recs {
-		if len(r.Requires.Capabilities) == 0 || slices.Contains(r.Requires.Capabilities, req.Capability) {
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	return core.DefaultChecklistSet(recs, req.Capability), nil
 }
 
-// requireWarnings validates each selected checklist's requires against the
-// project's enabled capabilities and channels (by NAME; a channel that
-// exists but has no wiring is unmet too). Warnings never block a launch.
+// requireWarnings gathers the inputs (enabled capabilities via the injected
+// registry view, channels via the port) and delegates the evaluation to
+// core.ChecklistRequireWarnings. Warnings never block a launch.
 func (s *Service) requireWarnings(code string, recs []core.ChecklistRecord) []string {
 	var enabled []string
 	if s.EnabledCapabilities != nil {
@@ -236,20 +226,7 @@ func (s *Service) requireWarnings(code string, recs []core.ChecklistRecord) []st
 	}
 	var out []string
 	for _, r := range recs {
-		for _, c := range r.Requires.Capabilities {
-			if !slices.Contains(enabled, c) {
-				out = append(out, fmt.Sprintf("checklist %s: requires capability %s (not enabled)", r.Name, c))
-			}
-		}
-		for _, ch := range r.Requires.Channels {
-			i := slices.IndexFunc(channels, func(v core.ChannelView) bool { return v.Name == ch })
-			switch {
-			case i < 0:
-				out = append(out, fmt.Sprintf("checklist %s: requires channel %s (none exists)", r.Name, ch))
-			case channels[i].Wiring == nil:
-				out = append(out, fmt.Sprintf("checklist %s: requires channel %s (unwired)", r.Name, ch))
-			}
-		}
+		out = append(out, core.ChecklistRequireWarnings(r, enabled, channels)...)
 	}
 	return out
 }
