@@ -141,6 +141,8 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
 	root.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 	root.Flags().StringVar(&opts.Task, "task", "", "assign the session a task from the project (exported as ATM_TASK and rendered into the session prompt)")
+	root.Flags().StringArrayVar(&opts.Checklists, "checklist", nil, "select this checklist for the session (repeatable; default: the persona's suited set)")
+	root.Flags().StringVar(&opts.Launch, "launch", "", "override the persona's launch mode for this dispatch: prompt|hook|tui")
 
 	root.AddCommand(newInitCmd(st))
 	root.AddCommand(newStoreCmd(st))

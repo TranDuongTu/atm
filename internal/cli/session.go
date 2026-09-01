@@ -25,6 +25,8 @@ type sessionOpts struct {
 	Capability  string
 	Agent       string
 	Task        string
+	Checklists  []string // explicit --checklist selection; nil = computed default
+	Launch      string   // --launch override; "" = persona default
 	Integration string
 	DefaultArgs []string
 	ExtraArgs   []string
@@ -47,6 +49,7 @@ func (st *cliState) composeFor(s core.Service) *compose.Service {
 		Svc:                 s,
 		EnabledCapabilities: func(code string) []string { return narrowedRegistry(st, s, code).Names() },
 		CapabilitiesBlock:   func(code string) string { return composeCapabilitiesBlock(narrowedRegistry(st, s, code)) },
+		ExpectedChecklists:  func(code string) []string { return narrowedRegistry(st, s, code).ChecklistSeedNames() },
 	}
 }
 
@@ -82,7 +85,17 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	if err != nil {
 		return err
 	}
-	if spec.Launch == "tui" {
+	// Routing reads the EFFECTIVE launch mode — the --launch override when
+	// set, else the persona's default — validated before any route so a bad
+	// value fails even for tui personas.
+	if opts.Launch != "" && opts.Launch != "prompt" && opts.Launch != "hook" && opts.Launch != "tui" {
+		return fmt.Errorf("%w: --launch must be prompt, hook, or tui, got %q", ErrUsage, opts.Launch)
+	}
+	mode := spec.Launch
+	if opts.Launch != "" {
+		mode = opts.Launch
+	}
+	if mode == "tui" {
 		// The TUI ignores --project/--agent/--task/--capability, exactly as
 		// the former admin route did; positional args still reject.
 		if len(opts.ExtraArgs) > 0 {
@@ -156,6 +169,8 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		ProjName:    projName,
 		Task:        opts.Task,
 		Capability:  opts.Capability,
+		Checklists:  opts.Checklists,
+		Launch:      opts.Launch,
 		Launcher:    l,
 		Model:       sel.Model,
 		DefaultArgs: defArgs,

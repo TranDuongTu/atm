@@ -27,6 +27,10 @@ type Service struct {
 	EnabledCapabilities func(code string) []string
 	// CapabilitiesBlock returns the pre-rendered ## Capabilities block.
 	CapabilitiesBlock func(code string) string
+	// ExpectedChecklists returns the checklist names the project's enabled
+	// capabilities ship as seeds (registry view; empty until unit 4 ships
+	// seeds). nil behaves as empty.
+	ExpectedChecklists func(code string) []string
 }
 
 // Request is one dispatch's binding inputs. Code/ProjName/Task arrive
@@ -69,6 +73,82 @@ type Plan struct {
 // project_optional enforcement — before composing the full plan.
 func (s *Service) ResolvePersona(name string) (skills.PersonaSpec, error) {
 	return resolvePersonaSpec(s.Svc, name)
+}
+
+// ChecklistOption is one row of the dispatch dialog's checklist multi-select.
+type ChecklistOption struct {
+	Name    string
+	Purpose string
+	Default bool // member of the compose-computed default set (suited ∩ scope)
+	// Warnings are the unmet requires — the row greys with these reasons
+	// but stays selectable (warn never block, spec decision 4).
+	Warnings []string
+}
+
+// DispatchOptions is the dialog-facing view of one persona's dispatch
+// defaults: launch mode, every selectable checklist row, and the
+// expected-but-absent shipped checklists.
+type DispatchOptions struct {
+	Launch string // persona's default launch mode (concrete: prompt|hook|tui)
+	// Rows lists ALL project checklists in store order — any persona can run
+	// any checklist (spec decision 3); Default marks the pre-checked set.
+	Rows []ChecklistOption
+	// Missing are enabled capabilities' seed names with no project record:
+	// the dialog's expected-but-absent warning rows.
+	Missing []string
+}
+
+// DispatchOptions computes the dialog-facing dispatch defaults for one
+// persona/project/scope. The dialog reads THIS and nothing else, so it
+// cannot diverge from what Compose will do at launch.
+func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOptions, error) {
+	spec, err := resolvePersonaSpec(s.Svc, persona)
+	if err != nil {
+		return nil, err
+	}
+	launch := spec.Launch
+	if launch == "" {
+		launch = "prompt"
+	}
+	opts := &DispatchOptions{Launch: launch}
+	if code == "" {
+		return opts, nil
+	}
+	recs, err := s.Svc.ChecklistRecords(code)
+	if err != nil {
+		return nil, err
+	}
+	suited, err := s.Svc.SuitedChecklists(code, persona)
+	if err != nil {
+		return nil, err
+	}
+	defaults := map[string]bool{}
+	for _, r := range core.DefaultChecklistSet(suited, capability) {
+		defaults[r.Name] = true
+	}
+	var enabled []string
+	if s.EnabledCapabilities != nil {
+		enabled = s.EnabledCapabilities(code)
+	}
+	channels := s.channelViewsUnprobed(code)
+	have := map[string]bool{}
+	for _, r := range recs {
+		have[r.Name] = true
+		opts.Rows = append(opts.Rows, ChecklistOption{
+			Name:     r.Name,
+			Purpose:  r.Purpose,
+			Default:  defaults[r.Name],
+			Warnings: core.ChecklistRequireWarnings(r, enabled, channels),
+		})
+	}
+	if s.ExpectedChecklists != nil {
+		for _, name := range s.ExpectedChecklists(code) {
+			if !have[name] {
+				opts.Missing = append(opts.Missing, name)
+			}
+		}
+	}
+	return opts, nil
 }
 
 // Compose computes the session binding for one dispatch.
@@ -184,6 +264,32 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 		Warnings:    warnings,
 		Actor:       actor,
 	}, nil
+}
+
+// channelViewsUnprobed joins channel records with this machine's wiring
+// WITHOUT running repo probes — the requires evaluation only reads
+// existence and Wiring, and DispatchOptions runs on a dialog keypress where
+// a per-repo git probe is not acceptable (the launch path keeps the fully
+// probed ProjectChannels read).
+func (s *Service) channelViewsUnprobed(code string) []core.ChannelView {
+	recs, err := s.Svc.ChannelRecords(code)
+	if err != nil {
+		return nil
+	}
+	var wirings map[string]core.ChannelWiring
+	if cfg, err := s.Svc.GetProjectConfig(code); err == nil && cfg != nil {
+		wirings = cfg.Channels
+	}
+	out := make([]core.ChannelView, 0, len(recs))
+	for _, rec := range recs {
+		v := core.ChannelView{ChannelRecord: rec}
+		if w, ok := wirings[rec.Name]; ok {
+			wc := w
+			v.Wiring = &wc
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // selectChecklists resolves the dispatch's checklist set: an explicit

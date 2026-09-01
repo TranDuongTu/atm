@@ -858,3 +858,126 @@ func TestSessionContextRendersDefaultChecklists(t *testing.T) {
 		t.Fatalf("session-context missing checklist section:\n%s", out)
 	}
 }
+
+// seedTwoChecklists creates project ATM with a developer-suited and a
+// manager-suited checklist — the fixture the --checklist/--launch flag
+// tests select against.
+func seedTwoChecklists(t *testing.T, h *goldenHarness) {
+	t.Helper()
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("project", "capability", "add", "--project", "ATM", "--name", "checklist", "--actor", "admin@cli:unset")
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "dev-cycle", "--purpose", "How dev work flows.",
+		"--step", "claim the task", "--suits", "developer", "--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed dev-cycle failed: %s", stderr)
+	}
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "mgr-sweep", "--purpose", "Not for devs.",
+		"--step", "sweep", "--suits", "manager", "--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed mgr-sweep failed: %s", stderr)
+	}
+}
+
+// TestLaunchChecklistFlagsSelectExactly: explicit --checklist flags replace
+// the computed default set — only the named checklists ride the session.
+func TestLaunchChecklistFlagsSelectExactly(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	seedTwoChecklists(t, h)
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--checklist", "mgr-sweep")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	joined := strings.Join(c.env, "\n")
+	if !strings.Contains(joined, "ATM_CHECKLISTS=mgr-sweep") {
+		t.Fatalf("env missing ATM_CHECKLISTS=mgr-sweep:\n%s", joined)
+	}
+	if strings.Contains(joined, "dev-cycle") {
+		t.Fatalf("default set leaked past the explicit override:\n%s", joined)
+	}
+	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ctx), "## Checklist: mgr-sweep") || strings.Contains(string(ctx), "## Checklist: dev-cycle") {
+		t.Fatalf("context sections do not match the override:\n%s", ctx)
+	}
+}
+
+// TestLaunchChecklistUnknownNameFails: a typo'd --checklist is a usage
+// error naming the checklist, not a silent fallback.
+func TestLaunchChecklistUnknownNameFails(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	seedTwoChecklists(t, h)
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	if _, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--checklist", "nope"); code == ExitSuccess {
+		t.Fatal("unknown checklist name must fail the launch")
+	}
+	// The harness emits the JSON error envelope, so the quotes around the
+	// name arrive escaped.
+	if !strings.Contains(h.stderr.String(), `checklist \"nope\"`) {
+		t.Fatalf("stderr must name the unknown checklist:\n%s", h.stderr.String())
+	}
+}
+
+// TestLaunchOverrideTUIRoutesToTUI: --launch tui on a session persona routes
+// to the TUI — the route reads the EFFECTIVE mode, not the persona default.
+func TestLaunchOverrideTUIRoutesToTUI(t *testing.T) {
+	h := newGoldenHarness(t)
+	c := captureChild(h)
+	tuiCalls := 0
+	h.st.runTUI = func(storePath, actor string) error { tuiCalls++; return nil }
+
+	_, _, code := h.run("--persona", "developer", "--launch", "tui")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if tuiCalls != 1 {
+		t.Fatalf("tui calls = %d, want 1", tuiCalls)
+	}
+	if c.name != "" {
+		t.Fatalf("host agent %q execed despite --launch tui", c.name)
+	}
+}
+
+// TestLaunchOverridePromptOnTUIPersonaLaunchesSession: --launch prompt on a
+// tui persona (admin) launches a real session instead of the TUI.
+func TestLaunchOverridePromptOnTUIPersonaLaunchesSession(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	stubLookPath(h)
+	tuiCalls := 0
+	h.st.runTUI = func(storePath, actor string) error { tuiCalls++; return nil }
+	h.reset()
+
+	_, _, code := h.run("--persona", "admin", "--launch", "prompt", "--project", "ATM", "--agent", "claude")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if tuiCalls != 0 {
+		t.Fatal("TUI must not run when the launch is overridden to prompt")
+	}
+	if c.name == "" {
+		t.Fatal("host agent was not execed for the overridden launch")
+	}
+}
+
+// TestLaunchInvalidLaunchValueFails: --launch validates before any routing.
+func TestLaunchInvalidLaunchValueFails(t *testing.T) {
+	h := newGoldenHarness(t)
+	captureChild(h)
+
+	if _, _, code := h.run("--persona", "developer", "--launch", "warp"); code == ExitSuccess {
+		t.Fatal("invalid --launch value must fail")
+	}
+	if !strings.Contains(h.stderr.String(), "prompt, hook, or tui") {
+		t.Fatalf("stderr must list the valid launch modes:\n%s", h.stderr.String())
+	}
+}
