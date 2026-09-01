@@ -170,6 +170,35 @@ func (s *Store) CreateChecklist(code string, rec core.ChecklistRecord, actor str
 	return s.GetTask(t.ID)
 }
 
+// migrateChecklistV1 reshapes a v1 payload map to v2 and moves the task from
+// its persona label to the bare label. The record keeps its task — same ID,
+// history, and any payload fields this binary does not know — which is why
+// migration is an in-place rewrite rather than a remove-and-recreate.
+func (s *Store) migrateChecklistV1(code, name string, t *Task, m map[string]any, actor string) (map[string]any, error) {
+	persona := ""
+	for _, l := range t.Labels {
+		if strings.HasPrefix(l, core.ChecklistPersonaLabelPrefix(code)) {
+			persona = strings.TrimPrefix(l, core.ChecklistPersonaLabelPrefix(code))
+			break
+		}
+	}
+	m = core.MigrateChecklistMapV2(m, persona)
+	m["name"] = name // pin the resolved name (title-derived when the payload lacked it)
+	bare := core.ChecklistLabel(code)
+	if err := s.LabelSeed(bare, checklistLabelDesc, "", actor); err != nil {
+		return nil, err
+	}
+	if err := s.TaskLabelAdd(t.ID, bare, actor); err != nil {
+		return nil, err
+	}
+	if persona != "" {
+		if err := s.TaskLabelRemove(t.ID, core.ChecklistPersonaLabelPrefix(code)+persona, actor); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
 // EditChecklist applies a partial update via decode-mutate-encode so unknown
 // fields from newer binaries survive. A v1 record is migrated here — payload
 // reshaped to v2 AND relabelled to the bare label — and nowhere else: reads
@@ -187,26 +216,8 @@ func (s *Store) EditChecklist(code, name string, e core.ChecklistEdit, actor str
 		return err
 	}
 	if v, _ := m["v"].(float64); v != 2 {
-		persona := ""
-		for _, l := range t.Labels {
-			if strings.HasPrefix(l, core.ChecklistPersonaLabelPrefix(code)) {
-				persona = strings.TrimPrefix(l, core.ChecklistPersonaLabelPrefix(code))
-				break
-			}
-		}
-		m = core.MigrateChecklistMapV2(m, persona)
-		m["name"] = rec.Name // pin the resolved name (title-derived when the payload lacked it)
-		bare := core.ChecklistLabel(code)
-		if err := s.LabelSeed(bare, checklistLabelDesc, "", actor); err != nil {
+		if m, err = s.migrateChecklistV1(code, rec.Name, t, m, actor); err != nil {
 			return err
-		}
-		if err := s.TaskLabelAdd(t.ID, bare, actor); err != nil {
-			return err
-		}
-		if persona != "" {
-			if err := s.TaskLabelRemove(t.ID, core.ChecklistPersonaLabelPrefix(code)+persona, actor); err != nil {
-				return err
-			}
 		}
 	}
 	if e.Purpose != nil {
