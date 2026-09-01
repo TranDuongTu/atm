@@ -13,9 +13,14 @@ import (
 // embedded interface panics on anything else, keeping the seam honest.
 type fakeSvc struct {
 	core.Service
+	all        []core.ChecklistRecord // every project checklist (ChecklistRecords)
 	suited     []core.ChecklistRecord
 	channels   []core.ChannelView
 	personaDoc map[string]string
+}
+
+func (f *fakeSvc) ChecklistRecords(code string) ([]core.ChecklistRecord, error) {
+	return f.all, nil
 }
 
 func (f *fakeSvc) StorePath() string { return "/store" }
@@ -241,6 +246,113 @@ func TestComposeEnvChecklists(t *testing.T) {
 	}
 	if _, ok := plan.EnvValues["ATM_CHECKLISTS"]; ok {
 		t.Fatal("ATM_CHECKLISTS must be absent when nothing is selected")
+	}
+}
+
+// optionsFake builds the DispatchOptions fixture: four project checklists,
+// three suited to developer, scrum enabled.
+func optionsFake() *fakeSvc {
+	all := []core.ChecklistRecord{
+		{Name: "dev-cycle", Purpose: "one task's flow", Suits: []string{"developer"}, Origin: "user"},
+		{Name: "scrum-sweep", Suits: []string{"developer"}, Requires: core.ChecklistRequires{Capabilities: []string{"scrum"}}, Origin: "shipped:scrum"},
+		{Name: "qa-sweep", Suits: []string{"developer"}, Requires: core.ChecklistRequires{Capabilities: []string{"qa"}}, Origin: "shipped:qa"},
+		{Name: "pr-shape", Suits: []string{"manager"}, Origin: "user"},
+	}
+	return &fakeSvc{all: all, suited: all[:3]}
+}
+
+func TestDispatchOptionsRowsDefaultsWarnings(t *testing.T) {
+	opts, err := testService(optionsFake()).DispatchOptions("developer", "ATM", "scrum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Launch != "hook" {
+		t.Fatalf("launch = %q, want hook", opts.Launch)
+	}
+	var names []string
+	defaults := map[string]bool{}
+	for _, r := range opts.Rows {
+		names = append(names, r.Name)
+		defaults[r.Name] = r.Default
+	}
+	if want := []string{"dev-cycle", "scrum-sweep", "qa-sweep", "pr-shape"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("rows = %v, want %v", names, want)
+	}
+	if !defaults["dev-cycle"] || !defaults["scrum-sweep"] || defaults["qa-sweep"] || defaults["pr-shape"] {
+		t.Fatalf("defaults = %v, want dev-cycle+scrum-sweep only", defaults)
+	}
+	if want := []string{"checklist qa-sweep: requires capability qa (not enabled)"}; !reflect.DeepEqual(opts.Rows[2].Warnings, want) {
+		t.Fatalf("qa-sweep warnings = %v, want %v", opts.Rows[2].Warnings, want)
+	}
+	for _, i := range []int{0, 1, 3} {
+		if opts.Rows[i].Warnings != nil {
+			t.Fatalf("row %s warnings = %v, want none", opts.Rows[i].Name, opts.Rows[i].Warnings)
+		}
+	}
+	if opts.Rows[0].Purpose != "one task's flow" {
+		t.Fatalf("purpose = %q", opts.Rows[0].Purpose)
+	}
+}
+
+func TestDispatchOptionsUnscopedKeepsAllSuited(t *testing.T) {
+	opts, err := testService(optionsFake()).DispatchOptions("developer", "ATM", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unscoped: every suited checklist is default — the unmet-requires
+	// qa-sweep included (requires WARN, they never gate selection).
+	for i, want := range []bool{true, true, true, false} {
+		if opts.Rows[i].Default != want {
+			t.Fatalf("row %s default = %v, want %v", opts.Rows[i].Name, opts.Rows[i].Default, want)
+		}
+	}
+}
+
+func TestDispatchOptionsMissing(t *testing.T) {
+	s := testService(optionsFake())
+	s.ExpectedChecklists = func(code string) []string { return []string{"qa-backlog", "dev-cycle"} }
+	opts, err := s.DispatchOptions("developer", "ATM", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"qa-backlog"}; !reflect.DeepEqual(opts.Missing, want) {
+		t.Fatalf("missing = %v, want %v", opts.Missing, want)
+	}
+	s.ExpectedChecklists = nil
+	opts, err = s.DispatchOptions("developer", "ATM", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Missing != nil {
+		t.Fatalf("missing = %v, want nil without an injected view", opts.Missing)
+	}
+}
+
+func TestDispatchOptionsNoProject(t *testing.T) {
+	opts, err := testService(optionsFake()).DispatchOptions("developer", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Rows != nil || opts.Missing != nil || opts.Launch != "hook" {
+		t.Fatalf("no-project options = %+v", opts)
+	}
+}
+
+func TestDispatchOptionsTUIPersona(t *testing.T) {
+	// Rows are still computed for a tui persona: the dialog may override
+	// the launch back to a session mode and needs the checklist set.
+	opts, err := testService(optionsFake()).DispatchOptions("admin", "ATM", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Launch != "tui" || len(opts.Rows) != 4 {
+		t.Fatalf("admin options = %+v", opts)
+	}
+}
+
+func TestDispatchOptionsUnknownPersona(t *testing.T) {
+	if _, err := testService(optionsFake()).DispatchOptions("ghost", "ATM", ""); err == nil {
+		t.Fatal("unknown persona must error")
 	}
 }
 
