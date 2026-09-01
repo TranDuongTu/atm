@@ -172,3 +172,24 @@ func TestChecklistPayloadFromRoundTrips(t *testing.T) {
 		t.Fatalf("round trip: got %+v, want %+v", got, rec)
 	}
 }
+
+func TestRenderChecklistStepsNumbering(t *testing.T) {
+	steps := []ChecklistStep{
+		{Text: "Triage the inbox", Children: []ChecklistStep{
+			{Text: "list it"},
+			{Text: "decide one", Children: []ChecklistStep{{Text: "absorb"}}},
+		}},
+		{Text: "Advance"},
+	}
+	want := "1. Triage the inbox\n" +
+		"   1.1 list it\n" +
+		"   1.2 decide one\n" +
+		"      1.2.1 absorb\n" +
+		"2. Advance\n"
+	if got := RenderChecklistSteps(steps); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if got := RenderChecklistSteps(nil); got != "" {
+		t.Fatalf("nil steps render %q, want empty", got)
+	}
+}

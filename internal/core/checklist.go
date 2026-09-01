@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -50,6 +51,28 @@ var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9
 // ValidChecklistOrigin reports whether origin is a legal provenance value.
 func ValidChecklistOrigin(o string) bool {
 	return o == "user" || o == "shipped:atm" || checklistOriginRe.MatchString(o)
+}
+
+// RenderChecklistSteps renders the recursive step tree as the numbered
+// nested list every surface shares (context file v2, TUI detail, profile
+// markdown): top level "1.", children "1.1", "1.2.1", indented three
+// spaces per depth.
+func RenderChecklistSteps(steps []ChecklistStep) string {
+	var b strings.Builder
+	renderSteps(&b, steps, "", 0)
+	return b.String()
+}
+
+func renderSteps(b *strings.Builder, steps []ChecklistStep, prefix string, depth int) {
+	for i, s := range steps {
+		n := prefix + strconv.Itoa(i+1)
+		dot := ""
+		if depth == 0 {
+			dot = "."
+		}
+		fmt.Fprintf(b, "%s%s%s %s\n", strings.Repeat("   ", depth), n, dot, s.Text)
+		renderSteps(b, s.Children, n+".", depth+1)
+	}
 }
 
 // ChecklistStepCount is the total node count of the tree — the number every
