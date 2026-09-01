@@ -41,6 +41,7 @@ type Request struct {
 	Capability string
 	Checklists []string // override; nil = computed default set
 	Launch     string   // override; "" = persona default
+	Actor      string   // override; "" computes persona@launcher:model (or stays empty for context-only renders)
 
 	Launcher    session.Launcher // nil = context-only (no argv)
 	Model       string
@@ -64,6 +65,13 @@ type Plan struct {
 	Actor       string
 }
 
+// ResolvePersona resolves a persona name to its parsed spec (built-in or
+// stored). Callers use it for pre-binding decisions — launch-mode routing,
+// project_optional enforcement — before composing the full plan.
+func (s *Service) ResolvePersona(name string) (skills.PersonaSpec, error) {
+	return resolvePersonaSpec(s.Svc, name)
+}
+
 // Compose computes the session binding for one dispatch.
 func (s *Service) Compose(req Request) (*Plan, error) {
 	spec, err := resolvePersonaSpec(s.Svc, req.Persona)
@@ -82,8 +90,10 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 			return nil, fmt.Errorf("%w: launch must be prompt, hook, or tui, got %q", core.ErrUsage, req.Launch)
 		}
 	}
-	if mode == "tui" {
-		// The TUI ignores project/agent/task; nothing else is composed.
+	if mode == "tui" && req.Launcher != nil {
+		// A tui LAUNCH ignores project/agent/task; nothing else is composed.
+		// A context-only request (nil Launcher) still renders — the caller
+		// asked for the context, not a session.
 		return &Plan{Mode: "tui"}, nil
 	}
 
@@ -106,7 +116,10 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	if req.Launcher != nil {
 		launcherName = req.Launcher.Name()
 	}
-	actor := sessionActor(spec.Name, launcherName, req.Model)
+	actor := req.Actor
+	if actor == "" && launcherName != "" {
+		actor = sessionActor(spec.Name, launcherName, req.Model)
+	}
 
 	capBlock := ""
 	if req.Code != "" && s.CapabilitiesBlock != nil {
@@ -367,10 +380,14 @@ func sanitizeCacheSegment(s string) string {
 			prevDash = false
 		} else {
 			if !prevDash {
-				b.WriteRune('-')
+				b.WriteByte('-')
 				prevDash = true
 			}
 		}
 	}
-	return strings.TrimRight(b.String(), "-")
+	out := strings.TrimRight(b.String(), "-")
+	if out == "" {
+		return "x"
+	}
+	return out
 }

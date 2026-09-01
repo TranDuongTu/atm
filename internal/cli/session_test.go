@@ -440,20 +440,6 @@ func TestSessionOllamaLaunch(t *testing.T) {
 	}
 }
 
-func TestSessionActorCarriesTheSelectedModel(t *testing.T) {
-	if got := sessionActor("developer", "ollama", "glm-5.2"); got != "developer@ollama:glm-5.2" {
-		t.Fatalf("actor = %q", got)
-	}
-}
-
-// No model chosen means the harness default, which ATM does not know.
-// :unset is the honest answer, not a placeholder to fill in.
-func TestSessionActorFallsBackToUnset(t *testing.T) {
-	if got := sessionActor("developer", "claude", ""); got != "developer@claude:unset" {
-		t.Fatalf("actor = %q", got)
-	}
-}
-
 // TestSessionLaunchesWithTheConfiguredModel verifies the model stored for a
 // selection key reaches both the argv and the actor the session stamps with.
 func TestSessionLaunchesWithTheConfiguredModel(t *testing.T) {
@@ -579,53 +565,8 @@ func TestSessionLauncherNotFound(t *testing.T) {
 	compareGolden(t, "session-developer-launcher-not-found", got)
 }
 
-// TestSessionEnvIncludesATMValues verifies sessionEnvValues builds the right
-// env map (no ATM_MANAGER_ACTION / ATM_MANAGER_CAPABILITY).
-func TestSessionEnvIncludesATMValues(t *testing.T) {
-	os.Unsetenv("ATM_BIN")
-	got := assembleEnv(sessionEnvValues("FOO", "developer@codex:unset", "FOO-RUNID", "/tmp/context.md", "codex", "developer", "developing", "", "", "2026-07-19T00:00:00Z"))
-	joined := strings.Join(got, "\n")
-	for _, want := range []string{
-		"ATM_ROLE=developing",
-		"ATM_PROJECT=FOO",
-		"ATM_ACTOR=developer@codex:unset",
-		"ATM_RUN_ID=FOO-RUNID",
-		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
-		"ATM_CONTEXT_FILE=/tmp/context.md",
-		"ATM_AGENT=codex",
-		"ATM_PERSONA=developer",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("session env missing %q", want)
-		}
-	}
-	for _, gone := range []string{"ATM_BIN=", "ATM_MANAGER_ACTION=", "ATM_MANAGER_CAPABILITY="} {
-		if strings.Contains(joined, gone) {
-			t.Errorf("session env must not set %s; got:\n%s", gone, joined)
-		}
-	}
-}
-
-func TestSessionManagerEnvSetsCapability(t *testing.T) {
-	got := sessionEnvValues("FOO", "manager@opencode:unset", "FOO-RUNID", "/tmp/ctx.md", "opencode", "manager", "manager", "", "", "2026-07-19T00:00:00Z")
-	joined := strings.Join(gotToSlice(got), "\n")
-	for _, want := range []string{
-		"ATM_PERSONA=manager",
-		"ATM_ROLE=manager",
-		"ATM_TIMESTAMP=2026-07-19T00:00:00Z",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("manager env missing %q; got:\n%s", want, joined)
-		}
-	}
-	if strings.Contains(joined, "ATM_BIN=") || strings.Contains(joined, "ATM_MANAGER_ACTION=") || strings.Contains(joined, "ATM_MANAGER_CAPABILITY=") {
-		t.Errorf("manager env must not set ATM_BIN/ATM_MANAGER_ACTION/ATM_MANAGER_CAPABILITY; got:\n%s", joined)
-	}
-	// ATM_CAPABILITY is omitted when empty.
-	if strings.Contains(joined, "ATM_CAPABILITY=") {
-		t.Errorf("ATM_CAPABILITY must be omitted when empty; got:\n%s", joined)
-	}
-}
+// The former sessionEnvValues/sessionActor unit pins moved to
+// internal/compose with the code (compose_test.go).
 
 // TestSessionLaunchesSelectedAgent verifies no --agent falls back to the stored
 // selection.
@@ -812,5 +753,108 @@ func TestSessionContextProjectlessOmitsBlock(t *testing.T) {
 	out := runArgsOut(t, st, "session-context", "--persona", "concierge")
 	if strings.Contains(out, "## Capabilities") {
 		t.Fatalf("project-less render must omit the block:\n%s", out)
+	}
+}
+
+// TestLaunchTUIPersonaIsDataDriven proves the TUI route reads the persona's
+// launch mode, not its name: a CUSTOM stored persona with launch: tui routes
+// to the TUI exactly like admin, and never execs a host agent.
+func TestLaunchTUIPersonaIsDataDriven(t *testing.T) {
+	h := newGoldenHarness(t)
+	dir := filepath.Join(h.store.StorePath(), "personas")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := "---\nname: console\ndescription: Console operator.\nlaunch: tui\n---\n# Persona: console\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(dir, "console.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := captureChild(h)
+	tuiCalls := 0
+	h.st.runTUI = func(storePath, actor string) error { tuiCalls++; return nil }
+
+	_, _, code := h.run("--persona", "console")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if tuiCalls != 1 {
+		t.Fatalf("tui calls = %d, want 1", tuiCalls)
+	}
+	if c.name != "" {
+		t.Fatalf("host agent %q execed for a tui-launch persona", c.name)
+	}
+
+	// Positional args still reject in TUI mode, as they always did for admin.
+	h.reset()
+	if _, _, code := h.run("--persona", "console", "extra"); code == ExitSuccess {
+		t.Fatal("expected non-zero exit when a tui-launch persona gets positional args")
+	}
+}
+
+// TestLaunchSessionExportsChecklistsEnvAndWarnings: a developer launch picks
+// up the suited checklist set, renders it inline into the context file,
+// exports ATM_CHECKLISTS, and prints unmet requires to stderr WITHOUT
+// blocking the launch (exit 0).
+func TestLaunchSessionExportsChecklistsEnvAndWarnings(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("project", "capability", "add", "--project", "ATM", "--name", "checklist", "--actor", "admin@cli:unset")
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "dev-routine", "--purpose", "How dev work flows.",
+		"--step", "claim the task", "--suits", "developer", "--requires-channel", "journal", "--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed dev-routine failed: %s", stderr)
+	}
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "manager-only", "--purpose", "Not for devs.",
+		"--step", "sweep", "--suits", "manager", "--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed manager-only failed: %s", stderr)
+	}
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+
+	_, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	joined := strings.Join(c.env, "\n")
+	if !strings.Contains(joined, "ATM_CHECKLISTS=dev-routine") {
+		t.Fatalf("env missing ATM_CHECKLISTS=dev-routine:\n%s", joined)
+	}
+	if strings.Contains(joined, "manager-only") {
+		t.Fatalf("unsuited checklist leaked into env:\n%s", joined)
+	}
+	if !strings.Contains(h.stderr.String(), "warning: checklist dev-routine: requires channel journal (none exists)") {
+		t.Fatalf("stderr missing requires warning:\n%s", h.stderr.String())
+	}
+	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ctx), "## Checklist: dev-routine") {
+		t.Fatalf("context file missing checklist section:\n%s", ctx)
+	}
+	if n := strings.Count(string(ctx), "# Persona: developer"); n != 1 {
+		t.Fatalf("persona header count = %d, want 1 (dedup fix):\n%s", n, ctx)
+	}
+}
+
+// TestSessionContextRendersDefaultChecklists: the hidden session-context
+// plumbing renders the same default checklist set the launcher would.
+func TestSessionContextRendersDefaultChecklists(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("project", "capability", "add", "--project", "ATM", "--name", "checklist", "--actor", "admin@cli:unset")
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "dev-routine", "--purpose", "How dev work flows.",
+		"--step", "claim the task", "--suits", "developer", "--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed dev-routine failed: %s", stderr)
+	}
+	h.reset()
+	out, _, code := h.run("session-context", "--persona", "developer", "--project", "ATM")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "## Checklist: dev-routine") {
+		t.Fatalf("session-context missing checklist section:\n%s", out)
 	}
 }

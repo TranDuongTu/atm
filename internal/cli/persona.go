@@ -225,7 +225,7 @@ func newPersonaPersonalityCmd(st *cliState) *cobra.Command {
 				return fmt.Errorf("%w: --set and --file are mutually exclusive", ErrUsage)
 			}
 			if !mutating {
-				spec, err := resolvePersonaSpec(s, name)
+				spec, err := st.composeFor(s).ResolvePersona(name)
 				if err != nil {
 					return err
 				}

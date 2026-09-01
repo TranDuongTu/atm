@@ -43,68 +43,8 @@ func TestAgentEnvArgs_OllamaNoIntegration(t *testing.T) {
 	}
 }
 
-func TestAppendAgentArgs_Order(t *testing.T) {
-	base := []string{"codex"}
-	env := []string{"--yolo"}
-	extra := []string{"--auto"}
-	got := appendAgentArgs(base, env, extra)
-	want := []string{"codex", "--yolo", "--auto"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("appendAgentArgs order = %v, want %v", got, want)
-	}
-}
-
-func TestAppendAgentArgs_NoDedup(t *testing.T) {
-	base := []string{"codex"}
-	env := []string{"--yolo"}
-	extra := []string{"--yolo"}
-	got := appendAgentArgs(base, env, extra)
-	want := []string{"codex", "--yolo", "--yolo"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("appendAgentArgs should not dedup = %v, want %v", got, want)
-	}
-}
-
-func TestAppendAgentArgs_BothEmpty(t *testing.T) {
-	base := []string{"codex"}
-	got := appendAgentArgs(base, nil, nil)
-	want := []string{"codex"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("appendAgentArgs both empty = %v, want %v", got, want)
-	}
-}
-
-func TestAppendAgentArgs_DoesNotMutateBase(t *testing.T) {
-	base := []string{"codex"}
-	_ = appendAgentArgs(base, []string{"--x"}, []string{"--y"})
-	if base[0] != "codex" || len(base) != 1 {
-		t.Errorf("appendAgentArgs mutated base: %v", base)
-	}
-}
-
-func TestContextCachePathPersona(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "developer", "", "")
-	want := "/STORE/projects/FOO/cache/session-developer.md"
-	if got != want {
-		t.Fatalf("contextCachePath developer = %q, want %q", got, want)
-	}
-}
-
-func TestContextCachePathNoProjectUsesStoreCache(t *testing.T) {
-	got := contextCachePath("/STORE", "", "concierge", "", "")
-	want := "/STORE/cache/session-concierge.md"
-	if got != want {
-		t.Fatalf("contextCachePath no-project = %q, want %q", got, want)
-	}
-}
-
-func TestContextCachePathNormalizes(t *testing.T) {
-	got := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "")
-	want := "/STORE/projects/FOO/cache/session-dev-staff.md"
-	if got != want {
-		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
-	}
-}
+// The former appendAgentArgs/contextCachePath/cacheKey unit pins moved to
+// internal/compose with the code (compose_test.go).
 
 func TestWriteContextIfDiffCreates(t *testing.T) {
 	dir := t.TempDir()
@@ -150,29 +90,6 @@ func TestWriteContextIfDiffNoOpOnMatch(t *testing.T) {
 	}
 	if !info.ModTime().Equal(prevMtime) {
 		t.Fatalf("writeContextIfDiff should be a no-op when content matches; mtime changed")
-	}
-}
-
-// TestCacheKeyWithTask verifies the task id joins the cache key so two
-// concurrent sessions on different tasks never share a context file.
-func TestCacheKeyWithTask(t *testing.T) {
-	if got, want := cacheKey("developer", "ATM-4b7e24", ""), "session-developer-atm-4b7e24"; got != want {
-		t.Fatalf("cacheKey = %q, want %q", got, want)
-	}
-	if got, want := cacheKey("developer", "", ""), "session-developer"; got != want {
-		t.Fatalf("cacheKey no-task = %q, want %q", got, want)
-	}
-}
-
-func TestCacheKeyCapabilitySegment(t *testing.T) {
-	if got := cacheKey("concierge", "", "channel"); got != "session-concierge-channel" {
-		t.Errorf("cacheKey with capability = %q, want session-concierge-channel", got)
-	}
-	if got := cacheKey("concierge", "ATM-3714db", "channel"); got != "session-concierge-atm-3714db-channel" {
-		t.Errorf("cacheKey with task+capability = %q", got)
-	}
-	if got := cacheKey("concierge", "", ""); got != "session-concierge" {
-		t.Errorf("cacheKey without capability changed: %q", got)
 	}
 }
 
