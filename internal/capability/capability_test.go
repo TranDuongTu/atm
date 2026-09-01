@@ -2,6 +2,7 @@ package capability
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"atm/internal/core"
@@ -280,4 +281,33 @@ func (f *fakeFlowCap) EvictLabel(code string) core.Label {
 }
 func (f *fakeFlowCap) Lanes(code string) LaneSet {
 	return LaneSet{Inbox: code + ":in", Pipeline: code + ":pipe", Out: code + ":out"}
+}
+
+// seedingCap is a fake that ships checklist seeds via the optional
+// ChecklistSeeder interface.
+type seedingCap struct {
+	fakeCap
+	seeds []core.ChecklistRecord
+}
+
+func (c *seedingCap) ChecklistSeeds() []core.ChecklistRecord { return c.seeds }
+
+func TestRegistryChecklistSeedNames(t *testing.T) {
+	var calls []string
+	a := &seedingCap{
+		fakeCap: fakeCap{name: "qa", calls: &calls},
+		seeds:   []core.ChecklistRecord{{Name: "qa-backlog"}, {Name: "qa-backlog"}, {Name: ""}},
+	}
+	b := &fakeCap{name: "channel", calls: &calls}
+	r := NewRegistry(a, b)
+	if got := r.ChecklistSeedNames(); !slices.Equal(got, []string{"qa-backlog"}) {
+		t.Fatalf("seed names = %v, want [qa-backlog]", got)
+	}
+	var nilReg *Registry
+	if nilReg.ChecklistSeedNames() != nil {
+		t.Fatal("nil registry must return nil")
+	}
+	if got := NewRegistry(b).ChecklistSeedNames(); got != nil {
+		t.Fatalf("registry without seeders = %v, want nil", got)
+	}
 }

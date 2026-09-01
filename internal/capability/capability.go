@@ -119,6 +119,16 @@ type Parenter interface {
 	ParentOf(task core.Task) string
 }
 
+// ChecklistSeeder is the OPTIONAL interface a capability implements to ship
+// checklist seeds (spec §7): the operating procedure it wants applied to
+// every project that enables it. No built-in implements it yet — unit 4
+// (ATM-bce933) moves the Duty content into seeds and flips the registry's
+// Flow enforcement onto it; until then ChecklistSeedNames returns nil and
+// the dispatch dialog shows no expected-but-absent rows.
+type ChecklistSeeder interface {
+	ChecklistSeeds() []core.ChecklistRecord
+}
+
 // LaneSet names a flow capability's three lane boards for a project. The
 // boards themselves are seeded through EnsureVocabulary like any others;
 // this struct only carries their FullNames for adapters (TUI pane [2], the
@@ -325,6 +335,30 @@ func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) (
 		}
 	}
 	return boards, nil
+}
+
+// ChecklistSeedNames lists the checklist names the registry's capabilities
+// ship as seeds, registration order, deduped. Call it on a For-narrowed
+// registry to get the names the project's ENABLED set expects to exist.
+func (r *Registry) ChecklistSeedNames() []string {
+	if r == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range r.caps {
+		s, ok := c.(ChecklistSeeder)
+		if !ok {
+			continue
+		}
+		for _, rec := range s.ChecklistSeeds() {
+			if rec.Name != "" && !seen[rec.Name] {
+				seen[rec.Name] = true
+				out = append(out, rec.Name)
+			}
+		}
+	}
+	return out
 }
 
 // Names lists the registered capability names in registration order.
