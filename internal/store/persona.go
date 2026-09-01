@@ -31,6 +31,8 @@ func builtinPersona(spec skills.PersonaSpec) *core.Persona {
 		Prompt:          spec.Body,
 		Description:     spec.Description,
 		ProjectOptional: spec.ProjectOptional,
+		Launch:          spec.Launch,
+		Kickoff:         spec.Kickoff,
 		CreatedBy:       "builtin",
 		UpdatedBy:       "builtin",
 	}
@@ -45,6 +47,12 @@ func composePersonaDoc(p *core.Persona) string {
 	fmt.Fprintf(&b, "description: %s\n", sanitizeFrontmatterValue(p.Description))
 	if p.ProjectOptional {
 		b.WriteString("project_optional: true\n")
+	}
+	if p.Launch != "" && p.Launch != "prompt" {
+		fmt.Fprintf(&b, "launch: %s\n", p.Launch)
+	}
+	if p.Kickoff != "" {
+		fmt.Fprintf(&b, "kickoff: %s\n", sanitizeFrontmatterValue(p.Kickoff))
 	}
 	fmt.Fprintf(&b, "created_at: %s\n", p.CreatedAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "created_by: %s\n", p.CreatedBy)
@@ -72,7 +80,7 @@ func parsePersonaDoc(name string, src []byte) (*core.Persona, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
-	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description, ProjectOptional: spec.ProjectOptional}
+	p := &core.Persona{Name: spec.Name, Prompt: spec.Body, Description: spec.Description, ProjectOptional: spec.ProjectOptional, Launch: spec.Launch, Kickoff: spec.Kickoff}
 	// Best-effort audit re-read: scan frontmatter lines only (up to the
 	// closing --- delimiter).
 	lines := strings.Split(string(src), "\n")
@@ -120,7 +128,7 @@ func (s *Store) CreatePersona(name, prompt, description, actor string) (*core.Pe
 		}
 		now := core.Now()
 		p := &core.Persona{
-			Name: name, Prompt: prompt, Description: description,
+			Name: name, Prompt: prompt, Description: description, Launch: "prompt",
 			CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor,
 		}
 		if p.Description == "" {

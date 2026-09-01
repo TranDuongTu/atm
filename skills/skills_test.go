@@ -137,3 +137,13 @@ func TestCapabilityMayDeclareNoBoards(t *testing.T) {
 		t.Fatalf("boards = %v", c.Boards)
 	}
 }
+
+func TestAdminLaunchesTUI(t *testing.T) {
+	a, ok := Persona("admin")
+	if !ok {
+		t.Fatal("admin built-in missing")
+	}
+	if a.Launch != "tui" {
+		t.Fatalf("admin launch = %q, want tui", a.Launch)
+	}
+}

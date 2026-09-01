@@ -129,6 +129,10 @@ type goldenHarness struct {
 	// run() reuses it to build the mount's OpenService so pre-parse project
 	// resolution reads the SAME seeded store the commands write to.
 	openService func(string) (core.Service, error)
+	// registryFn builds the full registry each run re-narrows from; nil
+	// means testRegistry. Tests needing the production capability surface
+	// (e.g. the checklist capability) set it to productionRegistry.
+	registryFn func() *capability.Registry
 }
 
 // mountDeps builds the Deps the per-run mount consumes. Its OpenService
@@ -138,8 +142,12 @@ type goldenHarness struct {
 // a correct gate. Registry is a FRESH full registry so every run re-narrows
 // from the full set, never from an already-narrowed h.st.registry.
 func (h *goldenHarness) mountDeps() Deps {
+	reg := testRegistry
+	if h.registryFn != nil {
+		reg = h.registryFn
+	}
 	return Deps{
-		Registry: testRegistry(),
+		Registry: reg(),
 		OpenService: func(p string) (core.Service, error) {
 			if p == "" {
 				p = h.store.StorePath()

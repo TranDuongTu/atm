@@ -125,6 +125,7 @@ func ParsePersona(stem string, src []byte) (PersonaSpec, error) {
 		Name:            fm.scalars["name"],
 		Description:     fm.scalars["description"],
 		Launch:          fm.scalars["launch"],
+		Kickoff:         fm.scalars["kickoff"],
 		Expects:         fm.lists["expects"],
 		Optional:        fm.lists["optional"],
 		ProjectOptional: fm.scalars["project_optional"] == "true",
@@ -142,9 +143,9 @@ func ParsePersona(stem string, src []byte) (PersonaSpec, error) {
 	switch p.Launch {
 	case "":
 		p.Launch = "prompt"
-	case "prompt", "hook":
+	case "prompt", "hook", "tui":
 	default:
-		return PersonaSpec{}, fmt.Errorf("persona %s: launch must be prompt or hook, got %q", stem, p.Launch)
+		return PersonaSpec{}, fmt.Errorf("persona %s: launch must be prompt, hook, or tui, got %q", stem, p.Launch)
 	}
 	if v := fm.scalars["project_optional"]; v != "" {
 		if v != "true" && v != "false" {

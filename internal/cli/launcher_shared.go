@@ -133,68 +133,6 @@ func agentEnvArgs(agent, integration string) []string {
 	return nil
 }
 
-// appendAgentArgs returns base + envArgs + extraArgs with no dedup.
-// The host agent's flag parser resolves any conflicts.
-func appendAgentArgs(base, envArgs, extraArgs []string) []string {
-	out := make([]string, 0, len(base)+len(envArgs)+len(extraArgs))
-	out = append(out, base...)
-	out = append(out, envArgs...)
-	out = append(out, extraArgs...)
-	return out
-}
-
-// contextCachePath returns the stable on-disk path for a rendered session
-// prompt keyed on (persona, task, capability). Repeated launches of the same
-// tuple reuse the same file. With no project (project-optional personas), the
-// file lives in the store-level cache dir.
-func contextCachePath(storePath, code, persona, task, capability string) string {
-	key := cacheKey(persona, task, capability)
-	if code == "" {
-		return filepath.Join(storePath, "cache", key+".md")
-	}
-	return filepath.Join(storePath, "projects", code, "cache", key+".md")
-}
-
-// cacheKey builds the filename stem: session-<persona>[-<task>][-<capability>].
-// Non-alphanumeric characters collapse to a single "-"; the result is
-// lowercased and trimmed of leading/trailing "-".
-func cacheKey(persona, task, capability string) string {
-	parts := []string{"session", persona}
-	if task != "" {
-		parts = append(parts, task)
-	}
-	if capability != "" {
-		parts = append(parts, capability)
-	}
-	for i, p := range parts {
-		parts[i] = sanitizeCacheSegment(p)
-	}
-	return strings.Join(parts, "-")
-}
-
-// sanitizeCacheSegment lowercases and collapses non-alphanumeric runs to "-".
-func sanitizeCacheSegment(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	prevDash := true // suppress leading "-"
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			prevDash = false
-		} else {
-			if !prevDash {
-				b.WriteByte('-')
-				prevDash = true
-			}
-		}
-	}
-	out := strings.TrimRight(b.String(), "-")
-	if out == "" {
-		return "x"
-	}
-	return out
-}
-
 // writeContextIfDiff writes content to path only when the existing file's
 // bytes differ. When the existing file matches byte-for-byte, it is a no-op
 // (mtime unchanged). Parent dirs are created with MkdirAll. The write is

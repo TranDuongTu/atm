@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -50,6 +52,70 @@ var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9
 // ValidChecklistOrigin reports whether origin is a legal provenance value.
 func ValidChecklistOrigin(o string) bool {
 	return o == "user" || o == "shipped:atm" || checklistOriginRe.MatchString(o)
+}
+
+// DefaultChecklistSet narrows a session's suited checklists by capability
+// scope: a scoped session keeps the checklists whose required capabilities
+// are empty (capability-neutral) or include the scope; an unscoped session
+// (capability "") keeps them all. Order is preserved; the input is copied,
+// never aliased.
+func DefaultChecklistSet(recs []ChecklistRecord, capability string) []ChecklistRecord {
+	if recs == nil {
+		return nil
+	}
+	out := make([]ChecklistRecord, 0, len(recs))
+	for _, r := range recs {
+		if capability == "" || len(r.Requires.Capabilities) == 0 || slices.Contains(r.Requires.Capabilities, capability) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ChecklistRequireWarnings evaluates one checklist's requires against the
+// project's enabled capabilities and channels (matched by NAME; a channel
+// that exists but has no wiring is unmet too). Unmet requirements WARN,
+// never block (DispatchV2 decision 4). Order: capabilities, then channels,
+// each in declaration order. Nil when everything is satisfied.
+func ChecklistRequireWarnings(rec ChecklistRecord, enabled []string, channels []ChannelView) []string {
+	var out []string
+	for _, c := range rec.Requires.Capabilities {
+		if !slices.Contains(enabled, c) {
+			out = append(out, fmt.Sprintf("checklist %s: requires capability %s (not enabled)", rec.Name, c))
+		}
+	}
+	for _, ch := range rec.Requires.Channels {
+		i := slices.IndexFunc(channels, func(v ChannelView) bool { return v.Name == ch })
+		switch {
+		case i < 0:
+			out = append(out, fmt.Sprintf("checklist %s: requires channel %s (none exists)", rec.Name, ch))
+		case channels[i].Wiring == nil:
+			out = append(out, fmt.Sprintf("checklist %s: requires channel %s (unwired)", rec.Name, ch))
+		}
+	}
+	return out
+}
+
+// RenderChecklistSteps renders the recursive step tree as the numbered
+// nested list every surface shares (context file v2, TUI detail, profile
+// markdown): top level "1.", children "1.1", "1.2.1", indented three
+// spaces per depth.
+func RenderChecklistSteps(steps []ChecklistStep) string {
+	var b strings.Builder
+	renderSteps(&b, steps, "", 0)
+	return b.String()
+}
+
+func renderSteps(b *strings.Builder, steps []ChecklistStep, prefix string, depth int) {
+	for i, s := range steps {
+		n := prefix + strconv.Itoa(i+1)
+		dot := ""
+		if depth == 0 {
+			dot = "."
+		}
+		fmt.Fprintf(b, "%s%s%s %s\n", strings.Repeat("   ", depth), n, dot, s.Text)
+		renderSteps(b, s.Children, n+".", depth+1)
+	}
 }
 
 // ChecklistStepCount is the total node count of the tree — the number every

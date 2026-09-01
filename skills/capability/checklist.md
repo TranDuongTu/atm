@@ -1,7 +1,7 @@
 ---
 name: checklist
 description: Checklists — free-standing, name-keyed standing operating procedures; the project's configured process that personas read at session start and follow.
-brief: List your checklists (`atm checklist list`) and read the ones matching this session's purpose before starting work. They are this project's operating procedure for your persona; they override nothing but must not be skipped.
+brief: Your session's checklists are rendered into this context file as `## Checklist:` sections — they are the operating procedure and must not be skipped. `atm checklist list` shows what else exists; re-read one with `atm checklist show --name <n>` if told it changed mid-session.
 labels: [checklist, checklist:*]
 boards: [checklists]
 ---

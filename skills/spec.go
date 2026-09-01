@@ -9,10 +9,15 @@ package skills
 type PersonaSpec struct {
 	Name        string
 	Description string
-	// Launch selects how the host agent receives the context file: "prompt"
-	// (default — an initial message points at the rendered context file) or
-	// "hook" (a session-start plugin hook loads it; the agent starts idle).
+	// Launch selects how the session starts: "prompt" (default — an initial
+	// message points at the rendered context file), "hook" (a session-start
+	// plugin hook loads it; the agent starts idle), or "tui" (routes to the
+	// interactive TUI; no host argv or context file is built).
 	Launch string
+	// Kickoff is the initial-message template for eager (launch: prompt)
+	// sessions; "" means the generic PromptMessage. Placeholders:
+	// <CONTEXT_FILE>, <CODE>, <TASK_ID>.
+	Kickoff string
 	// ProjectOptional personas may launch without --project (concierge: the
 	// project may not exist yet).
 	ProjectOptional bool

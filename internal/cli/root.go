@@ -107,12 +107,14 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.Persona == "" || opts.Persona == "admin" {
+			if opts.Persona == "" {
 				if len(args) > 0 {
 					return fmt.Errorf("%w: unknown command %q", ErrUsage, args[0])
 				}
 				return st.launchTUI()
 			}
+			// launch:tui personas (admin among them) route to the TUI inside
+			// launchSession — the route is persona data, not a name check.
 			opts.ExtraArgs = args
 			return st.launchSession(opts)
 		},
@@ -134,7 +136,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.SetOut(st.stdout())
 	root.SetErr(st.stderr())
 	root.PersistentFlags().BoolVar(&st.flags.quiet, "quiet", false, "suppress non-essential stdout in text mode")
-	root.Flags().StringVar(&opts.Persona, "persona", "", "launch as a persona: admin (default, opens the TUI) or an agent persona like developer, manager, concierge (see `atm persona list`)")
+	root.Flags().StringVar(&opts.Persona, "persona", "", "launch as a persona (see `atm persona list`); default opens the TUI")
 	root.Flags().StringVar(&opts.Project, "project", "", "ATM project the session works on")
 	root.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
 	root.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")

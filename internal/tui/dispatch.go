@@ -99,16 +99,21 @@ func (d *dispatchModel) persona() string {
 	return ""
 }
 
+// launchesTUI reports whether the persona routes to a fresh TUI (launch:
+// tui — admin among them). A TUI route ignores --project/--agent/--task/
+// --capability, so none of them ride its argv and agent readiness is
+// irrelevant.
+func launchesTUI(p *core.Persona) bool { return p != nil && p.Launch == "tui" }
+
 // projectRequired reports whether the selected persona needs --project in its
-// argv. Derived from the persona's project_optional spec; admin is always
-// project-optional because --persona admin routes to a fresh TUI that ignores
-// --project.
+// argv. Derived from the persona's project_optional spec; a tui-launch
+// persona is always project-optional because the TUI ignores --project.
 func (d *dispatchModel) projectRequired() bool {
 	p := d.selectedPersona()
 	if p == nil {
 		return false
 	}
-	if p.Name == "admin" {
+	if launchesTUI(p) {
 		return false
 	}
 	return !p.ProjectOptional
@@ -122,10 +127,10 @@ func (d *dispatchModel) target() string {
 }
 
 func (d *dispatchModel) title() string {
-	// admin routes to a fresh TUI that ignores --project, so its title never
-	// carries a project scope (mirrors projectRequired's admin special-case).
-	if d.persona() == "admin" {
-		return "admin"
+	// A tui-launch persona routes to a fresh TUI that ignores --project, so
+	// its title never carries a project scope (mirrors projectRequired).
+	if launchesTUI(d.selectedPersona()) {
+		return d.persona()
 	}
 	if d.taskID != "" {
 		return d.taskID
@@ -300,27 +305,28 @@ func (d *dispatchModel) submit() {
 		return
 	}
 	a := d.agents[d.cursor]
-	if p.Name != "admin" && !a.ready {
+	tui := launchesTUI(p)
+	if !tui && !a.ready {
 		d.m.showToast("error: agent " + a.name + " not ready: " + a.hint)
 		return
 	}
 	argv := []string{"atm", "--persona", p.Name}
-	// A known project rides along for every non-admin persona — a
+	// A known project rides along for every session-launching persona — a
 	// project-optional persona still accepts --project, and a scoped session
-	// (e.g. concierge from the channels overlay) needs it to render a
-	// project-bound context. admin routes to a fresh TUI that ignores it.
-	if d.project != "" && p.Name != "admin" {
+	// needs it to render a project-bound context. A tui-launch persona
+	// routes to a fresh TUI that ignores it.
+	if d.project != "" && !tui {
 		argv = append(argv, "--project", d.project)
 	}
-	if p.Name != "admin" {
+	if !tui {
 		argv = append(argv, "--agent", a.name)
 	}
 	// --task rides only with --project: the CLI launcher rejects
 	// "--task requires --project".
-	if d.taskID != "" && d.project != "" && p.Name != "admin" {
+	if d.taskID != "" && d.project != "" && !tui {
 		argv = append(argv, "--task", d.taskID)
 	}
-	if d.scope.Capability != "" && p.Name != "admin" {
+	if d.scope.Capability != "" && !tui {
 		argv = append(argv, "--capability", d.scope.Capability)
 	}
 	dir, err := os.Getwd()
@@ -404,7 +410,7 @@ func (d *dispatchModel) previewBody(w int) string {
 		a = d.agents[d.cursor]
 	}
 	b.WriteString("Agent:  ‹ " + a.label() + " ›\n")
-	if a.ready || d.persona() == "admin" {
+	if a.ready || launchesTUI(d.selectedPersona()) {
 		b.WriteString(styles.Success.Render("        ready") + "\n\n")
 	} else {
 		b.WriteString(styles.Error.Render("        x "+a.hint) + "\n\n")

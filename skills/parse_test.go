@@ -393,3 +393,17 @@ func TestBuiltinDutyContract(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePersonaLaunchTUIAndKickoff(t *testing.T) {
+	src := []byte("---\nname: opsboard\ndescription: d\nlaunch: tui\nkickoff: Read <CONTEXT_FILE> and start on <TASK_ID>.\n---\nbody")
+	p, err := ParsePersona("opsboard", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Launch != "tui" {
+		t.Fatalf("launch = %q, want tui", p.Launch)
+	}
+	if p.Kickoff != "Read <CONTEXT_FILE> and start on <TASK_ID>." {
+		t.Fatalf("kickoff = %q", p.Kickoff)
+	}
+}

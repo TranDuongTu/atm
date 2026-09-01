@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -732,6 +733,83 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 	}
 	if fd.spawned[0].Title != "admin" {
 		t.Errorf("title = %q, want just admin (no project prefix)", fd.spawned[0].Title)
+	}
+}
+
+// TestDispatchTUILaunchPersonaIsDataDriven proves the dialog's TUI-launch
+// behavior reads the persona's launch mode, not the "admin" name: a CUSTOM
+// persona with launch: tui gets the same treatment admin does — project not
+// required, bare title, bare argv, no agent-readiness gate — and the
+// rendered overlay still shows it as ready.
+func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	dir := filepath.Join(m.store.StorePath(), "personas")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := "---\nname: console\ndescription: Console operator.\nlaunch: tui\n---\n# Persona: console\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(dir, "console.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("console", "ATM", "ATM-1", "Some task", dispatchScope{Capability: "scrum"})
+	if m.dispatchDlg.persona() != "console" {
+		t.Fatalf("persona = %q want console", m.dispatchDlg.persona())
+	}
+	if m.dispatchDlg.projectRequired() {
+		t.Fatal("tui-launch persona must not require a project")
+	}
+	if got := m.dispatchDlg.title(); got != "console" {
+		t.Fatalf("title = %q, want bare persona name", got)
+	}
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "ready") {
+		t.Fatalf("overlay must show ready for a tui-launch persona:\n%s", view)
+	}
+	// Not gated on agent readiness: move to the unready codex and dispatch.
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("tui-launch persona should spawn even with an unready agent")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	if !strings.Contains(argv, "--persona console") {
+		t.Errorf("argv must set --persona console: %s", argv)
+	}
+	for _, gone := range []string{"--project", "--task", "--agent", "--capability"} {
+		if strings.Contains(argv, gone) {
+			t.Errorf("tui-launch argv must omit %s: %s", gone, argv)
+		}
+	}
+}
+
+// TestDispatchPromptPersonaStillCarriesFlags is the regression guard for the
+// launch-mode split: a prompt-launch persona keeps the full argv.
+func TestDispatchPromptPersonaStillCarriesFlags(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(100, 30)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+
+	m.dispatchDlg.open("manager", "ATM", "", "", dispatchScope{Capability: "scrum"})
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("manager should spawn")
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	for _, want := range []string{"--persona manager", "--project ATM", "--agent claude", "--capability scrum"} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("argv missing %s: %s", want, argv)
+		}
 	}
 }
 

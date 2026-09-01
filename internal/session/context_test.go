@@ -28,8 +28,8 @@ func TestRenderContextFull(t *testing.T) {
 	if !strings.Contains(out, "## Orientation") {
 		t.Fatal("orientation section missing")
 	}
-	if !strings.Contains(out, "## Persona Prompting") {
-		t.Fatal("persona prompting section missing")
+	if !strings.Contains(out, "## Persona and checklists") {
+		t.Fatal("persona-and-checklists closing section missing")
 	}
 }
 
@@ -118,5 +118,52 @@ func TestRenderContextScopeAndCapabilitiesCompose(t *testing.T) {
 	iScope, iCaps, iOrient := strings.Index(out, "## Session scope"), strings.Index(out, "## Capabilities"), strings.Index(out, "## Orientation")
 	if !(iScope >= 0 && iScope < iCaps && iCaps < iOrient) {
 		t.Fatalf("want scope < capabilities < orientation:\n%s", out)
+	}
+}
+
+func TestRenderContextChecklistSections(t *testing.T) {
+	out := RenderContext(ContextData{
+		Code: "ATM", Name: "Agent Tasks Management", Actor: "a@b:c",
+		PersonaPrompt: "P",
+		Capability:    "scrum",
+		Checklists: []ChecklistSection{
+			{Name: "develop-task", Purpose: "How one task flows.", StepsRendered: "1. claim\n2. build\n"},
+			{Name: "pr-convention", Purpose: "PR shape.", StepsRendered: "1. title\n"},
+		},
+	})
+	i1 := strings.Index(out, "## Checklist: develop-task")
+	i2 := strings.Index(out, "## Checklist: pr-convention")
+	iScope := strings.Index(out, "## Session scope")
+	if i1 < 0 || i2 < 0 || i2 < i1 {
+		t.Fatalf("checklist sections missing/misordered:\n%s", out)
+	}
+	if iScope >= 0 && i2 > iScope {
+		t.Fatalf("checklists must precede the capability scope:\n%s", out)
+	}
+	for _, want := range []string{
+		"How one task flows.", "1. claim\n2. build",
+		"atm checklist show --project ATM --name develop-task",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(out, "## Persona Prompting") {
+		t.Error("v1 closing section survived")
+	}
+	if !strings.Contains(out, "operating procedure") {
+		t.Error("v2 closing section missing")
+	}
+	if strings.Contains(out, "<CHECKLISTS_SECTIONS>") {
+		t.Fatalf("placeholder residue:\n%s", out)
+	}
+}
+
+func TestRenderContextNoChecklistsNoResidue(t *testing.T) {
+	out := RenderContext(ContextData{Code: "X", PersonaPrompt: "P"})
+	// "## Checklist: " with the trailing space is a section header; the
+	// closing prose mentions the backticked form, which must not count.
+	if strings.Contains(out, "## Checklist: ") || strings.Contains(out, "<CHECKLISTS_SECTIONS>") {
+		t.Fatalf("residue without checklists:\n%s", out)
 	}
 }
