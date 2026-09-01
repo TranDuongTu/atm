@@ -130,10 +130,7 @@ func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOp
 	if s.EnabledCapabilities != nil {
 		enabled = s.EnabledCapabilities(code)
 	}
-	var channels []core.ChannelView
-	if v, err := s.Svc.ProjectChannels(code); err == nil {
-		channels = v
-	}
+	channels := s.channelViewsUnprobed(code)
 	have := map[string]bool{}
 	for _, r := range recs {
 		have[r.Name] = true
@@ -267,6 +264,32 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 		Warnings:    warnings,
 		Actor:       actor,
 	}, nil
+}
+
+// channelViewsUnprobed joins channel records with this machine's wiring
+// WITHOUT running repo probes — the requires evaluation only reads
+// existence and Wiring, and DispatchOptions runs on a dialog keypress where
+// a per-repo git probe is not acceptable (the launch path keeps the fully
+// probed ProjectChannels read).
+func (s *Service) channelViewsUnprobed(code string) []core.ChannelView {
+	recs, err := s.Svc.ChannelRecords(code)
+	if err != nil {
+		return nil
+	}
+	var wirings map[string]core.ChannelWiring
+	if cfg, err := s.Svc.GetProjectConfig(code); err == nil && cfg != nil {
+		wirings = cfg.Channels
+	}
+	out := make([]core.ChannelView, 0, len(recs))
+	for _, rec := range recs {
+		v := core.ChannelView{ChannelRecord: rec}
+		if w, ok := wirings[rec.Name]; ok {
+			wc := w
+			v.Wiring = &wc
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // selectChecklists resolves the dispatch's checklist set: an explicit

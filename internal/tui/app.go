@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"atm/internal/capability"
+	"atm/internal/compose"
 	"atm/internal/core"
 	"atm/internal/tui/art"
 	"atm/internal/version"
@@ -87,7 +88,10 @@ type Model struct {
 	// *dispatch.Service facade). nil disables dispatch with a clear error.
 	dispatcher     Dispatcher
 	agentOptionsFn func() []agentOption
-	dispatchDlg    dispatchModel
+	// dispatchOptionsFn computes the dispatch dialog's checklist rows and
+	// launch default via compose.DispatchOptions; swapped in tests.
+	dispatchOptionsFn func(persona, code, capability string) (*compose.DispatchOptions, error)
+	dispatchDlg       dispatchModel
 	personasOv     personasModel
 	personaAct     personaActivityModel
 	channelsOv     channelsModel
@@ -193,6 +197,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.capability = newCapabilityModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
+	m.dispatchOptionsFn = m.composeDispatchOptions
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.personaAct.m = m
@@ -399,6 +404,22 @@ func (m *Model) regFor(code string) *capability.Registry {
 		return m.reg
 	}
 	return m.reg.For(p)
+}
+
+// composeDispatchOptions is the production dispatchOptionsFn: a registry-
+// narrowed compose.Service over the model's own store. Built per call — the
+// dialog opens on a keypress; two store reads are cheap and always fresh.
+func (m *Model) composeDispatchOptions(persona, code, capability string) (*compose.DispatchOptions, error) {
+	reg := m.reg
+	if code != "" {
+		reg = m.regFor(code)
+	}
+	csvc := &compose.Service{
+		Svc:                 m.store,
+		EnabledCapabilities: func(string) []string { return reg.Names() },
+		ExpectedChecklists:  func(string) []string { return reg.ChecklistSeedNames() },
+	}
+	return csvc.DispatchOptions(persona, code, capability)
 }
 
 func (m *Model) cycleTheme() {

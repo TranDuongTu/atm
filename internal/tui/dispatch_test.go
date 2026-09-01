@@ -388,17 +388,18 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	if len(m.dispatchDlg.repos) != 2 || m.dispatchDlg.repoCursor != 0 {
 		t.Fatalf("repos = %+v cursor = %d, want 2 repos cursor 0", m.dispatchDlg.repos, m.dispatchDlg.repoCursor)
 	}
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	// Repo cycling lives on "r" — the arrow keys move the checklist cursor.
+	dispatchKey(m, "r")
 	if m.dispatchDlg.repoCursor != 1 {
-		t.Fatalf("repoCursor = %d, want 1 after down", m.dispatchDlg.repoCursor)
+		t.Fatalf("repoCursor = %d, want 1 after r", m.dispatchDlg.repoCursor)
 	}
 	view := m.dispatchDlg.renderOverlay()
 	if !strings.Contains(view, "docs") {
-		t.Errorf("overlay must show second repo name after down:\n%s", view)
+		t.Errorf("overlay must show second repo name after r:\n%s", view)
 	}
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	dispatchKey(m, "r")
 	if m.dispatchDlg.repoCursor != 0 {
-		t.Fatalf("repoCursor = %d, want 0 after up", m.dispatchDlg.repoCursor)
+		t.Fatalf("repoCursor = %d, want 0 after the cycle wraps", m.dispatchDlg.repoCursor)
 	}
 
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -880,5 +881,219 @@ func TestDispatchAgentRowShowsConfiguredModel(t *testing.T) {
 	d.cursor = 0
 	if view := d.renderOverlay(); !strings.Contains(view, "glm-5.2") {
 		t.Fatalf("overlay hides the model that will actually launch:\n%s", view)
+	}
+}
+
+// seedDispatchChecklists creates the two-checklist fixture the multi-select
+// tests drive: one suited to developer, one to manager (store order).
+func seedDispatchChecklists(t *testing.T, m *Model) {
+	t.Helper()
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "dev-cycle", Purpose: "one task's flow",
+		Steps: []core.ChecklistStep{{Text: "claim"}}, Suits: []string{"developer"}, Origin: "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "mgr-sweep", Purpose: "sweep the board",
+		Steps: []core.ChecklistStep{{Text: "sweep"}}, Suits: []string{"manager"}, Origin: "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// openDevDispatch opens the dialog for developer on project ATM the way the
+// checklist tests need it, mirroring the direct-open pattern used above.
+func openDevDispatch(m *Model) {
+	m.dispatchDlg.m = m
+	m.dispatchDlg.open("developer", "ATM", "", "", dispatchScope{})
+}
+
+func TestDispatchChecklistDefaultsPreselected(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	view := m.dispatchDlg.renderOverlay()
+	for _, want := range []string{"[x] dev-cycle", "[ ] mgr-sweep", "Launch: hook"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overlay missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDispatchPersonaCycleResetsSelection(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	dispatchKey(m, " ")
+	if !strings.Contains(m.dispatchDlg.renderOverlay(), "[x] mgr-sweep") {
+		t.Fatal("space must toggle mgr-sweep on")
+	}
+	for i := 0; i < len(m.dispatchDlg.personas); i++ {
+		dispatchKey(m, "p")
+	}
+	if m.dispatchDlg.persona() != "developer" {
+		t.Fatalf("persona = %q, want developer after full cycle", m.dispatchDlg.persona())
+	}
+	if strings.Contains(m.dispatchDlg.renderOverlay(), "[x] mgr-sweep") {
+		t.Fatal("persona cycle must reset the selection to the computed default")
+	}
+}
+
+func TestDispatchChecklistCursorAndToggle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	d := &m.dispatchDlg
+	if d.rowCursor != 0 {
+		t.Fatalf("rowCursor = %d, want 0 at open", d.rowCursor)
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if d.rowCursor != 1 {
+		t.Fatalf("rowCursor = %d, want 1 after down", d.rowCursor)
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if d.rowCursor != 1 {
+		t.Fatalf("rowCursor = %d, want to stay on the last row", d.rowCursor)
+	}
+	dispatchKey(m, " ")
+	if !d.rows[1].selected || d.rows[0].selected != true {
+		t.Fatalf("space must toggle only the row under the cursor: %+v", d.rows)
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	dispatchKey(m, " ")
+	if d.rows[0].selected {
+		t.Fatalf("space must toggle row 0 off: %+v", d.rows)
+	}
+}
+
+func TestDispatchGreyedRowSelectableWithReason(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "journaled", Purpose: "needs a channel",
+		Steps:    []core.ChecklistStep{{Text: "post"}},
+		Suits:    []string{"developer"},
+		Requires: core.ChecklistRequires{Channels: []string{"journal"}},
+		Origin:   "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	d := &m.dispatchDlg
+	view := d.renderOverlay()
+	if !strings.Contains(view, "requires channel journal (none exists)") {
+		t.Fatalf("greyed row must carry its reason:\n%s", view)
+	}
+	// Unmet requires WARN, never gate: the row is a default and stays toggleable.
+	if !d.rows[0].selected {
+		t.Fatal("suited row with unmet requires must still be a default")
+	}
+	dispatchKey(m, " ")
+	if d.rows[0].selected {
+		t.Fatal("greyed row must stay toggleable")
+	}
+}
+
+// dispatchSeedCap is a registry capability shipping a checklist seed —
+// the fixture for the expected-but-absent warning row.
+type dispatchSeedCap struct{ undescribedCap }
+
+func (c *dispatchSeedCap) Name() string { return "qa" }
+func (c *dispatchSeedCap) ChecklistSeeds() []core.ChecklistRecord {
+	return []core.ChecklistRecord{{Name: "qa-backlog"}}
+}
+
+func TestDispatchMissingSeedWarningRow(t *testing.T) {
+	m := newTestModelWithCaps(t, &dispatchSeedCap{})
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	d := &m.dispatchDlg
+	view := d.renderOverlay()
+	if !strings.Contains(view, "⚠ qa-backlog") || !strings.Contains(view, "not applied") {
+		t.Fatalf("missing shipped checklist must render a warning row:\n%s", view)
+	}
+	// The warning row is not selectable: the cursor stays within real rows.
+	for i := 0; i < 5; i++ {
+		d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if d.rowCursor != len(d.rows)-1 {
+		t.Fatalf("rowCursor = %d, want %d (never onto the warning row)", d.rowCursor, len(d.rows)-1)
+	}
+}
+
+func TestDispatchLaunchOverrideCycle(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	d := &m.dispatchDlg
+	if !strings.Contains(d.renderOverlay(), "Launch: hook") {
+		t.Fatalf("status line must show the persona default:\n%s", d.renderOverlay())
+	}
+	dispatchKey(m, "L")
+	if !strings.Contains(d.renderOverlay(), "Launch: prompt (override)") {
+		t.Fatalf("L must override to prompt:\n%s", d.renderOverlay())
+	}
+	// hook is the persona default, so the cycle skips it and lands on tui.
+	dispatchKey(m, "L")
+	view := d.renderOverlay()
+	if !strings.Contains(view, "Launch: tui (override)") {
+		t.Fatalf("second L must land on tui (hook skipped as default):\n%s", view)
+	}
+	if strings.Contains(view, "Checklists:") || strings.Contains(view, "Repo:") {
+		t.Fatalf("effective tui must hide the session-only blocks:\n%s", view)
+	}
+	dispatchKey(m, "L")
+	if !strings.Contains(d.renderOverlay(), "Launch: hook") || d.launchOverride != "" {
+		t.Fatalf("third L must return to the persona default:\n%s", d.renderOverlay())
+	}
+}
+
+func TestDispatchTUIPersonaHidesChecklists(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	m.dispatchDlg.m = m
+	m.dispatchDlg.open("admin", "ATM", "", "", dispatchScope{})
+
+	view := m.dispatchDlg.renderOverlay()
+	if strings.Contains(view, "Checklists:") {
+		t.Fatalf("tui persona must not render the checklist block:\n%s", view)
+	}
+	if !strings.Contains(view, "Launch: tui") {
+		t.Fatalf("status line must show tui:\n%s", view)
 	}
 }

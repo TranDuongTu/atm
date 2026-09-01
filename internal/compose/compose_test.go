@@ -23,6 +23,26 @@ func (f *fakeSvc) ChecklistRecords(code string) ([]core.ChecklistRecord, error) 
 	return f.all, nil
 }
 
+// ChannelRecords/GetProjectConfig back the probe-free channel view
+// DispatchOptions reads; derived from the same channels fixture.
+func (f *fakeSvc) ChannelRecords(code string) ([]core.ChannelRecord, error) {
+	out := make([]core.ChannelRecord, 0, len(f.channels))
+	for _, v := range f.channels {
+		out = append(out, v.ChannelRecord)
+	}
+	return out, nil
+}
+
+func (f *fakeSvc) GetProjectConfig(code string) (*core.ProjectConfig, error) {
+	cfg := &core.ProjectConfig{Channels: map[string]core.ChannelWiring{}}
+	for _, v := range f.channels {
+		if v.Wiring != nil {
+			cfg.Channels[v.Name] = *v.Wiring
+		}
+	}
+	return cfg, nil
+}
+
 func (f *fakeSvc) StorePath() string { return "/store" }
 
 func (f *fakeSvc) GetPersonality(name string) (string, error) { return "", nil }

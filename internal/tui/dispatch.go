@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"atm/internal/agent"
@@ -65,6 +66,15 @@ type dispatchScope struct {
 
 func (s dispatchScope) empty() bool { return s == dispatchScope{} }
 
+// checklistRow is one selectable row of the dialog's checklist multi-select.
+// warnings carries the unmet-requires reasons: the row renders greyed with
+// them but stays toggleable (warn never block, spec decision 4).
+type checklistRow struct {
+	name     string
+	selected bool
+	warnings []string
+}
+
 type dispatchModel struct {
 	m             *Model
 	active        bool
@@ -82,6 +92,17 @@ type dispatchModel struct {
 	previewErr    string
 	repos         []core.RepoConfig
 	repoCursor    int
+	// Checklist multi-select state, recomputed by loadOptions on open and on
+	// every persona cycle. missing lists expected-but-absent shipped
+	// checklists (warning rows, never selectable); optErr is the options
+	// query failure rendered in place of the block.
+	rows      []checklistRow
+	missing   []string
+	rowCursor int
+	optErr    string
+	// launchOverride is the per-dispatch launch mode override; "" means the
+	// persona's own default. Never persisted (spec §5).
+	launchOverride string
 }
 
 // selectedPersona returns the persona under the cursor, or nil.
@@ -99,21 +120,53 @@ func (d *dispatchModel) persona() string {
 	return ""
 }
 
-// launchesTUI reports whether the persona routes to a fresh TUI (launch:
-// tui — admin among them). A TUI route ignores --project/--agent/--task/
-// --capability, so none of them ride its argv and agent readiness is
-// irrelevant.
-func launchesTUI(p *core.Persona) bool { return p != nil && p.Launch == "tui" }
+// personaLaunch is the selected persona's own launch mode ("" when none).
+func (d *dispatchModel) personaLaunch() string {
+	if p := d.selectedPersona(); p != nil {
+		return p.Launch
+	}
+	return ""
+}
+
+// effectiveLaunch is the launch mode this dispatch will use: the
+// per-dispatch override when set, else the persona's own launch field.
+func (d *dispatchModel) effectiveLaunch() string {
+	if d.launchOverride != "" {
+		return d.launchOverride
+	}
+	return d.personaLaunch()
+}
+
+// launchesTUI reports whether this dispatch routes to a fresh TUI (effective
+// launch tui — admin's default among them). A TUI route ignores --project/
+// --agent/--task/--capability/--checklist, so none of them ride its argv and
+// agent readiness is irrelevant.
+func (d *dispatchModel) launchesTUI() bool { return d.effectiveLaunch() == "tui" }
+
+// nextLaunch cycles the per-dispatch launch override — "" (persona default)
+// → prompt → hook → tui → "" — skipping the value that EQUALS the default:
+// selecting it would be the default, not an override.
+func nextLaunch(cur, def string) string {
+	order := []string{"", "prompt", "hook", "tui"}
+	i := slices.Index(order, cur)
+	for {
+		i = (i + 1) % len(order)
+		if order[i] == def {
+			continue
+		}
+		return order[i]
+	}
+}
 
 // projectRequired reports whether the selected persona needs --project in its
-// argv. Derived from the persona's project_optional spec; a tui-launch
-// persona is always project-optional because the TUI ignores --project.
+// argv. Derived from the persona's project_optional spec; a tui-route
+// dispatch is always project-optional because the TUI ignores --project.
 func (d *dispatchModel) projectRequired() bool {
 	p := d.selectedPersona()
 	if p == nil {
 		return false
 	}
-	if launchesTUI(p) {
+	if d.launchesTUI() {
 		return false
 	}
 	return !p.ProjectOptional
@@ -127,9 +180,9 @@ func (d *dispatchModel) target() string {
 }
 
 func (d *dispatchModel) title() string {
-	// A tui-launch persona routes to a fresh TUI that ignores --project, so
+	// A tui-route dispatch opens a fresh TUI that ignores --project, so
 	// its title never carries a project scope (mirrors projectRequired).
-	if launchesTUI(d.selectedPersona()) {
+	if d.launchesTUI() {
 		return d.persona()
 	}
 	if d.taskID != "" {
@@ -226,11 +279,32 @@ func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle strin
 			}
 		}
 	}
+	d.loadOptions()
 	if d.m.dispatcher == nil {
 		d.previewErr = "dispatch unavailable in this build"
 		return
 	}
 	d.refreshPreview()
+}
+
+// loadOptions recomputes the checklist rows and launch state for the
+// selected persona — the reset-to-default semantics of spec §6: cycling the
+// persona discards manual toggles and the launch override.
+func (d *dispatchModel) loadOptions() {
+	d.rows, d.missing, d.rowCursor, d.optErr, d.launchOverride = nil, nil, 0, "", ""
+	p := d.selectedPersona()
+	if p == nil || d.project == "" {
+		return
+	}
+	opts, err := d.m.dispatchOptionsFn(p.Name, d.project, d.scope.Capability)
+	if err != nil {
+		d.optErr = err.Error()
+		return
+	}
+	for _, r := range opts.Rows {
+		d.rows = append(d.rows, checklistRow{name: r.Name, selected: r.Default, warnings: r.Warnings})
+	}
+	d.missing = opts.Missing
 }
 
 // open loads the dialog's fields for the given context, then activates it.
@@ -260,6 +334,7 @@ func (d *dispatchModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "p":
 		if len(d.personas) > 0 {
 			d.personaCursor = (d.personaCursor + 1) % len(d.personas)
+			d.loadOptions()
 		}
 	case "left", "h":
 		if d.cursor > 0 {
@@ -270,13 +345,23 @@ func (d *dispatchModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			d.cursor++
 		}
 	case "down", "j":
+		if d.rowCursor < len(d.rows)-1 {
+			d.rowCursor++
+		}
+	case "up", "k":
+		if d.rowCursor > 0 {
+			d.rowCursor--
+		}
+	case " ":
+		if d.rowCursor >= 0 && d.rowCursor < len(d.rows) {
+			d.rows[d.rowCursor].selected = !d.rows[d.rowCursor].selected
+		}
+	case "r":
 		if len(d.repos) > 0 {
 			d.repoCursor = (d.repoCursor + 1) % len(d.repos)
 		}
-	case "up", "k":
-		if len(d.repos) > 0 {
-			d.repoCursor = (d.repoCursor - 1 + len(d.repos)) % len(d.repos)
-		}
+	case "L":
+		d.launchOverride = nextLaunch(d.launchOverride, d.personaLaunch())
 	case "t":
 		d.targetCursor = (d.targetCursor + 1) % len(d.targets)
 		d.refreshPreview()
@@ -305,7 +390,7 @@ func (d *dispatchModel) submit() {
 		return
 	}
 	a := d.agents[d.cursor]
-	tui := launchesTUI(p)
+	tui := d.launchesTUI()
 	if !tui && !a.ready {
 		d.m.showToast("error: agent " + a.name + " not ready: " + a.hint)
 		return
@@ -370,11 +455,12 @@ func (d *dispatchModel) renderOverlay() string {
 	var b strings.Builder
 	b.WriteString(d.previewBody(bw - 4))
 
-	help := "[p]persona  [←/→]agent  [t]target  [Enter]dispatch  [Esc]close"
+	help := "[p]persona  [L]launch  [←/→]agent  [t]target"
 	if d.project != "" {
-		help = "[p]persona  [←/→]agent  [↑/↓]repo  [t]target  [Enter]dispatch  [Esc]close"
+		help = "[p]persona  [↑/↓]row  [space]toggle  [L]launch  [←/→]agent  [r]repo  [t]target"
 	}
 	b.WriteString("\n\n" + styles.KeyMenuDim.Render(help))
+	b.WriteString("\n" + styles.KeyMenuDim.Render("[Enter]dispatch  [Esc]close"))
 
 	bh := strings.Count(b.String(), "\n") + 3
 	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
@@ -402,18 +488,26 @@ func (d *dispatchModel) previewBody(w int) string {
 		}
 		b.WriteString("Scope:  " + line + "\n\n")
 	}
-	if d.project != "" {
+	if d.project != "" && !d.launchesTUI() {
 		b.WriteString("Repo:   " + d.repoLabel() + "\n\n")
+		b.WriteString(d.checklistBlock(w))
 	}
 	a := agentOption{name: "—"}
 	if len(d.agents) > 0 {
 		a = d.agents[d.cursor]
 	}
 	b.WriteString("Agent:  ‹ " + a.label() + " ›\n")
-	if a.ready || launchesTUI(d.selectedPersona()) {
+	if a.ready || d.launchesTUI() {
 		b.WriteString(styles.Success.Render("        ready") + "\n\n")
 	} else {
 		b.WriteString(styles.Error.Render("        x "+a.hint) + "\n\n")
+	}
+	if d.persona() != "" {
+		launch := "Launch: " + d.effectiveLaunch()
+		if d.launchOverride != "" {
+			launch += " (override)"
+		}
+		b.WriteString(launch + "\n")
 	}
 	if d.previewErr != "" {
 		b.WriteString(styles.Error.Render("Target: x "+d.previewErr) + "\n")
@@ -424,4 +518,47 @@ func (d *dispatchModel) previewBody(w int) string {
 		b.WriteString(styles.Error.Render("⚠ "+d.persona()+" requires a project scope") + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// checklistBlock renders the multi-select: one row per project checklist
+// (cursor marker, checkbox, name, greyed unmet-requires reasons), then one
+// warning row per expected-but-absent shipped checklist. Empty when the
+// project has no checklists and nothing is missing.
+func (d *dispatchModel) checklistBlock(w int) string {
+	styles := d.m.styles
+	if d.optErr != "" {
+		return styles.Error.Render(fitLine("Checklists: x "+d.optErr, w)) + "\n\n"
+	}
+	if len(d.rows) == 0 && len(d.missing) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Checklists:\n")
+	for i, r := range d.rows {
+		marker := "  "
+		if i == d.rowCursor {
+			marker = "> "
+		}
+		box := "[ ] "
+		if r.selected {
+			box = "[x] "
+		}
+		line := marker + box + r.name
+		if len(r.warnings) > 0 {
+			// The row already names the checklist — strip the shared
+			// "checklist <name>: " prefix so the reasons fit the line.
+			reasons := make([]string, len(r.warnings))
+			for j, warn := range r.warnings {
+				reasons[j] = strings.TrimPrefix(warn, "checklist "+r.name+": ")
+			}
+			b.WriteString(styles.FieldHint.Render(fitLine(line+"  "+strings.Join(reasons, "; "), w)) + "\n")
+			continue
+		}
+		b.WriteString(fitLine(line, w) + "\n")
+	}
+	for _, name := range d.missing {
+		b.WriteString(styles.Error.Render(fitLine("  ⚠ "+name+" — shipped seed not applied to this project", w)) + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
