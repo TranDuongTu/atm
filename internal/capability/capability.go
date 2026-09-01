@@ -110,6 +110,15 @@ type Capability interface {
 	Command(env Env) *cobra.Command
 }
 
+// Parenter is the optional "who is this task's parent" hook. A capability
+// that records unit topology implements it; the answer is a task id or "".
+// Same purity rule as Annotate: pure over the task value (labels + own
+// payload), no store access. Optional (type-asserted) so the five
+// capabilities with no parent notion implement nothing.
+type Parenter interface {
+	ParentOf(task core.Task) string
+}
+
 // LaneSet names a flow capability's three lane boards for a project. The
 // boards themselves are seeded through EnsureVocabulary like any others;
 // this struct only carries their FullNames for adapters (TUI pane [2], the
@@ -364,4 +373,21 @@ func (r *Registry) Annotate(capName string, t core.Task) *Cell {
 		}
 	}
 	return nil
+}
+
+// ParentOf resolves the named capability and asks its Parenter hook, if it
+// has one. "" for unknown names, non-Parenter capabilities, and no-parent.
+func (r *Registry) ParentOf(capName string, t core.Task) string {
+	if r == nil {
+		return ""
+	}
+	for _, c := range r.caps {
+		if c.Name() == capName {
+			if p, ok := c.(Parenter); ok {
+				return p.ParentOf(t)
+			}
+			return ""
+		}
+	}
+	return ""
 }
