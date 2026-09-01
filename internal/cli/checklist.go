@@ -31,7 +31,7 @@ func newChecklistCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newChecklistAddCmd(st))
 	cmd.AddCommand(newChecklistListCmd(st))
 	cmd.AddCommand(newChecklistShowCmd(st))
-	cmd.AddCommand(newChecklistEditCmd(st))
+	cmd.AddCommand(newChecklistSetCmd(st))
 	cmd.AddCommand(newChecklistRemoveCmd(st))
 	return cmd
 }
@@ -306,15 +306,18 @@ func newChecklistAddCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-// newChecklistEditCmd applies a partial update: every field is optional and
-// independent, gated by cmd.Flags().Changed. A lone empty --suits (or
-// requires) value clears the field.
-func newChecklistEditCmd(st *cliState) *cobra.Command {
-	var name, purpose string
-	var stepFlags, suits, reqCaps, reqChans []string
+// newChecklistSetCmd replaces a record wholesale from a checklist document —
+// the seed format: frontmatter name/purpose/suits/requires, a nested-list
+// step body. Checklists are authored elsewhere and imported; ATM is the
+// source of record, not an editor, so there is no per-field edit. The
+// document's name must match --name (a guard against overwriting the wrong
+// record); its origin, if present, is ignored — provenance stays with the
+// record.
+func newChecklistSetCmd(st *cliState) *cobra.Command {
+	var name, file string
 	cmd := &cobra.Command{
-		Use:   "edit",
-		Short: "Edit a checklist's purpose, steps, suits, and/or requires",
+		Use:   "set",
+		Short: "Replace a checklist wholesale from a checklist document",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, err := checklistProject(cmd)
@@ -332,52 +335,41 @@ func newChecklistEditCmd(st *cliState) *cobra.Command {
 			if err := requireChecklistCapability(s, project); err != nil {
 				return err
 			}
-			var e core.ChecklistEdit
-			if cmd.Flags().Changed("purpose") {
-				e.Purpose = &purpose
+			var data []byte
+			if file == "-" {
+				data, err = io.ReadAll(st.stdin())
+			} else {
+				data, err = os.ReadFile(file)
 			}
-			if cmd.Flags().Changed("step") || cmd.Flags().Changed("steps-file") {
-				resolved, err := checklistSteps(cmd, st)
-				if err != nil {
-					return err
-				}
-				if len(resolved) == 0 {
-					return fmt.Errorf("%w: a checklist needs at least one step", core.ErrUsage)
-				}
-				e.Steps = resolved
+			if err != nil {
+				return err
 			}
-			if cmd.Flags().Changed("suits") {
-				if len(suits) == 1 && suits[0] == "" {
-					suits = []string{}
-				}
-				e.Suits = suits
+			seed, err := skills.ParseChecklistSeed(name, data)
+			if err != nil {
+				return fmt.Errorf("%w: %s", core.ErrUsage, err)
 			}
-			if cmd.Flags().Changed("requires-capability") || cmd.Flags().Changed("requires-channel") {
-				if len(reqCaps) == 1 && reqCaps[0] == "" {
-					reqCaps = nil
-				}
-				if len(reqChans) == 1 && reqChans[0] == "" {
-					reqChans = nil
-				}
-				e.Requires = &core.ChecklistRequires{Capabilities: reqCaps, Channels: reqChans}
+			rec := core.ChecklistRecord{
+				Purpose: seed.Purpose,
+				Steps:   coreStepsOf(seed.Steps),
+				Suits:   seed.Suits,
+				Requires: core.ChecklistRequires{
+					Capabilities: seed.Requires.Capabilities,
+					Channels:     seed.Requires.Channels,
+				},
 			}
-			if err := s.EditChecklist(project, name, e, actor); err != nil {
+			if err := s.SetChecklist(project, name, rec, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": project, "name": name}, func() {
-				fmt.Fprintf(st.stdout(), "updated checklist %s\n", name)
+				fmt.Fprintf(st.stdout(), "set checklist %s\n", name)
 			})
 		},
 	}
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
-	cmd.Flags().StringVar(&name, "name", "", "checklist name")
-	cmd.Flags().StringVar(&purpose, "purpose", "", "what the checklist is for (empty clears)")
-	cmd.Flags().StringArrayVar(&stepFlags, "step", nil, "one top-level imperative step (repeatable; replaces the tree)")
-	cmd.Flags().String("steps-file", "", "read the replacement step tree from a markdown nested list ('-' for stdin)")
-	cmd.Flags().StringArrayVar(&suits, "suits", nil, "replacement suits list (repeatable; a lone empty value clears)")
-	cmd.Flags().StringArrayVar(&reqCaps, "requires-capability", nil, "replacement required capabilities (repeatable; a lone empty value clears)")
-	cmd.Flags().StringArrayVar(&reqChans, "requires-channel", nil, "replacement required channels (repeatable; a lone empty value clears)")
+	cmd.Flags().StringVar(&name, "name", "", "checklist name (the document's frontmatter name must match)")
+	cmd.Flags().StringVar(&file, "file", "", "checklist document to import ('-' reads stdin)")
 	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
 

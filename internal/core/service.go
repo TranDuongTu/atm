@@ -63,7 +63,7 @@ type ChannelService interface {
 
 type ChecklistService interface {
 	CreateChecklist(code string, rec ChecklistRecord, actor string) (*Task, error)
-	EditChecklist(code, name string, e ChecklistEdit, actor string) error
+	SetChecklist(code, name string, rec ChecklistRecord, actor string) error
 	RemoveChecklist(code, name, taskID, actor string) error // taskID "" unless disambiguating
 	ChecklistRecords(code string) ([]ChecklistRecord, error)
 	SuitedChecklists(code, persona string) ([]ChecklistRecord, error)

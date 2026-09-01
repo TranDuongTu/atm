@@ -114,26 +114,43 @@ func TestChecklistEnvDefaults(t *testing.T) {
 	mustContain(t, out, "1. a")
 }
 
-func TestChecklistEditFieldsIndependently(t *testing.T) {
+func TestChecklistSetReplacesFromFile(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--name", "main",
 		"--purpose", "p", "--suits", "developer", "--step", "a", "--actor", "developer@test:unit")
-	// suits cleared with a lone empty value
-	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--name", "main",
-		"--suits", "", "--actor", "developer@test:unit")
-	out := runArgsOut(t, st, "checklist", "list", "--project", "ATM", "--all")
-	mustContain(t, out, "main\t-\t")
-	// requires replaced
-	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--name", "main",
-		"--requires-capability", "qa", "--actor", "developer@test:unit")
-	// purpose cleared
-	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--name", "main",
-		"--purpose", "", "--actor", "developer@test:unit")
+	doc := filepath.Join(t.TempDir(), "main.md")
+	if err := os.WriteFile(doc, []byte("---\nname: main\npurpose: replaced purpose\nrequires_capabilities: [qa]\n---\n1. first\n   1. nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := runArgsOut(t, st, "checklist", "set", "--project", "ATM", "--name", "main",
+		"--file", doc, "--actor", "developer@test:unit")
+	mustContain(t, out, "set checklist main")
 	st.output = outputJSON
 	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--name", "main")
+	mustContain(t, out, "replaced purpose")
 	mustContain(t, out, `"qa"`)
-	mustNotContain(t, out, `"purpose"`)
+	mustContain(t, out, "nested")
+	// the whole record was replaced: the old suits are gone, provenance stays
+	mustNotContain(t, out, "developer")
+	mustContain(t, out, `"origin": "user"`)
+}
+
+func TestChecklistSetNameMustMatchFile(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--name", "main",
+		"--step", "a", "--actor", "developer@test:unit")
+	doc := filepath.Join(t.TempDir(), "other.md")
+	if err := os.WriteFile(doc, []byte("---\nname: other\npurpose: p\n---\n1. a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	errText, code := runChecklistErrText(t, st, "checklist", "set", "--project", "ATM",
+		"--name", "main", "--file", doc, "--actor", "developer@test:unit")
+	if code == ExitSuccess {
+		t.Fatal("set with a mismatched frontmatter name must fail")
+	}
+	mustContain(t, errText, "must match")
 }
 
 func TestChecklistEmptyStateAndCollision(t *testing.T) {
@@ -193,21 +210,21 @@ func TestChecklistListJSONEmptyEmitsArray(t *testing.T) {
 	}
 }
 
-func TestChecklistEditEmptyStepsFileErrors(t *testing.T) {
+func TestChecklistSetWithoutStepsErrors(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--name", "main",
 		"--step", "a", "--actor", "developer@test:unit")
-	empty := filepath.Join(t.TempDir(), "steps.txt")
-	if err := os.WriteFile(empty, []byte("   \n\n"), 0o644); err != nil {
+	doc := filepath.Join(t.TempDir(), "main.md")
+	if err := os.WriteFile(doc, []byte("---\nname: main\npurpose: p\n---\nprose, no steps\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	errText, code := runChecklistErrText(t, st, "checklist", "edit", "--project", "ATM",
-		"--name", "main", "--steps-file", empty, "--actor", "developer@test:unit")
+	errText, code := runChecklistErrText(t, st, "checklist", "set", "--project", "ATM",
+		"--name", "main", "--file", doc, "--actor", "developer@test:unit")
 	if code == ExitSuccess {
-		t.Fatal("edit with an empty steps file must fail")
+		t.Fatal("set with a stepless document must fail")
 	}
-	mustContain(t, errText, "needs at least one step")
+	mustContain(t, errText, "at least one numbered or dashed step")
 }
 
 func TestChecklistGateWhenCapabilityDisabled(t *testing.T) {
@@ -246,11 +263,18 @@ func TestChecklistSeedIdempotent(t *testing.T) {
 	mustContain(t, out, `"suits"`)
 	mustContain(t, out, `"concierge"`)
 	mustContain(t, out, `"origin": "shipped:atm"`)
-	// an edited seed survives re-seeding
+	// a replaced seed survives re-seeding, and keeps its shipped provenance
 	st.output = outputText
-	_, _, _ = runArgs(st, "checklist", "edit", "--project", "ATM", "--name", "setup-channels", "--purpose", "edited", "--actor", "developer@test:unit")
+	doc := filepath.Join(t.TempDir(), "setup-channels.md")
+	if err := os.WriteFile(doc, []byte("---\nname: setup-channels\npurpose: edited\n---\n1. my own step\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = runArgsOut(t, st, "checklist", "set", "--project", "ATM", "--name", "setup-channels",
+		"--file", doc, "--actor", "developer@test:unit")
+	mustContain(t, out, "set checklist setup-channels")
 	_, _, _ = runArgs(st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
 	st.output = outputJSON
 	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--name", "setup-channels")
 	mustContain(t, out, `"purpose": "edited"`)
+	mustContain(t, out, `"origin": "shipped:atm"`)
 }

@@ -170,115 +170,63 @@ func (s *Store) CreateChecklist(code string, rec core.ChecklistRecord, actor str
 	return s.GetTask(t.ID)
 }
 
-// migrateChecklistV1 reshapes a v1 payload map to v2 and moves the task from
-// its persona label to the bare label. The record keeps its task — same ID,
-// history, and any payload fields this binary does not know — which is why
-// migration is an in-place rewrite rather than a remove-and-recreate.
-func (s *Store) migrateChecklistV1(code, name string, t *Task, m map[string]any, actor string) (map[string]any, error) {
-	persona := ""
+// relabelChecklistV1 moves a v1 task from its persona label to the bare v2
+// label; a task already carrying the bare label is left alone (any lingering
+// persona label from an interrupted earlier move is still cleaned up).
+func (s *Store) relabelChecklistV1(code string, t *Task, actor string) error {
+	bare := core.ChecklistLabel(code)
+	hasBare, persona := false, ""
 	for _, l := range t.Labels {
-		if strings.HasPrefix(l, core.ChecklistPersonaLabelPrefix(code)) {
-			persona = strings.TrimPrefix(l, core.ChecklistPersonaLabelPrefix(code))
-			break
+		if l == bare {
+			hasBare = true
+		} else if strings.HasPrefix(l, core.ChecklistPersonaLabelPrefix(code)) {
+			persona = l
 		}
 	}
-	m = core.MigrateChecklistMapV2(m, persona)
-	m["name"] = name // pin the resolved name (title-derived when the payload lacked it)
-	bare := core.ChecklistLabel(code)
-	if err := s.LabelSeed(bare, checklistLabelDesc, "", actor); err != nil {
-		return nil, err
-	}
-	if err := s.TaskLabelAdd(t.ID, bare, actor); err != nil {
-		return nil, err
+	if !hasBare {
+		if err := s.LabelSeed(bare, checklistLabelDesc, "", actor); err != nil {
+			return err
+		}
+		if err := s.TaskLabelAdd(t.ID, bare, actor); err != nil {
+			return err
+		}
 	}
 	if persona != "" {
-		if err := s.TaskLabelRemove(t.ID, core.ChecklistPersonaLabelPrefix(code)+persona, actor); err != nil {
-			return nil, err
-		}
+		return s.TaskLabelRemove(t.ID, persona, actor)
 	}
-	return m, nil
+	return nil
 }
 
-// EditChecklist applies a partial update via decode-mutate-encode so unknown
-// fields from newer binaries survive. A v1 record is migrated here — payload
-// reshaped to v2 AND relabelled to the bare label — and nowhere else: reads
-// never write.
-func (s *Store) EditChecklist(code, name string, e core.ChecklistEdit, actor string) error {
-	t, rec, err := s.findChecklist(code, name)
+// SetChecklist replaces the named record's content wholesale. Checklists are
+// authored outside ATM and imported — ATM is the source of record, not an
+// editor — so there is no field merge: the given record IS the record, and a
+// field it omits is gone. The task survives (same ID and history); Name and
+// Origin are identity and provenance, taken from the EXISTING record and never
+// from the caller. A v1 record is relabelled to the bare label here — and
+// nowhere else: reads never write.
+func (s *Store) SetChecklist(code, name string, rec core.ChecklistRecord, actor string) error {
+	t, existing, err := s.findChecklist(code, name)
 	if err != nil {
 		return err
 	}
-	if e.Purpose == nil && e.Steps == nil && e.Suits == nil && e.Requires == nil {
-		return nil
+	if len(rec.Steps) == 0 {
+		return fmt.Errorf("%w: a checklist needs at least one step", core.ErrUsage)
 	}
-	m, err := core.DecodeChecklistPayload(t.Meta[core.ChecklistMetaKey])
+	for _, suit := range rec.Suits {
+		if suit == "" || strings.Contains(suit, "/") {
+			return fmt.Errorf("%w: suits entries must be persona names not containing '/'", core.ErrUsage)
+		}
+	}
+	rec.Name = existing.Name
+	rec.Origin = existing.Origin
+	if err := s.relabelChecklistV1(code, t, actor); err != nil {
+		return err
+	}
+	payload, err := core.EncodeChecklistPayload(core.ChecklistPayloadFrom(rec))
 	if err != nil {
 		return err
 	}
-	if v, _ := m["v"].(float64); v != 2 {
-		if m, err = s.migrateChecklistV1(code, rec.Name, t, m, actor); err != nil {
-			return err
-		}
-	}
-	if e.Purpose != nil {
-		if *e.Purpose == "" {
-			delete(m, "purpose")
-		} else {
-			m["purpose"] = *e.Purpose
-		}
-	}
-	if e.Steps != nil {
-		if len(e.Steps) == 0 {
-			return fmt.Errorf("%w: a checklist needs at least one step", core.ErrUsage)
-		}
-		enc, err := core.EncodeChecklistPayload(core.ChecklistPayloadFrom(core.ChecklistRecord{Name: rec.Name, Steps: e.Steps, Origin: rec.Origin}))
-		if err != nil {
-			return err
-		}
-		tmp, err := core.DecodeChecklistPayload(enc)
-		if err != nil {
-			return err
-		}
-		m["steps"] = tmp["steps"]
-	}
-	if e.Suits != nil {
-		if len(e.Suits) == 0 {
-			delete(m, "suits")
-		} else {
-			arr := make([]any, len(e.Suits))
-			for i, v := range e.Suits {
-				arr[i] = v
-			}
-			m["suits"] = arr
-		}
-	}
-	if e.Requires != nil {
-		req := map[string]any{}
-		if len(e.Requires.Capabilities) > 0 {
-			arr := make([]any, len(e.Requires.Capabilities))
-			for i, v := range e.Requires.Capabilities {
-				arr[i] = v
-			}
-			req["capabilities"] = arr
-		}
-		if len(e.Requires.Channels) > 0 {
-			arr := make([]any, len(e.Requires.Channels))
-			for i, v := range e.Requires.Channels {
-				arr[i] = v
-			}
-			req["channels"] = arr
-		}
-		if len(req) == 0 {
-			delete(m, "requires")
-		} else {
-			m["requires"] = req
-		}
-	}
-	enc, err := core.EncodeChecklistPayload(m)
-	if err != nil {
-		return err
-	}
-	return s.SetTaskCapabilityMeta(t.ID, core.ChecklistMetaKey, enc, actor)
+	return s.SetTaskCapabilityMeta(t.ID, core.ChecklistMetaKey, payload, actor)
 }
 
 // RemoveChecklist removes the ledger record. Tolerates an unreadable payload —

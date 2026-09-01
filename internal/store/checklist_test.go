@@ -159,8 +159,8 @@ func TestChecklistNameCollision(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), a.ID) || !strings.Contains(err.Error(), b.ID) {
 		t.Fatalf("ambiguous get must name both task IDs: %v", err)
 	}
-	if err := s.EditChecklist("ATM", "x", core.ChecklistEdit{}, chActor); err == nil {
-		t.Fatal("ambiguous edit must fail")
+	if err := s.SetChecklist("ATM", "x", core.ChecklistRecord{Steps: []core.ChecklistStep{{Text: "s"}}}, chActor); err == nil {
+		t.Fatal("ambiguous set must fail")
 	}
 	if err := s.RemoveChecklist("ATM", "x", "", chActor); err == nil {
 		t.Fatal("ambiguous remove without --task must fail")
@@ -174,58 +174,70 @@ func TestChecklistNameCollision(t *testing.T) {
 	}
 }
 
-func TestChecklistEditV2(t *testing.T) {
+func TestChecklistSetReplacesWholesale(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChecklist("ATM", core.ChecklistRecord{Name: "main", Steps: []core.ChecklistStep{{Text: "a"}}, Suits: []string{"developer"}}, chActor); err != nil {
-		t.Fatal(err)
-	}
-	p := "new purpose"
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{Purpose: &p}, chActor); err != nil {
+	created, err := s.CreateChecklist("ATM", core.ChecklistRecord{
+		Name:     "main",
+		Purpose:  "old purpose",
+		Steps:    []core.ChecklistStep{{Text: "a"}},
+		Suits:    []string{"developer"},
+		Requires: core.ChecklistRequires{Channels: []string{"journal"}},
+		Origin:   "shipped:atm",
+	}, chActor)
+	if err != nil {
 		t.Fatal(err)
 	}
 	steps := []core.ChecklistStep{{Text: "x", Children: []core.ChecklistStep{{Text: "x1"}}}}
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{Steps: steps}, chActor); err != nil {
+	// Name and Origin in the caller's record are ignored: identity and
+	// provenance stay with the existing record. Absent fields are GONE — a set
+	// is the whole record, not a merge.
+	if err := s.SetChecklist("ATM", "main", core.ChecklistRecord{
+		Name:    "hijack",
+		Purpose: "new purpose",
+		Steps:   steps,
+		Origin:  "user",
+	}, chActor); err != nil {
 		t.Fatal(err)
 	}
-	req := core.ChecklistRequires{Channels: []string{"journal"}}
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{Requires: &req}, chActor); err != nil {
+	got, err := s.GetChecklist("ATM", "main")
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ := s.GetChecklist("ATM", "main")
-	if got.Purpose != "new purpose" || !reflect.DeepEqual(got.Steps, steps) ||
-		!reflect.DeepEqual(got.Requires, req) || !reflect.DeepEqual(got.Suits, []string{"developer"}) {
-		t.Fatalf("edit: %+v", got)
+	if got.Purpose != "new purpose" || !reflect.DeepEqual(got.Steps, steps) {
+		t.Fatalf("set content: %+v", got)
 	}
-	// all-nil edit is a no-op
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{}, chActor); err != nil {
-		t.Fatal(err)
+	if len(got.Suits) != 0 || len(got.Requires.Channels) != 0 {
+		t.Fatalf("absent fields must be dropped, not merged: %+v", got)
 	}
-	// non-nil empty suits clears
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{Suits: []string{}}, chActor); err != nil {
-		t.Fatal(err)
+	if got.Name != "main" || got.Origin != "shipped:atm" {
+		t.Fatalf("identity/provenance must come from the existing record: %+v", got)
 	}
-	got, _ = s.GetChecklist("ATM", "main")
-	if len(got.Suits) != 0 {
-		t.Fatalf("suits not cleared: %+v", got)
+	if got.TaskID != created.ID {
+		t.Fatalf("set must keep the task: got %s, want %s", got.TaskID, created.ID)
 	}
-	// empty non-nil steps is rejected
-	if err := s.EditChecklist("ATM", "main", core.ChecklistEdit{Steps: []core.ChecklistStep{}}, chActor); !errors.Is(err, core.ErrUsage) {
-		t.Fatalf("empty steps edit: want ErrUsage, got %v", err)
+	if err := s.SetChecklist("ATM", "main", core.ChecklistRecord{}, chActor); !errors.Is(err, core.ErrUsage) {
+		t.Fatalf("empty steps set: want ErrUsage, got %v", err)
+	}
+	if err := s.SetChecklist("ATM", "main", core.ChecklistRecord{Steps: steps, Suits: []string{"a/b"}}, chActor); !errors.Is(err, core.ErrUsage) {
+		t.Fatalf("slashed suits entry: want ErrUsage, got %v", err)
 	}
 }
 
-func TestChecklistEditMigratesV1(t *testing.T) {
+func TestChecklistSetMigratesV1(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreateProject("ATM", "Agent Tasks Management", chActor); err != nil {
 		t.Fatal(err)
 	}
 	v1 := mkV1Checklist(t, s, "ATM", "developer", "x",
-		`{"v":1,"persona":"developer","name":"x","purpose":"old","steps":["one","two"],"future":"kept"}`)
-	p := "new"
-	if err := s.EditChecklist("ATM", "x", core.ChecklistEdit{Purpose: &p}, chActor); err != nil {
+		`{"v":1,"persona":"developer","name":"x","purpose":"old","steps":["one","two"],"future":"dropped"}`)
+	if err := s.SetChecklist("ATM", "x", core.ChecklistRecord{
+		Purpose: "new",
+		Steps:   []core.ChecklistStep{{Text: "only"}},
+		Suits:   []string{"qa"},
+	}, chActor); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := s.GetTask(v1.ID)
@@ -242,19 +254,23 @@ func TestChecklistEditMigratesV1(t *testing.T) {
 		}
 	}
 	if !hasBare || hasPersona {
-		t.Fatalf("labels after migrating edit: %v", raw.Labels)
+		t.Fatalf("labels after migrating set: %v", raw.Labels)
 	}
 	payload := raw.Meta[core.ChecklistMetaKey]
-	for _, want := range []string{`"v":2`, `"suits":["developer"]`, `"origin":"user"`, `"future":"kept"`, `"purpose":"new"`} {
+	for _, want := range []string{`"v":2`, `"name":"x"`, `"suits":["qa"]`, `"origin":"user"`, `"purpose":"new"`} {
 		if !strings.Contains(payload, want) {
 			t.Fatalf("payload missing %s: %s", want, payload)
 		}
 	}
-	if strings.Contains(payload, `"persona"`) {
-		t.Fatalf("persona key must be gone: %s", payload)
+	// Overwrite semantics: the old payload's persona key and unknown fields do
+	// not survive — the set record IS the record.
+	for _, gone := range []string{`"persona"`, `"future"`} {
+		if strings.Contains(payload, gone) {
+			t.Fatalf("%s must be gone from an overwritten payload: %s", gone, payload)
+		}
 	}
 	got, err := s.GetChecklist("ATM", "x")
-	if err != nil || got.Purpose != "new" || len(got.Steps) != 2 {
+	if err != nil || got.Purpose != "new" || len(got.Steps) != 1 || !reflect.DeepEqual(got.Suits, []string{"qa"}) {
 		t.Fatalf("migrated record: %+v %v", got, err)
 	}
 }
@@ -276,13 +292,13 @@ func TestChecklistCorruptRecordDoesNotPoisonNeighbours(t *testing.T) {
 	if err := s.SetTaskCapabilityMeta(bad.ID, core.ChecklistMetaKey, "garbage", chActor); err != nil {
 		t.Fatal(err)
 	}
-	// the healthy neighbour still resolves and edits
-	p := "still works"
-	if err := s.EditChecklist("ATM", "good", core.ChecklistEdit{Purpose: &p}, chActor); err != nil {
+	// the healthy neighbour still resolves and accepts a set
+	fresh := core.ChecklistRecord{Purpose: "still works", Steps: []core.ChecklistStep{{Text: "a"}}}
+	if err := s.SetChecklist("ATM", "good", fresh, chActor); err != nil {
 		t.Fatalf("corrupt neighbour poisoned lookup: %v", err)
 	}
 	// the broken one is reachable by title and reports its own decode error
-	if err := s.EditChecklist("ATM", "broken", core.ChecklistEdit{Purpose: &p}, chActor); err == nil || errors.Is(err, core.ErrNotFound) {
+	if err := s.SetChecklist("ATM", "broken", fresh, chActor); err == nil || errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("want a decode error for the corrupt record itself, got %v", err)
 	}
 	// list degrades rather than failing

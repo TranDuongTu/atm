@@ -139,44 +139,6 @@ func TestChecklistFromTaskMalformedPayloadErrors(t *testing.T) {
 	}
 }
 
-func TestMigrateChecklistMapV2(t *testing.T) {
-	m := map[string]any{"v": float64(1), "persona": "developer", "name": "x", "purpose": "p",
-		"steps": []any{"one", "two"}, "future": "kept"}
-	out := MigrateChecklistMapV2(m, "developer")
-	if _, ok := out["persona"]; ok {
-		t.Fatalf("persona key must be dropped: %v", out)
-	}
-	if !reflect.DeepEqual(out["suits"], []any{"developer"}) {
-		t.Fatalf("suits = %v", out["suits"])
-	}
-	wantSteps := []any{
-		map[string]any{"text": "one"},
-		map[string]any{"text": "two"},
-	}
-	if !reflect.DeepEqual(out["steps"], wantSteps) {
-		t.Fatalf("steps = %v", out["steps"])
-	}
-	if out["origin"] != "user" {
-		t.Fatalf("origin = %v", out["origin"])
-	}
-	if out["future"] != "kept" {
-		t.Fatalf("unknown field dropped: %v", out)
-	}
-	if _, ok := m["suits"]; ok {
-		t.Fatalf("input mutated: %v", m)
-	}
-	// argument wins over the payload's own persona key
-	out2 := MigrateChecklistMapV2(map[string]any{"persona": "old"}, "newer")
-	if !reflect.DeepEqual(out2["suits"], []any{"newer"}) {
-		t.Fatalf("suits = %v, want label persona to win", out2["suits"])
-	}
-	// payload persona is the fallback when no label persona is known
-	out3 := MigrateChecklistMapV2(map[string]any{"persona": "old"}, "")
-	if !reflect.DeepEqual(out3["suits"], []any{"old"}) {
-		t.Fatalf("suits = %v, want payload persona fallback", out3["suits"])
-	}
-}
-
 func TestChecklistPayloadUnknownFieldsSurvive(t *testing.T) {
 	m, err := DecodeChecklistPayload(`{"v":1,"name":"main","future":"x"}`)
 	if err != nil {

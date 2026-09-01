@@ -150,9 +150,10 @@ func seedOneStarterAndEditIt(t *testing.T, m *Model) {
 	if _, err := m.store.CreateChecklist("ATM", setup.SeedRecord("ATM", seed), testActor); err != nil {
 		t.Fatalf("CreateChecklist: %v", err)
 	}
-	mine := []core.ChecklistStep{{Text: "my own first step"}, {Text: "my own second step"}}
-	if err := m.store.EditChecklist("ATM", seed.Name, core.ChecklistEdit{Steps: mine}, testActor); err != nil {
-		t.Fatalf("EditChecklist: %v", err)
+	mine := setup.SeedRecord("ATM", seed)
+	mine.Steps = []core.ChecklistStep{{Text: "my own first step"}, {Text: "my own second step"}}
+	if err := m.store.SetChecklist("ATM", seed.Name, mine, testActor); err != nil {
+		t.Fatalf("SetChecklist: %v", err)
 	}
 }
 

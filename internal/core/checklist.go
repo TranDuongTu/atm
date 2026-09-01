@@ -45,15 +45,6 @@ type ChecklistRecord struct {
 	Origin   string            `json:"origin"`
 }
 
-// ChecklistEdit is the partial-update argument for EditChecklist.
-// nil pointer / nil slice = unchanged; non-nil empty Suits = clear.
-type ChecklistEdit struct {
-	Purpose  *string
-	Steps    []ChecklistStep
-	Suits    []string
-	Requires *ChecklistRequires
-}
-
 var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
 // ValidChecklistOrigin reports whether origin is a legal provenance value.
@@ -181,32 +172,6 @@ func ChecklistPayloadFrom(rec ChecklistRecord) map[string]any {
 		m["requires"] = req
 	}
 	return m
-}
-
-// MigrateChecklistMapV2 returns a COPY of m reshaped to v2: persona (argument
-// wins, the payload's own "persona" key is the fallback) becomes suits, flat
-// string steps become node maps, origin defaults to "user", the "persona" key
-// is dropped, and every other key is carried over verbatim.
-func MigrateChecklistMapV2(m map[string]any, persona string) map[string]any {
-	out := make(map[string]any, len(m)+2)
-	for k, v := range m {
-		if k != "persona" {
-			out[k] = v
-		}
-	}
-	if persona == "" {
-		persona = checklistStr(m["persona"])
-	}
-	if persona != "" {
-		out["suits"] = []any{persona}
-	}
-	if steps := checklistStepsFromAny(m["steps"]); len(steps) > 0 {
-		out["steps"] = checklistStepsToAny(steps)
-	}
-	if checklistStr(out["origin"]) == "" {
-		out["origin"] = "user"
-	}
-	return out
 }
 
 func checklistStr(v any) string { s, _ := v.(string); return s }
