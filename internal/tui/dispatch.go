@@ -459,12 +459,13 @@ func (d *dispatchModel) renderOverlay() string {
 	var b strings.Builder
 	b.WriteString(d.previewBody(bw - 4))
 
-	help := "[p]persona  [L]launch  [←/→]agent  [t]target"
-	if d.project != "" {
-		help = "[p]persona  [↑/↓]row  [space]toggle  [L]launch  [←/→]agent  [r]repo  [t]target"
+	help, help2 := "[p]persona  [L]launch  [←/→]agent", "[t]target  [Enter]dispatch  [Esc]close"
+	if d.project != "" && !d.launchesTUI() {
+		help = "[p]persona  [↑/↓]row  [space]toggle  [L]launch  [←/→]agent"
+		help2 = "[r]repo  [t]target  [Enter]dispatch  [Esc]close"
 	}
 	b.WriteString("\n\n" + styles.KeyMenuDim.Render(help))
-	b.WriteString("\n" + styles.KeyMenuDim.Render("[Enter]dispatch  [Esc]close"))
+	b.WriteString("\n" + styles.KeyMenuDim.Render(help2))
 
 	bh := strings.Count(b.String(), "\n") + 3
 	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
