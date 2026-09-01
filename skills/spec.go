@@ -26,14 +26,32 @@ type PersonaSpec struct {
 	Personality string   // default `## Personality` section body, "" if none
 }
 
+// SeedStep is one node of a seed checklist's recursive step tree; markdown
+// nested lists are the textual form.
+type SeedStep struct {
+	Text     string
+	Children []SeedStep
+}
+
+// SeedRequires declares what a seed checklist needs to be runnable.
+type SeedRequires struct {
+	Capabilities []string
+	Channels     []string
+}
+
 // ChecklistSeed is one shipped starter checklist a project's `seed` verb
-// creates on demand: persona-scoped, purpose and ordered steps, with <CODE>
-// placeholders the seeder substitutes with the project code.
+// creates on demand: name-keyed, with purpose, recursive steps, suits
+// (default-bind persona hints), requires, and origin (reset provenance).
+// <CODE> placeholders are substituted with the project code by the seeder.
+// Origin is "" when the file names none; the embed loader defaults it to
+// "shipped:atm".
 type ChecklistSeed struct {
-	Persona string
-	Name    string
-	Purpose string
-	Steps   []string
+	Name     string
+	Purpose  string
+	Suits    []string
+	Requires SeedRequires
+	Origin   string
+	Steps    []SeedStep
 }
 
 // CapabilitySpec is one parsed capability prompt file. Labels and Boards are

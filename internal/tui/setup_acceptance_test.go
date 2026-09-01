@@ -148,9 +148,7 @@ func seedOnlyStarters(t *testing.T, m *Model, code string, names ...string) {
 	t.Helper()
 	for _, name := range names {
 		seed := checklistSeedNamed(t, "concierge", name)
-		if _, err := m.store.CreateChecklist(code, core.ChecklistRecord{
-			Persona: seed.Persona, Name: seed.Name, Purpose: seed.Purpose, Steps: seed.Steps,
-		}, testActor); err != nil {
+		if _, err := m.store.CreateChecklist(code, setup.SeedRecord(code, seed), testActor); err != nil {
 			t.Fatalf("CreateChecklist %s: %v", name, err)
 		}
 	}

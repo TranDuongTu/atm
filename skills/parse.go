@@ -8,7 +8,9 @@ import (
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
-var seedStepRe = regexp.MustCompile(`^\s*(?:\d+\.|-)\s+(.+)$`)
+var stepLineRe = regexp.MustCompile(`^([ \t]*)(?:\d+\.|-)\s+(.+)$`)
+
+var seedOriginRe = regexp.MustCompile(`^(user|shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9])?)$`)
 
 // frontmatter is the parsed `---` header: scalar keys and inline lists.
 // Unknown scalar keys are tolerated so the store can add audit fields
@@ -265,25 +267,103 @@ func DutyOf(body string) (string, error) {
 	return duty, nil
 }
 
-// ParseChecklistSeed parses one shipped seed checklist file: frontmatter
-// persona/name/purpose (all required; name must match the filename stem) and
-// a body of numbered or dashed step lines.
+type stepNode struct {
+	text     string
+	children []*stepNode
+}
+
+// stepIndent measures leading whitespace in columns; tabs count as 4.
+func stepIndent(ws string) int {
+	n := 0
+	for _, r := range ws {
+		if r == '\t' {
+			n += 4
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+func seedStepsOf(nodes []*stepNode) []SeedStep {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]SeedStep, len(nodes))
+	for i, n := range nodes {
+		out[i] = SeedStep{Text: n.text, Children: seedStepsOf(n.children)}
+	}
+	return out
+}
+
+// ParseSteps parses a markdown nested list ("-" or "N." markers; indentation
+// is depth) into a step tree. Non-step lines are ignored, matching the v1
+// parser's tolerance; a dedent attaches to the nearest shallower ancestor.
+func ParseSteps(body string) ([]SeedStep, error) {
+	root := &stepNode{}
+	type frame struct {
+		indent int
+		node   *stepNode
+	}
+	stack := []frame{{-1, root}}
+	for _, line := range strings.Split(body, "\n") {
+		m := stepLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		ind := stepIndent(m[1])
+		for len(stack) > 1 && ind <= stack[len(stack)-1].indent {
+			stack = stack[:len(stack)-1]
+		}
+		n := &stepNode{text: strings.TrimSpace(m[2])}
+		parent := stack[len(stack)-1].node
+		parent.children = append(parent.children, n)
+		stack = append(stack, frame{ind, n})
+	}
+	return seedStepsOf(root.children), nil
+}
+
+// ParseChecklistSeed parses one seed checklist file: frontmatter name/purpose
+// (required; name must match the filename stem), optional suits (or the legacy
+// persona scalar), requires_capabilities/requires_channels, origin, and a body
+// of nested numbered or dashed step lines.
 func ParseChecklistSeed(stem string, src []byte) (ChecklistSeed, error) {
 	fm, body, err := parseFrontmatter(src)
 	if err != nil {
 		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: %w", stem, err)
 	}
-	s := ChecklistSeed{Persona: fm.scalars["persona"], Name: fm.scalars["name"], Purpose: fm.scalars["purpose"]}
-	if s.Persona == "" || s.Purpose == "" || !nameRe.MatchString(s.Name) {
-		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: persona, name, purpose are required", stem)
+	s := ChecklistSeed{
+		Name:    fm.scalars["name"],
+		Purpose: fm.scalars["purpose"],
+		Suits:   fm.lists["suits"],
+		Origin:  fm.scalars["origin"],
+		Requires: SeedRequires{
+			Capabilities: fm.lists["requires_capabilities"],
+			Channels:     fm.lists["requires_channels"],
+		},
+	}
+	if p := fm.scalars["persona"]; p != "" {
+		if len(s.Suits) > 0 {
+			return ChecklistSeed{}, fmt.Errorf("checklist seed %s: give suits or the legacy persona key, not both", stem)
+		}
+		s.Suits = []string{p}
+	}
+	if s.Purpose == "" || !nameRe.MatchString(s.Name) {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: name and purpose are required", stem)
 	}
 	if s.Name != stem {
 		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: frontmatter name %q must match filename", stem, s.Name)
 	}
-	for _, line := range strings.Split(body, "\n") {
-		if m := seedStepRe.FindStringSubmatch(line); m != nil {
-			s.Steps = append(s.Steps, strings.TrimSpace(m[1]))
+	for _, suit := range s.Suits {
+		if !nameRe.MatchString(suit) {
+			return ChecklistSeed{}, fmt.Errorf("checklist seed %s: invalid suits entry %q", stem, suit)
 		}
+	}
+	if s.Origin != "" && !seedOriginRe.MatchString(s.Origin) {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: origin %q must be user, shipped:atm, or shipped:<capability>", stem, s.Origin)
+	}
+	if s.Steps, err = ParseSteps(body); err != nil {
+		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: %w", stem, err)
 	}
 	if len(s.Steps) == 0 {
 		return ChecklistSeed{}, fmt.Errorf("checklist seed %s: needs at least one numbered or dashed step", stem)

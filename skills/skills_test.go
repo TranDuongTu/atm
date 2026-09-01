@@ -84,8 +84,11 @@ func TestBuiltinChecklistSeedsLoad(t *testing.T) {
 		t.Fatalf("want 3 built-in checklist seeds, got %d", len(ss))
 	}
 	for _, s := range ss {
-		if s.Persona != "concierge" {
-			t.Errorf("%s: persona = %q, want concierge", s.Name, s.Persona)
+		if len(s.Suits) != 1 || s.Suits[0] != "concierge" {
+			t.Errorf("%s: suits = %v, want [concierge] (legacy persona key)", s.Name, s.Suits)
+		}
+		if s.Origin != "shipped:atm" {
+			t.Errorf("%s: origin = %q, want loader default shipped:atm", s.Name, s.Origin)
 		}
 		if len(s.Steps) == 0 {
 			t.Errorf("%s: no steps", s.Name)

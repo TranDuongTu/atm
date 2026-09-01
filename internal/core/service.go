@@ -63,11 +63,11 @@ type ChannelService interface {
 
 type ChecklistService interface {
 	CreateChecklist(code string, rec ChecklistRecord, actor string) (*Task, error)
-	EditChecklist(code, persona, name string, purpose *string, steps []string, actor string) error // steps nil = unchanged
-	RemoveChecklist(code, persona, name, actor string) error
+	SetChecklist(code, name string, rec ChecklistRecord, actor string) error
+	RemoveChecklist(code, name, taskID, actor string) error // taskID "" unless disambiguating
 	ChecklistRecords(code string) ([]ChecklistRecord, error)
-	PersonaChecklists(code, persona string) ([]ChecklistRecord, error)
-	GetChecklist(code, persona, name string) (*ChecklistRecord, error)
+	SuitedChecklists(code, persona string) ([]ChecklistRecord, error)
+	GetChecklist(code, name string) (*ChecklistRecord, error)
 }
 
 type LabelService interface {
