@@ -331,3 +331,36 @@ func TestRemovePersonaLegacyJSONNoDeadlock(t *testing.T) {
 		t.Fatal("RemovePersona on .json-only persona deadlocked (re-entrant WithLock)")
 	}
 }
+
+func TestPersonaLaunchKickoffRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+
+	a, err := s.GetPersona("admin")
+	if err != nil || a.Launch != "tui" {
+		t.Fatalf("admin launch = %+v (%v), want tui", a, err)
+	}
+	p, err := s.CreatePersona("greeter", "body text", "says hi", testActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Launch != "prompt" {
+		t.Fatalf("custom persona default launch = %q, want prompt", p.Launch)
+	}
+	// A stored doc that declares launch/kickoff parses them back and
+	// composes them out again (round-trip).
+	doc := "---\nname: kicked\ndescription: d\nlaunch: hook\nkickoff: Go read <CONTEXT_FILE>.\n---\nbody"
+	got, err := parsePersonaDoc("kicked", []byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Launch != "hook" {
+		t.Fatalf("launch = %q, want hook", got.Launch)
+	}
+	if got.Kickoff != "Go read <CONTEXT_FILE>." {
+		t.Fatalf("kickoff = %q", got.Kickoff)
+	}
+	out := composePersonaDoc(got)
+	if !strings.Contains(out, "launch: hook") || !strings.Contains(out, "kickoff: Go read <CONTEXT_FILE>.") {
+		t.Fatalf("composePersonaDoc dropped launch/kickoff:\n%s", out)
+	}
+}
