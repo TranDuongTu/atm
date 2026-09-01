@@ -11,6 +11,7 @@ import (
 	"atm/internal/dispatch"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Dispatcher is the TUI-facing dispatch port; *dispatch.Service implements
@@ -209,9 +210,10 @@ func (d *dispatchModel) repoLabel() string {
 	return "‹ " + fitLine(label, bwInner(d.m.width)) + " ›"
 }
 
-// bwInner returns the inner text width of the dispatch dialog box for the
-// given terminal width, mirroring renderOverlay's box-width math so a long
-// repo path truncates consistently with the task title.
+// bwInner returns the inner text width of the dispatch dialog's width CAP
+// for the given terminal width, mirroring renderOverlay's maxBW math. The
+// box hugs its content below the cap, so a repo path truncated here can at
+// most widen the dialog to the cap, consistently with the task title.
 func bwInner(width int) int {
 	bw := width * 60 / 100
 	if bw < 64 {
@@ -445,30 +447,47 @@ func (d *dispatchModel) submit() {
 func (d *dispatchModel) renderOverlay() string {
 	styles := d.m.styles
 
-	// Box width mirrors capabilityModel.renderOverlay's computation; it is
-	// computed before the content lines so the truncations below can use the
-	// inner width.
-	bw := d.m.width * 60 / 100
-	if bw < 64 {
-		bw = 64
+	// maxBW is the cap — the formula the box used to be fixed at (mirrored
+	// by bwInner for the repo-path truncation). The box now HUGS its
+	// content: the body is measured untruncated first and the box takes the
+	// widest line plus the layout's 4-column slack; only content wider than
+	// the cap truncates, so a long value can at most widen the dialog to
+	// the old fixed width, never past it.
+	maxBW := d.m.width * 60 / 100
+	if maxBW < 64 {
+		maxBW = 64
 	}
-	if bw > d.m.width-4 {
-		bw = d.m.width - 4
+	if maxBW > d.m.width-4 {
+		maxBW = d.m.width - 4
 	}
 
-	var b strings.Builder
-	b.WriteString(d.previewBody(bw - 4))
-
-	help, help2 := "[p]persona  [L]launch  [←/→]agent", "[t]target  [Enter]dispatch  [Esc]close"
-	if d.project != "" && !d.launchesTUI() {
-		help = "[p]persona  [↑/↓]row  [space]toggle  [L]launch  [←/→]agent"
-		help2 = "[r]repo  [t]target  [Enter]dispatch  [Esc]close"
+	body := func(w int) string {
+		var b strings.Builder
+		b.WriteString(d.previewBody(w))
+		help, help2 := "[p]persona  [L]launch  [←/→]agent", "[t]target  [Enter]dispatch  [Esc]close"
+		if d.project != "" && !d.launchesTUI() {
+			help = "[p]persona  [↑/↓]row  [space]toggle  [L]launch  [←/→]agent"
+			help2 = "[r]repo  [t]target  [Enter]dispatch  [Esc]close"
+		}
+		b.WriteString("\n\n" + styles.KeyMenuDim.Render(help))
+		b.WriteString("\n" + styles.KeyMenuDim.Render(help2))
+		return b.String()
 	}
-	b.WriteString("\n\n" + styles.KeyMenuDim.Render(help))
-	b.WriteString("\n" + styles.KeyMenuDim.Render(help2))
 
-	bh := strings.Count(b.String(), "\n") + 3
-	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", b.String(), bh)
+	natural := body(maxBW * 2) // wide enough that only bwInner truncations apply
+	bw := 0
+	for _, line := range strings.Split(natural, "\n") {
+		if w := lipgloss.Width(line) + 4; w > bw {
+			bw = w
+		}
+	}
+	if bw > maxBW {
+		bw = maxBW
+	}
+
+	inner := body(bw - 4)
+	bh := strings.Count(inner, "\n") + 3
+	return titledBoxHeight(styles.DialogBody, bw, "Dispatch", inner, bh)
 }
 
 // previewBody renders the dialog's field summary (persona/task/scope/repo/

@@ -14,6 +14,7 @@ import (
 	"atm/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type fakeDispatcher struct {
@@ -1184,6 +1185,46 @@ func TestDispatchMissingRowNeverInArgv(t *testing.T) {
 	}
 	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "qa-backlog") {
 		t.Errorf("missing shipped checklist must never ride the argv: %s", argv)
+	}
+}
+
+// TestDispatchOverlayWidthHugsContent: on a wide terminal the box hugs the
+// widest content line instead of spanning 60% of the screen; every rendered
+// line is the same width (box integrity), and content wider than the cap
+// still truncates (long repo paths cannot blow the dialog open).
+func TestDispatchOverlayWidthHugsContent(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+	m.SetSize(200, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	lines := strings.Split(m.dispatchDlg.renderOverlay(), "\n")
+	boxW := lipgloss.Width(lines[0])
+	for i, l := range lines {
+		if lipgloss.Width(l) != boxW {
+			t.Fatalf("line %d width %d != box width %d:\n%s", i, lipgloss.Width(l), boxW, l)
+		}
+	}
+	// The old formula gave 200*60/100 = 120; the content needs far less.
+	if boxW >= 100 {
+		t.Fatalf("box width = %d, want content-hugging (< 100)", boxW)
+	}
+	// The cap still binds: a repo path longer than the cap truncates rather
+	// than widening the dialog past the old fixed width.
+	long := filepath.Join(t.TempDir(), strings.Repeat("very-long-path-segment/", 8), "leaf")
+	if err := os.MkdirAll(long, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetProjectRepo("ATM", "deep", long, "", testActor); err != nil {
+		t.Fatal(err)
+	}
+	openDevDispatch(m)
+	lines = strings.Split(m.dispatchDlg.renderOverlay(), "\n")
+	if w := lipgloss.Width(lines[0]); w > 120 {
+		t.Fatalf("box width = %d, must stay capped at the old fixed width (120)", w)
 	}
 }
 
