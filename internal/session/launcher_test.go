@@ -21,21 +21,27 @@ func TestLauncherFor(t *testing.T) {
 	}
 }
 
-func TestBuildArgvPrompt(t *testing.T) {
+func TestBuildArgvMessage(t *testing.T) {
 	l, _ := LauncherFor("claude")
-	argv := l.BuildArgvPrompt("/tmp/ctx.md", "")
+	argv := l.BuildArgvMessage(PromptMessage("/tmp/ctx.md"), "")
 	if argv[0] != "claude" || !strings.Contains(strings.Join(argv, " "), "/tmp/ctx.md") {
 		t.Fatalf("argv = %v", argv)
 	}
 	oc, _ := LauncherFor("opencode")
-	ocArgv := oc.BuildArgvPrompt("/tmp/ctx.md", "")
+	ocArgv := oc.BuildArgvMessage(PromptMessage("/tmp/ctx.md"), "")
 	if ocArgv[1] != "--prompt" {
 		t.Fatalf("opencode uses --prompt: %v", ocArgv)
 	}
 	ol := OllamaLauncher{Integration: "opencode"}
-	olArgv := ol.BuildArgvPrompt("/tmp/ctx.md", "")
+	olArgv := ol.BuildArgvMessage(PromptMessage("/tmp/ctx.md"), "")
 	if olArgv[0] != "ollama" || olArgv[1] != "launch" || !strings.Contains(strings.Join(olArgv, " "), "--prompt") {
 		t.Fatalf("ollama argv = %v", olArgv)
+	}
+	// The message is caller-supplied verbatim — a kickoff template must
+	// reach the argv untouched.
+	custom := l.BuildArgvMessage("Go straight to the task.", "")
+	if custom[len(custom)-1] != "Go straight to the task." {
+		t.Fatalf("custom message argv = %v", custom)
 	}
 }
 
@@ -64,8 +70,8 @@ func TestBuildArgvNativeCarriesTheModel(t *testing.T) {
 	}
 	oc, _ := LauncherFor("opencode")
 	want := []string{"opencode", "--model", "some-model", "--prompt", PromptMessage("/tmp/ctx.md")}
-	if got := oc.BuildArgvPrompt("/tmp/ctx.md", "some-model"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("opencode BuildArgvPrompt = %v, want %v", got, want)
+	if got := oc.BuildArgvMessage(PromptMessage("/tmp/ctx.md"), "some-model"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("opencode BuildArgvMessage = %v, want %v", got, want)
 	}
 }
 
@@ -79,7 +85,7 @@ func TestBuildArgvOllamaPutsTheModelBeforeTheSeparator(t *testing.T) {
 		t.Fatalf("BuildArgv = %v, want %v", got, want)
 	}
 	wantPrompt := append(append([]string(nil), want...), "--prompt", PromptMessage("/tmp/ctx.md"))
-	if got := l.BuildArgvPrompt("/tmp/ctx.md", "qwen3:8b"); !reflect.DeepEqual(got, wantPrompt) {
-		t.Fatalf("BuildArgvPrompt = %v, want %v", got, wantPrompt)
+	if got := l.BuildArgvMessage(PromptMessage("/tmp/ctx.md"), "qwen3:8b"); !reflect.DeepEqual(got, wantPrompt) {
+		t.Fatalf("BuildArgvMessage = %v, want %v", got, wantPrompt)
 	}
 }

@@ -196,7 +196,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		base = l.BuildArgv(sel.Model)
 		role = "developing"
 	} else {
-		base = l.BuildArgvPrompt(contextPath, sel.Model)
+		base = l.BuildArgvMessage(session.PromptMessage(contextPath), sel.Model)
 	}
 	envArgs := agentEnvArgs(e.Launcher, e.Integration)
 	argv := appendAgentArgs(append(base, opts.DefaultArgs...), envArgs, opts.ExtraArgs)

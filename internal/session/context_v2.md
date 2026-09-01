@@ -6,13 +6,15 @@
 
 <PERSONA_PROMPT>
 
+<CHECKLISTS_SECTIONS>
+
 <CAPABILITY_SCOPE>
 
 <CAPABILITIES>
 
 ## Orientation
 
-ATM is the visible ledger for this work. Use it to record ideas, discussions, decisions, and progress as you go, and to find prior work and handoffs from earlier sessions. Start with the CLI landscape and the conventions; the Capabilities section above lists what this project has enabled — read a capability's guide before relying on it.
+ATM is the visible ledger for this work. Use it to record ideas, discussions, decisions, and progress as you go, and to find prior work and handoffs from earlier sessions. Start with the CLI landscape and the conventions; the Capabilities section above lists what this project has enabled — read a capability's guide before relying on one.
 
 First, establish which task this session works on: create one or pick from the backlog, stamp its stage per the project's workflow, and record your intent as a task comment before any design or code work.
 
@@ -26,6 +28,6 @@ atm search --project <CODE> "..."     # find prior tasks, decisions, and handoff
 
 Run `atm <cmd> --help` for exact flags. Stamp every ATM mutation with actor `<ACTOR>` — replace the `:unset` model segment with your actual model.
 
-## Persona Prompting
+## Persona and checklists
 
-Follow the persona prompt above as your primary guide — it defines how you work, make decisions, and communicate. The orientation below supports, but does not override, your persona's mandates.
+The persona prompt above is HOW you work — judgment, tone, principles, and communication. Any `## Checklist:` sections above are the operating procedure for WHAT you do: follow them in order, and let them win over your persona's generic routine wherever they overlap. If no checklist section is present, fall back to your persona's own routine. When told a checklist changed mid-session, re-read it with `atm checklist show` before continuing.

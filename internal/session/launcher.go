@@ -14,9 +14,10 @@ type Launcher interface {
 	// BuildArgv launches the host bare (launch: hook personas — a session
 	// plugin hook loads the context file from ATM_CONTEXT_FILE).
 	BuildArgv(model string) []string
-	// BuildArgvPrompt launches the host with an initial message pointing at
-	// the rendered context file (launch: prompt personas).
-	BuildArgvPrompt(contextPath, model string) []string
+	// BuildArgvMessage launches the host with the given initial message
+	// (launch: prompt personas). The message is caller-composed: the generic
+	// PromptMessage(contextPath), or a persona's rendered kickoff template.
+	BuildArgvMessage(msg, model string) []string
 }
 
 const (
@@ -42,8 +43,8 @@ func (l staticLauncher) BuildArgv(model string) []string {
 	return append([]string{l.name}, modelArgv(model)...)
 }
 
-func (l staticLauncher) BuildArgvPrompt(contextPath, model string) []string {
-	return append(l.BuildArgv(model), msgArgv(l.usePromptFlag, PromptMessage(contextPath))...)
+func (l staticLauncher) BuildArgvMessage(msg, model string) []string {
+	return append(l.BuildArgv(model), msgArgv(l.usePromptFlag, msg)...)
 }
 
 func msgArgv(usePromptFlag bool, msg string) []string {
@@ -87,8 +88,8 @@ func (l OllamaLauncher) BuildArgv(model string) []string {
 	return append(argv, "--")
 }
 
-func (l OllamaLauncher) BuildArgvPrompt(contextPath, model string) []string {
-	return append(l.BuildArgv(model), msgArgv(l.Integration == "opencode", PromptMessage(contextPath))...)
+func (l OllamaLauncher) BuildArgvMessage(msg, model string) []string {
+	return append(l.BuildArgv(model), msgArgv(l.Integration == "opencode", msg)...)
 }
 
 // modelArgv is shared because all three harnesses spell it --model.
