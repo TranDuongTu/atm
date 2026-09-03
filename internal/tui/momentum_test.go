@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"atm/internal/capability/qa"
+	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
 	"atm/internal/core"
 )
@@ -207,6 +208,114 @@ func TestMomentumBucketsWeeklyAndIgnoresOtherSubjects(t *testing.T) {
 	}
 	if got.Open[12] != 0 {
 		t.Fatalf("Open[12] = %d, want 0 after done", got.Open[12])
+	}
+}
+
+// setupMomentum scopes a scrum+qa model to project ATM with one claimed
+// task and one finished task, the way the lane tests scope theirs.
+func setupMomentum(t *testing.T) *Model {
+	t.Helper()
+	m := newTestModelWithCaps(t, scrum.New(), qa.New())
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	if _, err := m.regFor("ATM").EnsureVocabulary(m.store, "ATM", m.actor); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	seedTask(t, m, "ATM", "being built", "ATM:scrum:task")
+	done := seedTask(t, m, "ATM", "built", "ATM:scrum:task")
+	if err := m.store.TaskLabelAdd(done.ID, "ATM:scrum-stage:done", m.actor); err != nil {
+		t.Fatalf("label add: %v", err)
+	}
+	m.refreshAll()
+	return m
+}
+
+func TestMomentumRefreshComputesSeriesForCurrentCapability(t *testing.T) {
+	m := setupMomentum(t)
+	if m.capability.current != "scrum" {
+		t.Fatalf("current capability = %q, want scrum (first flow)", m.capability.current)
+	}
+	mm := &m.momentum
+	if !mm.ok {
+		t.Fatalf("momentum not ok after refresh")
+	}
+	if mm.rangeIdx != momentumDefaultRange {
+		t.Fatalf("rangeIdx = %d, want default %d", mm.rangeIdx, momentumDefaultRange)
+	}
+	in, done, _ := mm.series.totals()
+	if in != 2 || done != 1 {
+		t.Fatalf("totals in=%d done=%d, want 2 and 1", in, done)
+	}
+	if last := mm.series.Open[len(mm.series.Open)-1]; last != 1 {
+		t.Fatalf("open today = %d, want 1", last)
+	}
+}
+
+func TestMomentumRefreshIsCachedUntilLogAdvances(t *testing.T) {
+	m := setupMomentum(t)
+	mm := &m.momentum
+	before := mm.key
+	mm.series.In[0] = 99 // sentinel: a recompute would overwrite it
+	mm.refresh()
+	if mm.key != before || mm.series.In[0] != 99 {
+		t.Fatalf("refresh recomputed with an unchanged key")
+	}
+	seedTask(t, m, "ATM", "new arrival", "ATM:scrum:bug")
+	mm.refresh()
+	if mm.key == before {
+		t.Fatalf("key did not advance with the log")
+	}
+	if in, _, _ := mm.series.totals(); in != 3 {
+		t.Fatalf("in = %d after a new claim, want 3", in)
+	}
+}
+
+func TestMomentumStepRangeClampsAndRecomputes(t *testing.T) {
+	m := setupMomentum(t)
+	mm := &m.momentum
+	mm.stepRange(+1)
+	if mm.rangeIdx != momentumDefaultRange+1 || len(mm.series.Open) != chartRanges[mm.rangeIdx].buckets {
+		t.Fatalf("rangeIdx=%d buckets=%d", mm.rangeIdx, len(mm.series.Open))
+	}
+	for i := 0; i < 10; i++ {
+		mm.stepRange(+1)
+	}
+	if mm.rangeIdx != len(chartRanges)-1 {
+		t.Fatalf("rangeIdx = %d, want clamp at %d", mm.rangeIdx, len(chartRanges)-1)
+	}
+	for i := 0; i < 10; i++ {
+		mm.stepRange(-1)
+	}
+	if mm.rangeIdx != 0 {
+		t.Fatalf("rangeIdx = %d, want clamp at 0", mm.rangeIdx)
+	}
+}
+
+func TestMomentumCapabilitySwitchResetsRange(t *testing.T) {
+	m := setupMomentum(t)
+	mm := &m.momentum
+	mm.stepRange(+1)
+	m.capability.switchTo("qa")
+	if mm.rangeIdx != momentumDefaultRange {
+		t.Fatalf("rangeIdx = %d after capability switch, want default", mm.rangeIdx)
+	}
+	if mm.key.capability != "qa" {
+		t.Fatalf("key.capability = %q, want qa", mm.key.capability)
+	}
+	if in, _, _ := mm.series.totals(); in != 0 {
+		t.Fatalf("qa in = %d, want 0 (nothing claimed by qa)", in)
+	}
+}
+
+func TestMomentumNotOkWithoutFlow(t *testing.T) {
+	m := newTestModelWithCaps(t, release.New())
+	m.SetSize(120, 40)
+	seedProject(t, m, "ATM", "Acme")
+	m.projectScope = "ATM"
+	m.refreshAll()
+	if m.momentum.ok || m.momentum.visible() {
+		t.Fatalf("momentum ok with no flow capability")
 	}
 }
 

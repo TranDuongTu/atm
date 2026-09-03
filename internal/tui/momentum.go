@@ -217,3 +217,84 @@ func momentumBuckets(entries []core.LogEntry, sockets flowSockets, spec chartRan
 	sampleThrough(spec.buckets) // the current bucket and any trailing empty ones
 	return out
 }
+
+// momentumDefaultRange is the index into chartRanges pane [2] starts on:
+// one month. Task finishes are sparse day to day; a week of them is mostly
+// zeros, and a month is where a trend first shows.
+const momentumDefaultRange = 1
+
+// momentumKey is what a computed series depends on. Equal keys mean the
+// cached series is still exact, so refresh is a no-op.
+type momentumKey struct {
+	code, capability string
+	rangeIdx, logSeq int
+}
+
+// momentumModel owns pane [2]'s momentum chart: its range, collapsed flag
+// and the cached series. It never reads the log during View.
+type momentumModel struct {
+	m         *Model
+	rangeIdx  int
+	collapsed bool
+	series    momentumSeries
+	ok        bool
+	key       momentumKey
+}
+
+func newMomentumModel(m *Model) momentumModel {
+	return momentumModel{m: m, rangeIdx: momentumDefaultRange}
+}
+
+func (mm *momentumModel) spec() chartRangeSpec {
+	if mm.rangeIdx >= 0 && mm.rangeIdx < len(chartRanges) {
+		return chartRanges[mm.rangeIdx]
+	}
+	return chartRanges[momentumDefaultRange]
+}
+
+func (mm *momentumModel) visible() bool { return mm.ok && !mm.collapsed }
+
+func (mm *momentumModel) toggle() { mm.collapsed = !mm.collapsed }
+
+func (mm *momentumModel) stepRange(dir int) {
+	next := mm.rangeIdx + dir
+	if next < 0 {
+		next = 0
+	}
+	if next > len(chartRanges)-1 {
+		next = len(chartRanges) - 1
+	}
+	mm.rangeIdx = next
+	mm.refresh()
+}
+
+// refresh recomputes the series when project, capability, range or log
+// sequence changed. A project or capability change also resets the range
+// to the default, mirroring the projects pane's chart reset on switch.
+func (mm *momentumModel) refresh() {
+	f := mm.m.lanes.currentFlow()
+	code := mm.m.projectScope
+	if f == nil || code == "" {
+		mm.ok = false
+		mm.series = momentumSeries{}
+		mm.key = momentumKey{}
+		return
+	}
+	if mm.key.code != code || mm.key.capability != f.Name() {
+		mm.rangeIdx = momentumDefaultRange
+	}
+	seq, _ := mm.m.store.LastLogSeq(code)
+	key := momentumKey{code: code, capability: f.Name(), rangeIdx: mm.rangeIdx, logSeq: seq}
+	if mm.ok && key == mm.key {
+		return
+	}
+	entries, err := mm.m.store.ReadLogCached(code)
+	if err != nil && !core.IsIntegrity(err) {
+		mm.ok = false
+		mm.key = key
+		return
+	}
+	mm.series = momentumBuckets(entries, newFlowSockets(f, code), mm.spec(), core.Now())
+	mm.ok = true
+	mm.key = key
+}

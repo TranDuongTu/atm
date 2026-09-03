@@ -82,6 +82,7 @@ type Model struct {
 	projects   projectsModel
 	tasks      tasksModel
 	lanes      lanesModel
+	momentum   momentumModel
 	capability capabilityModel
 
 	// dispatch is the composition-root-injected dispatch port (the
@@ -194,6 +195,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.projects = newProjectsModel(m)
 	m.tasks = newTasksModel(m)
 	m.lanes = newLanesModel(m)
+	m.momentum = newMomentumModel(m)
 	m.capability = newCapabilityModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
@@ -349,6 +351,8 @@ func (m *Model) refreshAll() {
 	// After capability.refresh, which resolves current: the lane strip is
 	// scoped to the current flow capability.
 	m.lanes.refresh()
+	// The momentum chart reads the same flow the lane strip just resolved.
+	m.momentum.refresh()
 	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
 	// something on a normal launch: without it, m.setup.model stays at its
 	// zero value until the user has opened the wizard at least once, so an
