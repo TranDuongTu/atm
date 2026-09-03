@@ -9,6 +9,7 @@
 package compose
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -68,11 +69,11 @@ type Plan struct {
 	Actor       string
 }
 
-// ResolvePersona resolves a persona name to its parsed spec (built-in or
-// stored). Callers use it for pre-binding decisions — launch-mode routing,
-// project_optional enforcement — before composing the full plan.
-func (s *Service) ResolvePersona(name string) (skills.PersonaSpec, error) {
-	return resolvePersonaSpec(s.Svc, name)
+// ResolvePersona resolves a persona for a project: the project's own record
+// when it has one, else the code-side built-in. Callers use it for
+// pre-binding decisions before composing the full plan.
+func (s *Service) ResolvePersona(code, name string) (core.Persona, error) {
+	return resolvePersona(s.Svc, code, name)
 }
 
 // ChecklistOption is one row of the dispatch dialog's checklist multi-select.
@@ -102,15 +103,11 @@ type DispatchOptions struct {
 // persona/project/scope. The dialog reads THIS and nothing else, so it
 // cannot diverge from what Compose will do at launch.
 func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOptions, error) {
-	spec, err := resolvePersonaSpec(s.Svc, persona)
+	p, err := resolvePersona(s.Svc, code, persona)
 	if err != nil {
 		return nil, err
 	}
-	launch := spec.Launch
-	if launch == "" {
-		launch = "prompt"
-	}
-	opts := &DispatchOptions{Launch: launch}
+	opts := &DispatchOptions{Launch: LaunchModeOf(p)}
 	if code == "" {
 		return opts, nil
 	}
@@ -153,14 +150,11 @@ func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOp
 
 // Compose computes the session binding for one dispatch.
 func (s *Service) Compose(req Request) (*Plan, error) {
-	spec, err := resolvePersonaSpec(s.Svc, req.Persona)
+	persona, err := resolvePersona(s.Svc, req.Code, req.Persona)
 	if err != nil {
 		return nil, err
 	}
-	mode := spec.Launch
-	if mode == "" {
-		mode = "prompt"
-	}
+	mode := LaunchModeOf(persona)
 	if req.Launch != "" {
 		switch req.Launch {
 		case "prompt", "hook", "tui":
@@ -186,25 +180,20 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	}
 	warnings := s.requireWarnings(req.Code, recs)
 
-	personality, err := s.Svc.GetPersonality(spec.Name)
-	if err != nil {
-		return nil, err
-	}
-
 	launcherName := req.AgentName
 	if req.Launcher != nil {
 		launcherName = req.Launcher.Name()
 	}
 	actor := req.Actor
 	if actor == "" && launcherName != "" {
-		actor = sessionActor(spec.Name, launcherName, req.Model)
+		actor = sessionActor(persona.Name, launcherName, req.Model)
 	}
 
 	capBlock := ""
 	if req.Code != "" && s.CapabilitiesBlock != nil {
 		capBlock = s.CapabilitiesBlock(req.Code)
 	}
-	contextPath := contextCachePath(s.Svc.StorePath(), req.Code, spec.Name, req.Task, req.Capability)
+	contextPath := contextCachePath(s.Svc.StorePath(), req.Code, persona.Name, req.Task, req.Capability)
 	sections := make([]session.ChecklistSection, len(recs))
 	for i, r := range recs {
 		sections[i] = session.ChecklistSection{
@@ -218,15 +207,15 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 		TaskID:        req.Task,
 		Capability:    req.Capability,
 		Capabilities:  capBlock,
-		PersonaPrompt: buildPersonaPrompt(spec, personality, req.Code, req.ProjName, actor, req.Task),
+		PersonaPrompt: buildPersonaPrompt(persona, req.Code, req.ProjName, actor, req.Task),
 		Checklists:    sections,
 	})
 
-	role := spec.Name
+	role := persona.Name
 	if mode == "hook" {
 		role = "developing"
 	}
-	env := sessionEnvValues(req.Code, actor, req.RunID, contextPath, launcherName, spec.Name, role, req.Capability, req.Task, req.Timestamp)
+	env := sessionEnvValues(req.Code, actor, req.RunID, contextPath, launcherName, persona.Name, role, req.Capability, req.Task, req.Timestamp)
 	if len(names) > 0 {
 		env["ATM_CHECKLISTS"] = strings.Join(names, ",")
 	}
@@ -237,15 +226,11 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 		if mode == "hook" {
 			base = req.Launcher.BuildArgv(req.Model)
 		} else {
-			msg := session.PromptMessage(contextPath)
-			if spec.Kickoff != "" {
-				msg = strings.NewReplacer(
-					"<CONTEXT_FILE>", contextPath,
-					"<CODE>", req.Code,
-					"<TASK_ID>", req.Task,
-				).Replace(spec.Kickoff)
-			}
-			base = req.Launcher.BuildArgvMessage(msg, req.Model)
+			// One generic kickoff for every persona. A per-persona
+			// kickoff template was identity carrying dispatch plumbing —
+			// no built-in ever set one, and increment 8 replaces the whole
+			// idea with a Compose-built message driven by the checklist.
+			base = req.Launcher.BuildArgvMessage(session.PromptMessage(contextPath), req.Model)
 		}
 		base = append(base, req.DefaultArgs...)
 		argv = make([]string, 0, len(base)+len(req.EnvArgs)+len(req.ExtraArgs))
@@ -337,29 +322,84 @@ func (s *Service) requireWarnings(code string, recs []core.ChecklistRecord) []st
 	return out
 }
 
-// resolvePersonaSpec resolves a persona name to its spec: built-ins come from
-// the skills package, custom personas are parsed from their stored markdown
-// document. A custom persona that fails to parse is a usage error (the store
-// accepted the markdown; the prompt format is what makes it a persona).
-func resolvePersonaSpec(s core.Service, name string) (skills.PersonaSpec, error) {
+// resolvePersona resolves the persona a session runs as. The PROJECT'S OWN
+// RECORD WINS: a persona is that project's operating identity, so two
+// projects running the same-named persona from different profiles each get
+// their own text. The code-side built-ins are the fallback, and the
+// machine-global custom personas behind them are what the second half of
+// ATM-207ab8 retires.
+func resolvePersona(s core.Service, code, name string) (core.Persona, error) {
+	if code != "" {
+		if rec, err := s.GetPersonaRecord(code, name); err == nil {
+			return *rec, nil
+		} else if !errors.Is(err, core.ErrNotFound) {
+			return core.Persona{}, err
+		}
+	}
 	if spec, ok := skills.Persona(name); ok {
-		return spec, nil
+		return core.Persona{
+			Name: spec.Name, Description: spec.Description, Prompt: spec.Body,
+			// Launch and ProjectOptional are the last dispatch plumbing
+			// still riding on persona content. They are carried, not
+			// honoured as identity: a document that declares a vehicle
+			// keeps deciding it, and project records — which declare none —
+			// fall through to LaunchVehicle.
+			Launch:          spec.Launch,
+			ProjectOptional: spec.ProjectOptional,
+			Origin:          "builtin",
+		}, nil
 	}
 	doc, err := s.PersonaDoc(name)
 	if err != nil {
-		return skills.PersonaSpec{}, err
+		return core.Persona{}, err
 	}
 	spec, err := skills.ParsePersona(name, []byte(doc))
 	if err != nil {
-		return skills.PersonaSpec{}, fmt.Errorf("%w: stored persona %q: %v", core.ErrUsage, name, err)
+		return core.Persona{}, fmt.Errorf("%w: stored persona %q: %v", core.ErrUsage, name, err)
 	}
-	return spec, nil
+	return core.Persona{
+		Name: spec.Name, Description: spec.Description, Prompt: spec.Body,
+		Launch: spec.Launch, ProjectOptional: spec.ProjectOptional, Origin: "user",
+	}, nil
+}
+
+// LaunchModeOf is the vehicle a session for this persona actually starts
+// with: what the persona document declares, when it declares one, else the
+// code-side default for the name. Project records declare nothing, so they
+// take the default — and a document that has always chosen its own vehicle
+// keeps choosing it.
+func LaunchModeOf(p core.Persona) string {
+	if p.Launch != "" {
+		return p.Launch
+	}
+	return LaunchVehicle(p.Name)
+}
+
+// LaunchVehicle is how a session for this persona is STARTED — prompt (an
+// initial message points at the rendered context), hook (a session-start
+// plugin loads it), or tui (the interactive surface).
+//
+// Vehicle is launcher plumbing, not identity, so it lives in code rather
+// than in persona content: a project rewording its developer persona must
+// not accidentally change how sessions boot. The table is deliberately
+// small and deliberately temporary — the user-facing half of this
+// (eager/interactive autonomy) becomes the checklist mode axis, and this
+// function goes with it.
+func LaunchVehicle(persona string) string {
+	switch persona {
+	case "admin":
+		return "tui"
+	case "developer":
+		return "hook"
+	default:
+		return "prompt"
+	}
 }
 
 // buildPersonaPrompt renders a persona's prompt text with context params
-// substituted. The core prompt's own leading "# Persona: <name>" heading is
+// substituted. The prompt's own leading "# Persona: <name>" heading is
 // stripped — this function writes the one header the context carries.
-func buildPersonaPrompt(spec skills.PersonaSpec, personality, code, name, actor, taskID string) string {
+func buildPersonaPrompt(p core.Persona, code, name, actor, taskID string) string {
 	sub := func(s string) string {
 		r := strings.NewReplacer(
 			"<CODE>", code,
@@ -370,20 +410,14 @@ func buildPersonaPrompt(spec skills.PersonaSpec, personality, code, name, actor,
 		return r.Replace(s)
 	}
 
-	corePrompt := spec.CorePrompt
-	if rest, ok := strings.CutPrefix(corePrompt, "# Persona: "+spec.Name+"\n"); ok {
-		corePrompt = strings.TrimLeft(rest, "\n")
+	body := p.Prompt
+	if rest, ok := strings.CutPrefix(body, "# Persona: "+p.Name+"\n"); ok {
+		body = strings.TrimLeft(rest, "\n")
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Persona: %s\n\n%s\n\n", spec.Name, spec.Description)
-	b.WriteString(sub(corePrompt))
-	if personality == "" {
-		personality = spec.Personality
-	}
-	if personality != "" {
-		fmt.Fprintf(&b, "\n### Personality\n\n%s\n", sub(personality))
-	}
+	fmt.Fprintf(&b, "# Persona: %s\n\n%s\n\n", p.Name, p.Description)
+	b.WriteString(sub(body))
 	b.WriteString("\nYou are operating as this persona. Hold to its principles throughout the session, alongside repo instructions and the working routine below.\n")
 	return b.String()
 }

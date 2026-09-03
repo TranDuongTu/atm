@@ -17,6 +17,9 @@ type fakeSvc struct {
 	suited     []core.ChecklistRecord
 	channels   []core.ChannelView
 	personaDoc map[string]string
+	// personaRecords keys project persona records by "<CODE>/<name>", the
+	// source resolution now prefers.
+	personaRecords map[string]*core.Persona
 }
 
 func (f *fakeSvc) ChecklistRecords(code string) ([]core.ChecklistRecord, error) {
@@ -45,7 +48,12 @@ func (f *fakeSvc) GetProjectConfig(code string) (*core.ProjectConfig, error) {
 
 func (f *fakeSvc) StorePath() string { return "/store" }
 
-func (f *fakeSvc) GetPersonality(name string) (string, error) { return "", nil }
+func (f *fakeSvc) GetPersonaRecord(code, name string) (*core.Persona, error) {
+	if rec, ok := f.personaRecords[code+"/"+name]; ok {
+		return rec, nil
+	}
+	return nil, core.ErrNotFound
+}
 
 func (f *fakeSvc) PersonaDoc(name string) (string, error) {
 	if d, ok := f.personaDoc[name]; ok {
@@ -219,7 +227,11 @@ func TestComposeModes(t *testing.T) {
 	}
 }
 
-func TestComposeKickoffTemplate(t *testing.T) {
+// Every persona gets ONE generic kickoff. A per-persona kickoff template
+// was identity carrying dispatch plumbing; the message now says the same
+// thing for everyone, and increment 8 replaces it with a Compose-built one
+// driven by the checklist.
+func TestComposeKickoffIsGenericForEveryPersona(t *testing.T) {
 	f := &fakeSvc{personaDoc: map[string]string{
 		"kicked": "---\nname: kicked\ndescription: d\nkickoff: Go read <CONTEXT_FILE> for <TASK_ID> in <CODE>.\n---\nbody",
 	}}
@@ -231,9 +243,46 @@ func TestComposeKickoffTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := plan.Argv[len(plan.Argv)-1]
-	want := "Go read " + plan.ContextPath + " for ATM-99 in ATM."
-	if got != want {
-		t.Fatalf("kickoff message = %q, want %q", got, want)
+	if want := session.PromptMessage(plan.ContextPath); got != want {
+		t.Fatalf("kickoff message = %q, want the generic %q", got, want)
+	}
+}
+
+// The point of the increment: a project's own record is the identity a
+// session runs under, and it beats the code-side built-in of the same name.
+func TestComposePrefersTheProjectPersonaRecord(t *testing.T) {
+	f := &fakeSvc{personaRecords: map[string]*core.Persona{
+		"ATM/developer": {
+			Name:        "developer",
+			Description: "This project's developer.",
+			Prompt:      "# Persona: developer\n\nWork the way <CODE> works.",
+			Origin:      "scrumban@1.0.0",
+		},
+	}}
+	plan, err := testService(f).Compose(devRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.ContextText, "This project's developer.") {
+		t.Fatalf("context did not use the project record:\n%s", plan.ContextText)
+	}
+	if !strings.Contains(plan.ContextText, "Work the way ATM works.") {
+		t.Fatalf("<CODE> not substituted in the record's prompt:\n%s", plan.ContextText)
+	}
+	if strings.Contains(plan.ContextText, "working in an ATM developing session") {
+		t.Fatal("context still carries the built-in developer prompt")
+	}
+}
+
+// A project without its own record still gets the built-in, so nothing
+// breaks before a profile is applied.
+func TestComposeFallsBackToTheBuiltinPersona(t *testing.T) {
+	plan, err := testService(&fakeSvc{}).Compose(devRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.ContextText, "# Persona: developer") {
+		t.Fatalf("built-in fallback missing:\n%s", plan.ContextText)
 	}
 }
 
