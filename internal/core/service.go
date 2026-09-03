@@ -94,6 +94,22 @@ type CommentService interface {
 	CommentLabelRemove(id, label, actor string) error
 }
 
+// PersonaRecordService is the PROJECT-scoped persona surface: an identity a
+// project owns, imported from a document and restorable to the profile it
+// came from. It sits beside PersonaService while the machine-global personas
+// are still being retired (ATM-207ab8, second PR).
+type PersonaRecordService interface {
+	PersonaRecords(code string) ([]Persona, error)
+	GetPersonaRecord(code, name string) (*Persona, error)
+	// SetPersonaRecord imports a document as the record, creating it or
+	// replacing it wholesale. Name and origin come from the existing record
+	// on replace; a new record takes the caller's origin, defaulting to user.
+	SetPersonaRecord(code string, p Persona, actor string) (*Task, error)
+	// ResetPersonaRecord restores the record from its OWN origin version.
+	ResetPersonaRecord(code, name, actor string) (*Persona, error)
+	RemovePersonaRecord(code, name, taskID, actor string) error
+}
+
 type PersonaService interface {
 	CreatePersona(name, prompt, description, actor string) (*Persona, error)
 	GetPersona(name string) (*Persona, error)
@@ -179,6 +195,7 @@ type Service interface {
 	LabelService
 	CommentService
 	PersonaService
+	PersonaRecordService
 	ProfileService
 	VocabularyService
 	ActivityService
