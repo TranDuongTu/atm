@@ -179,9 +179,27 @@ type Service interface {
 	LabelService
 	CommentService
 	PersonaService
+	ProfileService
 	VocabularyService
 	ActivityService
 	IndexService
 	AgentService
 	MaintenanceService
+}
+
+// ProfileService is the machine's profile registry: what operating-model
+// bundles are available here, and how one gets installed. Like personas, it
+// is plain-file side-store state under the store root rather than ledger
+// data — installing a profile changes no project.
+type ProfileService interface {
+	// ListProfiles returns every available profile, newest version first
+	// within a name — so the first row for a name is what a bare name
+	// resolves to.
+	ListProfiles() ([]ProfileEntry, error)
+	// GetProfile loads one. An empty version takes the highest available
+	// across installed AND embedded copies.
+	GetProfile(name, version string) (*Profile, ProfileEntry, error)
+	// InstallProfile installs a built artifact from a local file. A
+	// non-empty wantDigest must match the artifact's own.
+	InstallProfile(artifactPath, wantDigest string) (ProfileEntry, error)
 }

@@ -34,14 +34,14 @@ var (
 //
 // Checks that depend on this build's knowledge — whether a required
 // capability exists — are NOT done here; see ValidateCapabilities.
-func Load(fsys fs.FS) (*Profile, error) {
-	manifest, err := loadManifest(fsys)
+func Load(fsys fs.FS) (*core.Profile, error) {
+	manifest, err := LoadManifest(fsys)
 	if err != nil {
 		// Without an identity nothing else can be judged, so this one stops
 		// the load rather than joining the collected errors.
 		return nil, err
 	}
-	p := &Profile{Manifest: manifest}
+	p := &core.Profile{Manifest: manifest}
 	var problems []error
 
 	// Each document is parsed to a VALUE plus its problems, and a document
@@ -85,7 +85,7 @@ func Load(fsys fs.FS) (*Profile, error) {
 		}
 	}
 
-	problems = append(problems, p.selfConsistency()...)
+	problems = append(problems, selfConsistency(p)...)
 	if err := errors.Join(problems...); err != nil {
 		return nil, fmt.Errorf("profile %s: %w", manifest.Ref(), err)
 	}
@@ -112,16 +112,18 @@ func markdownStems(fsys fs.FS, dir string) []string {
 	return out
 }
 
-func loadManifest(fsys fs.FS) (Manifest, error) {
+// LoadManifest reads just a profile's identity — enough to list it without
+// parsing every document.
+func LoadManifest(fsys fs.FS) (core.ProfileManifest, error) {
 	src, err := fs.ReadFile(fsys, manifestFile)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("profile: %s is required at the profile root: %w", manifestFile, err)
+		return core.ProfileManifest{}, fmt.Errorf("profile: %s is required at the profile root: %w", manifestFile, err)
 	}
 	doc, err := parseYAMLScalars(string(src))
 	if err != nil {
-		return Manifest{}, fmt.Errorf("profile: %s: %w", manifestFile, err)
+		return core.ProfileManifest{}, fmt.Errorf("profile: %s: %w", manifestFile, err)
 	}
-	m := Manifest{
+	m := core.ProfileManifest{
 		Name:                 doc.scalars["name"],
 		Version:              doc.scalars["version"],
 		Description:          doc.scalars["description"],
@@ -129,11 +131,11 @@ func loadManifest(fsys fs.FS) (Manifest, error) {
 		RequiresCapabilities: doc.lists["requires_capabilities"],
 	}
 	var problems []error
-	if !nameRe.MatchString(m.Name) {
+	if !core.ValidProfileName(m.Name) {
 		problems = append(problems, fmt.Errorf("%s: invalid or missing name %q (lowercase letters, digits, - and _)", manifestFile, m.Name))
 	}
-	if !validVersion(m.Version) {
-		problems = append(problems, fmt.Errorf("%s: version %q must be semver (1.2.3) or %q", manifestFile, m.Version, DevVersion))
+	if !core.ValidProfileVersion(m.Version) {
+		problems = append(problems, fmt.Errorf("%s: version %q must be semver (1.2.3) or %q", manifestFile, m.Version, core.DevVersion))
 	}
 	raw, ok := doc.scalars["format"]
 	if !ok {
@@ -150,12 +152,12 @@ func loadManifest(fsys fs.FS) (Manifest, error) {
 		}
 	}
 	for _, c := range m.RequiresCapabilities {
-		if !nameRe.MatchString(c) {
+		if !core.ValidProfileName(c) {
 			problems = append(problems, fmt.Errorf("%s: invalid requires_capabilities entry %q", manifestFile, c))
 		}
 	}
 	if err := errors.Join(problems...); err != nil {
-		return Manifest{}, fmt.Errorf("profile: %w", err)
+		return core.ProfileManifest{}, fmt.Errorf("profile: %w", err)
 	}
 	return m, nil
 }

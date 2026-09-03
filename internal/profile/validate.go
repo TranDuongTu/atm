@@ -1,9 +1,10 @@
 package profile
 
 import (
-	"errors"
 	"fmt"
 	"slices"
+
+	"atm/internal/core"
 )
 
 // selfConsistency checks the rules that need the whole document set: no
@@ -12,7 +13,7 @@ import (
 // capability declared by the manifest. These are the invariants that make a
 // profile a CLOSED WORLD — one an apply can satisfy without asking the
 // project what it already has.
-func (p *Profile) selfConsistency() []error {
+func selfConsistency(p *core.Profile) []error {
 	var problems []error
 
 	personas := map[string]bool{}
@@ -55,28 +56,4 @@ func (p *Profile) selfConsistency() []error {
 		}
 	}
 	return problems
-}
-
-// ValidateCapabilities checks the manifest's required capabilities against
-// the set this build actually knows. It is separate from Load on purpose:
-// only the composition root knows the registry, and keeping the check out of
-// the loader keeps this package below internal/capability in the import
-// graph. Apply calls it before writing anything (plan §3.2 step 2).
-func ValidateCapabilities(required, known []string) error {
-	var problems []error
-	for _, c := range required {
-		if !slices.Contains(known, c) {
-			problems = append(problems, fmt.Errorf("requires capability %q, which this build does not provide (known: %v)", c, known))
-		}
-	}
-	return errors.Join(problems...)
-}
-
-// ValidateCapabilities checks this profile's manifest against the
-// capabilities known to the caller.
-func (p *Profile) ValidateCapabilities(known []string) error {
-	if err := ValidateCapabilities(p.Manifest.RequiresCapabilities, known); err != nil {
-		return fmt.Errorf("profile %s: %w", p.Manifest.Ref(), err)
-	}
-	return nil
 }

@@ -150,6 +150,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newProjectCmd(st))
 	root.AddCommand(newChannelCmd(st))
 	root.AddCommand(newChecklistCmd(st))
+	root.AddCommand(newProfileCmd(st))
 	root.AddCommand(newLabelCmd(st))
 	root.AddCommand(newPersonaCmd(st))
 	root.AddCommand(newActivityCmd(st))

@@ -47,7 +47,7 @@ func TestLoadPersonas(t *testing.T) {
 	if !reflect.DeepEqual(names, []string{"developer", "manager"}) {
 		t.Fatalf("persona order = %v, want name-sorted", names)
 	}
-	mgr, ok := p.Persona("manager")
+	mgr, ok := p.ProfilePersona("manager")
 	if !ok {
 		t.Fatal("Persona(manager) not found")
 	}
@@ -66,7 +66,7 @@ func TestLoadChecklists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pl, ok := p.Checklist("planning")
+	pl, ok := p.ProfileChecklist("planning")
 	if !ok {
 		t.Fatal("Checklist(planning) not found")
 	}
@@ -99,7 +99,7 @@ func TestLoadChecklistTargetTargetsMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sc, _ := p.Checklist("scrum-coding")
+	sc, _ := p.ProfileChecklist("scrum-coding")
 	if sc.Target != core.ChecklistTargetTask {
 		t.Fatalf("target = %q, want task", sc.Target)
 	}
@@ -125,7 +125,7 @@ suits: [manager]
 	if err != nil {
 		t.Fatal(err)
 	}
-	su, _ := p.Checklist("standup")
+	su, _ := p.ProfileChecklist("standup")
 	if su.Target != core.ChecklistTargetProject {
 		t.Fatalf("default target = %q, want project", su.Target)
 	}
@@ -142,7 +142,7 @@ func TestLoadChannels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, ok := p.Channel("planning")
+	ch, ok := p.ProfileChannel("planning")
 	if !ok {
 		t.Fatal("Channel(planning) not found")
 	}
@@ -171,7 +171,7 @@ func TestLoadChannelRoleHintDefaultsHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, _ := p.Channel("prs")
+	ch, _ := p.ProfileChannel("prs")
 	if ch.RoleHint != core.ChannelRoleHome {
 		t.Fatalf("role_hint = %q, want the home default", ch.RoleHint)
 	}

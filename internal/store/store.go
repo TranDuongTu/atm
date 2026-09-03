@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +17,10 @@ import (
 )
 
 type Store struct {
-	Root string
+	// embeddedProfilesFn overrides the profiles this binary ships; nil
+	// means the real embedded set. Tests set it to a fixture.
+	embeddedProfilesFn func() map[string]fs.FS
+	Root               string
 
 	cacheOnce   sync.Once
 	cacheDBConn *sql.DB
