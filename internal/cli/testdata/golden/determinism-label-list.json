@@ -52,11 +52,15 @@
       "name": "ATM:scrum-stage:done"
     },
     {
+      "description": "scrum stage: the plan is approved and the unit is ready to be built — design approval is the planned -> implementable transition",
+      "name": "ATM:scrum-stage:implementable"
+    },
+    {
       "description": "scrum stage: implementation is in progress",
       "name": "ATM:scrum-stage:implementing"
     },
     {
-      "description": "scrum stage: implementation plan exists",
+      "description": "scrum stage: an implementation plan exists but has not been approved yet",
       "name": "ATM:scrum-stage:planned"
     },
     {
@@ -147,11 +151,15 @@
       "name": "DEMO:scrum-stage:done"
     },
     {
+      "description": "scrum stage: the plan is approved and the unit is ready to be built — design approval is the planned -> implementable transition",
+      "name": "DEMO:scrum-stage:implementable"
+    },
+    {
       "description": "scrum stage: implementation is in progress",
       "name": "DEMO:scrum-stage:implementing"
     },
     {
-      "description": "scrum stage: implementation plan exists",
+      "description": "scrum stage: an implementation plan exists but has not been approved yet",
       "name": "DEMO:scrum-stage:planned"
     },
     {

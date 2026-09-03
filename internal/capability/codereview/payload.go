@@ -52,6 +52,48 @@ func (p *Payload) Encode() (string, error) {
 	return string(b), nil
 }
 
+// PartOf is the review this task is a FOLLOW-UP ITEM of; "" for a review
+// itself. Outbound only: the parent's roster is the inbound view, and both
+// ends are written together so neither can dangle.
+func (p *Payload) PartOf() string { return str(p.raw["part_of"]) }
+
+// SetPartOf records the review this item came out of.
+func (p *Payload) SetPartOf(id string) { p.raw["part_of"] = id }
+
+// FollowUps are the tracked items this review left behind.
+func (p *Payload) FollowUps() []string { return stringList(p.raw["follow_ups"]) }
+
+// AddFollowUp appends an item id, reporting whether it was new.
+func (p *Payload) AddFollowUp(id string) bool {
+	for _, x := range p.FollowUps() {
+		if x == id {
+			return false
+		}
+	}
+	p.raw["follow_ups"] = append(anyList(p.FollowUps()), id)
+	return true
+}
+
+func anyList(xs []string) []any {
+	out := make([]any, 0, len(xs))
+	for _, x := range xs {
+		out = append(out, x)
+	}
+	return out
+}
+
+func stringList(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		out = append(out, str(item))
+	}
+	return out
+}
+
 func str(v any) string {
 	s, _ := v.(string)
 	return s

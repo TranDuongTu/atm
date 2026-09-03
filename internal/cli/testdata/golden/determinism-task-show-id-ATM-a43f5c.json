@@ -3,8 +3,15 @@
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
     "description": "",
-    "history": [],
-    "id": "ATM-5cc3c6",
+    "history": [
+      {
+        "action": "task.created",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 29
+      }
+    ],
+    "id": "ATM-a43f5c",
     "labels": [
       "ATM:context:agent"
     ],

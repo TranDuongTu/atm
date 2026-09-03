@@ -3,15 +3,22 @@
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
     "description": "",
-    "history": [],
-    "id": "ATM-5c2acd",
+    "history": [
+      {
+        "action": "task.created",
+        "actor": "admin@cli:unset",
+        "at": "TIMESTAMP",
+        "seq": 27
+      }
+    ],
+    "id": "ATM-1b5543",
     "labels": [
       "ATM:status:open",
       "ATM:type:bug"
     ],
     "ordinal": 1,
     "project_code": "ATM",
-    "title": "Reconciled title",
+    "title": "Fix label reconciliation",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
