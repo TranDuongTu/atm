@@ -319,7 +319,7 @@ func newChannelRemoveCmd(st *cliState) *cobra.Command {
 // of the two is required, since wiring nothing is a no-op that looks like
 // success.
 func newChannelWireCmd(st *cliState) *cobra.Command {
-	var name, path, mcpServer string
+	var name, typ, path, mcpServer string
 	cmd := &cobra.Command{
 		Use:   "wire",
 		Short: "Record this machine's local path and/or MCP server for a channel (never a secret)",
@@ -343,10 +343,10 @@ func newChannelWireCmd(st *cliState) *cobra.Command {
 			if err := requireChannelCapability(s, project); err != nil {
 				return err
 			}
-			if err := s.SetChannelWiring(project, name, path, mcpServer, actor); err != nil {
+			if err := s.SetChannelWiring(project, name, typ, path, mcpServer, actor); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "path": path, "mcp_server": mcpServer}, func() {
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "type": typ, "path": path, "mcp_server": mcpServer}, func() {
 				fmt.Fprintf(st.stdout(), "wired channel %s\n", name)
 			})
 		},
@@ -355,6 +355,7 @@ func newChannelWireCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "channel handle")
 	cmd.Flags().StringVar(&path, "path", "", "local path (repo channels)")
 	cmd.Flags().StringVar(&mcpServer, "mcp-server", "", "MCP server name the agents on this machine reach the channel through (notion, slack, …)")
+	cmd.Flags().StringVar(&typ, "type", "", "which endpoint to wire; optional when the channel has exactly one")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -363,10 +364,10 @@ func newChannelWireCmd(st *cliState) *cobra.Command {
 // channel's wiring and vouches for it. --note is required — an unexplained
 // stamp is not worth much to the next reader.
 func newChannelStampCmd(st *cliState) *cobra.Command {
-	var name, note string
+	var name, typ, kind, note string
 	cmd := &cobra.Command{
 		Use:   "stamp",
-		Short: "Record a verification stamp: this actor touched the channel and vouches for its wiring",
+		Short: "Record a verification stamp: this agent reached the endpoint and vouches for its wiring",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if note == "" {
@@ -387,10 +388,10 @@ func newChannelStampCmd(st *cliState) *cobra.Command {
 			if err := requireChannelCapability(s, project); err != nil {
 				return err
 			}
-			if err := s.AddChannelStamp(project, name, note, actor); err != nil {
+			if err := s.AddChannelStamp(project, name, typ, kind, note, actor); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "note": note}, func() {
+			return st.emit(st.stdout(), map[string]any{"project": project, "name": name, "type": typ, "kind": kind, "note": note}, func() {
 				fmt.Fprintf(st.stdout(), "stamped channel %s\n", name)
 			})
 		},
@@ -398,6 +399,8 @@ func newChannelStampCmd(st *cliState) *cobra.Command {
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	cmd.Flags().StringVar(&name, "name", "", "channel handle")
 	cmd.Flags().StringVar(&note, "note", "", "verification note")
+	cmd.Flags().StringVar(&typ, "type", "", "which endpoint was reached; optional when the channel has exactly one")
+	cmd.Flags().StringVar(&kind, "kind", "", "use (real work reached it) or probe (a read-only check); default use")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

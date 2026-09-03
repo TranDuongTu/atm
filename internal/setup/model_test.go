@@ -16,9 +16,9 @@ func TestFactTriState(t *testing.T) {
 
 func TestAgentRowGlyphGradesByWhoCanFixIt(t *testing.T) {
 	cases := []struct {
-		name   string
-		row    AgentRow
-		glyph  string
+		name  string
+		row   AgentRow
+		glyph string
 	}{
 		{"ready", AgentRow{Binary: FactPresent, Plugin: FactPresent}, "●"},
 		{"plugin missing is fixable here", AgentRow{Binary: FactPresent, Plugin: FactAbsent}, "◐"},

@@ -200,6 +200,57 @@ type ChannelView struct {
 	Probe  *ChannelProbe  `json:"probe,omitempty"`
 }
 
+// EndpointWiring resolves how THIS machine reaches one of the channel's
+// endpoints. Per-endpoint wiring wins; the pre-endpoint fields answer for
+// the record's FIRST endpoint and for nothing else, so a second medium
+// added later starts out honestly unwired rather than inheriting a path
+// that was never about it.
+func (v ChannelView) EndpointWiring(typ string) EndpointWiring {
+	if v.Wiring == nil {
+		return EndpointWiring{}
+	}
+	if e, ok := v.Wiring.Endpoints[typ]; ok {
+		return e
+	}
+	if len(v.Endpoints) > 0 && v.Endpoints[0].Type == typ {
+		return EndpointWiring{Path: v.Wiring.Path, MCPServer: v.Wiring.MCPServer, Stamps: v.Wiring.Stamps}
+	}
+	return EndpointWiring{}
+}
+
+// WiredEndpoints are the endpoints this machine can actually reach.
+func (v ChannelView) WiredEndpoints() []ChannelEndpoint {
+	var out []ChannelEndpoint
+	for _, e := range v.Endpoints {
+		if v.EndpointWiring(e.Type).Wired() {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// statusWiring picks the endpoint the channel's one-line status speaks for:
+// the first WIRED one in declaration order. A channel with no endpoints at
+// all falls back to the pre-endpoint wiring, so a record that predates
+// endpoints and has never been rewritten still reports.
+func statusWiring(v ChannelView) (EndpointWiring, bool) {
+	if v.Wiring == nil {
+		return EndpointWiring{}, false
+	}
+	for _, e := range v.Endpoints {
+		if w := v.EndpointWiring(e.Type); w.Wired() {
+			return w, true
+		}
+	}
+	if len(v.Endpoints) == 0 {
+		legacy := EndpointWiring{Path: v.Wiring.Path, MCPServer: v.Wiring.MCPServer, Stamps: v.Wiring.Stamps}
+		if legacy.Wired() {
+			return legacy, true
+		}
+	}
+	return EndpointWiring{}, false
+}
+
 // ChannelStatus is the single-sourced status rule every surface reads: ●
 // wired and verified fresh (or probe-green), ◐ wired but aging/dirty, ○
 // unwired, missing, or stale. It lives in core because the CLI and the TUI
@@ -207,8 +258,13 @@ type ChannelView struct {
 // already paid for is part of the answer, and no surface may claim more than
 // ATM can know. now is injected for testability; the note is the text-mode
 // answer, the glyph the TUI's.
+//
+// A channel is WIRED when any endpoint is: content still flows even if one
+// medium is not set up here. A single-endpoint channel reads exactly as it
+// always did.
 func ChannelStatus(v ChannelView, now time.Time) (string, string) {
-	if v.Wiring == nil {
+	wiring, ok := statusWiring(v)
+	if !ok {
 		return "○", "unwired"
 	}
 	if v.Probe != nil {
@@ -230,10 +286,10 @@ func ChannelStatus(v ChannelView, now time.Time) (string, string) {
 		}
 		return "●", note
 	}
-	if len(v.Wiring.Stamps) == 0 {
+	if len(wiring.Stamps) == 0 {
 		return "◐", "wired, never verified"
 	}
-	last := v.Wiring.Stamps[len(v.Wiring.Stamps)-1]
+	last := wiring.Stamps[len(wiring.Stamps)-1]
 	at, err := time.Parse(time.RFC3339, last.At)
 	if err != nil {
 		return "◐", "unparseable stamp"

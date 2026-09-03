@@ -167,31 +167,40 @@ func TestChannelWiringAndStamps(t *testing.T) {
 		t.Fatal(err)
 	}
 	// wiring an unknown channel fails: the ledger record must exist first
-	if err := s.SetChannelWiring("ATM", "nope", t.TempDir(), "", chActor); !errors.Is(err, core.ErrNotFound) {
+	if err := s.SetChannelWiring("ATM", "nope", "", t.TempDir(), "", chActor); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("unknown: %v", err)
 	}
 	// a path must exist
-	if err := s.SetChannelWiring("ATM", "code", "/nonexistent/dir", "", chActor); !errors.Is(err, core.ErrUsage) {
+	if err := s.SetChannelWiring("ATM", "code", "", "/nonexistent/dir", "", chActor); !errors.Is(err, core.ErrUsage) {
 		t.Fatalf("missing dir: %v", err)
 	}
 	dir := t.TempDir()
-	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", "", dir, "", chActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddChannelStamp("ATM", "code", "authorized as tu", chActor); err != nil {
+	if err := s.AddChannelStamp("ATM", "code", "", core.StampKindUse, "authorized as tu", chActor); err != nil {
 		t.Fatal(err)
 	}
 	// merge: setting only mcp_server keeps path and stamps
-	if err := s.SetChannelWiring("ATM", "code", "", "notion", chActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", "", "", "notion", chActor); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := s.GetProjectConfig("ATM")
 	if err != nil || cfg == nil {
 		t.Fatalf("config: %v %v", cfg, err)
 	}
+	// Wiring is per ENDPOINT now; read it the way every surface does.
 	w := cfg.Channels["code"]
-	if w.Path != dir || w.MCPServer != "notion" || len(w.Stamps) != 1 || w.Stamps[0].By != chActor || w.Stamps[0].Note != "authorized as tu" {
-		t.Fatalf("wiring: %+v", w)
+	rec, err := s.channelByName("ATM", "code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := core.ChannelView{ChannelRecord: *rec, Wiring: &w}.EndpointWiring(core.ChannelTypeRepo)
+	if e.Path != dir || e.MCPServer != "notion" || len(e.Stamps) != 1 || e.Stamps[0].By != chActor || e.Stamps[0].Note != "authorized as tu" {
+		t.Fatalf("wiring: %+v", e)
+	}
+	if e.Stamps[0].Kind != core.StampKindUse {
+		t.Fatalf("stamp kind = %q, want the %s default", e.Stamps[0].Kind, core.StampKindUse)
 	}
 	// removing the channel drops its wiring
 	if err := s.RemoveChannel("ATM", "code", chActor); err != nil {
@@ -226,7 +235,7 @@ func TestProjectChannelsJoinsWiringAndProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", "", dir, "", chActor); err != nil {
 		t.Fatal(err)
 	}
 	views, err := s.ProjectChannels("ATM")
@@ -260,8 +269,11 @@ func TestMigrateReposToChannels(t *testing.T) {
 		t.Fatalf("migrated %d, unwired %v, skipped %v, %v", n, unwired, skipped, err)
 	}
 	v, err := s.GetChannelByName("ATM", "atm")
-	if err != nil || v.Type != core.ChannelTypeRepo || v.Address.URL != "git@github.com:TranDuongTu/atm.git" || v.Wiring == nil || v.Wiring.Path != dir {
+	if err != nil || v.Type != core.ChannelTypeRepo || v.Address.URL != "git@github.com:TranDuongTu/atm.git" || v.Wiring == nil {
 		t.Fatalf("migrated channel: %+v err %v", v, err)
+	}
+	if got := v.EndpointWiring(core.ChannelTypeRepo).Path; got != dir {
+		t.Fatalf("migrated wiring path = %q, want %q", got, dir)
 	}
 	if repos, _ := s.ProjectRepos("ATM"); len(repos) != 0 {
 		t.Fatalf("legacy repos not cleared: %v", repos)
@@ -342,7 +354,7 @@ func TestRepoChannelTargetsSkipsProbes(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := s.SetChannelWiring("ATM", "code", dir, "", chActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", "", dir, "", chActor); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.RepoChannelTargets("ATM")

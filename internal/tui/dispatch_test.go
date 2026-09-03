@@ -423,7 +423,7 @@ func TestDispatchReadsRepoChannels(t *testing.T) {
 	if _, err := m.store.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.store.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+	if err := m.store.SetChannelWiring("ATM", "code", "", dir, "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	m.focused = paneProjects
@@ -507,7 +507,7 @@ func TestDispatchDoesNotProbe(t *testing.T) {
 	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+	if err := s.SetChannelWiring("ATM", "code", "", dir, "", testActor); err != nil {
 		t.Fatal(err)
 	}
 	m.focused = paneProjects

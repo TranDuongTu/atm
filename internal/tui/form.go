@@ -18,7 +18,7 @@ type formField struct {
 	// (in a success style) when the field's value is valid and non-empty.
 	// Used by the board editor to show the live match count.
 	Note func(field, value string) string
-	pos int
+	pos  int
 }
 
 type formFocus int
