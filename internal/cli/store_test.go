@@ -29,7 +29,7 @@ func newTestCLI(t *testing.T) *testCLI {
 	t.Helper()
 	dir := t.TempDir()
 	openService, openAdmin := storeOpeners()
-	st := &cliState{flags: globalFlags{output: outputText}, openServiceFn: openService, openAdminFn: openAdmin}
+	st := &cliState{flags: globalFlags{output: outputText}, openServiceFn: openService, openAdminFn: openAdmin, openProfileStoreFn: profileStoreOpener()}
 	buf := &bytes.Buffer{}
 	ebuf := &bytes.Buffer{}
 	st.out = buf

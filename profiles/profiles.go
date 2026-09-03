@@ -54,3 +54,15 @@ func Names() []string {
 	}
 	return out
 }
+
+// Embedded is every profile the binary ships, keyed by name — the set the
+// composition root hands to the profile store to serve as pre-installed.
+func Embedded() map[string]fs.FS {
+	out := map[string]fs.FS{}
+	for _, name := range Names() {
+		if sub, ok := FS(name); ok {
+			out[name] = sub
+		}
+	}
+	return out
+}

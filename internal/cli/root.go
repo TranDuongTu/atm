@@ -9,6 +9,7 @@ import (
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/profile"
 	"atm/internal/version"
 
 	"github.com/spf13/cobra"
@@ -29,6 +30,9 @@ type Deps struct {
 	// the concrete store — the composition root injects these.
 	OpenService func(storePath string) (core.Service, error)
 	OpenAdmin   func(storePath string) (core.StorageAdmin, error)
+	// OpenProfileStore constructs the machine profile store for a
+	// --store/ATM_HOME path, carrying the profiles embedded in the binary.
+	OpenProfileStore func(storePath string) (*profile.Store, error)
 }
 
 type globalFlags struct {
@@ -56,6 +60,11 @@ type cliState struct {
 	// v2 events authored INSIDE command execution mint reproducible aliases).
 	openServiceFn func(string) (core.Service, error)
 	openAdminFn   func(string) (core.StorageAdmin, error)
+	// openProfileStoreFn reaches the machine's profile store for a
+	// --store/ATM_HOME path. Where profiles live under the store root, and
+	// which ones the binary ships, are composition-root decisions — the
+	// same treatment dispatch.json gets.
+	openProfileStoreFn func(string) (*profile.Store, error)
 
 	// registry is the capability registry NARROWED to the target project's
 	// enabled set by the pre-parse mount (mountRegistry). The gate reads it:
@@ -322,7 +331,7 @@ func mountRegistry(deps Deps, args []string, getenv func(string) string) *capabi
 func Execute(deps Deps) int { return executeArgs(deps, os.Args[1:]) }
 
 func executeArgs(deps Deps, args []string) int {
-	st := &cliState{runTUI: deps.RunTUI, registry: mountRegistry(deps, args, os.Getenv), fullRegistry: deps.Registry, openServiceFn: deps.OpenService, openAdminFn: deps.OpenAdmin}
+	st := &cliState{runTUI: deps.RunTUI, registry: mountRegistry(deps, args, os.Getenv), fullRegistry: deps.Registry, openServiceFn: deps.OpenService, openAdminFn: deps.OpenAdmin, openProfileStoreFn: deps.OpenProfileStore}
 	root := newRootCmdWithState(st)
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {

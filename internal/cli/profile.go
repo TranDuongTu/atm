@@ -5,16 +5,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"atm/internal/core"
 	"atm/internal/profile"
-	"atm/profiles"
 
 	"github.com/spf13/cobra"
 )
@@ -41,27 +38,15 @@ func newProfileCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-// embeddedProfiles is the set the binary ships, keyed by name. It is served
-// virtually as pre-installed — never written to disk.
-func embeddedProfiles() map[string]fs.FS {
-	out := map[string]fs.FS{}
-	for _, name := range profiles.Names() {
-		if fsys, ok := profiles.FS(name); ok {
-			out[name] = fsys
-		}
-	}
-	return out
-}
-
-// openProfileStore locates the machine profile store under the resolved
-// store path. The CLI never names the concrete store implementation, so the
-// path comes from the service it already opens.
+// openProfileStore reaches the machine profile store. Where it lives and
+// which profiles the binary ships are the composition root's decisions,
+// injected the same way the ledger store is (cmd/atm wires this alongside
+// dispatch.json): the adapter asks for the store, it does not lay it out.
 func openProfileStore(st *cliState) (*profile.Store, error) {
-	s, err := st.openStore()
-	if err != nil {
-		return nil, err
+	if st.openProfileStoreFn == nil {
+		return nil, fmt.Errorf("profile store is not wired")
 	}
-	return profile.NewStore(filepath.Join(s.StorePath(), "profiles"), embeddedProfiles()), nil
+	return st.openProfileStoreFn(st.flags.store)
 }
 
 func newProfileBuildCmd(st *cliState) *cobra.Command {

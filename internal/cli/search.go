@@ -22,7 +22,7 @@ func newSearchCmd(st *cliState) *cobra.Command {
 			"atm project set-embedding (to declare the model + endpoint) followed by atm embed " +
 			"and atm index; search then ranks task and comment bodies by cosine similarity to " +
 			"the query and falls back to text scoring when no semantic index is available.",
-		Args:  cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := st.openStore()
 			if err != nil {
