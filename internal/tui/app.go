@@ -417,7 +417,6 @@ func (m *Model) composeDispatchOptions(persona, code, capability string) (*compo
 	csvc := &compose.Service{
 		Svc:                 m.store,
 		EnabledCapabilities: func(string) []string { return reg.Names() },
-		ExpectedChecklists:  func(string) []string { return reg.ChecklistSeedNames() },
 	}
 	return csvc.DispatchOptions(persona, code, capability)
 }

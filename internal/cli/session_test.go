@@ -742,7 +742,9 @@ func TestSessionContextRendersCapabilitiesBlock(t *testing.T) {
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "session-context", "--persona", "developer", "--project", "ATM")
 	mustContain(t, out, "## Capabilities")
-	mustContain(t, out, "- **channel** — Before pasting large output")
+	// Brief is gone: a capability describes itself once, and the block
+	// renders that one summary.
+	mustContain(t, out, "- **channel** — Channel registry capability")
 	mustContain(t, out, "run `atm capability <name> guide`")
 }
 

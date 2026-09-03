@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"atm/internal/core"
-	"atm/skills"
 
 	"github.com/spf13/cobra"
 )
@@ -77,16 +76,12 @@ type Capability interface {
 	// Summary is a one-line description for enumeration surfaces
 	// (conventions, manager prompt). No trailing newline.
 	Summary() string
-	// Brief is a one-line session-injection imperative rendered into every
-	// session context's Capabilities block; "" falls back to Summary at
-	// Describe time.
-	Brief() string
-	// Guide is the capability's full agent-facing semantics: `## Semantics`
-	// (data model and vocabulary), `## Actions` (exposed verbs), and
-	// `## Converge` (what a healthy, converged data state looks like) —
-	// persona-agnostic; personas decide what to DO with the converged state.
-	// Served verbatim by the uniform `guide` subcommand.
-	Guide() string
+	// Definition is the capability's structured self-description: lanes,
+	// axes and the meaning of each value, sockets, state, invariants, and
+	// what converged looks like. The `guide` subcommand RENDERS it — there
+	// is no authored guide text, so prose cannot drift from the code, and
+	// the verb list is walked off this capability's own command tree.
+	Definition() Definition
 	// Vocabulary declares every label this capability owns for the project:
 	// stored labels, namespace descriptors, and boards — exactly the set
 	// EnsureVocabulary seeds. Pure read, no store side effect. The registry
@@ -117,16 +112,6 @@ type Capability interface {
 // capabilities with no parent notion implement nothing.
 type Parenter interface {
 	ParentOf(task core.Task) string
-}
-
-// ChecklistSeeder is the OPTIONAL interface a capability implements to ship
-// checklist seeds (spec §7): the operating procedure it wants applied to
-// every project that enables it. No built-in implements it yet — unit 4
-// (ATM-bce933) moves the Duty content into seeds and flips the registry's
-// Flow enforcement onto it; until then ChecklistSeedNames returns nil and
-// the dispatch dialog shows no expected-but-absent rows.
-type ChecklistSeeder interface {
-	ChecklistSeeds() []core.ChecklistRecord
 }
 
 // LaneSet names a flow capability's three lane boards for a project. The
@@ -173,18 +158,17 @@ type Registry struct {
 // section and a registry capability's guide must not — and panics on a
 // violation: a mis-shaped capability is a composition-root programmer
 // error, same as skills.MustCapability on a missing file.
+// NewRegistry builds a registry from the capabilities the composition root
+// enabled.
+//
+// It no longer polices guide prose. The old check panicked unless a flow
+// capability's guide carried a `## Duty` section naming the persona that
+// runs it — enforcement that only made sense while operating procedure
+// lived inside capability text. Procedure now lives in the profile's
+// checklists, and the contract that a shipped flow comes with an action to
+// operate it is a test over the PROFILE, where both halves are visible at
+// once.
 func NewRegistry(caps ...Capability) *Registry {
-	for _, c := range caps {
-		duty, err := skills.DutyOf(c.Guide())
-		if err != nil {
-			panic(fmt.Sprintf("capability %s: %v", c.Name(), err))
-		}
-		if _, isFlow := c.(Flow); isFlow && duty == "" {
-			panic(fmt.Sprintf("capability %s: flow guide lacks a ## Duty section", c.Name()))
-		} else if !isFlow && duty != "" {
-			panic(fmt.Sprintf("capability %s: registry guide must not carry ## Duty", c.Name()))
-		}
-	}
 	return &Registry{caps: caps}
 }
 
@@ -261,11 +245,10 @@ func (r *Registry) Describe() []Description {
 	}
 	out := make([]Description, 0, len(r.caps))
 	for _, c := range r.caps {
-		b := c.Brief()
-		if b == "" {
-			b = c.Summary()
-		}
-		out = append(out, Description{Name: c.Name(), Summary: c.Summary(), Brief: b})
+		// Brief was a second one-liner a capability could author for the
+		// session context. One summary is enough: two descriptions of the
+		// same thing is one too many to keep true.
+		out = append(out, Description{Name: c.Name(), Summary: c.Summary(), Brief: c.Summary()})
 	}
 	return out
 }
@@ -283,25 +266,28 @@ func (r *Registry) Commands(env Env) []*cobra.Command {
 	for _, c := range r.caps {
 		cmd := c.Command(env)
 		cmd.Use = c.Name()
-		cmd.AddCommand(newGuideCmd(c, env))
+		cmd.AddCommand(newGuideCmd(c, env, cmd))
 		out = append(out, cmd)
 	}
 	return out
 }
 
 // newGuideCmd is the uniform read-only guide printer. It opens no store.
-func newGuideCmd(c Capability, env Env) *cobra.Command {
+// verbs is the capability's own command tree: the Actions section is walked
+// off it, so the documented verbs are the ones that exist.
+func newGuideCmd(c Capability, env Env, verbs *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:   "guide",
-		Short: "Print this capability's agent guide (semantics and operating mode)",
+		Short: "Print this capability's definition: lanes, axes, sockets, verbs, converged state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			guide := RenderDefinition(c, verbs)
 			return env.Emit(map[string]any{
 				"capability": c.Name(),
 				"summary":    c.Summary(),
-				"guide":      c.Guide(),
+				"guide":      guide,
 			}, func() {
-				fmt.Fprint(env.Stdout(), c.Guide())
+				fmt.Fprint(env.Stdout(), guide)
 			})
 		},
 	}
@@ -335,30 +321,6 @@ func (r *Registry) EnsureVocabulary(svc core.LabelService, code, actor string) (
 		}
 	}
 	return boards, nil
-}
-
-// ChecklistSeedNames lists the checklist names the registry's capabilities
-// ship as seeds, registration order, deduped. Call it on a For-narrowed
-// registry to get the names the project's ENABLED set expects to exist.
-func (r *Registry) ChecklistSeedNames() []string {
-	if r == nil {
-		return nil
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, c := range r.caps {
-		s, ok := c.(ChecklistSeeder)
-		if !ok {
-			continue
-		}
-		for _, rec := range s.ChecklistSeeds() {
-			if rec.Name != "" && !seen[rec.Name] {
-				seen[rec.Name] = true
-				out = append(out, rec.Name)
-			}
-		}
-	}
-	return out
 }
 
 // Names lists the registered capability names in registration order.

@@ -28,19 +28,23 @@ func (stubEnv) BindTaskIDFlags(cmd *cobra.Command, id, legacy *string) {
 	cmd.Flags().StringVar(id, "task", "", "task id")
 }
 
-func TestGuideHasTheRequiredSections(t *testing.T) {
-	guide := Cap{}.Guide()
-	for _, want := range []string{"## Semantics", "## Actions", "## Converge"} {
-		if !strings.Contains(guide, want) {
-			t.Errorf("guide missing %q", want)
-		}
+// The guide is GENERATED, so these assertions are about the definition being
+// complete — not about prose someone remembered to update.
+func TestGuideRendersTheDefinition(t *testing.T) {
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
+	if !strings.Contains(guide, "# scrum capability — definition") {
+		t.Fatalf("guide has no heading:\n%s", guide)
+	}
+	if (Cap{}).Summary() == "" || (Cap{}).Definition().Identity == "" {
+		t.Fatal("a capability must say what it is")
 	}
 }
 
-// Every mounted verb must be documented: a verb nobody can discover is a verb
-// nobody calls, and the guide is the only discovery surface an agent has.
+// Every mounted verb is documented because the renderer WALKS the command
+// tree — this pins that it keeps doing so, which is the whole reason the
+// guide is generated rather than authored.
 func TestGuideDocumentsEveryMountedVerb(t *testing.T) {
-	guide := Cap{}.Guide()
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
 	for _, sub := range (Cap{}).Command(stubEnv{}).Commands() {
 		if !strings.Contains(guide, "atm capability scrum "+sub.Name()) {
 			t.Errorf("guide does not document the %q verb", sub.Name())
@@ -48,28 +52,21 @@ func TestGuideDocumentsEveryMountedVerb(t *testing.T) {
 	}
 }
 
-func TestGuideNamesTheSocketsAndLanes(t *testing.T) {
-	guide := Cap{}.Guide()
+func TestGuideNamesTheDeclaredVocabulary(t *testing.T) {
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
 	c := New()
 	for _, want := range []string{
-		c.FinishLabel("<CODE>").Name, c.EvictLabel("<CODE>").Name,
-		"scrum-inbox", "scrum-pipeline", "scrum-out-board",
-		`Meta["scrum"]`, "part_of", "depends_on", "covered_by", "spec", "plan",
+		c.FinishLabel("<CODE>").Name,
+		c.EvictLabel("<CODE>").Name,
+		"scrum-inbox",
+		"scrum-pipeline",
+		"scrum-out-board",
+		`Meta["scrum"]`,
+		"part_of",
+		"depends_on",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("guide missing %q", want)
 		}
 	}
-}
-
-func TestGuideFrontmatterMatchesTheCode(t *testing.T) {
-	c := New()
-	lanes := c.Lanes("ATM")
-	guide := c.Guide()
-	for _, n := range []string{lanes.Inbox, lanes.Pipeline, lanes.Out} {
-		if !strings.Contains(guide, strings.TrimPrefix(n, "ATM:")) {
-			t.Fatalf("guide does not name the %q lane board", n)
-		}
-	}
-	var _ capability.Flow = c
 }

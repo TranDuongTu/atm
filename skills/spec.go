@@ -58,20 +58,3 @@ type ChecklistSeed struct {
 	Origin   string
 	Steps    []SeedStep
 }
-
-// CapabilitySpec is one parsed capability prompt file. Labels and Boards are
-// the frontmatter declaration of the vocabulary the capability manages; the
-// Go package remains the executable source of truth (a per-capability test
-// pins the two in sync).
-type CapabilitySpec struct {
-	Name        string
-	Description string
-	Brief       string // optional one-line session-injection imperative ("" = fall back to Description)
-	Labels      []string
-	Boards      []string
-	// Duty is the persona targeted by the guide's `## Duty: <persona>`
-	// section — the persona that runs this capability's lanes. "" for
-	// registry capabilities, whose guides carry no duty section.
-	Duty string
-	Body string // the full guide served by `atm capability <name> guide`
-}

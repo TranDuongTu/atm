@@ -66,9 +66,9 @@ func (f *fakeMountCap) Name() string { return f.name }
 
 func (f *fakeMountCap) Summary() string { return "fake capability for mount test" }
 
-func (f *fakeMountCap) Brief() string { return "" }
-
-func (f *fakeMountCap) Guide() string { return "fake capability guide" }
+func (f *fakeMountCap) Definition() capability.Definition {
+	return capability.Definition{Identity: "test capability"}
+}
 
 func (f *fakeMountCap) EnsureVocabulary(svc core.LabelService, code, actor string) ([]core.Label, error) {
 	return nil, nil

@@ -8,37 +8,17 @@ import (
 	"strings"
 )
 
-//go:embed persona/*.md capability/*.md checklist/*.md
+//go:embed persona/*.md checklist/*.md
 var files embed.FS
 
 var (
 	builtinPersonas       []PersonaSpec
-	builtinCapabilities   []CapabilitySpec
 	builtinChecklistSeeds []ChecklistSeed
 )
 
 func init() {
 	builtinPersonas = mustLoadPersonas()
-	builtinCapabilities = mustLoadCapabilities()
 	builtinChecklistSeeds = mustLoadChecklistSeeds()
-	if err := dutyPersonaErr(builtinCapabilities, builtinPersonas); err != nil {
-		panic("skills: " + err.Error())
-	}
-}
-
-// dutyPersonaErr rejects a capability whose duty section targets a persona
-// that does not exist: a duty nobody can execute is a contract violation.
-func dutyPersonaErr(caps []CapabilitySpec, personas []PersonaSpec) error {
-	known := make(map[string]bool, len(personas))
-	for _, p := range personas {
-		known[p.Name] = true
-	}
-	for _, c := range caps {
-		if c.Duty != "" && !known[c.Duty] {
-			return fmt.Errorf("capability %s: duty persona %q is not a known persona", c.Name, c.Duty)
-		}
-	}
-	return nil
 }
 
 func mustLoadPersonas() []PersonaSpec {
@@ -53,22 +33,6 @@ func mustLoadPersonas() []PersonaSpec {
 			panic(fmt.Sprintf("skills: %v", err))
 		}
 		out = append(out, p)
-	}
-	return out
-}
-
-func mustLoadCapabilities() []CapabilitySpec {
-	var out []CapabilitySpec
-	for _, name := range mustList("capability") {
-		src, err := files.ReadFile(path.Join("capability", name))
-		if err != nil {
-			panic(fmt.Sprintf("skills: read %s: %v", name, err))
-		}
-		c, err := ParseCapability(strings.TrimSuffix(name, ".md"), src)
-		if err != nil {
-			panic(fmt.Sprintf("skills: %v", err))
-		}
-		out = append(out, c)
 	}
 	return out
 }
@@ -121,29 +85,5 @@ func Persona(name string) (PersonaSpec, bool) {
 	return PersonaSpec{}, false
 }
 
-// Capabilities returns the built-in capability specs (name-sorted order).
-func Capabilities() []CapabilitySpec { return append([]CapabilitySpec(nil), builtinCapabilities...) }
-
 // ChecklistSeeds returns the built-in starter checklists (name-sorted order).
 func ChecklistSeeds() []ChecklistSeed { return append([]ChecklistSeed(nil), builtinChecklistSeeds...) }
-
-// Capability returns the named built-in capability spec.
-func Capability(name string) (CapabilitySpec, bool) {
-	for _, c := range builtinCapabilities {
-		if c.Name == name {
-			return c, true
-		}
-	}
-	return CapabilitySpec{}, false
-}
-
-// MustCapability is Capability for compile-time-known names (capability
-// packages naming their own file); it panics on a missing file, which a unit
-// test in the capability package catches.
-func MustCapability(name string) CapabilitySpec {
-	c, ok := Capability(name)
-	if !ok {
-		panic(fmt.Sprintf("skills: no capability file for %q", name))
-	}
-	return c
-}

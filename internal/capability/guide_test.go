@@ -3,6 +3,7 @@ package capability
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
 
 	"atm/internal/core"
@@ -50,9 +51,10 @@ func TestDescribeNilRegistry(t *testing.T) {
 	}
 }
 
-func TestCommandsMountGuideSubcommand(t *testing.T) {
+func TestCommandsMountGuideSubcommandThatRendersTheDefinition(t *testing.T) {
 	env := &fakeEnv{}
-	r := NewRegistry(&fakeCap{name: "alpha", cmdName: "al", summary: "does alpha", guide: "GUIDE BODY\n"})
+	r := NewRegistry(&fakeCap{name: "alpha", cmdName: "al", summary: "does alpha",
+		def: Definition{Identity: "IDENTITY LINE"}})
 	cmds := r.Commands(env)
 	if len(cmds) != 1 {
 		t.Fatalf("Commands len = %d, want 1", len(cmds))
@@ -69,7 +71,8 @@ func TestCommandsMountGuideSubcommand(t *testing.T) {
 	if err := guide.RunE(guide, nil); err != nil {
 		t.Fatalf("guide RunE: %v", err)
 	}
-	if env.out.String() != "GUIDE BODY\n" {
-		t.Errorf("guide output = %q, want the Guide() text", env.out.String())
+	out := env.out.String()
+	if !strings.Contains(out, "# alpha capability — definition") || !strings.Contains(out, "IDENTITY LINE") {
+		t.Errorf("guide output does not render the definition:\n%s", out)
 	}
 }
