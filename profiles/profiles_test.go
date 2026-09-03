@@ -1,6 +1,7 @@
 package profiles_test
 
 import (
+	"bytes"
 	"reflect"
 	"slices"
 	"testing"
@@ -171,5 +172,31 @@ func TestScrumbanSubstitutesProjectCode(t *testing.T) {
 	}
 	if _, ok := loadScrumban(t).Checklist("planning"); !ok {
 		t.Fatal("planning missing on a fresh load — ForProject mutated the embedded profile")
+	}
+}
+
+// Release CI packs and publishes this profile. Building it here means a
+// commit that would break `atm profile build` fails in `make verify`
+// instead of at release time — and pins that the artifact is reproducible,
+// which is the whole basis for publishing a digest alongside it.
+func TestScrumbanBuildsReproducibly(t *testing.T) {
+	fsys, ok := profiles.FS(profiles.Scrumban)
+	if !ok {
+		t.Fatalf("embedded profile %q not found", profiles.Scrumban)
+	}
+	var first, second bytes.Buffer
+	a, err := profile.Build(fsys, &first)
+	if err != nil {
+		t.Fatalf("scrumban does not build: %v", err)
+	}
+	b, err := profile.Build(fsys, &second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Digest != b.Digest || !bytes.Equal(first.Bytes(), second.Bytes()) {
+		t.Fatalf("two builds of the embedded profile differ: %s vs %s", a.Digest, b.Digest)
+	}
+	if a.Filename() != "scrumban-"+a.Version+".atmprofile" {
+		t.Fatalf("Filename() = %q", a.Filename())
 	}
 }
