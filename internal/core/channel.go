@@ -19,6 +19,19 @@ const (
 
 var ChannelTypes = []string{ChannelTypeRepo, ChannelTypeNotion, ChannelTypeSlack}
 
+// Channel endpoint roles. A channel's role hint says what an endpoint
+// created for it should default to: home receives the content, broadcast
+// receives a one-line reference to what landed in the home.
+const (
+	ChannelRoleHome      = "home"
+	ChannelRoleBroadcast = "broadcast"
+)
+
+// ValidChannelRole reports whether r is a legal endpoint role.
+func ValidChannelRole(r string) bool {
+	return r == ChannelRoleHome || r == ChannelRoleBroadcast
+}
+
 // ChannelLabel is the stored label a channel task of the given type carries.
 func ChannelLabel(code, typ string) string { return code + ":channel:" + typ }
 
@@ -43,11 +56,16 @@ type ChannelAddress struct {
 // list/show is the agent endpoint's contract — snake_case keys, not Go field
 // names.
 type ChannelRecord struct {
-	TaskID  string         `json:"task_id"`
-	Name    string         `json:"name"`
-	Type    string         `json:"type"`
-	Purpose string         `json:"purpose,omitempty"`
-	Address ChannelAddress `json:"address,omitzero"`
+	TaskID  string `json:"task_id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Purpose string `json:"purpose,omitempty"`
+	// RoleHint is what an endpoint created for this channel defaults to.
+	// A profile declares it on a channel EXPECTATION — a handle and what
+	// belongs in it, with no address and no type, since both are
+	// per-project, per-machine facts. Empty means home.
+	RoleHint string         `json:"role_hint,omitempty"`
+	Address  ChannelAddress `json:"address,omitzero"`
 }
 
 // ChannelProbe is the cheap local-probe result for a channel's wiring. All
@@ -174,6 +192,9 @@ func ChannelPayloadFrom(rec ChannelRecord) map[string]any {
 		addr["channel_id"] = rec.Address.ChannelID
 	}
 	m := map[string]any{"name": rec.Name, "type": rec.Type}
+	if rec.RoleHint != "" && rec.RoleHint != ChannelRoleHome {
+		m["role_hint"] = rec.RoleHint
+	}
 	if len(addr) > 0 {
 		m["address"] = addr
 	}
@@ -200,7 +221,10 @@ func ChannelFromTask(code string, t Task) (*ChannelRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("task %s: %w", t.ID, err)
 	}
-	rec := &ChannelRecord{TaskID: t.ID, Name: channelStr(m["name"]), Type: typ, Purpose: t.Description}
+	rec := &ChannelRecord{TaskID: t.ID, Name: channelStr(m["name"]), Type: typ, Purpose: t.Description, RoleHint: channelStr(m["role_hint"])}
+	if rec.RoleHint == "" {
+		rec.RoleHint = ChannelRoleHome
+	}
 	if rec.Name == "" {
 		rec.Name = t.Title
 	}

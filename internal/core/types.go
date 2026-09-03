@@ -65,20 +65,20 @@ type Comment struct {
 }
 
 type Persona struct {
-	Name            string    `json:"name"`
-	Prompt          string    `json:"prompt"`
-	Description     string    `json:"description"`
-	ProjectOptional bool      `json:"project_optional,omitempty"`
+	Name            string `json:"name"`
+	Prompt          string `json:"prompt"`
+	Description     string `json:"description"`
+	ProjectOptional bool   `json:"project_optional,omitempty"`
 	// Launch is how a session starts as this persona: prompt|hook|tui.
 	// Concrete after any parse (the skills parser defaults "" to prompt).
 	Launch string `json:"launch,omitempty"`
 	// Kickoff is the eager-session initial-message template ("" = the
 	// generic PromptMessage). Placeholders: <CONTEXT_FILE>, <CODE>, <TASK_ID>.
-	Kickoff string `json:"kickoff,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	CreatedBy       string    `json:"created_by"`
-	UpdatedBy       string    `json:"updated_by"`
+	Kickoff   string    `json:"kickoff,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedBy string    `json:"updated_by"`
 }
 
 type LabelRemoveResult struct {
