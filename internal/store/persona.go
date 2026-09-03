@@ -19,9 +19,6 @@ func (s *Store) personaMDPath(name string) string {
 func (s *Store) personaJSONPath(name string) string {
 	return filepath.Join(s.personasDir(), name+".json")
 }
-func (s *Store) personalityPath(name string) string {
-	return filepath.Join(s.personasDir(), name+".personality.md")
-}
 
 // builtinPersona converts a skills built-in to the core persona shape.
 // Built-ins have no audit trail: they ship with the binary.
@@ -241,50 +238,6 @@ func (s *Store) ListPersonas() []*core.Persona {
 	return out
 }
 
-func (s *Store) EditPersona(name string, prompt, description *string, actor string) (*core.Persona, error) {
-	if err := core.ValidatePersonaName(name); err != nil {
-		return nil, err
-	}
-	if _, ok := skills.Persona(name); ok {
-		return nil, fmt.Errorf("%w: persona %q is built-in; customize it via `atm persona personality`", core.ErrUsage, name)
-	}
-	if err := s.validateActor(actor); err != nil {
-		return nil, err
-	}
-	// Trigger any legacy .json -> .md migration BEFORE acquiring the
-	// "personas" lock. GetPersona's migration path re-acquires the same
-	// lock name and fsio.WithLock is NOT reentrant, so calling it inside
-	// the locked region deadlocks when the persona exists only as a .json.
-	if _, err := s.GetPersona(name); err != nil {
-		return nil, err
-	}
-	var updated *core.Persona
-	err := s.WithLock("personas", func() error {
-		p, err := s.getPersonaMDNoLock(name)
-		if err != nil {
-			return err
-		}
-		if prompt != nil {
-			p.Prompt = *prompt
-		}
-		if description != nil {
-			p.Description = *description
-		}
-		p.UpdatedAt = core.Now()
-		p.UpdatedBy = actor
-		doc := composePersonaDoc(p)
-		if _, err := parsePersonaDoc(name, []byte(doc)); err != nil {
-			return err
-		}
-		if err := WriteBytesAtomic(s.personaMDPath(name), []byte(doc)); err != nil {
-			return err
-		}
-		updated = p
-		return nil
-	})
-	return updated, err
-}
-
 func (s *Store) RemovePersona(name string) error {
 	if err := core.ValidatePersonaName(name); err != nil {
 		return err
@@ -302,7 +255,9 @@ func (s *Store) RemovePersona(name string) error {
 			return err
 		}
 		_ = os.Remove(s.personaJSONPath(name))
-		_ = os.Remove(s.personalityPath(name))
+		// Sweep any personality overlay a previous version left behind; the
+		// feature is gone, and an orphaned file is litter.
+		_ = os.Remove(filepath.Join(s.personasDir(), name+".personality.md"))
 		return os.Remove(s.personaMDPath(name))
 	})
 }
@@ -332,56 +287,4 @@ func (s *Store) personaExists(name string) bool {
 		return true
 	}
 	return s.customExists(name)
-}
-
-// GetPersonality returns the personality overlay text ("" when none is set).
-func (s *Store) GetPersonality(name string) (string, error) {
-	if err := core.ValidatePersonaName(name); err != nil {
-		return "", err
-	}
-	if !s.personaExists(name) {
-		return "", fmt.Errorf("%w: persona %q", core.ErrNotFound, name)
-	}
-	b, err := os.ReadFile(s.personalityPath(name))
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(b)), nil
-}
-
-func (s *Store) SetPersonality(name, text, actor string) error {
-	if err := core.ValidatePersonaName(name); err != nil {
-		return err
-	}
-	if err := s.validateActor(actor); err != nil {
-		return err
-	}
-	if !s.personaExists(name) {
-		return fmt.Errorf("%w: persona %q", core.ErrNotFound, name)
-	}
-	return s.WithLock("personas", func() error {
-		if err := os.MkdirAll(s.personasDir(), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(s.personalityPath(name), []byte(strings.TrimSpace(text)+"\n"), 0o644)
-	})
-}
-
-func (s *Store) ClearPersonality(name string) error {
-	if err := core.ValidatePersonaName(name); err != nil {
-		return err
-	}
-	if !s.personaExists(name) {
-		return fmt.Errorf("%w: persona %q", core.ErrNotFound, name)
-	}
-	return s.WithLock("personas", func() error {
-		err := os.Remove(s.personalityPath(name))
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	})
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestPersonaCreateListShowEditRemove(t *testing.T) {
+func TestPersonaCreateListShowRemove(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 
@@ -42,18 +42,6 @@ func TestPersonaCreateListShowEditRemove(t *testing.T) {
 	}
 	if !strings.Contains(out, "high bar") {
 		t.Fatalf("show = %s", out)
-	}
-
-	if _, se, code := h.run("persona", "edit", "--store", sp, "--name", "staff", "--description", "reviewer", "--actor", "admin@cli:unset"); code != 0 {
-		t.Fatalf("edit: code=%d stderr=%s", code, se)
-	}
-
-	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("show after edit: code=%d stderr=%s", code, se)
-	}
-	if !strings.Contains(out, "reviewer") || !strings.Contains(out, "high bar") {
-		t.Fatalf("edit lost data: %s", out)
 	}
 
 	if _, se, code := h.run("persona", "remove", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset"); code != 0 {
@@ -92,44 +80,5 @@ func TestPersonaShowPositional(t *testing.T) {
 	}
 	if strings.Contains(out, "modes:") {
 		t.Fatalf("manager declares no modes; output must not contain a modes line: %s", out)
-	}
-}
-
-func TestPersonaPersonalityRoundTrip(t *testing.T) {
-	h := newGoldenHarness(t)
-	sp := h.store.StorePath()
-
-	if _, se, code := h.run("persona", "personality", "--store", sp, "manager", "--set", "Dry wit.", "--actor", "admin@cli:unset"); code != 0 {
-		t.Fatalf("set personality: code=%d stderr=%s", code, se)
-	}
-	out, se, code := h.run("persona", "personality", "--store", sp, "manager", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("get personality: code=%d stderr=%s", code, se)
-	}
-	if !strings.Contains(out, "Dry wit.") {
-		t.Fatalf("get personality = %s, want Dry wit.", out)
-	}
-	if _, se, code := h.run("persona", "personality", "--store", sp, "manager", "--clear", "--actor", "admin@cli:unset"); code != 0 {
-		t.Fatalf("clear personality: code=%d stderr=%s", code, se)
-	}
-	out, se, code = h.run("persona", "personality", "--store", sp, "manager", "--actor", "admin@cli:unset")
-	if code != 0 {
-		t.Fatalf("get personality after clear: code=%d stderr=%s", code, se)
-	}
-	if strings.Contains(out, "Dry wit.") {
-		t.Fatalf("personality after clear still customized: %s", out)
-	}
-}
-
-func TestPersonaEditBuiltinRefusedWithHint(t *testing.T) {
-	h := newGoldenHarness(t)
-	sp := h.store.StorePath()
-
-	_, se, code := h.run("persona", "edit", "--store", sp, "--name", "manager", "--prompt", "x", "--actor", "admin@cli:unset")
-	if code == 0 {
-		t.Fatalf("edit manager should fail, got code=0")
-	}
-	if !strings.Contains(se, "atm persona personality") {
-		t.Fatalf("edit manager error should mention `atm persona personality`, got stderr=%s", se)
 	}
 }

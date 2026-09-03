@@ -31,18 +31,6 @@ func TestPersonaCRUD(t *testing.T) {
 		t.Fatalf("get = %+v, %v", got, err)
 	}
 
-	newPrompt := "even higher bar"
-	if _, err := s.EditPersona("staff-engineer", &newPrompt, nil, testActor); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = s.GetPersona("staff-engineer")
-	if got.Prompt != "even higher bar" || got.Description != "reviewer" {
-		t.Fatalf("edit left wrong state: %+v", got)
-	}
-	if _, err := s.EditPersona("ghost", &newPrompt, nil, testActor); !core.IsNotFound(err) {
-		t.Fatalf("edit missing should be core.ErrNotFound, got %v", err)
-	}
-
 	if err := s.RemovePersona("staff-engineer"); err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +44,6 @@ func TestPersonaNameTraversalRejected(t *testing.T) {
 
 	if _, err := s.GetPersona("../evil"); !core.IsUsage(err) {
 		t.Fatalf("GetPersona traversal should be core.ErrUsage, got %v", err)
-	}
-	newPrompt := "pwned"
-	if _, err := s.EditPersona("../evil", &newPrompt, nil, testActor); !core.IsUsage(err) {
-		t.Fatalf("EditPersona traversal should be core.ErrUsage, got %v", err)
 	}
 	if err := s.RemovePersona("../evil"); !core.IsUsage(err) {
 		t.Fatalf("RemovePersona traversal should be core.ErrUsage, got %v", err)
@@ -137,30 +121,6 @@ func TestLegacyJSONPersonaMigrates(t *testing.T) {
 	}
 }
 
-func TestBuiltinEditRefusedOverlayWorks(t *testing.T) {
-	s := newTestStore(t)
-	prompt := "x"
-	if _, err := s.EditPersona("manager", &prompt, nil, "admin@cli:unset"); err == nil {
-		t.Fatal("editing a built-in must fail; personality overlay is the customization path")
-	}
-	if err := s.SetPersonality("manager", "Dry wit.", "admin@cli:unset"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetPersonality("manager")
-	if err != nil || got != "Dry wit." {
-		t.Fatalf("overlay: %q err=%v", got, err)
-	}
-	if err := s.ClearPersonality("manager"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := s.GetPersonality("manager"); got != "" {
-		t.Fatalf("cleared overlay still returns %q", got)
-	}
-	if err := s.SetPersonality("ghost", "x", "admin@cli:unset"); err == nil {
-		t.Fatal("overlay for unknown persona must fail")
-	}
-}
-
 func TestListPersonasMergesBuiltinsAndCustoms(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreatePersona("zed", "p", "d", "admin@cli:unset"); err != nil {
@@ -217,10 +177,11 @@ func TestCustomPersonaProjectOptionalParsed(t *testing.T) {
 	}
 }
 
-// TestEditPersonaPreservesProjectOptional guards the composePersonaDoc
-// round-trip: editing a hand-authored custom persona whose frontmatter marks it
-// project-optional must not silently rewrite it back to project-required.
-func TestEditPersonaPreservesProjectOptional(t *testing.T) {
+// A hand-authored custom persona keeps its project_optional frontmatter on
+// read. The edit path that used to rewrite the document is gone — a persona
+// is imported whole with `atm persona set`, never field-edited in place —
+// so this now guards the parser alone.
+func TestReadPersonaPreservesProjectOptional(t *testing.T) {
 	s := newTestStore(t)
 	doc := "---\nname: rover\ndescription: Rover guide\nproject_optional: true\n---\nRover body\n"
 	if err := os.MkdirAll(filepath.Join(s.Root, "personas"), 0o755); err != nil {
@@ -234,21 +195,10 @@ func TestEditPersonaPreservesProjectOptional(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !p.ProjectOptional {
-		t.Fatal("precondition: hand-authored persona must parse as project-optional")
+		t.Fatal("hand-authored persona must parse as project-optional")
 	}
-	prompt := "Rover body, edited."
-	if _, err := s.EditPersona("rover", &prompt, nil, testActor); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetPersona("rover")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.ProjectOptional {
-		t.Error("EditPersona must not drop project_optional from the frontmatter")
-	}
-	if got.Prompt != prompt {
-		t.Errorf("prompt = %q, want %q", got.Prompt, prompt)
+	if p.Prompt != "Rover body" {
+		t.Fatalf("prompt = %q", p.Prompt)
 	}
 }
 
@@ -267,42 +217,6 @@ func writeLegacyJSONPersona(t *testing.T, s *Store, name string) {
 	}
 	if _, err := os.Stat(filepath.Join(s.Root, "personas", name+".md")); err == nil {
 		t.Fatalf("precondition: %s.md must not exist", name)
-	}
-}
-
-// TestEditPersonaLegacyJSONNoDeadlock exercises the re-entrant WithLock bug:
-// a .json-only persona edited without a prior GetPersona used to deadlock
-// because GetPersona's migration path re-acquires the "personas" lock.
-func TestEditPersonaLegacyJSONNoDeadlock(t *testing.T) {
-	s := newTestStore(t)
-	writeLegacyJSONPersona(t, s, "legacy-edit")
-
-	type result struct {
-		p   *core.Persona
-		err error
-	}
-	done := make(chan result, 1)
-	go func() {
-		newPrompt := "edited prompt"
-		p, err := s.EditPersona("legacy-edit", &newPrompt, nil, testActor)
-		done <- result{p, err}
-	}()
-	select {
-	case r := <-done:
-		if r.err != nil {
-			t.Fatalf("EditPersona on legacy json: %v", r.err)
-		}
-		if r.p.Prompt != "edited prompt" {
-			t.Fatalf("prompt not updated: %+v", r.p)
-		}
-		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-edit.md")); err != nil {
-			t.Fatalf("md not written by migration: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(s.Root, "personas", "legacy-edit.json")); !os.IsNotExist(err) {
-			t.Fatalf("json not cleaned: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("EditPersona on .json-only persona deadlocked (re-entrant WithLock)")
 	}
 }
 

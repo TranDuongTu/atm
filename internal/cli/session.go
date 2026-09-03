@@ -81,7 +81,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		return err
 	}
 	csvc := st.composeFor(s)
-	spec, err := csvc.ResolvePersona(opts.Persona)
+	persona, err := csvc.ResolvePersona(opts.Project, opts.Persona)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	if opts.Launch != "" && opts.Launch != "prompt" && opts.Launch != "hook" && opts.Launch != "tui" {
 		return fmt.Errorf("%w: --launch must be prompt, hook, or tui, got %q", ErrUsage, opts.Launch)
 	}
-	mode := spec.Launch
+	mode := compose.LaunchModeOf(persona)
 	if opts.Launch != "" {
 		mode = opts.Launch
 	}
@@ -118,8 +118,8 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 
 	var code, projName string
 	if opts.Project == "" {
-		if !spec.ProjectOptional {
-			return fmt.Errorf("%w: --project is required for persona %q", ErrUsage, spec.Name)
+		if !persona.ProjectOptional {
+			return fmt.Errorf("%w: --project is required for persona %q", ErrUsage, persona.Name)
 		}
 	} else {
 		p, err := ensureProjectForLaunch(s, opts.Project)
@@ -164,7 +164,7 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		runCode = "atm"
 	}
 	plan, err := csvc.Compose(compose.Request{
-		Persona:     spec.Name,
+		Persona:     persona.Name,
 		Code:        code,
 		ProjName:    projName,
 		Task:        opts.Task,
@@ -191,12 +191,12 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 
 	env := assembleEnv(plan.EnvValues)
 	runID := plan.EnvValues["ATM_RUN_ID"]
-	if err := emitLaunchHeader(st, spec.Name, code, runID, plan.ContextPath, l.Name(), plan.Argv, plan.EnvValues); err != nil {
+	if err := emitLaunchHeader(st, persona.Name, code, runID, plan.ContextPath, l.Name(), plan.Argv, plan.EnvValues); err != nil {
 		return err
 	}
 
 	exitCode, runErr := st.runChild(l.Name(), plan.Argv, env, l.NotFoundHint())
-	if err := emitLaunchTail(st, spec.Name, code, runID, plan.ContextPath, l.Name(), exitCode); err != nil {
+	if err := emitLaunchTail(st, persona.Name, code, runID, plan.ContextPath, l.Name(), exitCode); err != nil {
 		return err
 	}
 	if runErr != nil {

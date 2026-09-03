@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -14,10 +13,10 @@ func newPersonaCmd(st *cliState) *cobra.Command {
 		Short: "Persona registry commands",
 		Long: "A persona is a named system prompt that an agent runs under; personas are " +
 			"referenced by the actor string, whose format is persona@agent:model. The persona " +
-			"segment must be a registered persona before an agent can claim it. The built-ins " +
-			"(developer, manager, admin, concierge) ship in the binary; custom personas are " +
-			"created and edited here. Customize a built-in's personality via " +
-			"`atm persona personality`.",
+			"segment must be a registered persona before an agent can claim it. A persona is a " +
+			"PROJECT record: import one with `atm persona set`, restore it with " +
+			"`atm persona reset`. The built-ins still ship in the binary as the " +
+			"fallback while the machine-global personas are retired.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newPersonaSetCmd(st))
@@ -25,8 +24,6 @@ func newPersonaCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newPersonaCreateCmd(st))
 	cmd.AddCommand(newPersonaListCmd(st))
 	cmd.AddCommand(newPersonaShowCmd(st))
-	cmd.AddCommand(newPersonaPersonalityCmd(st))
-	cmd.AddCommand(newPersonaEditCmd(st))
 	cmd.AddCommand(newPersonaRemoveCmd(st))
 	return cmd
 }
@@ -145,60 +142,13 @@ func newPersonaShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			overlay, _ := s.GetPersonality(resolved)
-			return st.emit(st.stdout(), map[string]any{"persona": p, "personality_custom": overlay != ""}, func() {
-				fmt.Fprintf(st.stdout(), "%s\t%s\n", p.Name, p.Description)
-				if overlay != "" {
-					fmt.Fprintln(st.stdout(), "personality: customized")
-				}
-				fmt.Fprintf(st.stdout(), "\n%s\n", p.Prompt)
+			return st.emit(st.stdout(), map[string]any{"persona": p}, func() {
+				fmt.Fprintf(st.stdout(), "%s\t%s\n\n%s\n", p.Name, p.Description, p.Prompt)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "persona name (positional arg takes precedence)")
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT) — shows that project's persona record")
-	return cmd
-}
-
-func newPersonaEditCmd(st *cliState) *cobra.Command {
-	var name, prompt, promptFile, description string
-	cmd := &cobra.Command{
-		Use:   "edit",
-		Short: "Edit a persona (only supplied fields change)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			pr, prOK, err := resolvePrompt(prompt, promptFile)
-			if err != nil {
-				return err
-			}
-			var pPtr, dPtr *string
-			if prOK {
-				pPtr = &pr
-			}
-			if cmd.Flags().Changed("description") {
-				dPtr = &description
-			}
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			p, err := s.EditPersona(name, pPtr, dPtr, actor)
-			if err != nil {
-				return err
-			}
-			return st.emit(st.stdout(), map[string]any{"persona": p}, func() {
-				fmt.Fprintf(st.stdout(), "updated persona %s\n", p.Name)
-			})
-		},
-	}
-	cmd.Flags().StringVar(&name, "name", "", "persona name")
-	cmd.Flags().StringVar(&prompt, "prompt", "", "new prompt text")
-	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "read new prompt from file")
-	cmd.Flags().StringVar(&description, "description", "", "new description")
-	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
@@ -222,74 +172,5 @@ func newPersonaRemoveCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "persona name")
 	_ = cmd.MarkFlagRequired("name")
-	return cmd
-}
-
-func newPersonaPersonalityCmd(st *cliState) *cobra.Command {
-	var setText, file string
-	var clear bool
-	cmd := &cobra.Command{
-		Use:   "personality <name>",
-		Short: "Show or customize a persona's personality section",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			s, err := st.openStore()
-			if err != nil {
-				return err
-			}
-			mutating := clear || setText != "" || file != ""
-			if setText != "" && file != "" {
-				return fmt.Errorf("%w: --set and --file are mutually exclusive", ErrUsage)
-			}
-			if !mutating {
-				spec, err := st.composeFor(s).ResolvePersona(name)
-				if err != nil {
-					return err
-				}
-				overlay, err := s.GetPersonality(name)
-				if err != nil {
-					return err
-				}
-				effective := spec.Personality
-				custom := overlay != ""
-				if custom {
-					effective = overlay
-				}
-				return st.emit(st.stdout(), map[string]any{"persona": name, "personality": effective, "custom": custom}, func() {
-					fmt.Fprintln(st.stdout(), effective)
-				})
-			}
-			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			if clear {
-				if err := s.ClearPersonality(name); err != nil {
-					return err
-				}
-				return st.emit(st.stdout(), map[string]any{"persona": name, "cleared": true}, func() {
-					fmt.Fprintf(st.stdout(), "cleared personality for %s\n", name)
-				})
-			}
-			text := setText
-			if file != "" {
-				b, err := os.ReadFile(file)
-				if err != nil {
-					return fmt.Errorf("read --file: %w", err)
-				}
-				text = string(b)
-			}
-			if err := s.SetPersonality(name, text, actor); err != nil {
-				return err
-			}
-			return st.emit(st.stdout(), map[string]any{"persona": name, "personality": strings.TrimSpace(text)}, func() {
-				fmt.Fprintf(st.stdout(), "set personality for %s\n", name)
-			})
-		},
-	}
-	cmd.Flags().StringVar(&setText, "set", "", "set the personality text")
-	cmd.Flags().StringVar(&file, "file", "", "read the personality text from a file")
-	cmd.Flags().BoolVar(&clear, "clear", false, "remove the customization (revert to the persona's default)")
 	return cmd
 }
