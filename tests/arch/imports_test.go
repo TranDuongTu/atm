@@ -130,6 +130,15 @@ func TestSkillsIsAPureLeaf(t *testing.T) {
 	}
 }
 
+// TestProfilesIsAPureLeaf pins the shipped-profile package as bytes and
+// nothing else: it embeds a public-format directory, and the loader that
+// reads it lives in internal/profile. Config must not grow code.
+func TestProfilesIsAPureLeaf(t *testing.T) {
+	for f, imps := range internalImports(t, "profiles") {
+		t.Errorf("%s imports %v; profiles may import nothing from this repository", f, imps)
+	}
+}
+
 func TestCLIDoesNotImportTUI(t *testing.T) {
 	for f, imps := range internalImports(t, "internal/cli") {
 		for _, p := range imps {
