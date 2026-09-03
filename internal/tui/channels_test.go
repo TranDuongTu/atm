@@ -27,7 +27,7 @@ func seedChannels(t *testing.T, m *Model) string {
 	if _, err := m.store.CreateChannel("ATM", repo, testActor); err != nil {
 		t.Fatalf("CreateChannel code: %v", err)
 	}
-	if err := m.store.SetChannelWiring("ATM", "code", dir, "", testActor); err != nil {
+	if err := m.store.SetChannelWiring("ATM", "code", "", dir, "", testActor); err != nil {
 		t.Fatalf("SetChannelWiring code: %v", err)
 	}
 	notion := core.ChannelRecord{
@@ -93,14 +93,16 @@ func TestChannelsOverlayDetailShowsWiringAndStamps(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	dir := seedChannels(t, m)
-	if err := m.store.AddChannelStamp("ATM", "code", "cloned and built", testActor); err != nil {
+	if err := m.store.AddChannelStamp("ATM", "code", "", core.StampKindUse, "cloned and built", testActor); err != nil {
 		t.Fatalf("AddChannelStamp: %v", err)
 	}
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
 	m.channelsOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	detail := m.channelsOv.renderOverlay()
-	for _, want := range []string{"product source", "code.git", "path", "cloned and built", testActor, "probe"} {
+	// The stamp row now names its kind too, so a long note wraps; assert on
+	// the pieces rather than one pre-wrap line.
+	for _, want := range []string{"product source", "code.git", "path", "endpoint", "cloned and", testActor, core.StampKindUse, "probe"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail missing %q:\n%s", want, detail)
 		}

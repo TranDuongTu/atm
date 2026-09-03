@@ -376,7 +376,7 @@ func seedWiredRepoChannel(t *testing.T, m *Model, code, name string) {
 	if _, err := m.store.CreateChannel(code, core.ChannelRecord{Name: name, Type: core.ChannelTypeRepo}, testActor); err != nil {
 		t.Fatalf("CreateChannel %s: %v", name, err)
 	}
-	if err := m.store.SetChannelWiring(code, name, t.TempDir(), "", testActor); err != nil {
+	if err := m.store.SetChannelWiring(code, name, "", t.TempDir(), "", testActor); err != nil {
 		t.Fatalf("SetChannelWiring %s: %v", name, err)
 	}
 }

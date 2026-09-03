@@ -594,11 +594,13 @@ func TestStampChannelRecordsAStamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChannelByName: %v (toast %q)", err, m.toastMsg)
 	}
-	if v.Wiring == nil || len(v.Wiring.Stamps) != 1 {
+	// Stamps live on the ENDPOINT now; read them the way every surface does.
+	stamps := v.EndpointWiring(v.Endpoints[0].Type).Stamps
+	if v.Wiring == nil || len(stamps) != 1 {
 		t.Fatalf("wiring = %+v, want exactly one stamp", v.Wiring)
 	}
-	if v.Wiring.Stamps[0].By != m.actor {
-		t.Fatalf("stamped by %q, want %q", v.Wiring.Stamps[0].By, m.actor)
+	if stamps[0].By != m.actor {
+		t.Fatalf("stamped by %q, want %q", stamps[0].By, m.actor)
 	}
 }
 
@@ -691,7 +693,7 @@ func TestWireFormRecordsThePathOnThisMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChannelByName: %v", err)
 	}
-	if v.Wiring == nil || v.Wiring.Path != clone {
+	if v.Wiring == nil || v.EndpointWiring(core.ChannelTypeRepo).Path != clone {
 		t.Fatalf("wiring = %+v, want path %q (toast %q)", v.Wiring, clone, m.toastMsg)
 	}
 }

@@ -340,7 +340,7 @@ func (s *setupModel) stampChannel(name string) {
 		s.m.showToast("select a project first")
 		return
 	}
-	if err := s.m.store.AddChannelStamp(code, name, "verified from the setup wizard", s.m.actor); err != nil {
+	if err := s.m.store.AddChannelStamp(code, name, "", core.StampKindUse, "verified from the setup wizard", s.m.actor); err != nil {
 		s.m.showToast("stamp " + name + ": " + err.Error())
 		return
 	}
@@ -471,7 +471,7 @@ func (s *setupModel) doWire(vals map[string]string) tea.Cmd {
 		s.m.showToast("select a project first")
 		return nil
 	}
-	if err := s.m.store.SetChannelWiring(code, s.formTarget, vals["path"], "", s.m.actor); err != nil {
+	if err := s.m.store.SetChannelWiring(code, s.formTarget, "", vals["path"], "", s.m.actor); err != nil {
 		s.m.showToast("wire " + s.formTarget + ": " + err.Error())
 		return nil
 	}

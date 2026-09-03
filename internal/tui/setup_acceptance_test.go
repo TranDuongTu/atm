@@ -99,7 +99,7 @@ func mustAddRepoChannel(t *testing.T, m *Model, code, name, path string) {
 	if _, err := m.store.CreateChannel(code, core.ChannelRecord{Name: name, Type: core.ChannelTypeRepo}, testActor); err != nil {
 		t.Fatalf("CreateChannel %s: %v", name, err)
 	}
-	if err := m.store.SetChannelWiring(code, name, path, "", testActor); err != nil {
+	if err := m.store.SetChannelWiring(code, name, "", path, "", testActor); err != nil {
 		t.Fatalf("SetChannelWiring %s: %v", name, err)
 	}
 }
@@ -109,7 +109,7 @@ func mustAddRepoChannel(t *testing.T, m *Model, code, name, path string) {
 func mustAddNotionChannel(t *testing.T, m *Model, code, name, mcpServer string) {
 	t.Helper()
 	seedNotionChannel(t, m, code, name)
-	if err := m.store.SetChannelWiring(code, name, "", mcpServer, testActor); err != nil {
+	if err := m.store.SetChannelWiring(code, name, "", "", mcpServer, testActor); err != nil {
 		t.Fatalf("SetChannelWiring %s: %v", name, err)
 	}
 }
@@ -122,7 +122,7 @@ func mustAddNotionChannel(t *testing.T, m *Model, code, name, mcpServer string) 
 // except the timestamp is exactly what production writes.
 func stampChannelDaysAgo(t *testing.T, m *Model, code, name string, days int) {
 	t.Helper()
-	if err := m.store.AddChannelStamp(code, name, "verified", testActor); err != nil {
+	if err := m.store.AddChannelStamp(code, name, "", core.StampKindUse, "verified", testActor); err != nil {
 		t.Fatalf("AddChannelStamp %s: %v", name, err)
 	}
 	path := filepath.Join(m.store.StorePath(), "projects", code, "config.json")
@@ -131,10 +131,23 @@ func stampChannelDaysAgo(t *testing.T, m *Model, code, name string, days int) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	w, ok := cfg.Channels[name]
-	if !ok || len(w.Stamps) == 0 {
+	if !ok {
+		t.Fatalf("no wiring recorded for %q", name)
+	}
+	// Stamps live under the endpoint that was reached.
+	typ := ""
+	for k, e := range w.Endpoints {
+		if len(e.Stamps) > 0 {
+			typ = k
+			break
+		}
+	}
+	if typ == "" {
 		t.Fatalf("no stamp recorded for %q", name)
 	}
-	w.Stamps[len(w.Stamps)-1].At = core.RFC3339UTC(core.Now().AddDate(0, 0, -days))
+	e := w.Endpoints[typ]
+	e.Stamps[len(e.Stamps)-1].At = core.RFC3339UTC(core.Now().AddDate(0, 0, -days))
+	w.Endpoints[typ] = e
 	cfg.Channels[name] = w
 	if err := store.WriteFileAtomic(path, &cfg); err != nil {
 		t.Fatalf("write %s: %v", path, err)

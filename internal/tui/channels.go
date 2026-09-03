@@ -270,7 +270,7 @@ func channelDetailLines(v core.ChannelView, project string, now time.Time) []str
 	}
 
 	lines = append(lines, "")
-	if v.Wiring == nil {
+	if len(v.WiredEndpoints()) == 0 {
 		how := "--path <dir>"
 		if v.Type == core.ChannelTypeNotion {
 			how = "--mcp-server <name>"
@@ -278,22 +278,40 @@ func channelDetailLines(v core.ChannelView, project string, now time.Time) []str
 		lines = append(lines, field("wiring", "none on this machine — `atm channel wire --project "+project+" --name "+v.Name+" "+how+"`"))
 		return lines
 	}
-	if v.Wiring.Path != "" {
-		lines = append(lines, field("path", v.Wiring.Path))
-	}
-	if v.Wiring.MCPServer != "" {
-		lines = append(lines, field("mcp", v.Wiring.MCPServer))
-	}
-	if len(v.Wiring.Stamps) == 0 {
-		lines = append(lines, field("stamps", "none — never verified"))
-	} else {
-		lines = append(lines, field("stamps", ""))
-		for _, s := range v.Wiring.Stamps {
-			row := s.At + " · " + s.By
-			if s.Note != "" {
-				row += " · " + s.Note
+	// Wiring is per endpoint. The full endpoint x agent matrix is the
+	// overlay's next revision (ATM-c16404); until then each endpoint's
+	// wiring and stamps are listed under its medium.
+	for _, ep := range v.Endpoints {
+		w := v.EndpointWiring(ep.Type)
+		if !w.Wired() && len(w.Stamps) == 0 {
+			continue
+		}
+		label := ep.Type
+		if len(v.Endpoints) > 1 {
+			label = ep.Type + " (" + ep.Role + ")"
+		}
+		lines = append(lines, field("endpoint", label))
+		if w.Path != "" {
+			lines = append(lines, field("  path", w.Path))
+		}
+		if w.MCPServer != "" {
+			lines = append(lines, field("  mcp", w.MCPServer))
+		}
+		if len(w.Stamps) == 0 {
+			lines = append(lines, field("  stamps", "none — never verified"))
+			continue
+		}
+		lines = append(lines, field("  stamps", ""))
+		for _, st := range w.Stamps {
+			kind := st.Kind
+			if kind == "" {
+				kind = core.StampKindUse
 			}
-			lines = append(lines, "  "+row)
+			row := st.At + " · " + st.By + " · " + kind
+			if st.Note != "" {
+				row += " · " + st.Note
+			}
+			lines = append(lines, "    "+row)
 		}
 	}
 	if v.Probe != nil {

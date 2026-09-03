@@ -92,9 +92,9 @@ type Model struct {
 	// launch default via compose.DispatchOptions; swapped in tests.
 	dispatchOptionsFn func(persona, code, capability string) (*compose.DispatchOptions, error)
 	dispatchDlg       dispatchModel
-	personasOv     personasModel
-	personaAct     personaActivityModel
-	channelsOv     channelsModel
+	personasOv        personasModel
+	personaAct        personaActivityModel
+	channelsOv        channelsModel
 	// setup is the setup & readiness wizard. Unlike every model above it, it
 	// is NOT an overlay: while active it replaces the workspace in View and
 	// consumes keys, so it is also one of workspaceIdle()'s gates.

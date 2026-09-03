@@ -8,10 +8,10 @@ import (
 
 func TestProbeVersionExtractsTheNumber(t *testing.T) {
 	cases := map[string]string{
-		"2.1.233 (Claude Code)":       "2.1.233",
-		"codex-cli 0.145.0":           "0.145.0",
-		"1.18.18":                     "1.18.18",
-		"ollama version is 0.30.10":   "0.30.10",
+		"2.1.233 (Claude Code)":     "2.1.233",
+		"codex-cli 0.145.0":         "0.145.0",
+		"1.18.18":                   "1.18.18",
+		"ollama version is 0.30.10": "0.30.10",
 	}
 	for out, want := range cases {
 		run := func(context.Context, string, ...string) ([]byte, error) { return []byte(out + "\n"), nil }

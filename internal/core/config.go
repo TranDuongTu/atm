@@ -1,6 +1,9 @@
 package core
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type EmbeddingConfig struct {
 	Model       string  `json:"model"`
@@ -46,13 +49,45 @@ type RepoConfig struct {
 	URL  string `json:"url,omitempty"` // remote link the concierge logged; optional
 }
 
+// Stamp kinds. A stamp records HOW the endpoint was reached: real work
+// (posting a plan, logging a PR) or a read-only check. Both attest that the
+// endpoint answered; use carries more weight because it proves the endpoint
+// served its purpose, not merely that it exists.
+const (
+	StampKindUse   = "use"
+	StampKindProbe = "probe"
+)
+
+// StampKinds is the closed set, in decreasing weight.
+var StampKinds = []string{StampKindUse, StampKindProbe}
+
+// ValidStampKind reports whether k is a legal stamp kind.
+func ValidStampKind(k string) bool { return k == StampKindUse || k == StampKindProbe }
+
 // VerificationStamp is one tier-2 verification record: an actor touched the
-// channel and vouched for its wiring at a moment in time. No secrets.
+// endpoint and vouched for its wiring at a moment in time. No secrets.
+//
+// The actor already names the agent harness that recorded it
+// (persona@AGENT:model), so "which agents have reached this endpoint" is an
+// aggregation of stamps ATM already writes — no new schema.
 type VerificationStamp struct {
-	At   string `json:"at"`
-	By   string `json:"by"`
+	At string `json:"at"`
+	By string `json:"by"`
+	// Kind is use or probe; empty reads as use, because before kinds
+	// existed real work was the only way to write a stamp.
+	Kind string `json:"kind,omitempty"`
 	Note string `json:"note,omitempty"`
 }
+
+// EndpointWiring is how THIS machine reaches ONE of a channel's endpoints.
+type EndpointWiring struct {
+	Path      string              `json:"path,omitempty"`
+	MCPServer string              `json:"mcp_server,omitempty"`
+	Stamps    []VerificationStamp `json:"stamps,omitempty"`
+}
+
+// Wired reports whether this machine has anything recorded for the endpoint.
+func (e EndpointWiring) Wired() bool { return e.Path != "" || e.MCPServer != "" }
 
 // ChannelWiring is how THIS machine reaches a channel — tier 2: config, not
 // substrate state, no event-log entry, not synced, and never a secret. Path
@@ -60,9 +95,56 @@ type VerificationStamp struct {
 // server for notion channels. A fresh machine has no wiring until a
 // concierge session records it.
 type ChannelWiring struct {
+	// Path, MCPServer and Stamps are the PRE-ENDPOINT shape, written when a
+	// channel had exactly one medium. They read as the wiring of the
+	// record's FIRST endpoint; a write for that medium migrates them into
+	// Endpoints and clears them, so the two can never disagree.
 	Path      string              `json:"path,omitempty"`
 	MCPServer string              `json:"mcp_server,omitempty"`
 	Stamps    []VerificationStamp `json:"stamps,omitempty"`
+	// Endpoints is per-medium wiring, keyed by endpoint type.
+	Endpoints map[string]EndpointWiring `json:"endpoints,omitempty"`
+}
+
+// AgentOfActor extracts the agent harness from an actor string
+// (persona@agent:model). "" when the actor is not in canonical form.
+func AgentOfActor(actor string) string {
+	_, rest, ok := strings.Cut(actor, "@")
+	if !ok {
+		return ""
+	}
+	agent, _, ok := strings.Cut(rest, ":")
+	if !ok {
+		return ""
+	}
+	return agent
+}
+
+// AgentStamps groups stamps by the agent harness that recorded them,
+// keeping each agent's FRESHEST stamp. A tie goes to real use over a probe:
+// freshness is freshness, so a probe never displaces a newer use, but where
+// both land at the same instant the one proving the endpoint served its
+// purpose is the better answer. Stamps whose actor names no agent are
+// skipped — an unattributable stamp cannot fill a per-agent matrix.
+func AgentStamps(stamps []VerificationStamp) map[string]VerificationStamp {
+	out := map[string]VerificationStamp{}
+	for _, st := range stamps {
+		agent := AgentOfActor(st.By)
+		if agent == "" {
+			continue
+		}
+		if st.Kind == "" {
+			st.Kind = StampKindUse
+		}
+		cur, seen := out[agent]
+		switch {
+		case !seen, st.At > cur.At:
+			out[agent] = st
+		case st.At == cur.At && st.Kind == StampKindUse:
+			out[agent] = st
+		}
+	}
+	return out
 }
 
 type ProjectConfig struct {

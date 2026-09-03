@@ -60,8 +60,12 @@ type ChannelService interface {
 	ProjectChannels(code string) ([]ChannelView, error)
 	GetChannelByName(code, name string) (*ChannelView, error)
 	RepoChannelTargets(code string) ([]RepoConfig, error)
-	SetChannelWiring(code, name, path, mcpServer, actor string) error
-	AddChannelStamp(code, name, note, actor string) error
+	// SetChannelWiring records how this machine reaches one endpoint; an
+	// empty typ resolves to the channel's only one.
+	SetChannelWiring(code, name, typ, path, mcpServer, actor string) error
+	// AddChannelStamp vouches that this agent reached one endpoint. An
+	// empty kind reads as use.
+	AddChannelStamp(code, name, typ, kind, note, actor string) error
 	MigrateReposToChannels(code, actor string) (migrated int, unwired []string, skipped []string, err error)
 }
 

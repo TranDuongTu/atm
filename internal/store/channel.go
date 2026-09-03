@@ -198,15 +198,23 @@ func (s *Store) RemoveChannel(code, name, actor string) error {
 	return s.dropChannelWiring(code, name, actor)
 }
 
-// SetChannelWiring records how THIS machine reaches the channel — tier 2:
-// config, not substrate, no event, no secrets. Merge semantics: a non-empty
-// path or mcpServer overwrites that field, an empty one keeps the existing
-// value, and stamps always survive. The channel must exist in the ledger.
-func (s *Store) SetChannelWiring(code, name, path, mcpServer, actor string) error {
+// SetChannelWiring records how THIS machine reaches one of the channel's
+// endpoints — tier 2: config, not substrate, no event, no secrets. Merge
+// semantics: a non-empty path or mcpServer overwrites that field, an empty
+// one keeps the existing value, and stamps always survive. An empty typ
+// resolves to the channel's only endpoint, and is a usage error when the
+// channel has several — wiring the wrong medium silently is worse than
+// asking which one.
+func (s *Store) SetChannelWiring(code, name, typ, path, mcpServer, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if _, err := s.channelByName(code, name); err != nil {
+	rec, err := s.channelByName(code, name)
+	if err != nil {
+		return err
+	}
+	typ, err = resolveEndpointType(rec, typ)
+	if err != nil {
 		return err
 	}
 	abs := ""
@@ -229,27 +237,41 @@ func (s *Store) SetChannelWiring(code, name, path, mcpServer, actor string) erro
 			merged.Channels = map[string]core.ChannelWiring{}
 		}
 		w := merged.Channels[name]
+		e := endpointWiringOf(w, rec, typ)
 		if abs != "" {
-			w.Path = abs
+			e.Path = abs
 		}
 		if mcpServer != "" {
-			w.MCPServer = mcpServer
+			e.MCPServer = mcpServer
 		}
-		merged.Channels[name] = w
+		merged.Channels[name] = putEndpointWiring(w, rec, typ, e)
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)
 	})
 }
 
-// AddChannelStamp appends a verification stamp (actor + timestamp + note) to
-// the channel's wiring: "someone actually touched this channel and vouches".
-func (s *Store) AddChannelStamp(code, name, note, actor string) error {
+// AddChannelStamp appends a verification stamp (actor + timestamp + kind +
+// note) to one endpoint's wiring: "this agent actually reached this endpoint
+// and vouches". The actor names the harness, so the per-agent attestation
+// matrix is an aggregation of these — no separate record.
+func (s *Store) AddChannelStamp(code, name, typ, kind, note, actor string) error {
 	if err := s.validateActor(actor); err != nil {
 		return err
 	}
-	if _, err := s.channelByName(code, name); err != nil {
+	rec, err := s.channelByName(code, name)
+	if err != nil {
 		return err
+	}
+	typ, err = resolveEndpointType(rec, typ)
+	if err != nil {
+		return err
+	}
+	if kind == "" {
+		kind = core.StampKindUse
+	}
+	if !core.ValidStampKind(kind) {
+		return fmt.Errorf("%w: stamp kind %q must be one of %v", core.ErrUsage, kind, core.StampKinds)
 	}
 	return s.WithLock(code, func() error {
 		merged, err := s.lockedProjectConfig(code)
@@ -260,8 +282,9 @@ func (s *Store) AddChannelStamp(code, name, note, actor string) error {
 			merged.Channels = map[string]core.ChannelWiring{}
 		}
 		w := merged.Channels[name]
-		w.Stamps = append(w.Stamps, core.VerificationStamp{At: core.RFC3339UTC(core.Now()), By: actor, Note: note})
-		merged.Channels[name] = w
+		e := endpointWiringOf(w, rec, typ)
+		e.Stamps = append(e.Stamps, core.VerificationStamp{At: core.RFC3339UTC(core.Now()), By: actor, Kind: kind, Note: note})
+		merged.Channels[name] = putEndpointWiring(w, rec, typ, e)
 		merged.UpdatedAt = core.RFC3339UTC(core.Now())
 		merged.UpdatedBy = actor
 		return WriteFileAtomic(s.configPath(code), merged)
@@ -322,8 +345,13 @@ func (s *Store) ProjectChannels(code string) ([]core.ChannelView, error) {
 			wc := w
 			v.Wiring = &wc
 		}
-		if rec.Type == core.ChannelTypeRepo && v.Wiring != nil && v.Wiring.Path != "" {
-			v.Probe = probeRepoPath(v.Wiring.Path)
+		// The probe belongs to the REPO endpoint, wherever that sits in the
+		// endpoint set: a channel whose Notion database is the home and
+		// whose repo is a broadcast is still locally probeable.
+		if _, ok := rec.Endpoint(core.ChannelTypeRepo); ok {
+			if path := v.EndpointWiring(core.ChannelTypeRepo).Path; path != "" {
+				v.Probe = probeRepoPath(path)
+			}
 		}
 		out = append(out, v)
 	}
@@ -402,7 +430,7 @@ func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, []str
 		if _, err := s.CreateChannel(code, core.ChannelRecord{Name: r.Name, Type: core.ChannelTypeRepo, Address: core.ChannelAddress{URL: r.URL}}, actor); err != nil {
 			return n, unwired, skipped, err
 		}
-		if err := s.SetChannelWiring(code, r.Name, r.Path, "", actor); err != nil {
+		if err := s.SetChannelWiring(code, r.Name, core.ChannelTypeRepo, r.Path, "", actor); err != nil {
 			if !errors.Is(err, core.ErrUsage) {
 				return n, unwired, skipped, err
 			}
@@ -454,11 +482,19 @@ func (s *Store) RepoChannelTargets(code string) ([]core.RepoConfig, error) {
 	}
 	var out []core.RepoConfig
 	for _, rec := range recs {
-		if rec.Type != core.ChannelTypeRepo {
+		ep, ok := rec.Endpoint(core.ChannelTypeRepo)
+		if !ok {
 			continue
 		}
-		if w, ok := wirings[rec.Name]; ok && w.Path != "" {
-			out = append(out, core.RepoConfig{Name: rec.Name, Path: w.Path, URL: rec.Address.URL})
+		w, ok := wirings[rec.Name]
+		if !ok {
+			continue
+		}
+		// Resolve through the view so the pre-endpoint wiring still counts
+		// for a record that has never been rewritten.
+		view := core.ChannelView{ChannelRecord: rec, Wiring: &w}
+		if path := view.EndpointWiring(core.ChannelTypeRepo).Path; path != "" {
+			out = append(out, core.RepoConfig{Name: rec.Name, Path: path, URL: ep.Address.URL})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -584,4 +620,55 @@ func (s *Store) relabelChannelV1(code string, t *core.Task, actor string) error 
 		}
 	}
 	return nil
+}
+
+// resolveEndpointType turns an unspecified medium into the channel's only
+// one. Ambiguity is refused rather than guessed: wiring or stamping the
+// wrong medium silently is worse than asking which.
+func resolveEndpointType(rec *core.ChannelRecord, typ string) (string, error) {
+	if typ != "" {
+		if _, ok := rec.Endpoint(typ); !ok && len(rec.Endpoints) > 0 {
+			return "", fmt.Errorf("%w: channel %s has no %s endpoint", core.ErrNotFound, rec.Name, typ)
+		}
+		return typ, nil
+	}
+	switch len(rec.Endpoints) {
+	case 0:
+		return "", fmt.Errorf("%w: channel %s has no endpoints yet; add one with `atm channel endpoint add`", core.ErrUsage, rec.Name)
+	case 1:
+		return rec.Endpoints[0].Type, nil
+	default:
+		var types []string
+		for _, e := range rec.Endpoints {
+			types = append(types, e.Type)
+		}
+		return "", fmt.Errorf("%w: channel %s has several endpoints (%s); name one with --type", core.ErrUsage, rec.Name, strings.Join(types, ", "))
+	}
+}
+
+// endpointWiringOf reads the current wiring for one medium, folding in the
+// pre-endpoint fields when they belong to it.
+func endpointWiringOf(w core.ChannelWiring, rec *core.ChannelRecord, typ string) core.EndpointWiring {
+	if e, ok := w.Endpoints[typ]; ok {
+		return e
+	}
+	if len(rec.Endpoints) > 0 && rec.Endpoints[0].Type == typ {
+		return core.EndpointWiring{Path: w.Path, MCPServer: w.MCPServer, Stamps: w.Stamps}
+	}
+	return core.EndpointWiring{}
+}
+
+// putEndpointWiring stores one medium's wiring. Writing the medium the
+// pre-endpoint fields spoke for MIGRATES them: they are cleared, so the two
+// representations can never disagree. Same doctrine as the label move —
+// reads tolerate the old shape, writes retire it.
+func putEndpointWiring(w core.ChannelWiring, rec *core.ChannelRecord, typ string, e core.EndpointWiring) core.ChannelWiring {
+	if w.Endpoints == nil {
+		w.Endpoints = map[string]core.EndpointWiring{}
+	}
+	w.Endpoints[typ] = e
+	if len(rec.Endpoints) > 0 && rec.Endpoints[0].Type == typ {
+		w.Path, w.MCPServer, w.Stamps = "", "", nil
+	}
+	return w
 }
