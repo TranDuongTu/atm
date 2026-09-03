@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
+	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -114,4 +117,76 @@ func renderFlowStrip(in, done, evict []int, gutter, cols, rowsEach int, st Style
 		lines = append(lines, pad+strings.Join(below[r], "")+tail)
 	}
 	return lines
+}
+
+const (
+	momentumDepthRows     = 5 // 3 plotted rows + the library's 2 x-axis rows
+	momentumStripRowsEach = 2
+	momentumInnerHeight   = momentumDepthRows + 2*momentumStripRowsEach + 1 // + legend
+	momentumBoxHeight     = momentumInnerHeight + 2                         // + box chrome
+	momentumMinWidth      = 20
+)
+
+// depthChart builds the open-depth line the way renderActivityPulseWithYMax
+// does, but keeps the chart model so the strip can read Origin and
+// GraphWidth and line its columns up under the plot.
+func depthChart(open []int, spec chartRangeSpec, width, height int, end time.Time, st Styles) *timeserieslinechart.Model {
+	start, endDay := chartWindow(spec, end)
+	maxV := 1
+	for _, v := range open {
+		if v > maxV {
+			maxV = v
+		}
+	}
+	chart := timeserieslinechart.New(
+		width,
+		height,
+		timeserieslinechart.WithTimeRange(start, endDay),
+		timeserieslinechart.WithYRange(0, float64(maxV)),
+		timeserieslinechart.WithXYSteps(4, 2),
+		timeserieslinechart.WithXLabelFormatter(relXLabelFormatter(end)),
+		timeserieslinechart.WithAxesStyles(st.Muted, st.Muted),
+		timeserieslinechart.WithStyle(st.HeaderLabel),
+	)
+	for i, v := range open {
+		chart.Push(timeserieslinechart.TimePoint{Time: start.AddDate(0, 0, i*spec.bucketDays), Value: float64(v)})
+	}
+	chart.DrawBraille()
+	return &chart
+}
+
+func renderMomentumLegend(series momentumSeries, spec chartRangeSpec, width int, st Styles) string {
+	in, done, evict := series.totals()
+	open := 0
+	if n := len(series.Open); n > 0 {
+		open = series.Open[n-1]
+	}
+	label := spec.label
+	if label == "" {
+		label = spec.key
+	}
+	text := fmt.Sprintf("in +%d  done ✓%d  evict ✗%d  open %d   Range: %s  [Ctrl+↑/↓]", in, done, evict, open, label)
+	return st.HeaderLabel.Render(fitLine(text, width))
+}
+
+// renderMomentumChart composes the depth tier, the rate strip aligned under
+// its plot area, and the legend. Exactly momentumInnerHeight lines.
+func renderMomentumChart(series momentumSeries, spec chartRangeSpec, width int, end time.Time, st Styles) string {
+	if width < momentumMinWidth || len(series.Open) == 0 {
+		return ""
+	}
+	chart := depthChart(series.Open, spec, width, momentumDepthRows, end, st)
+	lines := strings.Split(strings.TrimRight(chart.View(), "\n"), "\n")
+	for len(lines) < momentumDepthRows {
+		lines = append(lines, "")
+	}
+	lines = lines[:momentumDepthRows]
+	gutter := chart.Origin().X + 1
+	cols := chart.GraphWidth()
+	if cols < 1 {
+		cols = 1
+	}
+	lines = append(lines, renderFlowStrip(series.In, series.Done, series.Evict, gutter, cols, momentumStripRowsEach, st)...)
+	lines = append(lines, renderMomentumLegend(series, spec, width, st))
+	return strings.Join(lines, "\n")
 }
