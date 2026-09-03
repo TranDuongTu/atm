@@ -70,7 +70,9 @@ func TestChecklistCreateListGetV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec.TaskID = tk.ID
-	rec.Origin = "user" // defaulted at create
+	rec.Origin = "user"                      // defaulted at create
+	rec.Target = core.ChecklistTargetProject // dispatch facts default at read
+	rec.Mode = core.ChecklistModeEager
 	if !reflect.DeepEqual(got, &rec) {
 		t.Fatalf("get: %+v want %+v", got, rec)
 	}
@@ -92,9 +94,9 @@ func TestChecklistCreateValidation(t *testing.T) {
 	}
 	step := []core.ChecklistStep{{Text: "a"}}
 	for _, rec := range []core.ChecklistRecord{
-		{Steps: step},                                              // no name
-		{Name: "ma/in", Steps: step},                               // slash in name
-		{Name: "main"},                                             // no steps
+		{Steps: step},                // no name
+		{Name: "ma/in", Steps: step}, // slash in name
+		{Name: "main"},               // no steps
 		{Name: "main", Steps: step, Suits: []string{"dev/eloper"}}, // slash in suit
 		{Name: "main", Steps: step, Origin: "vendor"},              // bad origin
 	} {

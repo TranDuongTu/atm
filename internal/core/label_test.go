@@ -15,7 +15,7 @@ func TestIsWildcard(t *testing.T) {
 		{"ATM:status:open", false},
 		{"ATM:urgent", false},
 		{"", false},
-		{"*", false},        // no ":" prefix — not a facet token
+		{"*", false}, // no ":" prefix — not a facet token
 		{"ATM:status:", false},
 	} {
 		if got := IsWildcard(tc.label); got != tc.want {

@@ -178,3 +178,41 @@ func TestChannelStatus(t *testing.T) {
 		})
 	}
 }
+
+// A profile declares a channel EXPECTATION: a handle, what belongs in it,
+// and the role an endpoint created for it defaults to. The hint survives the
+// payload round trip; home is the default and stays out of the payload.
+func TestChannelPayloadCarriesRoleHint(t *testing.T) {
+	rec := ChannelRecord{Name: "prs", Type: ChannelTypeSlack, RoleHint: ChannelRoleBroadcast}
+	m := ChannelPayloadFrom(rec)
+	if m["role_hint"] != ChannelRoleBroadcast {
+		t.Fatalf("payload = %v", m)
+	}
+	enc, err := EncodeChannelPayload(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: "ATM-9", Title: "prs", Labels: []string{"ATM:channel:slack"}, Meta: map[string]string{ChannelMetaKey: enc}}
+	got, err := ChannelFromTask("ATM", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RoleHint != ChannelRoleBroadcast {
+		t.Fatalf("role_hint = %q", got.RoleHint)
+	}
+}
+
+func TestChannelRoleHintDefaultsHome(t *testing.T) {
+	if m := ChannelPayloadFrom(ChannelRecord{Name: "design", Type: ChannelTypeNotion, RoleHint: ChannelRoleHome}); m["role_hint"] != nil {
+		t.Fatalf("payload writes the default role: %v", m)
+	}
+	task := Task{ID: "ATM-10", Title: "design", Labels: []string{"ATM:channel:notion"},
+		Meta: map[string]string{ChannelMetaKey: `{"name":"design"}`}}
+	got, err := ChannelFromTask("ATM", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RoleHint != ChannelRoleHome {
+		t.Fatalf("role_hint = %q, want the home default", got.RoleHint)
+	}
+}

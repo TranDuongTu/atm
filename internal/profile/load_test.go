@@ -56,8 +56,8 @@ func TestLoadPersonas(t *testing.T) {
 	}
 	// The body is carried WHOLE: no section is split out. The personality
 	// overlay this unit prunes is exactly the split skills/ used to do.
-	if !strings.HasPrefix(mgr.Body, "# Persona: manager") || !strings.Contains(mgr.Body, "## Principles") {
-		t.Fatalf("body not carried whole:\n%s", mgr.Body)
+	if !strings.HasPrefix(mgr.Prompt, "# Persona: manager") || !strings.Contains(mgr.Prompt, "## Principles") {
+		t.Fatalf("body not carried whole:\n%s", mgr.Prompt)
 	}
 }
 
@@ -100,10 +100,10 @@ func TestLoadChecklistTargetTargetsMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc, _ := p.Checklist("scrum-coding")
-	if sc.Target != TargetTask {
+	if sc.Target != core.ChecklistTargetTask {
 		t.Fatalf("target = %q, want task", sc.Target)
 	}
-	if sc.Mode != ModeInteractive {
+	if sc.Mode != core.ChecklistModeInteractive {
 		t.Fatalf("mode = %q, want interactive", sc.Mode)
 	}
 	if !strings.Contains(sc.Targets, "scrum-stage:implementable") {
@@ -126,10 +126,10 @@ suits: [manager]
 		t.Fatal(err)
 	}
 	su, _ := p.Checklist("standup")
-	if su.Target != TargetProject {
+	if su.Target != core.ChecklistTargetProject {
 		t.Fatalf("default target = %q, want project", su.Target)
 	}
-	if su.Mode != ModeEager {
+	if su.Mode != core.ChecklistModeEager {
 		t.Fatalf("default mode = %q, want eager", su.Mode)
 	}
 	if su.Targets != "" {
@@ -146,7 +146,7 @@ func TestLoadChannels(t *testing.T) {
 	if !ok {
 		t.Fatal("Channel(planning) not found")
 	}
-	if ch.RoleHint != RoleHome {
+	if ch.RoleHint != core.ChannelRoleHome {
 		t.Fatalf("role_hint = %q", ch.RoleHint)
 	}
 	if !strings.Contains(ch.Purpose, "The weekly plan and its discussion") {
@@ -172,7 +172,7 @@ func TestLoadChannelRoleHintDefaultsHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, _ := p.Channel("prs")
-	if ch.RoleHint != RoleHome {
+	if ch.RoleHint != core.ChannelRoleHome {
 		t.Fatalf("role_hint = %q, want the home default", ch.RoleHint)
 	}
 }

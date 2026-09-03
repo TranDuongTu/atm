@@ -13,8 +13,8 @@ func TestForProjectSubstitutesCode(t *testing.T) {
 	out := p.ForProject("ATM")
 
 	mgr, _ := out.Persona("manager")
-	if !strings.Contains(mgr.Body, "manager of ATM") {
-		t.Fatalf("persona body not substituted: %q", mgr.Body)
+	if !strings.Contains(mgr.Prompt, "manager of ATM") {
+		t.Fatalf("persona body not substituted: %q", mgr.Prompt)
 	}
 	pl, _ := out.Checklist("planning")
 	if pl.Purpose != "the weekly planning pass for ATM" {

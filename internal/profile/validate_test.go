@@ -3,6 +3,8 @@ package profile
 import (
 	"strings"
 	"testing"
+
+	"atm/internal/core"
 )
 
 func TestValidateManifestName(t *testing.T) {
@@ -159,7 +161,7 @@ mode: resident
 		t.Fatal(err)
 	}
 	pl, _ := p.Checklist("planning")
-	if pl.Mode != ModeResident {
+	if pl.Mode != core.ChecklistModeResident {
 		t.Fatalf("mode = %q", pl.Mode)
 	}
 }

@@ -78,6 +78,10 @@ func TestChecklistFromTaskV2(t *testing.T) {
 		Requires: ChecklistRequires{
 			Capabilities: []string{"scrum"},
 		},
+		// A record written before the dispatch facts existed reads back
+		// with their defaults, never unset.
+		Target: ChecklistTargetProject,
+		Mode:   ChecklistModeEager,
 		Origin: "shipped:scrum",
 	}
 	if !reflect.DeepEqual(rec, want) {
@@ -99,6 +103,8 @@ func TestChecklistFromTaskV1ReadCompat(t *testing.T) {
 		Purpose: "p",
 		Steps:   []ChecklistStep{{Text: "one"}, {Text: "two"}},
 		Suits:   []string{"developer"},
+		Target:  ChecklistTargetProject,
+		Mode:    ChecklistModeEager,
 		Origin:  "user",
 	}
 	if !reflect.DeepEqual(rec, want) {
@@ -157,7 +163,7 @@ func TestChecklistPayloadFromRoundTrips(t *testing.T) {
 	rec := ChecklistRecord{Name: "n", Purpose: "p",
 		Steps: []ChecklistStep{{Text: "a", Children: []ChecklistStep{{Text: "a1"}}}},
 		Suits: []string{"manager"}, Requires: ChecklistRequires{Capabilities: []string{"scrum"}},
-		Origin: "user"}
+		Target: ChecklistTargetProject, Mode: ChecklistModeEager, Origin: "user"}
 	enc, err := EncodeChecklistPayload(ChecklistPayloadFrom(rec))
 	if err != nil {
 		t.Fatal(err)
@@ -252,5 +258,62 @@ func TestRenderChecklistStepsNumbering(t *testing.T) {
 	}
 	if got := RenderChecklistSteps(nil); got != "" {
 		t.Fatalf("nil steps render %q, want empty", got)
+	}
+}
+
+// The dispatch facts survive a payload round trip, and a task-target record
+// keeps its targets expression.
+func TestChecklistPayloadCarriesDispatchFacts(t *testing.T) {
+	rec := ChecklistRecord{
+		Name:    "scrum-coding",
+		Purpose: "implement one increment",
+		Steps:   []ChecklistStep{{Text: "gate"}},
+		Target:  ChecklistTargetTask,
+		Targets: "ATM:scrum-stage:implementable",
+		Mode:    ChecklistModeInteractive,
+		Origin:  "scrumban@1.0.0",
+	}
+	enc, err := EncodeChecklistPayload(ChecklistPayloadFrom(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: "ATM-7", Title: "scrum-coding", Labels: []string{"ATM:checklist"}, Meta: map[string]string{ChecklistMetaKey: enc}}
+	got, err := ChecklistFromTask("ATM", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.TaskID = "ATM-7"
+	if !reflect.DeepEqual(got, &rec) {
+		t.Fatalf("round trip: got %+v, want %+v", got, rec)
+	}
+}
+
+// The defaults are not written into the payload: an unwritten key and the
+// default mean the same thing, so every record that predates these fields
+// stays byte-identical on its next edit.
+func TestChecklistPayloadOmitsDispatchDefaults(t *testing.T) {
+	m := ChecklistPayloadFrom(ChecklistRecord{
+		Name: "standup", Steps: []ChecklistStep{{Text: "a"}},
+		Target: ChecklistTargetProject, Mode: ChecklistModeEager, Origin: "user",
+	})
+	for _, k := range []string{"target", "mode", "targets"} {
+		if _, ok := m[k]; ok {
+			t.Fatalf("payload writes default %q: %v", k, m)
+		}
+	}
+}
+
+// targets only narrows tasks, so a record that is not task-targeted must not
+// carry one back out of the ledger — a stale expression would silently
+// filter nothing while looking like it filtered something.
+func TestChecklistDecodeDropsTargetsOnProjectTarget(t *testing.T) {
+	payload := `{"v":2,"name":"planning","steps":[{"text":"a"}],"targets":"ATM:scrum:task","origin":"user"}`
+	task := Task{ID: "ATM-8", Title: "planning", Labels: []string{"ATM:checklist"}, Meta: map[string]string{ChecklistMetaKey: payload}}
+	rec, err := ChecklistFromTask("ATM", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Targets != "" {
+		t.Fatalf("targets = %q on a %s-target record", rec.Targets, ChecklistTargetProject)
 	}
 }

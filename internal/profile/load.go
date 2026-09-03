@@ -160,32 +160,37 @@ func loadManifest(fsys fs.FS) (Manifest, error) {
 	return m, nil
 }
 
-func parsePersona(stem string, src []byte) (Persona, []error) {
+func parsePersona(stem string, src []byte) (core.Persona, []error) {
 	fm, body, err := parseFrontmatter(src)
 	if err != nil {
-		return Persona{}, []error{fmt.Errorf("persona %s: %w", stem, err)}
+		return core.Persona{}, []error{fmt.Errorf("persona %s: %w", stem, err)}
 	}
-	p := Persona{
+	// Prompt is the whole body. The personality section skills/ used to
+	// split out of a persona file is pruned by this unit: identity is one
+	// document, not a base plus an overlay.
+	p := core.Persona{
 		Name:        fm.scalars["name"],
 		Description: fm.scalars["description"],
-		Body:        strings.TrimSpace(body),
+		Prompt:      strings.TrimSpace(body),
 	}
 	problems := nameProblems("persona", stem, p.Name)
 	if p.Description == "" {
 		problems = append(problems, fmt.Errorf("persona %s: description is required", stem))
 	}
-	if p.Body == "" {
+	if p.Prompt == "" {
 		problems = append(problems, fmt.Errorf("persona %s: body is required — a persona with no prompt says nothing", stem))
 	}
 	return p, problems
 }
 
-func parseChecklist(stem string, src []byte) (Checklist, []error) {
+func parseChecklist(stem string, src []byte) (core.ChecklistRecord, []error) {
 	fm, body, err := parseFrontmatter(src)
 	if err != nil {
-		return Checklist{}, []error{fmt.Errorf("checklist %s: %w", stem, err)}
+		return core.ChecklistRecord{}, []error{fmt.Errorf("checklist %s: %w", stem, err)}
 	}
-	c := Checklist{
+	// TaskID and Origin stay zero: a document has no ledger identity, and
+	// its provenance is stamped from the manifest at apply time.
+	c := core.ChecklistRecord{
 		Name:    fm.scalars["name"],
 		Purpose: fm.scalars["purpose"],
 		Suits:   fm.lists["suits"],
@@ -199,10 +204,10 @@ func parseChecklist(stem string, src []byte) (Checklist, []error) {
 		Steps:   parseSteps(body),
 	}
 	if c.Target == "" {
-		c.Target = TargetProject
+		c.Target = core.ChecklistTargetProject
 	}
 	if c.Mode == "" {
-		c.Mode = ModeEager
+		c.Mode = core.ChecklistModeEager
 	}
 	problems := nameProblems("checklist", stem, c.Name)
 	if c.Purpose == "" {
@@ -216,43 +221,41 @@ func parseChecklist(stem string, src []byte) (Checklist, []error) {
 			problems = append(problems, fmt.Errorf("checklist %s: invalid suits entry %q", stem, s))
 		}
 	}
-	switch c.Target {
-	case TargetProject, TargetTask:
-	default:
-		problems = append(problems, fmt.Errorf("checklist %s: target %q must be %s or %s", stem, c.Target, TargetProject, TargetTask))
+	if !core.ValidChecklistTarget(c.Target) {
+		problems = append(problems, fmt.Errorf("checklist %s: target %q must be %s or %s", stem, c.Target, core.ChecklistTargetProject, core.ChecklistTargetTask))
 	}
-	if c.Targets != "" && c.Target != TargetTask {
-		problems = append(problems, fmt.Errorf("checklist %s: targets narrows the dispatchable tasks and needs target: %s", stem, TargetTask))
+	if c.Targets != "" && c.Target != core.ChecklistTargetTask {
+		problems = append(problems, fmt.Errorf("checklist %s: targets narrows the dispatchable tasks and needs target: %s", stem, core.ChecklistTargetTask))
 	}
-	switch c.Mode {
-	case ModeEager, ModeInteractive, ModeResident:
-	default:
-		problems = append(problems, fmt.Errorf("checklist %s: mode %q must be %s, %s, or %s", stem, c.Mode, ModeEager, ModeInteractive, ModeResident))
+	if !core.ValidChecklistMode(c.Mode) {
+		problems = append(problems, fmt.Errorf("checklist %s: mode %q must be %s, %s, or %s", stem, c.Mode, core.ChecklistModeEager, core.ChecklistModeInteractive, core.ChecklistModeResident))
 	}
 	return c, problems
 }
 
-func parseChannel(stem string, src []byte) (Channel, []error) {
+func parseChannel(stem string, src []byte) (core.ChannelRecord, []error) {
 	fm, body, err := parseFrontmatter(src)
 	if err != nil {
-		return Channel{}, []error{fmt.Errorf("channel %s: %w", stem, err)}
+		return core.ChannelRecord{}, []error{fmt.Errorf("channel %s: %w", stem, err)}
 	}
-	c := Channel{
+	// Type and Address stay zero. A profile declares a channel EXPECTATION —
+	// the handle and what belongs in it; which medium carries it, and at
+	// which address, are per-project, per-machine facts set with
+	// `atm channel endpoint add` after apply.
+	c := core.ChannelRecord{
 		Name:     fm.scalars["name"],
 		RoleHint: fm.scalars["role_hint"],
 		Purpose:  strings.TrimSpace(body),
 	}
 	if c.RoleHint == "" {
-		c.RoleHint = RoleHome
+		c.RoleHint = core.ChannelRoleHome
 	}
 	problems := nameProblems("channel", stem, c.Name)
 	if c.Purpose == "" {
 		problems = append(problems, fmt.Errorf("channel %s: purpose body is required — it is what tells an agent what belongs here", stem))
 	}
-	switch c.RoleHint {
-	case RoleHome, RoleBroadcast:
-	default:
-		problems = append(problems, fmt.Errorf("channel %s: role_hint %q must be %s or %s", stem, c.RoleHint, RoleHome, RoleBroadcast))
+	if !core.ValidChannelRole(c.RoleHint) {
+		problems = append(problems, fmt.Errorf("channel %s: role_hint %q must be %s or %s", stem, c.RoleHint, core.ChannelRoleHome, core.ChannelRoleBroadcast))
 	}
 	// Addresses are per-project, per-machine facts. A profile that carried
 	// one would be unportable the moment it left its author's workspace.

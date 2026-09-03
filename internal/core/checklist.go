@@ -33,10 +33,42 @@ type ChecklistRequires struct {
 	Channels     []string `json:"channels,omitempty"`
 }
 
+// Checklist target values: what a dispatch of this action operates on.
+const (
+	ChecklistTargetProject = "project"
+	ChecklistTargetTask    = "task"
+)
+
+// Checklist mode values: the action's natural autonomy. eager sessions are
+// spawned with a kickoff and execute immediately; interactive sessions
+// render their context and wait for the human; resident is declarable but
+// refused at launch until the runtime exists.
+const (
+	ChecklistModeEager       = "eager"
+	ChecklistModeInteractive = "interactive"
+	ChecklistModeResident    = "resident"
+)
+
+// ValidChecklistTarget reports whether t is a legal target value.
+func ValidChecklistTarget(t string) bool {
+	return t == ChecklistTargetProject || t == ChecklistTargetTask
+}
+
+// ValidChecklistMode reports whether m is a legal mode value.
+func ValidChecklistMode(m string) bool {
+	return m == ChecklistModeEager || m == ChecklistModeInteractive || m == ChecklistModeResident
+}
+
 // ChecklistRecord is the v2 ledger record decoded from a checklist task.
 // Name is the unique key within a project; Suits is a default-bind hint, not
-// ownership; Origin is reset provenance (user | shipped:atm | shipped:<cap>).
+// ownership; Origin is reset provenance (user | <profile>@<version>, and the
+// legacy shipped:* values written before profiles existed).
 // The json tags are the agent endpoint contract of `atm checklist --output json`.
+//
+// Target, Targets, and Mode are the DISPATCH facts: checklist-first dispatch
+// reads them off the project record to decide what a session can run on and
+// how autonomously it starts. Records written before they existed decode to
+// the defaults (project, eager), so an old ledger reads without migration.
 type ChecklistRecord struct {
 	TaskID   string            `json:"task_id"`
 	Name     string            `json:"name"`
@@ -44,7 +76,15 @@ type ChecklistRecord struct {
 	Steps    []ChecklistStep   `json:"steps"`
 	Suits    []string          `json:"suits,omitempty"`
 	Requires ChecklistRequires `json:"requires,omitzero"`
-	Origin   string            `json:"origin"`
+	// Target is what a dispatch of this action operates on: the project as a
+	// whole, or one task.
+	Target string `json:"target"`
+	// Targets is a label expression narrowing the tasks a task-target action
+	// may be dispatched on; "" offers every task. The dialog filters on it;
+	// the checklist's own gate step stays as defense in depth.
+	Targets string `json:"targets,omitempty"`
+	Mode    string `json:"mode"`
+	Origin  string `json:"origin"`
 }
 
 var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
@@ -221,6 +261,18 @@ func ChecklistPayloadFrom(rec ChecklistRecord) map[string]any {
 	if rec.Purpose != "" {
 		m["purpose"] = rec.Purpose
 	}
+	// Defaults stay out of the payload: an unwritten key and the default
+	// mean the same thing, and writing them would churn every record that
+	// predates these fields on its first edit.
+	if rec.Target != "" && rec.Target != ChecklistTargetProject {
+		m["target"] = rec.Target
+	}
+	if rec.Targets != "" {
+		m["targets"] = rec.Targets
+	}
+	if rec.Mode != "" && rec.Mode != ChecklistModeEager {
+		m["mode"] = rec.Mode
+	}
 	if len(rec.Steps) > 0 {
 		m["steps"] = checklistStepsToAny(rec.Steps)
 	}
@@ -273,6 +325,9 @@ func ChecklistFromTask(code string, t Task) (*ChecklistRecord, error) {
 		}
 		rec.Steps = checklistStepsFromAny(m["steps"])
 		rec.Suits = checklistStrsFromAny(m["suits"])
+		rec.Target = checklistStr(m["target"])
+		rec.Targets = checklistStr(m["targets"])
+		rec.Mode = checklistStr(m["mode"])
 		if req, ok := m["requires"].(map[string]any); ok {
 			rec.Requires = ChecklistRequires{
 				Capabilities: checklistStrsFromAny(req["capabilities"]),
@@ -283,6 +338,7 @@ func ChecklistFromTask(code string, t Task) (*ChecklistRecord, error) {
 		if rec.Origin == "" {
 			rec.Origin = "user"
 		}
+		rec.applyDispatchDefaults()
 		return rec, nil
 	}
 	// v1: persona-keyed record read as v2 (spec §4 migration mapping).
@@ -297,5 +353,21 @@ func ChecklistFromTask(code string, t Task) (*ChecklistRecord, error) {
 		rec.Suits = []string{persona}
 	}
 	rec.Origin = "user"
+	rec.applyDispatchDefaults()
 	return rec, nil
+}
+
+// applyDispatchDefaults fills the dispatch facts a record written before
+// they existed carries no value for. Every checklist in a ledger is
+// dispatchable, so the answer is never "unset".
+func (r *ChecklistRecord) applyDispatchDefaults() {
+	if r.Target == "" {
+		r.Target = ChecklistTargetProject
+	}
+	if r.Mode == "" {
+		r.Mode = ChecklistModeEager
+	}
+	if r.Target != ChecklistTargetTask {
+		r.Targets = ""
+	}
 }

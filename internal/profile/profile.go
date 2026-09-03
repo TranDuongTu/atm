@@ -26,30 +26,6 @@ import (
 // declaring anything else is refused rather than half-understood.
 const Format = 1
 
-// Checklist target values: what a dispatch of this action operates on.
-const (
-	TargetProject = "project"
-	TargetTask    = "task"
-)
-
-// Checklist mode values: the action's natural autonomy. eager sessions are
-// spawned with a kickoff and execute immediately; interactive sessions
-// render their context and wait for the human; resident is declarable but
-// refused at launch until the runtime exists.
-const (
-	ModeEager       = "eager"
-	ModeInteractive = "interactive"
-	ModeResident    = "resident"
-)
-
-// Channel endpoint roles. A channel's role_hint says what an endpoint
-// created for it should default to: home receives the content, broadcast
-// receives a one-line reference.
-const (
-	RoleHome      = "home"
-	RoleBroadcast = "broadcast"
-)
-
 // Manifest is the profile's identity and its declared prerequisites.
 type Manifest struct {
 	Name                 string   `json:"name"`
@@ -64,79 +40,57 @@ type Manifest struct {
 // origin at apply time.
 func (m Manifest) Ref() string { return m.Name + "@" + m.Version }
 
-// Persona is one profile persona document: identity, not procedure. The
-// body is carried WHOLE — the personality overlay that used to be split out
-// of a persona file is pruned by this unit.
-type Persona struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Body        string `json:"body"`
-}
-
-// Checklist is one profile action document: the operating procedure for one
-// kind of session, plus the dispatch facts that decide what it can run on.
-type Checklist struct {
-	Name     string                 `json:"name"`
-	Purpose  string                 `json:"purpose"`
-	Suits    []string               `json:"suits,omitempty"`
-	Requires core.ChecklistRequires `json:"requires,omitzero"`
-	// Target is what a dispatch of this action operates on: the project as a
-	// whole, or one task.
-	Target string `json:"target"`
-	// Targets is a label expression narrowing the tasks a task-target action
-	// may be dispatched on; "" offers every task. The dialog filters on it;
-	// the checklist's own gate step stays as defense in depth.
-	Targets string               `json:"targets,omitempty"`
-	Mode    string               `json:"mode"`
-	Steps   []core.ChecklistStep `json:"steps"`
-}
-
-// Channel is one profile channel expectation: a handle and what belongs in
-// it. Addresses are per-project, per-machine facts and never profile
-// content, so a channel document carries none.
-type Channel struct {
-	Name     string `json:"name"`
-	RoleHint string `json:"role_hint"`
-	Purpose  string `json:"purpose"`
-}
-
-// Profile is one loaded, validated profile. Document slices are name-sorted
-// so a profile loads identically from any filesystem.
+// Profile is one loaded, validated profile: a manifest plus the documents
+// that become project records when it is applied.
+//
+// The documents ARE the record types from internal/core — a profile persona
+// is a core.Persona, an action is a core.ChecklistRecord, a channel
+// expectation is a core.ChannelRecord. This package deliberately defines no
+// parallel shapes: apply's whole job is turning these documents into project
+// records, and a second set of structs would mean a mapper to keep in step
+// with every field the model grows. The record fields a document cannot
+// answer for itself stay zero until apply fills them: TaskID (the ledger
+// identity), Origin (stamped from the manifest), and — for a channel — Type
+// and Address, which are per-project, per-machine facts a portable profile
+// must never carry.
+//
+// Document slices are name-sorted, so a profile loads identically from any
+// filesystem.
 type Profile struct {
-	Manifest   Manifest    `json:"manifest"`
-	Personas   []Persona   `json:"personas,omitempty"`
-	Checklists []Checklist `json:"checklists,omitempty"`
-	Channels   []Channel   `json:"channels,omitempty"`
+	Manifest   Manifest               `json:"manifest"`
+	Personas   []core.Persona         `json:"personas,omitempty"`
+	Checklists []core.ChecklistRecord `json:"checklists,omitempty"`
+	Channels   []core.ChannelRecord   `json:"channels,omitempty"`
 }
 
 // Persona returns the named persona.
-func (p *Profile) Persona(name string) (Persona, bool) {
+func (p *Profile) Persona(name string) (core.Persona, bool) {
 	for _, x := range p.Personas {
 		if x.Name == name {
 			return x, true
 		}
 	}
-	return Persona{}, false
+	return core.Persona{}, false
 }
 
 // Checklist returns the named checklist.
-func (p *Profile) Checklist(name string) (Checklist, bool) {
+func (p *Profile) Checklist(name string) (core.ChecklistRecord, bool) {
 	for _, x := range p.Checklists {
 		if x.Name == name {
 			return x, true
 		}
 	}
-	return Checklist{}, false
+	return core.ChecklistRecord{}, false
 }
 
 // Channel returns the named channel expectation.
-func (p *Profile) Channel(name string) (Channel, bool) {
+func (p *Profile) Channel(name string) (core.ChannelRecord, bool) {
 	for _, x := range p.Channels {
 		if x.Name == name {
 			return x, true
 		}
 	}
-	return Channel{}, false
+	return core.ChannelRecord{}, false
 }
 
 // Origin is the provenance stamped on records this profile creates.
@@ -154,7 +108,7 @@ func (p *Profile) ForProject(code string) *Profile {
 	out.Manifest.Authors = copyStrings(p.Manifest.Authors)
 	for _, x := range p.Personas {
 		x.Description = sub(x.Description)
-		x.Body = sub(x.Body)
+		x.Prompt = sub(x.Prompt)
 		out.Personas = append(out.Personas, x)
 	}
 	for _, x := range p.Checklists {
