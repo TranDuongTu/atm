@@ -52,6 +52,10 @@ type ChannelService interface {
 	CreateChannel(code string, rec ChannelRecord, actor string) (*Task, error)
 	EditChannel(code, name string, purpose *string, addr *ChannelAddress, actor string) error
 	RemoveChannel(code, name, actor string) error
+	// AddChannelEndpoint adds or corrects the channel's endpoint for one
+	// medium; RemoveChannelEndpoint drops it, leaving the handle.
+	AddChannelEndpoint(code, name string, ep ChannelEndpoint, actor string) error
+	RemoveChannelEndpoint(code, name, typ, actor string) error
 	ChannelRecords(code string) ([]ChannelRecord, error)
 	ProjectChannels(code string) ([]ChannelView, error)
 	GetChannelByName(code, name string) (*ChannelView, error)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"atm/internal/core"
 )
@@ -26,7 +27,7 @@ func channelTypeValid(typ string) bool {
 // here — list degrades rather than failing whole; the capability's Annotate
 // cell and a by-name lookup of that record surface the breakage.
 func (s *Store) ChannelRecords(code string) ([]core.ChannelRecord, error) {
-	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
+	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: core.ChannelQueryExpr})
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ func (s *Store) ChannelRecords(code string) ([]core.ChannelRecord, error) {
 // that needs no payload, so it resolves the handle through channelTaskIDByName
 // instead — see there for the title fallback that names the broken record.
 func (s *Store) channelByName(code, name string) (*core.ChannelRecord, error) {
-	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
+	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: core.ChannelQueryExpr})
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +74,19 @@ func (s *Store) channelByName(code, name string) (*core.ChannelRecord, error) {
 // labelled channel:<type>, description = purpose, payload = name/type/address.
 // The handle must be unique across the project's channels (all types).
 func (s *Store) CreateChannel(code string, rec core.ChannelRecord, actor string) (*core.Task, error) {
-	if rec.Name == "" || !channelTypeValid(rec.Type) {
-		return nil, fmt.Errorf("%w: channel needs a name and a type in %v", core.ErrUsage, core.ChannelTypes)
+	if rec.Name == "" {
+		return nil, fmt.Errorf("%w: channel needs a name", core.ErrUsage)
+	}
+	// A caller may still speak the single-address shape; fold it into the
+	// endpoint set so there is one representation from here down.
+	if len(rec.Endpoints) == 0 && rec.Type != "" {
+		rec.Endpoints = []core.ChannelEndpoint{{Type: rec.Type, Role: core.DefaultRoleForType(rec.Type), Address: rec.Address}}
+	}
+	if len(rec.Endpoints) == 0 {
+		return nil, fmt.Errorf("%w: channel needs at least one endpoint type in %v", core.ErrUsage, core.ChannelTypes)
+	}
+	if err := core.ValidateChannelEndpoints(rec.Endpoints); err != nil {
+		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
 	existing, err := s.ChannelRecords(code)
 	if err != nil {
@@ -85,7 +97,7 @@ func (s *Store) CreateChannel(code string, rec core.ChannelRecord, actor string)
 			return nil, fmt.Errorf("%w: channel %q already exists (task %s)", core.ErrUsage, rec.Name, e.TaskID)
 		}
 	}
-	t, err := s.CreateTask(code, rec.Name, rec.Purpose, []string{core.ChannelLabel(code, rec.Type)}, actor)
+	t, err := s.CreateTask(code, rec.Name, rec.Purpose, []string{core.ChannelLabel(code)}, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -117,27 +129,22 @@ func (s *Store) EditChannel(code, name string, purpose *string, addr *core.Chann
 		}
 	}
 	if addr != nil {
-		t, err := s.GetTask(rec.TaskID)
-		if err != nil {
-			return err
+		// An address edit names no medium, so it targets the channel's
+		// FIRST endpoint — the one Type and Address have always answered
+		// for. Writing through the endpoint set rather than the legacy
+		// address key keeps the two from drifting apart; a channel with
+		// several media corrects a specific one with `endpoint add`.
+		next := make([]core.ChannelEndpoint, len(rec.Endpoints))
+		copy(next, rec.Endpoints)
+		switch {
+		case len(next) > 0:
+			next[0].Address = *addr
+		case rec.Type != "":
+			next = []core.ChannelEndpoint{{Type: rec.Type, Role: core.DefaultRoleForType(rec.Type), Address: *addr}}
+		default:
+			return fmt.Errorf("%w: channel %s has no endpoint to address; add one with `atm channel endpoint add`", core.ErrUsage, name)
 		}
-		m, err := core.DecodeChannelPayload(t.Meta[core.ChannelMetaKey])
-		if err != nil {
-			return err
-		}
-		next := *rec
-		next.Address = *addr
-		if a, ok := core.ChannelPayloadFrom(next)["address"]; ok {
-			m["address"] = a
-		} else {
-			delete(m, "address")
-		}
-		m["name"], m["type"] = rec.Name, rec.Type
-		enc, err := core.EncodeChannelPayload(m)
-		if err != nil {
-			return err
-		}
-		if err := s.SetTaskCapabilityMeta(rec.TaskID, core.ChannelMetaKey, enc, actor); err != nil {
+		if err := s.writeChannelEndpoints(code, rec, next, actor); err != nil {
 			return err
 		}
 	}
@@ -153,7 +160,7 @@ func (s *Store) EditChannel(code, name string, purpose *string, addr *core.Chann
 // consulted after the whole namespace failed to yield a payload match, so a
 // broken record can never shadow a live channel of the same handle.
 func (s *Store) channelTaskIDByName(code, name string) (string, error) {
-	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: "channel:*"})
+	tasks, err := s.ListTasksErr(core.QueryFilters{Project: code, Expr: core.ChannelQueryExpr})
 	if err != nil {
 		return "", err
 	}
@@ -456,4 +463,125 @@ func (s *Store) RepoChannelTargets(code string) ([]core.RepoConfig, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// AddChannelEndpoint adds or replaces the channel's endpoint for one medium.
+// Replacing rather than duplicating is deliberate: a channel reaches each
+// medium once, so re-adding a type is how an address is corrected.
+func (s *Store) AddChannelEndpoint(code, name string, ep core.ChannelEndpoint, actor string) error {
+	rec, err := s.channelByName(code, name)
+	if err != nil {
+		return err
+	}
+	if ep.Role == "" {
+		ep.Role = rec.RoleHint
+		if _, hasHome := rec.Home(); hasHome && ep.Role == core.ChannelRoleHome {
+			// The hint asked for a home this channel already has; a second
+			// one would make "the home endpoint" ambiguous, so the new
+			// medium carries the reference instead.
+			ep.Role = core.ChannelRoleBroadcast
+		}
+		if ep.Role == "" {
+			ep.Role = core.DefaultRoleForType(ep.Type)
+		}
+	}
+	next := make([]core.ChannelEndpoint, 0, len(rec.Endpoints)+1)
+	replaced := false
+	for _, e := range rec.Endpoints {
+		if e.Type == ep.Type {
+			next = append(next, ep)
+			replaced = true
+			continue
+		}
+		next = append(next, e)
+	}
+	if !replaced {
+		next = append(next, ep)
+	}
+	if err := core.ValidateChannelEndpoints(next); err != nil {
+		return fmt.Errorf("%w: %v", core.ErrUsage, err)
+	}
+	return s.writeChannelEndpoints(code, rec, next, actor)
+}
+
+// RemoveChannelEndpoint drops the channel's endpoint for one medium. The
+// channel record survives: a handle with no endpoints is a legitimate
+// expectation waiting to be addressed, which is exactly what applying a
+// profile creates.
+func (s *Store) RemoveChannelEndpoint(code, name, typ, actor string) error {
+	rec, err := s.channelByName(code, name)
+	if err != nil {
+		return err
+	}
+	if _, ok := rec.Endpoint(typ); !ok {
+		return fmt.Errorf("%w: channel %s has no %s endpoint", core.ErrNotFound, name, typ)
+	}
+	next := make([]core.ChannelEndpoint, 0, len(rec.Endpoints))
+	for _, e := range rec.Endpoints {
+		if e.Type != typ {
+			next = append(next, e)
+		}
+	}
+	return s.writeChannelEndpoints(code, rec, next, actor)
+}
+
+// writeChannelEndpoints replaces the endpoint set, decoding the existing
+// payload first so unknown fields from a newer binary survive
+// (degrade-never-reject applied to ourselves), and relabelling a v1 record
+// to the bare label on the way — writes migrate, reads never do.
+func (s *Store) writeChannelEndpoints(code string, rec *core.ChannelRecord, eps []core.ChannelEndpoint, actor string) error {
+	t, err := s.GetTask(rec.TaskID)
+	if err != nil {
+		return err
+	}
+	m, err := core.DecodeChannelPayload(t.Meta[core.ChannelMetaKey])
+	if err != nil {
+		return err
+	}
+	next := *rec
+	next.Endpoints = eps
+	for k, v := range core.ChannelPayloadFrom(next) {
+		m[k] = v
+	}
+	if len(eps) == 0 {
+		delete(m, "endpoints")
+		delete(m, "type")
+		delete(m, "address")
+	}
+	payload, err := core.EncodeChannelPayload(m)
+	if err != nil {
+		return err
+	}
+	if err := s.relabelChannelV1(code, t, actor); err != nil {
+		return err
+	}
+	return s.SetTaskCapabilityMeta(rec.TaskID, core.ChannelMetaKey, payload, actor)
+}
+
+// relabelChannelV1 moves a record from its per-medium label to the bare
+// label. A record already carrying the bare label is left alone; a lingering
+// medium label from an interrupted earlier move is still cleaned up.
+func (s *Store) relabelChannelV1(code string, t *core.Task, actor string) error {
+	bare := core.ChannelLabel(code)
+	hasBare := false
+	var legacy []string
+	for _, l := range t.Labels {
+		switch {
+		case l == bare:
+			hasBare = true
+		case strings.HasPrefix(l, core.ChannelTypeLabelPrefix(code)):
+			legacy = append(legacy, l)
+		}
+	}
+	if !hasBare {
+		if err := s.TaskLabelAdd(t.ID, bare, actor); err != nil {
+			return err
+		}
+	}
+	for _, l := range legacy {
+		if err := s.TaskLabelRemove(t.ID, l, actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }

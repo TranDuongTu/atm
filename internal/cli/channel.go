@@ -29,6 +29,7 @@ func newChannelCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newChannelAddCmd(st))
 	cmd.AddCommand(newChannelListCmd(st))
 	cmd.AddCommand(newChannelShowCmd(st))
+	cmd.AddCommand(newChannelEndpointCmd(st))
 	cmd.AddCommand(newChannelEditCmd(st))
 	cmd.AddCommand(newChannelRemoveCmd(st))
 	cmd.AddCommand(newChannelWireCmd(st))
