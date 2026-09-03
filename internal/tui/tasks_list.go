@@ -25,14 +25,32 @@ type taskRow struct {
 	synthetic bool
 }
 
+// momentumMinListRows is the smallest list the chart may leave behind; below
+// it the chart yields rather than the list.
+const momentumMinListRows = 8
+
+// momentumShown reports whether pane [2] draws the momentum box this frame:
+// the model has a series, the user has not collapsed it, and the pane keeps
+// a usable list underneath.
+func (t *tasksModel) momentumShown() bool {
+	if !t.m.momentum.visible() {
+		return false
+	}
+	return t.contentHeight-laneStripHeight-momentumBoxHeight-listChromeHeight >= momentumMinListRows
+}
+
 // listContentHeight is the single source of truth for how many lines the
-// scrollable task list gets in the list view, once the fixed lane strip is
-// subtracted. The strip is a CONSTANT laneStripHeight lines regardless of
-// what the lanes contain, so the list height never moves under the user.
+// scrollable task list gets in the list view, once the fixed lane strip and,
+// when shown, the momentum box are subtracted. The strip is a CONSTANT
+// laneStripHeight lines regardless of what the lanes contain, and the box a
+// constant momentumBoxHeight, so the list height never moves under the user.
 // renderListWithStrip and listPageSize both derive from this single value, so
 // the renderer and the pgup/pgdown page jumps always agree on the page boundary.
 func (t *tasksModel) listContentHeight() int {
 	h := t.contentHeight - laneStripHeight
+	if t.momentumShown() {
+		h -= momentumBoxHeight
+	}
 	if h < 4 {
 		h = 4
 	}
@@ -105,6 +123,15 @@ func (t *tasksModel) handleListKey(k tea.KeyMsg) tea.Cmd {
 	case "n", "e", "d", "l":
 		// Board authoring and label editing addressed boards the user owned.
 		// The lanes are the flow's, not the user's.
+	case "m":
+		t.m.momentum.toggle()
+		return nil
+	case "ctrl+up":
+		t.m.momentum.stepRange(+1)
+		return nil
+	case "ctrl+down":
+		t.m.momentum.stepRange(-1)
+		return nil
 	case "enter":
 		return t.openDetailAtCursor()
 	}
@@ -164,8 +191,28 @@ func (t *tasksModel) renderListWithStrip() string {
 	var b strings.Builder
 	b.WriteString(t.m.lanes.render(t.width))
 	b.WriteString("\n")
-	b.WriteString(listOut)
+	if !t.momentumShown() {
+		b.WriteString(listOut)
+		return padToHeight(b.String(), t.contentHeight)
+	}
+	b.WriteString(padToHeight(listOut, listH))
+	b.WriteString("\n")
+	b.WriteString(t.renderMomentumBox())
 	return padToHeight(b.String(), t.contentHeight)
+}
+
+// renderMomentumBox boxes the chart at momentumBoxHeight rows, titled with
+// the capability and range so the box reads on its own.
+func (t *tasksModel) renderMomentumBox() string {
+	mm := &t.m.momentum
+	spec := mm.spec()
+	title := "momentum · " + t.m.capability.current + " · " + spec.label
+	inner := renderMomentumChart(mm.series, spec, t.width-2, core.Now(), t.m.styles)
+	style, chars := t.m.styles.PaneInactive, roundedBox
+	if t.m.focused == paneTasks {
+		style, chars = t.m.styles.PaneActive, doubleBox
+	}
+	return titledBoxChars(style, t.width, title, "[m] hide", inner, momentumBoxHeight, chars)
 }
 
 // fillGapWithArt replaces the task table's trailing blank padding (the dead

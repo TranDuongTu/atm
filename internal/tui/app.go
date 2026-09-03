@@ -325,6 +325,14 @@ func (m *Model) tasksPaneHint() string {
 	if m.projectScope == "" {
 		return ""
 	}
+	// The momentum chart only exists for a flow capability, so the key is
+	// only advertised where pressing it would do something. The test is
+	// momentum.ok — the refresh-time snapshot of exactly that fact — because
+	// asking lanes.currentFlow() here would read the project per frame
+	// (regFor -> GetProject) and View must stay a pure format.
+	if m.momentum.ok {
+		return "[C] switch  [m] momentum"
+	}
 	return "[C] switch"
 }
 
