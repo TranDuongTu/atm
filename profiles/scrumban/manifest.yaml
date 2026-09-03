@@ -1,0 +1,10 @@
+name: scrumban
+version: 1.0.0
+format: 1
+description: >
+  ATM's standard operating model: weekly planning, daily standup, and periodic
+  retrospect run by a manager, design-gated incremental implementation by
+  developers, staff-held review bar at merge and in retrospect, customer-seat
+  QA — communicating through six standard channels.
+authors: [ATM]
+requires_capabilities: [scrum, qa, codereview, channel]
