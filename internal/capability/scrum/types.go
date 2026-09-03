@@ -36,9 +36,14 @@ const (
 const (
 	StageBrainstormed = "brainstormed"
 	StagePlanned      = "planned"
-	StageImplementing = "implementing"
-	StageReview       = "review"
-	StageDone         = "done"
+	// StageImplementable is the APPROVAL gate: a plan exists AND has been
+	// approved, so the unit is ready to be picked up and built. planned
+	// alone no longer means ready — a plan under discussion and a plan
+	// signed off are different states, and dispatch has to tell them apart.
+	StageImplementable = "implementable"
+	StageImplementing  = "implementing"
+	StageReview        = "review"
+	StageDone          = "done"
 )
 
 // Evict reasons: the scrum-out:* axis values.
@@ -52,7 +57,7 @@ const (
 // Types and Stages enumerate the valid values for verb validation.
 func Types() []string { return []string{TypeEpic, TypeStory, TypeTask, TypeBug, TypeDesign} }
 func Stages() []string {
-	return []string{StageBrainstormed, StagePlanned, StageImplementing, StageReview, StageDone}
+	return []string{StageBrainstormed, StagePlanned, StageImplementable, StageImplementing, StageReview, StageDone}
 }
 
 // OutReasons enumerates the valid evict reasons.

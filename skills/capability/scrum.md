@@ -33,7 +33,7 @@ scrum is a FLOW capability: it sees the project as three lanes and declares wher
 
 Design tasks never flow downstream — there is no build to verify and no PR to review. That exclusion lives in the DOWNSTREAM capability's wiring expression, not in any code here.
 
-`scrum-stage:*` is the working stage of a claimed unit: `brainstormed`, `planned`, `implementing`, `review`, `done`.
+`scrum-stage:*` is the working stage of a claimed unit: `brainstormed`, `planned`, `implementable`, `implementing`, `review`, `done`. `planned` means a plan EXISTS; `implementable` means it has been APPROVED and the unit is ready to be built. Design approval is that transition, and it is the line dispatch reads: a plan still under discussion and a plan signed off are different states.
 
 `scrum-out:*` is the EVICT axis; its value is the reason: `duplicate`, `out-of-scope`, `not-worth-it`, `covered-by`.
 
@@ -68,7 +68,7 @@ Nothing automatic ever points backward. Rework has exactly two shapes, both mana
 
 - `atm capability scrum absorb --task <ID> --type epic|story|task|bug|design [--stage <stage>]` — claim an inbox task. `--stage done` reads already-finished work in without pretending it still has to be built. Refuses a task scrum has evicted (release it first).
 - `atm capability scrum add --project <CODE> --title "..." --type <t> [--part-of <ID>] [--stage <stage>]` — create a child born into the pipeline. The parent must already be claimed by scrum.
-- `atm capability scrum stage --task <ID> --stage brainstormed|planned|implementing|review|done` — move a claimed unit along the working axis.
+- `atm capability scrum stage --task <ID> --stage brainstormed|planned|implementable|implementing|review|done` — move a claimed unit along the working axis.
 - `atm capability scrum evict --task <ID> [--reason duplicate|out-of-scope|not-worth-it|covered-by] [--covered-by <ID>]` — settle work out of scrum. `covered-by` requires `--covered-by`.
 - `atm capability scrum release --task <ID> --reason "..."` — withdraw scrum's perspective entirely: every scrum label and its whole payload go, the reason is recorded as a comment, and the task returns to the pool.
 - `atm capability scrum reopen --task <ID> --reason "..."` — un-finish a done unit (done -> implementing), with the reason on the record.

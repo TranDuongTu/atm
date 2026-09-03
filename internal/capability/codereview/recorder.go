@@ -189,6 +189,49 @@ func (r *Recorder) Finish(taskID, report string) error {
 }
 
 // Evict settles a task out of codereview with a reason.
+// FollowUp creates a tracked item a review left behind, born into the
+// pipeline beneath the review, and records the edge at both ends: part_of on
+// the item, the roster on the review.
+//
+// Unlike a qa scaffold, an open follow-up does NOT block its parent from
+// finishing. A verification is incomplete while a scaffold is unrun, but a
+// review is the opposite case: the whole point of a tracked item is that a
+// finding worth fixing need not hold the review open, or the review becomes
+// the endless cycle the item exists to break.
+func (r *Recorder) FollowUp(reviewID, title string) (*core.Task, error) {
+	if strings.TrimSpace(title) == "" {
+		return nil, fmt.Errorf("follow-up requires --title")
+	}
+	review, pl, code, err := r.entry(reviewID)
+	if err != nil {
+		return nil, err
+	}
+	if pl.PartOf() != "" {
+		return nil, fmt.Errorf("%s is itself a follow-up of %s — follow-ups do not nest", reviewID, pl.PartOf())
+	}
+	if StateOf(review, code) == "" {
+		return nil, fmt.Errorf("%s is not claimed by codereview (absorb it first)", reviewID)
+	}
+	item, err := r.Store.CreateTask(code, title, "", []string{code + ":" + ClaimNamespace + ":" + StateScheduled}, r.Actor)
+	if err != nil {
+		return nil, err
+	}
+	itemPl, err := DecodePayload("")
+	if err != nil {
+		return item, err
+	}
+	itemPl.SetPartOf(reviewID)
+	if err := r.writePayload(item.ID, itemPl); err != nil {
+		return item, fmt.Errorf("created %s, but recording its review failed: %w", item.ID, err)
+	}
+	if pl.AddFollowUp(item.ID) {
+		if err := r.writePayload(reviewID, pl); err != nil {
+			return item, fmt.Errorf("created %s, but adding it to %s's roster failed: %w", item.ID, reviewID, err)
+		}
+	}
+	return item, nil
+}
+
 func (r *Recorder) Evict(taskID, reason string) error {
 	if reason == "" {
 		reason = OutNotWarranted

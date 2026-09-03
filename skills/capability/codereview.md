@@ -54,6 +54,7 @@ A finished review is a verdict, not a gate someone has to reopen. When a review 
 - `atm capability codereview absorb --task <ID> --pr <url-or-number>` — schedule a review. `--pr` is required by design; see the warning-surface rule above.
 - `atm capability codereview begin --task <ID>` — move a scheduled review to under way.
 - `atm capability codereview finish --task <ID> [--report <locator>]` — stamp the finish socket, optionally recording where the report lives.
+- `atm capability codereview follow-up --task <ID> --title "..."` — leave a tracked item on the board for a finding worth action beyond the artifact discussion. The item is born into the pipeline knowing which review it came from, and the review knows its items. An open item does NOT hold its review open: a finding worth fixing but not worth blocking on belongs on the board, not in another round of review.
 - `atm capability codereview evict --task <ID> [--reason not-warranted|superseded]` — settle a change out of codereview.
 - `atm capability codereview release --task <ID> --reason "..."` — withdraw codereview's perspective entirely; the task returns to the pool.
 - `atm capability codereview report --project <CODE>` — lane rosters plus findings (read-only).

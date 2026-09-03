@@ -25,6 +25,7 @@ func (Cap) Command(env capability.Env) *cobra.Command {
 	env.BindActorFlag(cmd)
 	cmd.AddCommand(newAbsorbCmd(env))
 	cmd.AddCommand(newBeginCmd(env))
+	cmd.AddCommand(newFollowUpCmd(env))
 	cmd.AddCommand(newFinishCmd(env))
 	cmd.AddCommand(newEvictCmd(env))
 	cmd.AddCommand(newReleaseCmd(env))
@@ -85,6 +86,35 @@ func newAbsorbCmd(env capability.Env) *cobra.Command {
 	env.BindTaskIDFlags(cmd, &id, &legacy)
 	cmd.Flags().StringVar(&pr, "pr", "", "pull request URL or number")
 	_ = cmd.MarkFlagRequired("pr")
+	return cmd
+}
+
+func newFollowUpCmd(env capability.Env) *cobra.Command {
+	var id, legacy, title string
+	cmd := &cobra.Command{
+		Use:   "follow-up",
+		Short: "Leave a tracked item on the board for a finding worth action beyond the artifact",
+		Long: "A finding worth fixing but not worth blocking on belongs on the board, " +
+			"not in another round of review. The item is born into the pipeline " +
+			"beneath the review and knows which review it came from; the review " +
+			"knows its items. An open item does NOT hold the review open — that " +
+			"is the endless cycle this verb exists to break.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, svc, rec, err := openRecorder(env, id, legacy)
+			if err != nil {
+				return err
+			}
+			item, err := rec.FollowUp(taskID, title)
+			if err != nil {
+				return err
+			}
+			return emitTask(env, svc, item.ID, "follow-up "+item.ID+" from review "+taskID,
+				map[string]any{"state": StateScheduled, "part_of": taskID})
+		},
+	}
+	env.BindTaskIDFlags(cmd, &id, &legacy)
+	cmd.Flags().StringVar(&title, "title", "", "what needs doing")
+	_ = cmd.MarkFlagRequired("title")
 	return cmd
 }
 

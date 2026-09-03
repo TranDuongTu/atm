@@ -1,20 +1,23 @@
 {
-  "comment": {
-    "body": "Body here",
+  "task": {
     "created_at": "TIMESTAMP",
     "created_by": "admin@cli:unset",
+    "description": "",
     "history": [
       {
-        "action": "comment.created",
+        "action": "task.created",
         "actor": "admin@cli:unset",
         "at": "TIMESTAMP",
-        "seq": 30
+        "seq": 25
       }
     ],
-    "id": "ATM-5c2acd-c113e",
-    "labels": [],
+    "id": "DEMO-baeb19",
+    "labels": [
+      "DEMO:status:open"
+    ],
     "ordinal": 1,
-    "task_id": "ATM-5c2acd",
+    "project_code": "DEMO",
+    "title": "Demo task",
     "updated_at": "TIMESTAMP",
     "updated_by": "admin@cli:unset"
   }
