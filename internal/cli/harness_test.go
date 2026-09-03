@@ -20,9 +20,7 @@ import (
 	"atm/internal/capability/release"
 	"atm/internal/capability/scrum"
 	"atm/internal/core"
-	"atm/internal/profile"
 	"atm/internal/store"
-	"atm/profiles"
 )
 
 // deterministicSeam returns a fixed byte stream. A born-v2 store mints more
@@ -78,18 +76,6 @@ func storeOpeners(opts ...store.Option) (func(string) (core.Service, error), fun
 		return s, nil
 	}
 	return openService, openAdmin
-}
-
-// profileStoreOpener mirrors the composition root's profile-store wiring so
-// harness-driven tests exercise the same layout production uses.
-func profileStoreOpener(opts ...store.Option) func(string) (*profile.Store, error) {
-	return func(p string) (*profile.Store, error) {
-		s, err := store.Open(store.ResolveStorePath(p), opts...)
-		if err != nil {
-			return nil, err
-		}
-		return profile.NewStore(filepath.Join(s.StorePath(), "profiles"), profiles.Embedded()), nil
-	}
 }
 
 var updateGolden = flag.Bool("update", false, "regenerate golden fixtures")

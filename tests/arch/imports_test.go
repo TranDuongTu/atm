@@ -44,6 +44,38 @@ func internalImports(t *testing.T, dir string) map[string][]string {
 	return out
 }
 
+// stdlibImports returns the non-repository imports of every non-test .go
+// file in dir, so a rule can forbid a whole capability (file I/O, the
+// network) rather than a single package.
+func stdlibImports(t *testing.T, dir string) map[string][]string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "..", dir, "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no .go files under %s — directory moved?", dir)
+	}
+	out := map[string][]string{}
+	fset := token.NewFileSet()
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := parser.ParseFile(fset, f, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s: %v", f, err)
+		}
+		for _, imp := range src.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			if !strings.HasPrefix(p, "atm/") {
+				out[f] = append(out[f], p)
+			}
+		}
+	}
+	return out
+}
+
 func TestCoreIsAPureLeaf(t *testing.T) {
 	for f, imps := range internalImports(t, "internal/core") {
 		t.Errorf("%s imports %v; internal/core may import nothing from this repository", f, imps)
@@ -127,6 +159,30 @@ func TestAdaptersDoNotImportCapabilityPackages(t *testing.T) {
 func TestSkillsIsAPureLeaf(t *testing.T) {
 	for f, imps := range internalImports(t, "skills") {
 		t.Errorf("%s imports %v; skills may import nothing from this repository", f, imps)
+	}
+}
+
+// TestProfileIsTheFormatNotAStore keeps internal/profile on the format side
+// of the line: it reads an fs.FS into core's types, validates, and packs an
+// artifact. Keeping installed copies on disk is internal/store's job — it
+// already owns the persona side store next door — so this package must do
+// no file I/O of its own. Without this rule a second persistence adapter
+// grows here unnoticed, and the adapters end up holding a concrete store
+// type the import table never sanctioned.
+func TestProfileIsTheFormatNotAStore(t *testing.T) {
+	for f, imps := range internalImports(t, "internal/profile") {
+		for _, p := range imps {
+			if p != "atm/internal/core" {
+				t.Errorf("%s imports %v; internal/profile may import nothing internal but core", f, imps)
+			}
+		}
+	}
+	for f, imps := range stdlibImports(t, "internal/profile") {
+		for _, p := range imps {
+			if p == "os" || p == "os/exec" || p == "net/http" {
+				t.Errorf("%s imports %q; internal/profile is the FORMAT — persistence and the network belong to store and the adapters", f, p)
+			}
+		}
 	}
 }
 

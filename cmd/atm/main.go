@@ -14,10 +14,8 @@ import (
 	"atm/internal/cli"
 	"atm/internal/core"
 	"atm/internal/dispatch"
-	"atm/internal/profile"
 	"atm/internal/store"
 	"atm/internal/tui"
-	"atm/profiles"
 )
 
 // main is the composition root: it constructs the concrete store, assembles
@@ -38,17 +36,6 @@ func main() {
 		}
 		return s, nil
 	}
-	// The profile store is machine-global state alongside the ledger, laid
-	// out here rather than in an adapter — the same treatment dispatch.json
-	// gets below. The profiles embedded in this binary are served from it
-	// as pre-installed entries, never written to disk.
-	openProfileStore := func(storePath string) (*profile.Store, error) {
-		s, err := open(storePath)
-		if err != nil {
-			return nil, err
-		}
-		return profile.NewStore(filepath.Join(s.StorePath(), "profiles"), profiles.Embedded()), nil
-	}
 	openAdmin := func(storePath string) (core.StorageAdmin, error) {
 		s, err := open(storePath)
 		if err != nil {
@@ -67,5 +54,5 @@ func main() {
 		}
 		return tui.Run(s, actor, reg, d)
 	}
-	os.Exit(cli.Execute(cli.Deps{RunTUI: runTUI, Registry: reg, OpenService: openService, OpenAdmin: openAdmin, OpenProfileStore: openProfileStore}))
+	os.Exit(cli.Execute(cli.Deps{RunTUI: runTUI, Registry: reg, OpenService: openService, OpenAdmin: openAdmin}))
 }

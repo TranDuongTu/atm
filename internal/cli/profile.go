@@ -38,17 +38,6 @@ func newProfileCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-// openProfileStore reaches the machine profile store. Where it lives and
-// which profiles the binary ships are the composition root's decisions,
-// injected the same way the ledger store is (cmd/atm wires this alongside
-// dispatch.json): the adapter asks for the store, it does not lay it out.
-func openProfileStore(st *cliState) (*profile.Store, error) {
-	if st.openProfileStoreFn == nil {
-		return nil, fmt.Errorf("profile store is not wired")
-	}
-	return st.openProfileStoreFn(st.flags.store)
-}
-
 func newProfileBuildCmd(st *cliState) *cobra.Command {
 	var dir, out string
 	cmd := &cobra.Command{
@@ -103,16 +92,16 @@ func newProfileInstallCmd(st *cliState) *cobra.Command {
 			"you accept.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openProfileStore(st)
+			s, err := st.openStore()
 			if err != nil {
 				return err
 			}
-			rc, err := openArtifactSource(args[0])
+			path, cleanup, err := localArtifactPath(args[0])
 			if err != nil {
 				return err
 			}
-			defer rc.Close()
-			e, err := store.Install(rc, verify)
+			defer cleanup()
+			e, err := s.InstallProfile(path, verify)
 			if err != nil {
 				return err
 			}
@@ -133,28 +122,39 @@ func newProfileInstallCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
-// openArtifactSource resolves a local path or an http(s) URL to a reader.
-// A profile steers agents, so fetching one is always an explicit act: there
-// is no implicit download anywhere else in the lifecycle, and apply never
-// reaches the network.
-func openArtifactSource(src string) (io.ReadCloser, error) {
+// localArtifactPath resolves the install argument to a local file,
+// downloading first when it is an http(s) URL. Fetching lives HERE, in the
+// adapter, not in the store: reaching the network is a user-facing act the
+// terminal command owns, and nothing deeper in ATM ever does it — apply in
+// particular never touches the network.
+func localArtifactPath(src string) (string, func(), error) {
+	noop := func() {}
 	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
-		f, err := os.Open(src)
-		if err != nil {
-			return nil, err
-		}
-		return f, nil
+		return src, noop, nil
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(src)
 	if err != nil {
-		return nil, err
+		return "", noop, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("fetch %s: %s", src, resp.Status)
+		return "", noop, fmt.Errorf("fetch %s: %s", src, resp.Status)
 	}
-	return resp.Body, nil
+	f, err := os.CreateTemp("", "atm-profile-*"+profile.ArtifactExt)
+	if err != nil {
+		return "", noop, err
+	}
+	cleanup := func() { os.Remove(f.Name()) }
+	_, err = io.Copy(f, io.LimitReader(resp.Body, profile.MaxArtifactBytes+1))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		cleanup()
+		return "", noop, err
+	}
+	return f.Name(), cleanup, nil
 }
 
 func newProfileListCmd(st *cliState) *cobra.Command {
@@ -166,11 +166,11 @@ func newProfileListCmd(st *cliState) *cobra.Command {
 			"a bare name resolves to. Embedded profiles are served from the binary " +
 			"and never written to disk.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openProfileStore(st)
+			s, err := st.openStore()
 			if err != nil {
 				return err
 			}
-			list, err := store.List()
+			list, err := s.ListProfiles()
 			if err != nil {
 				return err
 			}

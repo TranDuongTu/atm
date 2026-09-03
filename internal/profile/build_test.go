@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"atm/internal/core"
 )
 
 func TestBuildProducesAnIdentifiedArtifact(t *testing.T) {
@@ -51,8 +53,8 @@ func TestBuildValidatesFirst(t *testing.T) {
 func TestBuildRefusesDevVersion(t *testing.T) {
 	var buf bytes.Buffer
 	_, err := Build(withFile("manifest.yaml", "name: scrumban\nversion: dev\nformat: 1\nrequires_capabilities: [scrum, channel]\n"), &buf)
-	if err == nil || !strings.Contains(err.Error(), DevVersion) {
-		t.Fatalf("err = %v, want a refusal naming %q", err, DevVersion)
+	if err == nil || !strings.Contains(err.Error(), core.DevVersion) {
+		t.Fatalf("err = %v, want a refusal naming %q", err, core.DevVersion)
 	}
 }
 

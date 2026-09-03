@@ -18,8 +18,8 @@ import (
 // listing a directory.
 type memFS map[string][]byte
 
-// artifactFS turns unpacked artifact bytes into a filesystem Load can read.
-func artifactFS(files map[string][]byte) fs.FS { return memFS(files) }
+// ArtifactFS turns unpacked artifact bytes into a filesystem Load can read.
+func ArtifactFS(files map[string][]byte) fs.FS { return memFS(files) }
 
 func (m memFS) ReadFile(name string) ([]byte, error) {
 	b, ok := m[path.Clean(name)]

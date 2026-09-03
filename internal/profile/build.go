@@ -11,15 +11,17 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"atm/internal/core"
 )
 
 // ArtifactExt is the extension of a built profile.
 const ArtifactExt = ".atmprofile"
 
-// maxArtifactBytes caps what an artifact may unpack to. A profile is
+// MaxArtifactBytes caps what an artifact may unpack to. A profile is
 // documents; anything approaching this is either a mistake or an attempt to
 // fill someone's disk from a downloaded file.
-const maxArtifactBytes = 32 << 20
+const MaxArtifactBytes = 32 << 20
 
 // Artifact identifies a built profile: what it is, and the digest that says
 // these exact bytes are it.
@@ -47,8 +49,8 @@ func Build(fsys fs.FS, w io.Writer) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	if p.Manifest.Version == DevVersion {
-		return Artifact{}, fmt.Errorf("profile %s: version %q is what --dir mode applies as, never something to publish — set a semver version to build", p.Manifest.Name, DevVersion)
+	if p.Manifest.Version == core.DevVersion {
+		return Artifact{}, fmt.Errorf("profile %s: version %q is what --dir mode applies as, never something to publish — set a semver version to build", p.Manifest.Name, core.DevVersion)
 	}
 	files, err := collectContent(fsys)
 	if err != nil {
@@ -58,7 +60,7 @@ func Build(fsys fs.FS, w io.Writer) (Artifact, error) {
 	// published file with nothing but sha256sum.
 	sum := sha256.New()
 	counter := &countingWriter{w: io.MultiWriter(w, sum)}
-	if err := writeArtifact(counter, files); err != nil {
+	if err := WriteArtifact(counter, files); err != nil {
 		return Artifact{}, err
 	}
 	return Artifact{
@@ -100,7 +102,7 @@ func collectContent(fsys fs.FS) (map[string][]byte, error) {
 // digest that changes when the content did not is not an identity, and
 // reproducibility is what lets anyone verify a published artifact against
 // its source.
-func writeArtifact(w io.Writer, files map[string][]byte) error {
+func WriteArtifact(w io.Writer, files map[string][]byte) error {
 	names := make([]string, 0, len(files))
 	for n := range files {
 		names = append(names, n)
@@ -136,20 +138,24 @@ func writeArtifact(w io.Writer, files map[string][]byte) error {
 // Unpacking here rather than onto disk is what lets install validate a
 // profile BEFORE it exists anywhere a reader could pick it up.
 func OpenArtifact(r io.Reader) (fs.FS, error) {
-	files, err := readArtifact(r)
+	files, err := ReadArtifact(r)
 	if err != nil {
 		return nil, err
 	}
-	return artifactFS(files), nil
+	return ArtifactFS(files), nil
 }
 
-func readArtifact(r io.Reader) (map[string][]byte, error) {
+// ReadArtifact unpacks an artifact into its file bytes, refusing entries
+// that are not regular files or whose paths climb out of the destination.
+// Unpacking to memory rather than to disk is what lets an installer
+// validate a profile BEFORE it exists anywhere a reader could pick it up.
+func ReadArtifact(r io.Reader) (map[string][]byte, error) {
 	zr, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, fmt.Errorf("profile artifact: not a gzip stream: %w", err)
 	}
 	defer zr.Close()
-	tr := tar.NewReader(io.LimitReader(zr, maxArtifactBytes+1))
+	tr := tar.NewReader(io.LimitReader(zr, MaxArtifactBytes+1))
 	out := map[string][]byte{}
 	var total int64
 	for {
@@ -173,8 +179,8 @@ func readArtifact(r io.Reader) (map[string][]byte, error) {
 			return nil, err
 		}
 		total += h.Size
-		if total > maxArtifactBytes {
-			return nil, fmt.Errorf("profile artifact: unpacks to more than %d bytes", maxArtifactBytes)
+		if total > MaxArtifactBytes {
+			return nil, fmt.Errorf("profile artifact: unpacks to more than %d bytes", MaxArtifactBytes)
 		}
 		b, err := io.ReadAll(tr)
 		if err != nil {

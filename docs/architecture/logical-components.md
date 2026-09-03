@@ -33,9 +33,10 @@ cmd/atm ─────────────── composition root: construc
 | `internal/cli` | The terminal adapter. Cobra command tree: parse flags → call core services → emit text/JSON. Mounts the capability registry's commands; the registry itself is assembled by `cmd/atm`. | Contain business logic; be imported by anything except `cmd/atm`. |
 | `internal/tui` | The interactive adapter. Bubble Tea panes over the core service interface, with live features (watch, reindex) via that interface. | Import `cli` or the concrete store type; reimplement core algebra (faceting, wildcard matching). |
 | `internal/capability/*` | One package per capability command — a flow (`scrum`, `qa`, `codereview`) or a registry capability (`channel`, `checklist`, `release`). Owns its label slice, exposes intent verbs, registers its cobra command with the registry. | Reach past core into store internals. |
+| `internal/profile` | The profile FORMAT: reads a profile directory or artifact (`fs.FS`) into `core`'s types, validates it, and packs a canonical, digest-identified artifact back out. | Do file I/O or reach the network. Keep installed copies — that is `store`'s side store. |
 | `libs/eventsource` | Nested Go module (own `go.mod`, stitched via `go.work`). Root package: event canon, hashing, HLC, DAG, fold, replay. `sync/` subpackage: sync engine, `LocalStore`/`SyncTarget` interfaces, dir and git transports. | Import anything from this repo. Depend on more than the standard library (plus `jcs`). |
 
-Satellites keep their current roles: `internal/actor` stays a small leaf consumed by core or store; `internal/embed`, `internal/activity`, `internal/agent`, `internal/version` remain thin, with `version` restored to a pure leaf. The top-level `skills/` folder ships built-in personas inside the binary (no longer seeded into the store); `internal/session` owns the unified `atm --persona` launcher and the persona-generic context template. `internal/developing` and `internal/manager` are reduced to plugin-asset hosting (they no longer drive launch).
+Satellites keep their current roles: `internal/actor` stays a small leaf consumed by core or store; `internal/embed`, `internal/activity`, `internal/agent`, `internal/version` remain thin, with `version` restored to a pure leaf. The top-level `skills/` folder ships built-in personas inside the binary (no longer seeded into the store); the top-level `profiles/` folder does the same for shipped operating-model profiles, which `store` merges with installed ones exactly as it merges built-in personas with user files; `internal/session` owns the unified `atm --persona` launcher and the persona-generic context template. `internal/developing` and `internal/manager` are reduced to plugin-asset hosting (they no longer drive launch).
 
 ## Import rules
 
@@ -49,7 +50,8 @@ These rules are the enforceable heart of this document. A change that violates o
 | `internal/capability/*` | `capability`, `core` |
 | `internal/capability` | nothing internal but `core` |
 | `internal/core` | nothing internal (pure leaf) |
-| `internal/store` | `core`, `store/eventlog`, `store/fsio` |
+| `internal/store` | `core`, `store/eventlog`, `store/fsio`, and the byte-shipping leaves it merges built-ins from (`skills`, `profiles`, `internal/profile`) |
+| `internal/profile` | `core` |
 | `internal/store/eventlog` | `core`, `store/fsio`, `libs/eventsource` |
 | `internal/store/fsio` | `core` |
 | `libs/eventsource` | nothing from this repo |

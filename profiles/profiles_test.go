@@ -28,7 +28,7 @@ func registry() *capability.Registry {
 	)
 }
 
-func loadScrumban(t *testing.T) *profile.Profile {
+func loadScrumban(t *testing.T) *core.Profile {
 	t.Helper()
 	fsys, ok := profiles.FS(profiles.Scrumban)
 	if !ok {
@@ -125,7 +125,7 @@ func TestScrumbanRequiresOnlyKnownCapabilities(t *testing.T) {
 	for _, n := range registry().Names() {
 		known = append(known, n)
 	}
-	if err := loadScrumban(t).ValidateCapabilities(known); err != nil {
+	if err := profile.ValidateProfileCapabilities(loadScrumban(t), known); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -170,7 +170,7 @@ func TestScrumbanSubstitutesProjectCode(t *testing.T) {
 			t.Fatal("planning lost its steps in ForProject")
 		}
 	}
-	if _, ok := loadScrumban(t).Checklist("planning"); !ok {
+	if _, ok := loadScrumban(t).ProfileChecklist("planning"); !ok {
 		t.Fatal("planning missing on a fresh load — ForProject mutated the embedded profile")
 	}
 }

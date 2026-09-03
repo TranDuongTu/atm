@@ -160,7 +160,7 @@ mode: resident
 	if err != nil {
 		t.Fatal(err)
 	}
-	pl, _ := p.Checklist("planning")
+	pl, _ := p.ProfileChecklist("planning")
 	if pl.Mode != core.ChecklistModeResident {
 		t.Fatalf("mode = %q", pl.Mode)
 	}
@@ -200,10 +200,10 @@ func TestValidateCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.ValidateCapabilities([]string{"scrum", "channel", "qa"}); err != nil {
+	if err := ValidateProfileCapabilities(p, []string{"scrum", "channel", "qa"}); err != nil {
 		t.Fatalf("all declared capabilities known, got %v", err)
 	}
-	err = p.ValidateCapabilities([]string{"scrum"})
+	err = ValidateProfileCapabilities(p, []string{"scrum"})
 	if err == nil || !strings.Contains(err.Error(), "channel") {
 		t.Fatalf("err = %v, want it to name the unknown capability", err)
 	}
