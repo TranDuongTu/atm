@@ -24,7 +24,7 @@ func TestVocabularyShape(t *testing.T) {
 			t.Fatalf("missing %s type label", typ)
 		}
 	}
-	if expr := names["ATM:channels"]; expr != "channel:*" {
+	if expr := names["ATM:channels"]; expr != core.ChannelQueryExpr {
 		t.Fatalf("channels board expr = %q", expr)
 	}
 }
