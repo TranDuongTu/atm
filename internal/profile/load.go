@@ -162,6 +162,24 @@ func LoadManifest(fsys fs.FS) (core.ProfileManifest, error) {
 	return m, nil
 }
 
+// ParsePersonaDocument parses one persona document — the same parser the
+// profile loader uses, exported so `atm persona set` and `profile apply`
+// import identical text through identical rules. A persona a user writes by
+// hand and one a profile ships are the same thing.
+// An empty stem means "trust the document": there is no filename to agree
+// with when a persona arrives on stdin.
+func ParsePersonaDocument(stem string, src []byte) (core.Persona, error) {
+	if stem == "" {
+		fm, _, err := parseFrontmatter(src)
+		if err != nil {
+			return core.Persona{}, fmt.Errorf("persona: %w", err)
+		}
+		stem = fm.scalars["name"]
+	}
+	p, problems := parsePersona(stem, src)
+	return p, errors.Join(problems...)
+}
+
 func parsePersona(stem string, src []byte) (core.Persona, []error) {
 	fm, body, err := parseFrontmatter(src)
 	if err != nil {

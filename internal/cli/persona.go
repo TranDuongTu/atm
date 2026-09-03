@@ -20,6 +20,8 @@ func newPersonaCmd(st *cliState) *cobra.Command {
 			"`atm persona personality`.",
 	}
 	bindActorFlag(cmd, st)
+	cmd.AddCommand(newPersonaSetCmd(st))
+	cmd.AddCommand(newPersonaResetCmd(st))
 	cmd.AddCommand(newPersonaCreateCmd(st))
 	cmd.AddCommand(newPersonaListCmd(st))
 	cmd.AddCommand(newPersonaShowCmd(st))
@@ -84,13 +86,19 @@ func newPersonaCreateCmd(st *cliState) *cobra.Command {
 }
 
 func newPersonaListCmd(st *cliState) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List personas",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := st.openStore()
 			if err != nil {
 				return err
+			}
+			// A project in scope means the project's own records; the
+			// machine-global listing below is transitional and goes with
+			// the store-global personas in the second half of ATM-207ab8.
+			if code, err := personaProject(cmd); err == nil {
+				return personaRecordList(st, s, code)
 			}
 			ps := s.ListPersonas()
 			return st.emit(st.stdout(), map[string]any{"personas": ps}, func() {
@@ -104,6 +112,8 @@ func newPersonaListCmd(st *cliState) *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT) — lists that project's persona records")
+	return cmd
 }
 
 func newPersonaShowCmd(st *cliState) *cobra.Command {
@@ -124,6 +134,13 @@ func newPersonaShowCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if code, cerr := personaProject(cmd); cerr == nil {
+				if rec, rerr := s.GetPersonaRecord(code, resolved); rerr == nil {
+					return st.emit(st.stdout(), map[string]any{"persona": rec}, func() {
+						fmt.Fprintf(st.stdout(), "%s\t%s\t%s\n\n%s\n", rec.Name, rec.Origin, rec.Description, rec.Prompt)
+					})
+				}
+			}
 			p, err := s.GetPersona(resolved)
 			if err != nil {
 				return err
@@ -139,6 +156,7 @@ func newPersonaShowCmd(st *cliState) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "persona name (positional arg takes precedence)")
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT) — shows that project's persona record")
 	return cmd
 }
 

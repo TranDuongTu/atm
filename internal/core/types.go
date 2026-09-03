@@ -65,6 +65,9 @@ type Comment struct {
 }
 
 type Persona struct {
+	// TaskID is the ledger identity of a persona PROJECT record; empty for
+	// a persona that is not (yet) one — a profile document, or a built-in.
+	TaskID          string `json:"task_id,omitempty"`
 	Name            string `json:"name"`
 	Prompt          string `json:"prompt"`
 	Description     string `json:"description"`
@@ -74,7 +77,10 @@ type Persona struct {
 	Launch string `json:"launch,omitempty"`
 	// Kickoff is the eager-session initial-message template ("" = the
 	// generic PromptMessage). Placeholders: <CONTEXT_FILE>, <CODE>, <TASK_ID>.
-	Kickoff   string    `json:"kickoff,omitempty"`
+	Kickoff string `json:"kickoff,omitempty"`
+	// Origin is reset provenance: user | <profile>@<version>, plus the
+	// legacy shipped:* values written before profiles existed.
+	Origin    string    `json:"origin,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	CreatedBy string    `json:"created_by"`
