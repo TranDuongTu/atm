@@ -13,7 +13,6 @@ type tasksModel struct {
 	m             *Model
 	width         int
 	contentHeight int
-	view          tView
 
 	// list state (flat + grouped)
 	rows     []taskRow
@@ -33,20 +32,32 @@ type tasksModel struct {
 	// (ATM-4c476c). Nil when no scope is set.
 	annReg *capability.Registry
 
-	// detail
-	detail taskDetailState
-
-	// comment read-only overlay (peek); clears on backToList / openDetail so
-	// stale overlay state never leaks across detail sessions.
-	commentOverlay commentOverlayModel
+	// drillStack holds modal navigation state above the task list. Task 1 only
+	// opens details; later tasks add comment, description, and thread levels.
+	drillStack []drillLevel
 }
 
-type tView int
+type drillKind int
 
+// The drill kinds, in the order a reader meets them: the details page, then
+// the levels it can open over itself.
 const (
-	tViewList tView = iota
-	tViewDetail
+	drillDetail drillKind = iota
+	drillDescription
+	drillThread
+	drillComment
 )
+
+type drillLevel struct {
+	kind   drillKind
+	id     string
+	offset int
+	cursor int
+	// history is the comment level's HISTORY toggle. It lives on the level,
+	// not the model, so opening a second comment does not inherit the first
+	// one's toggle.
+	history bool
+}
 
 type sortMode int
 
@@ -145,6 +156,31 @@ func (t *tasksModel) spec() sortSpec {
 
 func newTasksModel(m *Model) tasksModel {
 	return tasksModel{m: m, sortMode: sortUpdatedDesc}
+}
+
+func (t *tasksModel) pushDrill(level drillLevel) {
+	t.drillStack = append(t.drillStack, level)
+}
+
+func (t *tasksModel) popDrill() {
+	if n := len(t.drillStack); n > 0 {
+		t.drillStack = t.drillStack[:n-1]
+	}
+}
+
+func (t *tasksModel) currentDrill() *drillLevel {
+	if len(t.drillStack) == 0 {
+		return nil
+	}
+	return &t.drillStack[len(t.drillStack)-1]
+}
+
+func (t *tasksModel) detailID() string {
+	level := t.currentDrill()
+	if level == nil || level.kind != drillDetail {
+		return ""
+	}
+	return level.id
 }
 
 func (t *tasksModel) SetSize(w, h int) {
@@ -273,21 +309,12 @@ func (t *tasksModel) setFocus(f taskFocus, filter string) {
 }
 
 func (t *tasksModel) handleKey(k tea.KeyMsg) tea.Cmd {
-	switch t.view {
-	case tViewList:
-		return t.handleListKey(k)
-	case tViewDetail:
-		return t.handleDetailKey(k)
+	if t.currentDrill() != nil {
+		return t.handleDrillKey(k)
 	}
-	return nil
+	return t.handleListKey(k)
 }
 
 func (t *tasksModel) View() string {
-	switch t.view {
-	case tViewList:
-		return t.renderListWithStrip()
-	case tViewDetail:
-		return t.renderDetailView()
-	}
-	return ""
+	return t.renderListWithStrip()
 }

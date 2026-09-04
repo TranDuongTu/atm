@@ -1087,6 +1087,9 @@ func TestAskOpenSourceClosesSpotlightAndOpensDetail(t *testing.T) {
 	if m.focused != paneTasks {
 		t.Error("focus must land on the tasks pane")
 	}
+	if m.workspaceIdle() {
+		t.Error("opening an ask source must leave the task detail modal active")
+	}
 }
 
 // The click-through is a human judgment, logged apart from any citation.
@@ -1159,9 +1162,9 @@ func TestAskOpenCommentSourceLogsTheCommentIDAndOpensItsTask(t *testing.T) {
 	drainAskTicks(t, m, p)
 	p.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.tasks.view != tViewDetail || m.tasks.detail.id != task.ID {
-		t.Errorf("a comment source must open its OWNING task; view=%v detail.id=%q, want %q",
-			m.tasks.view, m.tasks.detail.id, task.ID)
+	if m.tasks.detailID() != task.ID {
+		t.Errorf("a comment source must open its OWNING task; detail ID=%q, want %q",
+			m.tasks.detailID(), task.ID)
 	}
 
 	entries, err := readInquiriesForTest(t, m, "ATM")
