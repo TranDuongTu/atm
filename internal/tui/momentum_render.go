@@ -41,7 +41,10 @@ func mergePairs(v []int) []int {
 
 // renderFlowStrip draws the mirrored rate strip: in above a baseline, done
 // and evict stacked below. It returns exactly 2*rowsEach lines of
-// gutter+cols cells. Colours: in HeaderLabel, done Success, evict Warning.
+// gutter+cols cells. Colours are the legend's key: in HeaderLabel, done
+// Success, evict Error. Evict is NOT Warning — graphite paints Warning and
+// Accent with the same 256 colour (214), which would make in and evict
+// indistinguishable, the exact confusion the legend exists to resolve.
 func renderFlowStrip(in, done, evict []int, gutter, cols, rowsEach int, st Styles) []string {
 	if rowsEach < 1 {
 		rowsEach = 1
@@ -98,7 +101,7 @@ func renderFlowStrip(in, done, evict []int, gutter, cols, rowsEach int, st Style
 			if dlevel < 0 {
 				dlevel = 0
 			}
-			style := st.Warning
+			style := st.Error
 			if dnDone > 8*r { // the first eighth of this row belongs to done
 				style = st.Success
 			}
@@ -155,18 +158,24 @@ func depthChart(open []int, spec chartRangeSpec, width, height int, end time.Tim
 	return &chart
 }
 
-func renderMomentumLegend(series momentumSeries, spec chartRangeSpec, width int, st Styles) string {
+// renderMomentumLegend is the strip's color key: each entry wears its
+// series' colour — in and open in accent (open is the depth line above),
+// done in success, evict in error — so the mapping is read directly off
+// the bars, not memorized. The range label is not repeated here: the box
+// title `momentum · <capability> · <range label>` already names it. The
+// range key hint stays, muted, because that is where it is discoverable.
+func renderMomentumLegend(series momentumSeries, width int, st Styles) string {
 	in, done, evict := series.totals()
 	open := 0
 	if n := len(series.Open); n > 0 {
 		open = series.Open[n-1]
 	}
-	label := spec.label
-	if label == "" {
-		label = spec.key
-	}
-	text := fmt.Sprintf("in +%d  done ✓%d  evict ✗%d  open %d   Range: %s  [Ctrl+↑/↓]", in, done, evict, open, label)
-	return st.HeaderLabel.Render(fitLine(text, width))
+	text := st.HeaderLabel.Render(fmt.Sprintf("in +%d", in)) + "  " +
+		st.Success.Render(fmt.Sprintf("done ✓%d", done)) + "  " +
+		st.Error.Render(fmt.Sprintf("evict ✗%d", evict)) + "  " +
+		st.HeaderLabel.Render(fmt.Sprintf("open %d", open)) + "   " +
+		st.Muted.Render("[Ctrl+↑/↓]")
+	return fitLine(text, width)
 }
 
 // renderMomentumChart composes the depth tier, the rate strip aligned under
@@ -187,6 +196,6 @@ func renderMomentumChart(series momentumSeries, spec chartRangeSpec, width int, 
 		cols = 1
 	}
 	lines = append(lines, renderFlowStrip(series.In, series.Done, series.Evict, gutter, cols, momentumStripRowsEach, st)...)
-	lines = append(lines, renderMomentumLegend(series, spec, width, st))
+	lines = append(lines, renderMomentumLegend(series, width, st))
 	return strings.Join(lines, "\n")
 }

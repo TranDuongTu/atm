@@ -202,17 +202,20 @@ func (t *tasksModel) renderListWithStrip() string {
 }
 
 // renderMomentumBox boxes the chart at momentumBoxHeight rows, titled with
-// the capability and range so the box reads on its own.
+// the capability and range so the box reads on its own. The frame is the
+// thin rounded set whatever the focus — the double frame is the lane
+// strip's device, and inside a pane it read as a too-thick border. Focus
+// is signalled by border colour alone, as every other pane does it.
 func (t *tasksModel) renderMomentumBox() string {
 	mm := &t.m.momentum
 	spec := mm.spec()
 	title := "momentum · " + t.m.capability.current + " · " + spec.label
 	inner := renderMomentumChart(mm.series, spec, t.width-2, core.Now(), t.m.styles)
-	style, chars := t.m.styles.PaneInactive, roundedBox
+	style := t.m.styles.PaneInactive
 	if t.m.focused == paneTasks {
-		style, chars = t.m.styles.PaneActive, doubleBox
+		style = t.m.styles.PaneActive
 	}
-	return titledBoxChars(style, t.width, title, "[m] hide", inner, momentumBoxHeight, chars)
+	return titledBoxHint(style, t.width, title, "[m] hide", inner, momentumBoxHeight)
 }
 
 // fillGapWithArt replaces the task table's trailing blank padding (the dead

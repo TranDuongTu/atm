@@ -14,6 +14,27 @@ func momentumTitleLine(lines []string) int {
 	return -1
 }
 
+// The momentum box keeps the thin rounded frame whatever the focus: the
+// double frame is the lane strip's device, and inside a pane it read as a
+// too-thick border. Focus is signalled by border colour, as every other
+// pane does it.
+func TestPaneMomentumBoxAlwaysRounded(t *testing.T) {
+	m := setupMomentum(t)
+	m.focused = paneTasks
+	shown := paneLines(t, m)
+	title := momentumTitleLine(shown)
+	if title < 0 {
+		t.Fatalf("no momentum box:\n%s", strings.Join(shown, "\n"))
+	}
+	for i := title; i < len(shown); i++ {
+		for _, thick := range []string{"╔", "╗", "╚", "╝", "║", "═"} {
+			if strings.Contains(shown[i], thick) {
+				t.Fatalf("focused momentum box uses the double frame (line %d has %q):\n%s", i, thick, shown[i])
+			}
+		}
+	}
+}
+
 func TestPaneLayoutMomentumBoxAtBottom(t *testing.T) {
 	m := setupMomentum(t)
 	m.focused = paneTasks
