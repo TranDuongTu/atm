@@ -1392,7 +1392,9 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	v := m.View()
 	mustContain(t, v, "Task "+tk.ID)
 	mustContain(t, v, "FACTS")
-	mustContain(t, v, "id      "+tk.ID)
+	// FACTS is one compact line now: id, project, and the two relative
+	// stamps with their actors.
+	mustContain(t, v, "id "+tk.ID)
 	mustContain(t, v, "project ATM")
 	mustContain(t, v, "Fix label reconciliation")
 	mustNotContain(t, v, "title   Fix label reconciliation")

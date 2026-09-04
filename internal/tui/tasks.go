@@ -39,7 +39,12 @@ type tasksModel struct {
 
 type drillKind int
 
-const drillDetail drillKind = iota
+// The drill kinds, in the order a reader meets them: the details page, then
+// the levels it can open over itself.
+const (
+	drillDetail drillKind = iota
+	drillDescription
+)
 
 type drillLevel struct {
 	kind   drillKind
@@ -299,7 +304,7 @@ func (t *tasksModel) setFocus(f taskFocus, filter string) {
 
 func (t *tasksModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	if t.currentDrill() != nil {
-		return t.handleDetailKey(k)
+		return t.handleDrillKey(k)
 	}
 	return t.handleListKey(k)
 }

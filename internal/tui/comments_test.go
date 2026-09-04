@@ -17,7 +17,7 @@ func TestTaskDetailRendersCommentsSection(t *testing.T) {
 	m.projectScope = "ATM"
 	m.SetSize(240, 70)
 	m.tasks.openDetail(tk.ID)
-	view := m.tasks.renderDetailModal()
+	view := m.tasks.renderDrillModal()
 	if !strings.Contains(view, "COMMENTS") {
 		t.Fatalf("missing Comments section:\n%s", view)
 	}
@@ -42,7 +42,7 @@ func TestTaskDetailHidesHistoryInline(t *testing.T) {
 	m.projectScope = "ATM"
 	m.SetSize(120, 70)
 	m.tasks.openDetail(tk.ID)
-	view := m.tasks.renderDetailModal()
+	view := m.tasks.renderDrillModal()
 	// History lives behind the [H] overlay; the detail view must not
 	// inline-render task.* event rows by default.
 	hv := m.store.History(tk.ProjectCode, store.Subject{Kind: "task", ID: tk.ID})
@@ -60,7 +60,7 @@ func TestTaskDetailMKeyOpensCommentForm(t *testing.T) {
 	if m.form != nil {
 		t.Fatal("expected nil form before [M]")
 	}
-	m.tasks.handleDetailKey(keyMsg("M"))
+	m.tasks.handleDrillKey(keyMsg("M"))
 	if m.form == nil || m.formKind != formCommentAdd {
 		t.Fatalf("expected formCommentAdd, got form=%v kind=%v", m.form, m.formKind)
 	}

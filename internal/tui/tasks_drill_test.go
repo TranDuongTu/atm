@@ -38,7 +38,7 @@ func TestTaskDetailModalUsesNearFullScreenDimensions(t *testing.T) {
 	task := seedTask(t, m, "ATM", "sized modal")
 	m.tasks.openDetail(task.ID)
 
-	modal := m.tasks.renderDetailModal()
+	modal := m.tasks.renderDrillModal()
 	lines := strings.Split(modal, "\n")
 	if got, want := len(lines), m.tasks.contentHeight-2; got != want {
 		t.Fatalf("modal height = %d want %d", got, want)

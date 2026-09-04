@@ -1076,7 +1076,7 @@ func (m *Model) View() string {
 	// the new overlay.
 	out := b.String()
 	if len(m.tasks.drillStack) > 0 {
-		out = m.placeOverlay(out, m.tasks.renderDetailModal())
+		out = m.placeOverlay(out, m.tasks.renderDrillModal())
 	}
 	if m.spotlight.open {
 		out = m.placeOverlay(out, m.spotlight.renderOverlay())
