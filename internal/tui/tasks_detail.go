@@ -82,6 +82,20 @@ func (t *tasksModel) handleDrillKey(k tea.KeyMsg) tea.Cmd {
 		} else {
 			level.offset = 0
 		}
+	case "H":
+		// The history toggle belongs to the comment level alone: nothing
+		// else on the stack has an audit trail of its own to show.
+		if level.kind == drillComment {
+			level.history = !level.history
+			if level.history {
+				// The section is appended below the body, and a long comment
+				// leaves it off the bottom of the page — a toggle whose
+				// effect the reader cannot see reads as a dead key. Jump to
+				// the end, where the clamp lands it exactly on the section.
+				level.offset = len(t.drillPage(level).lines)
+			}
+			t.clampOffset(level, t.drillPage(level))
+		}
 	case "enter":
 		t.drillIntoCursorRow(level, page)
 	case "esc":
@@ -429,23 +443,20 @@ func (t *tasksModel) factsRows(tk *core.Task) []string {
 }
 
 // descriptionDrillLines is the DESCRIPTION drill-in: the whole description,
-// wrapped to the modal. Markdown rendering lands here in the last commit of
-// this plan.
+// rendered as markdown at the modal width.
 func (t *tasksModel) descriptionDrillLines(id string) []string {
 	tk, err := t.m.store.GetTask(id)
 	if err != nil {
 		return nil
 	}
-	body := strings.TrimSpace(tk.Description)
-	if body == "" {
-		return []string{"", taskDetailIndent + t.m.styles.Muted.Render("(no description)")}
-	}
-	w := t.detailContentWidth() - len(taskDetailIndent)
 	out := []string{""}
-	for _, line := range strings.Split(wordwrap.String(body, w), "\n") {
-		out = append(out, taskDetailIndent+line)
+	if strings.TrimSpace(tk.Description) == "" {
+		out = append(out, taskDetailIndent+t.m.styles.Muted.Render("(no description)"))
+	} else {
+		out = append(out, t.markdownRows(tk.Description)...)
 	}
-	return out
+	out = append(out, "")
+	return append(out, t.footerRows(detailDescFooterHints)...)
 }
 
 // drillPage is the content of whatever level the stack is on, with the
@@ -459,7 +470,7 @@ func (t *tasksModel) drillPage(level *drillLevel) drillPage {
 	case drillDescription:
 		return drillPage{lines: t.descriptionDrillLines(level.id)}
 	case drillComment:
-		return drillPage{lines: t.commentDrillLines(level.id)}
+		return drillPage{lines: t.commentDrillLines(level)}
 	}
 	return drillPage{}
 }

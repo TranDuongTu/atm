@@ -7,7 +7,6 @@ import (
 
 	"atm/internal/core"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/reflow/wordwrap"
 )
 
 const (
@@ -25,7 +24,11 @@ const (
 	detailNoKind = "(no kind)"
 )
 
-var detailThreadFooterHints = []string{"j/k move", "enter open", "esc back"}
+var (
+	detailThreadFooterHints  = []string{"j/k move", "enter open", "esc back"}
+	detailCommentFooterHints = []string{"j/k scroll", "H history", "esc back"}
+	detailDescFooterHints    = []string{"j/k scroll", "esc back"}
+)
 
 // partOfRows is the one topology edge the page carries: the parent named by
 // the current capability's Parenter hook — the same pure call the list's
@@ -160,16 +163,15 @@ func (t *tasksModel) threadPage(level *drillLevel) drillPage {
 	return page
 }
 
-// commentDrillLines is one comment read in full: its facts, then its body.
-// Markdown rendering and the history toggle land here in the last commit of
-// this plan.
-func (t *tasksModel) commentDrillLines(id string) []string {
-	c, err := t.m.store.GetComment(id)
+// commentDrillLines is one comment read in full: its facts, its body as
+// rendered markdown, and — when the level's toggle is on — its audit rows.
+func (t *tasksModel) commentDrillLines(level *drillLevel) []string {
+	c, err := t.m.store.GetComment(level.id)
 	if err != nil {
 		return []string{"", taskDetailIndent + t.m.styles.Warning.Render("(comment unavailable: "+err.Error()+")")}
 	}
-	w := t.detailContentWidth()
 	out := []string{""}
+	out = append(out, detailRow(t.m.styles, "TASK", c.TaskID))
 	out = append(out, detailRow(t.m.styles, "ACTOR", c.CreatedBy))
 	out = append(out, detailRow(t.m.styles, "WHEN", core.RFC3339UTC(c.CreatedAt)+"  ("+relTime(c.CreatedAt, core.Now())+")"))
 	if c.ReplyTo != "" {
@@ -178,7 +180,45 @@ func (t *tasksModel) commentDrillLines(id string) []string {
 	out = append(out, detailRow(t.m.styles, "LABELS", commentKind(c)))
 	out = append(out, "")
 	out = append(out, t.captionRows("BODY")...)
-	for _, line := range strings.Split(wordwrap.String(strings.TrimSpace(c.Body), w-len(taskDetailIndent)), "\n") {
+	out = append(out, t.markdownRows(c.Body)...)
+	if level.history {
+		out = append(out, "")
+		out = append(out, t.captionRows("HISTORY")...)
+		out = append(out, t.commentHistoryRows(c.ID)...)
+	}
+	out = append(out, "")
+	out = append(out, t.footerRows(detailCommentFooterHints)...)
+	return out
+}
+
+// commentHistoryRows is the comment's own audit trail, in the same
+// "[seq] time actor action" shape taskHistoryLines uses for a task.
+func (t *tasksModel) commentHistoryRows(id string) []string {
+	code, _, _, ok := core.ParseCommentID(id)
+	if !ok {
+		return []string{taskDetailIndent + t.m.styles.Muted.Render("(no history)")}
+	}
+	hv := t.m.store.History(code, core.Subject{Kind: "comment", ID: id})
+	if len(hv) == 0 {
+		return []string{taskDetailIndent + t.m.styles.Muted.Render("(no history)")}
+	}
+	out := make([]string, 0, len(hv))
+	for _, e := range hv {
+		out = append(out, fmt.Sprintf("%s[%d] %s %s %s",
+			taskDetailIndent, e.Seq, core.RFC3339UTC(e.At), e.Actor, e.Action))
+	}
+	return out
+}
+
+// markdownRows renders a body for the drill-in width, at the page indent.
+func (t *tasksModel) markdownRows(body string) []string {
+	w := t.detailContentWidth() - len(taskDetailIndent)
+	lines := renderMarkdown(body, w)
+	if len(lines) == 0 {
+		return []string{taskDetailIndent + t.m.styles.Muted.Render("(empty)")}
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
 		out = append(out, taskDetailIndent+line)
 	}
 	return out

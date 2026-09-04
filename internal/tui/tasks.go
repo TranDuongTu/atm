@@ -53,6 +53,10 @@ type drillLevel struct {
 	id     string
 	offset int
 	cursor int
+	// history is the comment level's HISTORY toggle. It lives on the level,
+	// not the model, so opening a second comment does not inherit the first
+	// one's toggle.
+	history bool
 }
 
 type sortMode int
