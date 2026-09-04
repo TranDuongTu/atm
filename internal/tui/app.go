@@ -451,6 +451,13 @@ func (m *Model) canMutate() bool { return true }
 // Art animates only then; anything covering the workspace freezes the phase
 // clock.
 func (m *Model) workspaceIdle() bool {
+	return len(m.tasks.drillStack) == 0 && m.spotlightReturnReady()
+}
+
+// spotlightReturnReady reports whether the launcher can safely take the top
+// layer again. A task drill is intentionally excluded: the launcher may be
+// restored over a detail modal after its spotlight-spawned form is dismissed.
+func (m *Model) spotlightReturnReady() bool {
 	return !m.spotlight.open &&
 		!(m.form != nil && m.form.Active) &&
 		m.confirm == confirmNone &&
@@ -613,7 +620,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // looks inert: the spotlight reopens over it before the user sees anything.
 func (m *Model) handleKey(k tea.KeyMsg) tea.Cmd {
 	cmd := m.dispatchKey(k)
-	if m.spotlightReturn != nil && m.workspaceIdle() {
+	if m.spotlightReturn != nil && m.spotlightReturnReady() {
 		s := *m.spotlightReturn
 		m.spotlightReturn = nil
 		// The reopened launcher's restored query owes the user its rows: the
@@ -829,14 +836,8 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 			m.projects.backToList()
 			return nil
 		}
-		if m.focused == paneTasks {
-			if m.tasks.view == tViewDetail {
-				if m.tasks.commentOverlay.id != "" {
-					return m.tasks.handleKey(k)
-				}
-				m.tasks.backToList()
-				return nil
-			}
+		if m.focused == paneTasks && len(m.tasks.drillStack) > 0 {
+			return m.tasks.handleKey(k)
 		}
 		// No detail to leave: ignore.
 		return nil
@@ -980,7 +981,7 @@ func (m *Model) submitForm() tea.Cmd {
 }
 
 func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
-	taskID := m.tasks.detail.id
+	taskID := m.tasks.detailID()
 	body := vals["body"]
 	var labels []string
 	for _, tok := range strings.Fields(vals["labels"]) {
@@ -1067,13 +1068,16 @@ func (m *Model) View() string {
 	// each modal, while the modal's own rows are blank-filled either side
 	// (see overlayLineAt) so underlying pane borders do not leak through.
 	//
-	// KEEP IN SYNC WITH workspaceIdle(): the nine gates below plus the setup
+	// KEEP IN SYNC WITH workspaceIdle(): the overlay gates below plus the setup
 	// branch above are exactly the states in which View renders something
 	// other than the plain workspace, and workspaceIdle() is their negation
 	// (it gates the background-art animation tick). Adding an overlay here
 	// without adding it to workspaceIdle() would let art animate underneath
 	// the new overlay.
 	out := b.String()
+	if len(m.tasks.drillStack) > 0 {
+		out = m.placeOverlay(out, m.tasks.renderDetailModal())
+	}
 	if m.spotlight.open {
 		out = m.placeOverlay(out, m.spotlight.renderOverlay())
 	}

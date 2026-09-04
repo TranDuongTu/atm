@@ -8,35 +8,29 @@ import (
 	"github.com/charmbracelet/bubbletea"
 )
 
-type taskDetailState struct {
-	id     string
-	task   *core.Task
-	lines  []string
-	offset int
-}
-
 func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
-	if t.commentOverlay.id != "" {
-		return t.handleCommentOverlayKey(k)
+	level := t.currentDrill()
+	if level == nil {
+		return nil
 	}
 	switch k.String() {
 	case "j", "down":
-		t.detail.offset++
+		level.offset++
 		t.clampDetail()
 	case "k", "up":
-		if t.detail.offset > 0 {
-			t.detail.offset--
+		if level.offset > 0 {
+			level.offset--
 		}
 	case "g":
-		t.detail.offset = 0
+		level.offset = 0
 	case "pgdown", " ":
-		t.detail.offset += t.contentHeight / 2
+		level.offset += t.contentHeight / 2
 		t.clampDetail()
 	case "pgup":
-		if t.detail.offset > t.contentHeight/2 {
-			t.detail.offset -= t.contentHeight / 2
+		if level.offset > t.contentHeight/2 {
+			level.offset -= t.contentHeight / 2
 		} else {
-			t.detail.offset = 0
+			level.offset = 0
 		}
 	case "e":
 		t.openTitleForm()
@@ -50,52 +44,40 @@ func (t *tasksModel) handleDetailKey(k tea.KeyMsg) tea.Cmd {
 		return t.requestRemoveTask()
 	case "M":
 		t.openCommentAddForm()
-	case "enter":
-		cs, _ := t.m.store.ListComments(t.detail.id)
-		if len(cs) > 0 {
-			return t.openCommentOverlay(cs[0].ID)
-		}
 	case "esc":
-		t.backToList()
+		t.popDrill()
 	}
 	return nil
 }
 
 func (t *tasksModel) openDetail(id string) tea.Cmd {
-	tk, err := t.m.store.GetTask(id)
-	if err != nil {
+	if _, err := t.m.store.GetTask(id); err != nil {
 		t.m.showToast("error: " + err.Error())
 		return nil
 	}
-	t.commentOverlay = commentOverlayModel{}
-	t.detail = taskDetailState{id: id, task: tk}
-	t.view = tViewDetail
-	t.renderDetail()
+	if t.detailID() == id {
+		return nil
+	}
+	t.pushDrill(drillLevel{kind: drillDetail, id: id})
 	return nil
 }
 
 func (t *tasksModel) backToList() {
-	t.view = tViewList
-	t.detail = taskDetailState{}
-	t.commentOverlay = commentOverlayModel{}
+	t.drillStack = nil
 }
 
-func (t *tasksModel) renderDetail() {
+func (t *tasksModel) detailLines() []string {
 	var b strings.Builder
-	tk := t.detail.task
-	if tk == nil {
-		return
+	tk, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
+		return nil
 	}
-	fmt.Fprintf(&b, "Task %s\n", tk.ID)
-	b.WriteString(sepLine("─", 78, t.width, 2))
-	b.WriteString("\n")
 	b.WriteString(t.m.styles.Muted.Render(tk.Title))
 	b.WriteString("\n\n")
 	b.WriteString(sectionCaption(t.m.styles, t.width, "FACTS"))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("id      %s", tk.ID)))
 	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("project %s", tk.ProjectCode)))
-	fmt.Fprintf(&b, "%s\n", dashboardLine(t.width, fmt.Sprintf("title   %s", tk.Title)))
 	if tk.Description == "" {
 		b.WriteString(dashboardLine(t.width, "description (none)"))
 		b.WriteString("\n")
@@ -147,46 +129,53 @@ func (t *tasksModel) renderDetail() {
 			}
 		}
 	}
-	t.detail.lines = strings.Split(b.String(), "\n")
-	t.clampDetail()
+	return strings.Split(b.String(), "\n")
 }
 
 func (t *tasksModel) clampDetail() {
-	maxOff := len(t.detail.lines) - t.contentHeight
+	level := t.currentDrill()
+	if level == nil {
+		return
+	}
+	maxOff := len(t.detailLines()) - t.detailModalContentHeight()
 	if maxOff < 0 {
 		maxOff = 0
 	}
-	if t.detail.offset > maxOff {
-		t.detail.offset = maxOff
+	if level.offset > maxOff {
+		level.offset = maxOff
 	}
-	if t.detail.offset < 0 {
-		t.detail.offset = 0
+	if level.offset < 0 {
+		level.offset = 0
 	}
 }
 
-func (t *tasksModel) renderDetailView() string {
-	if t.commentOverlay.id != "" {
-		return t.commentOverlay.view(t.m)
+func (t *tasksModel) detailModalContentHeight() int {
+	h := t.contentHeight - 4
+	if h < 1 {
+		return 1
 	}
-	end := t.detail.offset + t.contentHeight
-	if end > len(t.detail.lines) {
-		end = len(t.detail.lines)
+	return h
+}
+
+func (t *tasksModel) renderDetailModal() string {
+	level := t.currentDrill()
+	if level == nil || level.kind != drillDetail {
+		return ""
+	}
+	lines := t.detailLines()
+	t.clampDetail()
+	end := level.offset + t.detailModalContentHeight()
+	if end > len(lines) {
+		end = len(lines)
+	}
+	width := t.m.width - 6
+	if width < 20 {
+		width = 20
 	}
 	var b strings.Builder
-	for i := t.detail.offset; i < end; i++ {
-		b.WriteString(t.detail.lines[i])
+	for i := level.offset; i < end; i++ {
+		b.WriteString(fitLine(lines[i], width-4))
 		b.WriteString("\n")
 	}
-	return padToHeight(b.String(), t.contentHeight)
-}
-
-func (t *tasksModel) openCommentOverlay(id string) tea.Cmd {
-	c, err := t.m.store.GetComment(id)
-	if err != nil {
-		t.m.showToast("error: " + err.Error())
-		return nil
-	}
-	t.commentOverlay = commentOverlayModel{id: id, comment: c}
-	t.commentOverlay.render(t.m)
-	return nil
+	return titledBoxHeight(t.m.styles.DialogBody, width, "Task "+level.id, b.String(), t.contentHeight-2)
 }

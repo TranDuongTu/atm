@@ -38,8 +38,8 @@ func (t *tasksModel) openCreateForm() {
 }
 
 func (t *tasksModel) openTitleForm() {
-	tk := t.detail.task
-	if tk == nil {
+	tk, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
 		return
 	}
 	fields := []formField{
@@ -52,8 +52,8 @@ func (t *tasksModel) openTitleForm() {
 }
 
 func (t *tasksModel) openDescriptionForm() {
-	tk := t.detail.task
-	if tk == nil {
+	tk, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
 		return
 	}
 	fields := []formField{
@@ -66,8 +66,8 @@ func (t *tasksModel) openDescriptionForm() {
 }
 
 func (t *tasksModel) openLabelAddForm() {
-	tk := t.detail.task
-	if tk == nil {
+	_, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
 		return
 	}
 	validator := func(field, value string) error {
@@ -90,8 +90,8 @@ func (t *tasksModel) openLabelAddForm() {
 }
 
 func (t *tasksModel) openLabelRemoveForm() {
-	tk := t.detail.task
-	if tk == nil {
+	_, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
 		return
 	}
 	validator := func(field, value string) error {
@@ -115,14 +115,14 @@ func (t *tasksModel) openLabelRemoveForm() {
 
 func (t *tasksModel) requestRemoveTask() tea.Cmd {
 	t.m.confirm = confirmRemoveTask
-	t.m.confirmMsg = fmt.Sprintf("Remove task %s?", t.detail.id)
+	t.m.confirmMsg = fmt.Sprintf("Remove task %s?", t.detailID())
 	t.m.confirmArg = "History is lost. Registry labels are unaffected."
 	return nil
 }
 
 func (t *tasksModel) openCommentAddForm() {
-	tk := t.detail.task
-	if tk == nil {
+	tk, err := t.m.store.GetTask(t.detailID())
+	if err != nil {
 		return
 	}
 	labelsValidator := func(field, value string) error {
@@ -168,7 +168,7 @@ func (m *Model) doTaskCreate(vals map[string]string) tea.Cmd {
 }
 
 func (m *Model) doTaskSetTitle(vals map[string]string) tea.Cmd {
-	id := m.tasks.detail.id
+	id := m.tasks.detailID()
 	title := vals["title"]
 	if err := m.store.SetTitle(id, title, m.actor); err != nil {
 		m.showToast("error: " + err.Error())
@@ -180,7 +180,7 @@ func (m *Model) doTaskSetTitle(vals map[string]string) tea.Cmd {
 }
 
 func (m *Model) doTaskSetDescription(vals map[string]string) tea.Cmd {
-	id := m.tasks.detail.id
+	id := m.tasks.detailID()
 	desc := vals["description"]
 	if err := m.store.SetDescription(id, desc, m.actor); err != nil {
 		m.showToast("error: " + err.Error())
@@ -192,7 +192,7 @@ func (m *Model) doTaskSetDescription(vals map[string]string) tea.Cmd {
 }
 
 func (m *Model) doTaskLabelAdd(vals map[string]string) tea.Cmd {
-	id := m.tasks.detail.id
+	id := m.tasks.detailID()
 	suffix := vals["name"]
 	full := m.projectScope + ":" + suffix
 	if err := m.store.TaskLabelAdd(id, full, m.actor); err != nil {
@@ -205,7 +205,7 @@ func (m *Model) doTaskLabelAdd(vals map[string]string) tea.Cmd {
 }
 
 func (m *Model) doTaskLabelRemove(vals map[string]string) tea.Cmd {
-	id := m.tasks.detail.id
+	id := m.tasks.detailID()
 	suffix := vals["name"]
 	full := m.projectScope + ":" + suffix
 	if err := m.store.TaskLabelRemove(id, full, m.actor); err != nil {

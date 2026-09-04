@@ -1110,7 +1110,7 @@ func (m *Model) confirmYes() tea.Cmd {
 		m.refreshAll()
 		return nil
 	case confirmRemoveTask:
-		id := m.tasks.detail.id
+		id := m.tasks.detailID()
 		err := m.store.RemoveTask(id, m.actor)
 		m.confirm = confirmNone
 		if err != nil {

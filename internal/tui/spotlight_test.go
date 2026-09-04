@@ -1848,8 +1848,8 @@ func TestSpotlightTaskDrillAndTargetedAction(t *testing.T) {
 	if m.spotlight.open {
 		t.Error("activating a task action must close the launcher")
 	}
-	if m.tasks.detail.id != target.ID {
-		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+	if m.tasks.detailID() != target.ID {
+		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detailID(), target.ID)
 	}
 	if m.form == nil || m.formKind != formTaskSetTitle {
 		t.Errorf("activation must open the title form, formKind=%v", m.formKind)
@@ -1998,8 +1998,11 @@ func TestSpotlightTaskActionTargetsFromAnyState(t *testing.T) {
 			moveCursorToLabel(t, m, "Add comment")
 			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
-			if m.tasks.detail.id != target.ID {
-				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+			if m.tasks.detailID() != target.ID {
+				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detailID(), target.ID)
+			}
+			if m.workspaceIdle() {
+				t.Fatal("task action must push the task detail modal before replaying its action")
 			}
 			if m.form == nil || m.formKind != formCommentAdd {
 				t.Fatalf("activation must open the comment form, formKind=%v form=%v", m.formKind, m.form)
@@ -2053,8 +2056,8 @@ func TestSpotlightEveryTaskActionTargetsTheChosenTask(t *testing.T) {
 			moveCursorToLabel(t, m, tc.label)
 			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
-			if m.tasks.detail.id != target.ID {
-				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+			if m.tasks.detailID() != target.ID {
+				t.Fatalf("open task detail = %q, want the chosen task %q", m.tasks.detailID(), target.ID)
 			}
 			tc.check(t, m, target.ID)
 		})
@@ -2088,8 +2091,8 @@ func TestSpotlightFilteredTaskActionStaysTargeted(t *testing.T) {
 	}
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.tasks.detail.id != target.ID {
-		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detail.id, target.ID)
+	if m.tasks.detailID() != target.ID {
+		t.Errorf("open task detail = %q, want the chosen task %q", m.tasks.detailID(), target.ID)
 	}
 	wantFormKind(t, m, formCommentAdd)
 }
@@ -2131,8 +2134,8 @@ func TestSpotlightTaskActionOnAGoneTask(t *testing.T) {
 		t.Errorf("a gone task must leave the launcher open on the action list: open=%v level=%v",
 			m.spotlight.open, m.spotlight.level)
 	}
-	if m.form != nil || m.tasks.detail.id != "" {
-		t.Errorf("nothing may be replayed against a gone task: form=%v detail=%q", m.form, m.tasks.detail.id)
+	if m.form != nil || m.tasks.detailID() != "" {
+		t.Errorf("nothing may be replayed against a gone task: form=%v detail=%q", m.form, m.tasks.detailID())
 	}
 }
 

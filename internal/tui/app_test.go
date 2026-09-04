@@ -154,6 +154,8 @@ func mustNotContain(t *testing.T, view, sub string) {
 	}
 }
 
+func taskDetailOpen(m *Model) bool { return m.tasks.detailID() != "" }
+
 func leadingSpaces(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " "))
 }
@@ -556,7 +558,7 @@ func TestThemeCyclePreservesNavigationState(t *testing.T) {
 	update(t, m, "2")
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:open")
 	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
+	if !taskDetailOpen(m) {
 		t.Fatalf("setup: expected task detail")
 	}
 	update(t, m, "T")
@@ -569,8 +571,8 @@ func TestThemeCyclePreservesNavigationState(t *testing.T) {
 	if m.tasks.filter != "ATM:status:open" {
 		t.Errorf("filter = %q want ATM:status:open", m.tasks.filter)
 	}
-	if m.tasks.view != tViewDetail {
-		t.Errorf("tasks.view = %v want tViewDetail", m.tasks.view)
+	if !taskDetailOpen(m) {
+		t.Error("task detail modal closed while cycling the theme")
 	}
 }
 
@@ -1387,12 +1389,13 @@ func TestTaskDetailFactsLabelsHistory(t *testing.T) {
 	update(t, m, "enter")
 	// Detail-mode facts + labels render by default; History is hidden
 	// behind the [H] overlay.
-	v := m.tasks.View()
+	v := m.View()
 	mustContain(t, v, "Task "+tk.ID)
 	mustContain(t, v, "FACTS")
 	mustContain(t, v, "id      "+tk.ID)
 	mustContain(t, v, "project ATM")
-	mustContain(t, v, "title   Fix label reconciliation")
+	mustContain(t, v, "Fix label reconciliation")
+	mustNotContain(t, v, "title   Fix label reconciliation")
 	mustContain(t, v, "LABELS")
 	mustContain(t, v, "ATM:status:in-progress")
 	mustContain(t, v, "ATM:type:bug")
@@ -1452,8 +1455,8 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 			m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 			update(t, m, "2")
 			update(t, m, "enter")
-			if m.tasks.view != tViewDetail {
-				t.Fatalf("expected tViewDetail, got %v", m.tasks.view)
+			if !taskDetailOpen(m) {
+				t.Fatal("expected task detail modal")
 			}
 
 			// Snapshot the Projects pane content before scrolling.
@@ -1495,8 +1498,8 @@ func TestTaskDetailScrollDoesNotBreakPaneBorders(t *testing.T) {
 					t.Errorf("workspace line %d width=%d want %d after pane switches:\n%s", i, w, m.width, line)
 				}
 			}
-			if m.tasks.view != tViewDetail {
-				t.Errorf("pane switches dropped out of task detail: view=%v", m.tasks.view)
+			if !taskDetailOpen(m) {
+				t.Error("pane switches dropped out of task detail modal")
 			}
 			_ = tk
 		})
@@ -1511,12 +1514,12 @@ func TestTaskDetailLabelsRenderAsChips(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")
-	v := m.tasks.View()
+	v := m.View()
 	mustContain(t, v, " ATM:scrum:task ")
 	mustContain(t, v, " ATM:type:bug ")
 }
 
-func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
+func TestDetailOpensAsOverlay(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 36)
 	seedProject(t, m, "ATM", "Acme Task Manager")
@@ -1524,15 +1527,14 @@ func TestDetailOpensInsideFocusedPaneNotOverlay(t *testing.T) {
 	update(t, m, "s")
 	update(t, m, "2")
 	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
-		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
+	if !taskDetailOpen(m) {
+		t.Fatal("task detail modal did not open")
 	}
-	if m.form != nil || m.confirm != confirmNone || m.spotlight.open {
-		t.Fatalf("detail should not open an overlay: form=%v confirm=%v spotlight=%v", m.form != nil, m.confirm, m.spotlight.open)
+	if m.workspaceIdle() {
+		t.Fatal("detail modal must block the workspace")
 	}
 	v := m.View()
-	mustContain(t, v, "[1] Projects")
-	mustContain(t, v, "[2] Tasks")
+	mustContain(t, v, "░")
 	mustContain(t, v, "Task "+tk.ID)
 }
 
@@ -1550,11 +1552,11 @@ func TestEscBacksOnlyFocusedPaneOutOfDetail(t *testing.T) {
 	}
 	update(t, m, "2")
 	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
+	if !taskDetailOpen(m) {
 		t.Fatalf("setup: task detail not open")
 	}
 	update(t, m, "esc")
-	if m.tasks.view != tViewList {
+	if taskDetailOpen(m) {
 		t.Fatalf("tasks should return to list")
 	}
 	if m.projects.view != pViewDetail {
@@ -1707,8 +1709,8 @@ func TestTaskDetailDescriptionEdit(t *testing.T) {
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
-		t.Fatalf("expected task detail view, got %v", m.tasks.view)
+	if !taskDetailOpen(m) {
+		t.Fatal("expected task detail modal")
 	}
 	// The initial description renders.
 	mustContain(t, m.View(), "initial desc")
@@ -1763,8 +1765,8 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "")
 	update(t, m, "2")
 	update(t, m, "enter")
-	if m.tasks.view != tViewDetail {
-		t.Fatalf("expected task detail view, got %v", m.tasks.view)
+	if !taskDetailOpen(m) {
+		t.Fatal("expected task detail modal")
 	}
 
 	// Press [x] — a confirm overlay should appear.
@@ -1782,8 +1784,8 @@ func TestTaskDetailRemoveConfirm(t *testing.T) {
 		t.Errorf("confirm should be cleared after yes, got %v", m.confirm)
 	}
 	// View returns to the list.
-	if m.tasks.view != tViewList {
-		t.Errorf("expected list view after remove, got %v", m.tasks.view)
+	if taskDetailOpen(m) {
+		t.Error("expected list after remove")
 	}
 	// The detail overlay should no longer render the task.
 	mustNotContain(t, m.View(), "Doomed task")
@@ -1895,8 +1897,8 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 	m.tasks.setFocus(taskFocus{mode: focusOff}, "ATM:status:open")
 	m.focused = paneTasks
 	m.tasks.openDetail(tk.ID)
-	if m.tasks.view != tViewDetail {
-		t.Fatalf("tasks.view = %v want tViewDetail", m.tasks.view)
+	if !taskDetailOpen(m) {
+		t.Fatal("task detail modal did not open")
 	}
 	// Cursors non-zero so we can detect they were reset.
 	m.tasks.cursor = 5
@@ -1911,11 +1913,11 @@ func TestSwitchProjectClearsTasksAndLabelsState(t *testing.T) {
 		t.Fatalf("projectScope = %q want SCY", m.projectScope)
 	}
 	// Tasks pane must return to the list view, with no leftover filter/focus.
-	if m.tasks.view != tViewList {
-		t.Errorf("tasks.view = %v want tViewList (detail leaked across project switch)", m.tasks.view)
+	if taskDetailOpen(m) {
+		t.Error("task detail leaked across project switch")
 	}
-	if m.tasks.detail.id != "" {
-		t.Errorf("tasks.detail.id = %q want empty (stale detail survived switch)", m.tasks.detail.id)
+	if m.tasks.detailID() != "" {
+		t.Errorf("detail ID = %q want empty (stale detail survived switch)", m.tasks.detailID())
 	}
 	// Project-select defaults the pane to the new project's Pipeline lane.
 	// With no flow capability enabled there is no lane board to focus, so
