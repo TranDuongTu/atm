@@ -751,31 +751,45 @@ func normalizeSessionOutput(s, storePath string) string {
 	return s
 }
 
-// TestSessionContextRendersCapabilitiesBlock proves a project-scoped
-// session-context render contains the ## Capabilities block, with each
-// capability's own brief rendered verbatim. The cliState must carry the
-// PRODUCTION registry: the block is registry-driven, and testing it
+// TestSessionContextRendersCapabilityNames proves a project-scoped
+// session-context render NAMES the project's enabled capabilities and points
+// at the guide, instead of pasting each capability's brief. The cliState must
+// carry the PRODUCTION registry: the list is registry-driven, and testing it
 // registry-less proves nothing.
-func TestSessionContextRendersCapabilitiesBlock(t *testing.T) {
+//
+// This replaces the v2 briefs block. The brief lived in two places — the
+// capability's own markdown and every rendered context file — and only one of
+// them could be authoritative; naming the capability and sending the session
+// to `atm capability <name> guide` leaves exactly one.
+func TestSessionContextRendersCapabilityNames(t *testing.T) {
 	st := newTestCLI(t)
 	st.st.registry = productionRegistry()
 	st.st.fullRegistry = productionRegistry()
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "session-context", "--persona", "developer", "--project", "ATM")
-	mustContain(t, out, "## Capabilities")
-	// Brief is gone: a capability describes itself once, and the block
-	// renders that one summary.
-	mustContain(t, out, "- **channel** — Channel registry capability")
-	mustContain(t, out, "run `atm capability <name> guide`")
+	mustContain(t, out, "Enabled capabilities: channel, checklist, scrum, release")
+	mustContain(t, out, "operate one only through its guide")
+	if strings.Contains(out, "## Capabilities") {
+		t.Fatalf("the v2 briefs block must not survive:\n%s", out)
+	}
+	// The list is the project's ENABLED set, not the registry's roster: qa is
+	// registered but off by default, and it appears only once the project
+	// enables it. Naming every registered capability would send sessions to
+	// guides for capabilities this project does not run.
+	if strings.Contains(out, "qa") {
+		t.Fatalf("a capability the project has not enabled must not be named:\n%s", out)
+	}
+	_, _, _ = runArgs(st, "project", "capability", "add", "--project", "ATM", "--name", "qa", "--actor", "admin@cli:unset")
+	out = runArgsOut(t, st, "session-context", "--persona", "developer", "--project", "ATM")
+	mustContain(t, out, "Enabled capabilities: channel, checklist, scrum, qa, release")
 }
 
-// TestSessionContextProjectlessOmitsBlock proves a project-less render drops
-// the Capabilities section entirely (no ## Capabilities heading). The persona
-// is a stored project_optional record; the render runs with --project omitted
-// and the record is passed to Compose explicitly, the way an env-driven
-// caller scopes it. The block must drop with the project, not with the
-// persona.
-func TestSessionContextProjectlessOmitsBlock(t *testing.T) {
+// TestSessionContextProjectlessLeavesCapabilityNamesPlaceholder proves a
+// project-less render leaves <CAPABILITY_NAMES> literal — the generic-template
+// case every other empty field already renders that way. The persona is a
+// stored project_optional record; the render runs with --project omitted, so
+// the list drops with the PROJECT, not with the persona.
+func TestSessionContextProjectlessLeavesCapabilityNamesPlaceholder(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	doc := filepath.Join(t.TempDir(), "rover.md")
@@ -784,22 +798,22 @@ func TestSessionContextProjectlessOmitsBlock(t *testing.T) {
 	}
 	h.run("persona", "set", "--project", "ATM", "--file", doc, "--actor", "admin@cli:unset")
 	h.reset()
-	// With the project, the block is present.
+	// With the project, the names are real and the placeholder is gone.
 	out, _, code := h.run("session-context", "--persona", "rover", "--project", "ATM")
 	if code != ExitSuccess {
 		t.Fatalf("session-context exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	if !strings.Contains(out, "## Capabilities") {
-		t.Fatalf("with a project the block is present:\n%s", out)
+	if !strings.Contains(out, "Enabled capabilities: ") || strings.Contains(out, "<CAPABILITY_NAMES>") {
+		t.Fatalf("with a project the enabled set is named:\n%s", out)
 	}
-	// The same persona rendered WITHOUT a project: Compose is called with
-	// Code "" directly (the env-driven contract), and the block drops.
+	// The same render WITHOUT a project: Compose is called with Code ""
+	// (the env-driven contract), and the placeholder stays literal.
 	out, _, code = h.run("session-context", "--persona", "manager", "--project", "")
 	if code != ExitSuccess {
 		t.Fatalf("projectless session-context exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	if strings.Contains(out, "## Capabilities") {
-		t.Fatalf("project-less render must omit the block:\n%s", out)
+	if !strings.Contains(out, "<CAPABILITY_NAMES>") {
+		t.Fatalf("project-less render must leave the placeholder literal:\n%s", out)
 	}
 }
 
