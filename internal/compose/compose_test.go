@@ -377,26 +377,6 @@ func TestDispatchOptionsUnscopedKeepsAllSuited(t *testing.T) {
 	}
 }
 
-func TestDispatchOptionsMissing(t *testing.T) {
-	s := testService(optionsFake())
-	s.ExpectedChecklists = func(code string) []string { return []string{"qa-backlog", "dev-cycle"} }
-	opts, err := s.DispatchOptions("developer", "ATM", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"qa-backlog"}; !reflect.DeepEqual(opts.Missing, want) {
-		t.Fatalf("missing = %v, want %v", opts.Missing, want)
-	}
-	s.ExpectedChecklists = nil
-	opts, err = s.DispatchOptions("developer", "ATM", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if opts.Missing != nil {
-		t.Fatalf("missing = %v, want nil without an injected view", opts.Missing)
-	}
-}
-
 func TestDispatchOptionsNoProject(t *testing.T) {
 	opts, err := testService(optionsFake()).DispatchOptions("developer", "", "")
 	if err != nil {

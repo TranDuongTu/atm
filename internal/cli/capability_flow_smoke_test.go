@@ -172,12 +172,27 @@ func TestEveryCapabilityReportsOverAConvergedProject(t *testing.T) {
 		}
 	}
 	// And every guide is served, since that is the only discovery surface.
+	// The guide is GENERATED from the capability's declarations, so these
+	// are the sections a definition always produces.
 	for _, name := range []string{"scrum", "qa", "codereview", "release"} {
 		out := mustRun(t, h, "capability", name, "guide")
-		for _, want := range []string{"## Semantics", "## Actions", "## Converge"} {
+		for _, want := range []string{"capability — definition", "## Axes", "## Actions", "## Converged"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("%s guide missing %s", name, want)
 			}
 		}
+	}
+	// Lanes and sockets are the FLOW half of the vocabulary; a registry
+	// capability must not claim either, and the guide is where that shows.
+	for _, name := range []string{"scrum", "qa", "codereview"} {
+		out := mustRun(t, h, "capability", name, "guide")
+		for _, want := range []string{"## Lanes", "## Sockets", "FINISH:", "EVICT:"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s is a flow but its guide is missing %s", name, want)
+			}
+		}
+	}
+	if out := mustRun(t, h, "capability", "release", "guide"); strings.Contains(out, "## Lanes") || strings.Contains(out, "## Sockets") {
+		t.Fatalf("release is a registry capability; its guide must declare no lanes or sockets:\n%s", out)
 	}
 }

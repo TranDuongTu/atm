@@ -28,10 +28,6 @@ type Service struct {
 	EnabledCapabilities func(code string) []string
 	// CapabilitiesBlock returns the pre-rendered ## Capabilities block.
 	CapabilitiesBlock func(code string) string
-	// ExpectedChecklists returns the checklist names the project's enabled
-	// capabilities ship as seeds (registry view; empty until unit 4 ships
-	// seeds). nil behaves as empty.
-	ExpectedChecklists func(code string) []string
 }
 
 // Request is one dispatch's binding inputs. Code/ProjName/Task arrive
@@ -94,8 +90,10 @@ type DispatchOptions struct {
 	// Rows lists ALL project checklists in store order — any persona can run
 	// any checklist (spec decision 3); Default marks the pre-checked set.
 	Rows []ChecklistOption
-	// Missing are enabled capabilities' seed names with no project record:
-	// the dialog's expected-but-absent warning rows.
+	// Missing was the dialog's expected-but-absent rows, fed by a
+	// per-capability seed interface no capability ever implemented. What a
+	// project is MISSING is a question about its applied profile, not about
+	// its capabilities, and `atm profile status` is where it gets answered.
 	Missing []string
 }
 
@@ -137,13 +135,6 @@ func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOp
 			Default:  defaults[r.Name],
 			Warnings: core.ChecklistRequireWarnings(r, enabled, channels),
 		})
-	}
-	if s.ExpectedChecklists != nil {
-		for _, name := range s.ExpectedChecklists(code) {
-			if !have[name] {
-				opts.Missing = append(opts.Missing, name)
-			}
-		}
 	}
 	return opts, nil
 }

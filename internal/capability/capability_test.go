@@ -2,7 +2,6 @@ package capability
 
 import (
 	"errors"
-	"slices"
 	"testing"
 
 	"atm/internal/core"
@@ -19,7 +18,7 @@ type fakeCap struct {
 	calls   *[]string
 	cmdName string
 	summary string
-	guide   string
+	def     Definition
 	vocab   []core.Label
 }
 
@@ -27,9 +26,7 @@ func (f *fakeCap) Name() string { return f.name }
 
 func (f *fakeCap) Summary() string { return f.summary }
 
-func (f *fakeCap) Brief() string { return "" }
-
-func (f *fakeCap) Guide() string { return f.guide }
+func (f *fakeCap) Definition() Definition { return f.def }
 
 func (f *fakeCap) Vocabulary(code string) []core.Label { return f.vocab }
 
@@ -209,105 +206,5 @@ func TestRegistryParentOfResolvesByName(t *testing.T) {
 	var nilReg *Registry
 	if got := nilReg.ParentOf("withparent", core.Task{}); got != "" {
 		t.Fatalf("nil registry answered %q, want empty", got)
-	}
-}
-
-type fakeBriefCap struct{ brief string }
-
-func (f fakeBriefCap) Name() string                   { return "fake" }
-func (f fakeBriefCap) Summary() string                { return "fake summary" }
-func (f fakeBriefCap) Brief() string                  { return f.brief }
-func (f fakeBriefCap) Guide() string                  { return "" }
-func (f fakeBriefCap) Vocabulary(string) []core.Label { return nil }
-func (f fakeBriefCap) Annotate(core.Task) *Cell       { return nil }
-func (f fakeBriefCap) EnsureVocabulary(core.LabelService, string, string) ([]core.Label, error) {
-	return nil, nil
-}
-func (f fakeBriefCap) Command(Env) *cobra.Command { return &cobra.Command{} }
-
-func TestDescribeBriefFallsBackToSummary(t *testing.T) {
-	r := NewRegistry(fakeBriefCap{brief: "do X"}, fakeBriefCap{})
-	d := r.Describe()
-	if d[0].Brief != "do X" {
-		t.Fatalf("brief = %q", d[0].Brief)
-	}
-	if d[1].Brief != "fake summary" {
-		t.Fatalf("fallback = %q", d[1].Brief)
-	}
-}
-
-// TestDefaultNamesIsEveryRegistryCapabilityPlusTheDefaultFlow pins the
-// enablement default: a project that does not choose gets one flow, not
-// every flow, plus the lane-less capabilities.
-func TestDefaultNamesIsEveryRegistryCapabilityPlusTheDefaultFlow(t *testing.T) {
-	var calls []string
-	reg := NewRegistry(
-		&fakeCap{name: "channel", calls: &calls},
-		&fakeFlowCap{fakeCap: fakeCap{name: DefaultFlow, calls: &calls}},
-		&fakeFlowCap{fakeCap: fakeCap{name: "downstream", calls: &calls}},
-		&fakeCap{name: "checklist", calls: &calls},
-	)
-	want := []string{"channel", DefaultFlow, "checklist"}
-	got := reg.DefaultNames()
-	if len(got) != len(want) {
-		t.Fatalf("DefaultNames = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("DefaultNames = %v, want %v (registration order preserved)", got, want)
-		}
-	}
-	var nilReg *Registry
-	if nilReg.DefaultNames() != nil {
-		t.Error("nil registry must return nil")
-	}
-}
-
-// fakeFlowCap is a fakeCap that also satisfies Flow, so kind-sensitive
-// registry methods can be exercised without a real capability package.
-type fakeFlowCap struct{ fakeCap }
-
-// Guide satisfies NewRegistry's duty contract for flow fakes.
-func (f *fakeFlowCap) Guide() string {
-	return "## Duty: manager\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n"
-}
-
-func (f *fakeFlowCap) ClaimExprs() []string { return []string{f.name + ":*"} }
-func (f *fakeFlowCap) FinishLabel(code string) core.Label {
-	return core.Label{Name: code + ":" + f.name + "-stage:done"}
-}
-func (f *fakeFlowCap) EvictLabel(code string) core.Label {
-	return core.Label{Name: code + ":" + f.name + "-out:*"}
-}
-func (f *fakeFlowCap) Lanes(code string) LaneSet {
-	return LaneSet{Inbox: code + ":in", Pipeline: code + ":pipe", Out: code + ":out"}
-}
-
-// seedingCap is a fake that ships checklist seeds via the optional
-// ChecklistSeeder interface.
-type seedingCap struct {
-	fakeCap
-	seeds []core.ChecklistRecord
-}
-
-func (c *seedingCap) ChecklistSeeds() []core.ChecklistRecord { return c.seeds }
-
-func TestRegistryChecklistSeedNames(t *testing.T) {
-	var calls []string
-	a := &seedingCap{
-		fakeCap: fakeCap{name: "qa", calls: &calls},
-		seeds:   []core.ChecklistRecord{{Name: "qa-backlog"}, {Name: "qa-backlog"}, {Name: ""}},
-	}
-	b := &fakeCap{name: "channel", calls: &calls}
-	r := NewRegistry(a, b)
-	if got := r.ChecklistSeedNames(); !slices.Equal(got, []string{"qa-backlog"}) {
-		t.Fatalf("seed names = %v, want [qa-backlog]", got)
-	}
-	var nilReg *Registry
-	if nilReg.ChecklistSeedNames() != nil {
-		t.Fatal("nil registry must return nil")
-	}
-	if got := NewRegistry(b).ChecklistSeedNames(); got != nil {
-		t.Fatalf("registry without seeders = %v, want nil", got)
 	}
 }

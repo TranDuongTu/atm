@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"atm/internal/capability"
 	"atm/internal/core"
 
 	"github.com/spf13/cobra"
@@ -27,23 +28,23 @@ func (stubEnv) BindTaskIDFlags(cmd *cobra.Command, id, legacy *string) {
 	cmd.Flags().StringVar(id, "task", "", "task id")
 }
 
-func TestSkillGuideLoads(t *testing.T) {
-	if (Cap{}).Summary() == "" || (Cap{}).Brief() == "" || (Cap{}).Guide() == "" {
-		t.Fatal("summary, brief and guide must load from the embedded capability skill")
+// The guide is GENERATED, so these assertions are about the definition being
+// complete — not about prose someone remembered to update.
+func TestGuideRendersTheDefinition(t *testing.T) {
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
+	if !strings.Contains(guide, "# codereview capability — definition") {
+		t.Fatalf("guide has no heading:\n%s", guide)
+	}
+	if (Cap{}).Summary() == "" || (Cap{}).Definition().Identity == "" {
+		t.Fatal("a capability must say what it is")
 	}
 }
 
-func TestGuideHasTheRequiredSections(t *testing.T) {
-	guide := Cap{}.Guide()
-	for _, want := range []string{"## Semantics", "## Actions", "## Converge"} {
-		if !strings.Contains(guide, want) {
-			t.Errorf("guide missing %q", want)
-		}
-	}
-}
-
+// Every mounted verb is documented because the renderer WALKS the command
+// tree — this pins that it keeps doing so, which is the whole reason the
+// guide is generated rather than authored.
 func TestGuideDocumentsEveryMountedVerb(t *testing.T) {
-	guide := Cap{}.Guide()
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
 	for _, sub := range (Cap{}).Command(stubEnv{}).Commands() {
 		if !strings.Contains(guide, "atm capability codereview "+sub.Name()) {
 			t.Errorf("guide does not document the %q verb", sub.Name())
@@ -51,24 +52,18 @@ func TestGuideDocumentsEveryMountedVerb(t *testing.T) {
 	}
 }
 
-// The inbox-as-warning-surface rule is the reason absorb demands a PR, so the
-// guide must say it outright.
-func TestGuideStatesTheInboxIsTheWarningSurface(t *testing.T) {
-	guide := Cap{}.Guide()
-	for _, want := range []string{"The Inbox IS the warning surface", "no separate warning mechanism"} {
-		if !strings.Contains(guide, want) {
-			t.Errorf("guide missing %q", want)
-		}
-	}
-}
-
-func TestGuideNamesTheSocketsAndLanes(t *testing.T) {
-	guide := Cap{}.Guide()
+func TestGuideNamesTheDeclaredVocabulary(t *testing.T) {
+	guide := capability.RenderDefinition(Cap{}, (Cap{}).Command(stubEnv{}))
 	c := New()
 	for _, want := range []string{
-		c.FinishLabel("<CODE>").Name, c.EvictLabel("<CODE>").Name,
-		"codereview-inbox", "codereview-pipeline", "codereview-out-board",
-		`Meta["codereview"]`, "pr", "report",
+		c.FinishLabel("<CODE>").Name,
+		c.EvictLabel("<CODE>").Name,
+		"codereview-inbox",
+		"codereview-pipeline",
+		"codereview-out-board",
+		`Meta["codereview"]`,
+		"pr",
+		"follow_ups",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("guide missing %q", want)

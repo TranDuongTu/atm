@@ -118,36 +118,6 @@ A.
 C.
 `
 
-func TestParseCapability(t *testing.T) {
-	c, err := ParseCapability("demoflow", []byte(flowDoc))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Name != "demoflow" || c.Description != "Status transitions." {
-		t.Fatalf("%+v", c)
-	}
-	if strings.Join(c.Labels, ",") != "status:*,priority:*" || strings.Join(c.Boards, ",") != "backlog,all-tasks" {
-		t.Fatalf("labels=%v boards=%v", c.Labels, c.Boards)
-	}
-	if !strings.Contains(c.Body, "## Converge") {
-		t.Fatal("body lost")
-	}
-}
-
-func TestParseCapabilityErrors(t *testing.T) {
-	cases := map[string]string{
-		"missing labels":    "---\nname: x\ndescription: d\nboards: [b]\n---\n## Semantics\ns\n## Actions\na\n## Converge\nc",
-		"missing converge":  "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Semantics\ns\n## Actions\na",
-		"missing actions":   "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Semantics\ns\n## Converge\nc",
-		"missing semantics": "---\nname: x\ndescription: d\nlabels: [l]\nboards: [b]\n---\n## Actions\na\n## Converge\nc",
-	}
-	for label, doc := range cases {
-		if _, err := ParseCapability("x", []byte(doc)); err == nil {
-			t.Errorf("%s: expected error", label)
-		}
-	}
-}
-
 func TestParseIgnoresUnknownScalarKeys(t *testing.T) {
 	doc := "---\nname: x\ndescription: d\ncreated_at: 2026-07-22T00:00:00Z\ncreated_by: a@b:c\n---\nBody."
 	if _, err := ParsePersona("x", []byte(doc)); err != nil {
@@ -290,109 +260,7 @@ func TestParseChecklistSeedStillRequiresNamePurposeSteps(t *testing.T) {
 	}
 }
 
-func TestParseCapabilityBrief(t *testing.T) {
-	src := []byte("---\nname: x\ndescription: d\nbrief: Do the thing before working.\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
-	c, err := ParseCapability("x", src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Brief != "Do the thing before working." {
-		t.Fatalf("Brief = %q", c.Brief)
-	}
-	src2 := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\nboards: [xs]\n---\nbody\n\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
-	c2, err := ParseCapability("x", src2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c2.Brief != "" {
-		t.Fatalf("missing brief must parse to empty, got %q", c2.Brief)
-	}
-}
-
 const validDutySection = "## Duty: manager\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n"
-
-func TestDutyOf(t *testing.T) {
-	cases := []struct {
-		name    string
-		body    string
-		want    string
-		wantErr bool
-	}{
-		{"no duty section", "## Semantics\n\ns\n", "", false},
-		{"valid", "intro\n\n" + validDutySection, "manager", false},
-		{"other persona", "## Duty: tester\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n", "tester", false},
-		{"missing Route", "## Duty: manager\n\n### Triage\nt\n\n### Advance\na\n", "", true},
-		{"missing Triage", "## Duty: manager\n\n### Advance\na\n\n### Route\nr\n", "", true},
-		{"duplicate sections", validDutySection + "\n" + validDutySection, "", true},
-		{"invalid persona name", "## Duty: Not A Name\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n", "", true},
-		{"empty persona name", "## Duty:\n\n### Triage\nt\n\n### Advance\na\n\n### Route\nr\n", "", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := DutyOf(tc.body)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("DutyOf(%q) = %q, want error", tc.body, got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("DutyOf: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("DutyOf = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestParseCapabilityDuty(t *testing.T) {
-	flow := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\n---\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n\n" + validDutySection)
-	c, err := ParseCapability("x", flow)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Duty != "manager" {
-		t.Fatalf("Duty = %q, want manager", c.Duty)
-	}
-	registry := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\n---\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n")
-	c2, err := ParseCapability("x", registry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c2.Duty != "" {
-		t.Fatalf("registry capability Duty = %q, want empty", c2.Duty)
-	}
-	malformed := []byte("---\nname: x\ndescription: d\nlabels: [x:*]\n---\n## Semantics\ns\n\n## Actions\na\n\n## Converge\nc\n\n## Duty: manager\n\n### Triage\nt\n")
-	if _, err := ParseCapability("x", malformed); err == nil {
-		t.Fatal("a malformed duty section must be a parse error")
-	}
-}
-
-func TestDutyPersonaErr(t *testing.T) {
-	personas := []PersonaSpec{{Name: "manager"}}
-	if err := dutyPersonaErr([]CapabilitySpec{{Name: "a", Duty: "manager"}, {Name: "b"}}, personas); err != nil {
-		t.Fatalf("known persona: %v", err)
-	}
-	if err := dutyPersonaErr([]CapabilitySpec{{Name: "a", Duty: "ghost"}}, personas); err == nil {
-		t.Fatal("a duty targeting an unknown persona must error")
-	}
-}
-
-func TestBuiltinDutyContract(t *testing.T) {
-	for _, name := range []string{"scrum", "qa", "codereview"} {
-		c := MustCapability(name)
-		if c.Duty != "manager" {
-			t.Errorf("%s: Duty = %q, want manager", name, c.Duty)
-		}
-	}
-	for _, name := range []string{"release", "channel", "checklist"} {
-		c := MustCapability(name)
-		if c.Duty != "" {
-			t.Errorf("%s: registry capability Duty = %q, want empty", name, c.Duty)
-		}
-	}
-}
 
 func TestParsePersonaLaunchTUIAndKickoff(t *testing.T) {
 	src := []byte("---\nname: opsboard\ndescription: d\nlaunch: tui\nkickoff: Read <CONTEXT_FILE> and start on <TASK_ID>.\n---\nbody")

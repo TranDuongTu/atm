@@ -49,7 +49,6 @@ func (st *cliState) composeFor(s core.Service) *compose.Service {
 		Svc:                 s,
 		EnabledCapabilities: func(code string) []string { return narrowedRegistry(st, s, code).Names() },
 		CapabilitiesBlock:   func(code string) string { return composeCapabilitiesBlock(narrowedRegistry(st, s, code)) },
-		ExpectedChecklists:  func(code string) []string { return narrowedRegistry(st, s, code).ChecklistSeedNames() },
 	}
 }
 

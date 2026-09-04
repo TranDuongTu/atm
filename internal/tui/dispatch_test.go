@@ -1003,38 +1003,6 @@ func TestDispatchGreyedRowSelectableWithReason(t *testing.T) {
 	}
 }
 
-// dispatchSeedCap is a registry capability shipping a checklist seed —
-// the fixture for the expected-but-absent warning row.
-type dispatchSeedCap struct{ undescribedCap }
-
-func (c *dispatchSeedCap) Name() string { return "qa" }
-func (c *dispatchSeedCap) ChecklistSeeds() []core.ChecklistRecord {
-	return []core.ChecklistRecord{{Name: "qa-backlog"}}
-}
-
-func TestDispatchMissingSeedWarningRow(t *testing.T) {
-	m := newTestModelWithCaps(t, &dispatchSeedCap{})
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
-	m.SetSize(120, 40)
-	m.dispatcher = &fakeDispatcher{preview: "tmux"}
-	m.agentOptionsFn = testAgents
-	openDevDispatch(m)
-
-	d := &m.dispatchDlg
-	view := d.renderOverlay()
-	if !strings.Contains(view, "⚠ qa-backlog") || !strings.Contains(view, "not applied") {
-		t.Fatalf("missing shipped checklist must render a warning row:\n%s", view)
-	}
-	// The warning row is not selectable: the cursor stays within real rows.
-	for i := 0; i < 5; i++ {
-		d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	}
-	if d.rowCursor != len(d.rows)-1 {
-		t.Fatalf("rowCursor = %d, want %d (never onto the warning row)", d.rowCursor, len(d.rows)-1)
-	}
-}
-
 func TestDispatchLaunchOverrideCycle(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
@@ -1166,25 +1134,6 @@ func TestDispatchUnknownDefaultFallsBackToFirstPersona(t *testing.T) {
 	}
 	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
 		t.Fatalf("persona = %q, want first persona %q", got, want)
-	}
-}
-
-func TestDispatchMissingRowNeverInArgv(t *testing.T) {
-	m := newTestModelWithCaps(t, &dispatchSeedCap{})
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
-	m.SetSize(120, 40)
-	fd := &fakeDispatcher{preview: "tmux"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-	openDevDispatch(m)
-
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(fd.spawned) != 1 {
-		t.Fatal("must spawn")
-	}
-	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "qa-backlog") {
-		t.Errorf("missing shipped checklist must never ride the argv: %s", argv)
 	}
 }
 
