@@ -48,13 +48,19 @@ func TestPaneLayoutStripTopFooterBottom(t *testing.T) {
 		t.Fatalf("a task row (line %d) renders above the column header (line %d)", rowIdx, headerIdx)
 	}
 
-	// The footer is the pane's last line, its divider the one before.
-	last := lines[len(lines)-1]
-	if !strings.Contains(last, "showing 1-1 of 1") {
-		t.Fatalf("last pane line = %q, want the showing-count footer", last)
+	// The footer is the last line of the LIST BLOCK, its divider the one
+	// before. When the momentum box is drawn it takes the pane's bottom
+	// momentumBoxHeight lines, so the block ends exactly that far up.
+	tail := 0
+	if m.tasks.momentumShown() {
+		tail = momentumBoxHeight
 	}
-	if div := strings.TrimSpace(lines[len(lines)-2]); div == "" || strings.Trim(div, "─") != "" {
-		t.Fatalf("line above the footer = %q, want the footer divider", lines[len(lines)-2])
+	last := lines[len(lines)-1-tail]
+	if !strings.Contains(last, "showing 1-1 of 1") {
+		t.Fatalf("last list-block line = %q, want the showing-count footer", last)
+	}
+	if div := strings.TrimSpace(lines[len(lines)-2-tail]); div == "" || strings.Trim(div, "─") != "" {
+		t.Fatalf("line above the footer = %q, want the footer divider", lines[len(lines)-2-tail])
 	}
 }
 

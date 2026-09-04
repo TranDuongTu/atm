@@ -131,7 +131,8 @@ func TestActivityChartKeymapLabels(t *testing.T) {
 		"enter focused chart",
 		"Activity chart: inline persona breakdown",
 		"ctrl+up/down",
-		"Activity chart: time range; scroll inline drill",
+		"Activity chart / Momentum chart: time range; scroll inline drill",
+		"Momentum chart: show/hide (Tasks pane)",
 		"Open detail / confirm",
 	} {
 		if !strings.Contains(content, want) {

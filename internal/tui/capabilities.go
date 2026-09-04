@@ -137,6 +137,7 @@ func (c *capabilityModel) switchTo(name string) {
 	}
 	c.m.lanes.refresh()
 	c.m.lanes.selectDefault()
+	c.m.momentum.refresh()
 }
 
 // openOverlay opens the [C] switcher with the cursor on the current
