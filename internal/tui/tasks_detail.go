@@ -27,35 +27,63 @@ const (
 	detailViewHint = "[v] view"
 )
 
-const detailFooterHint = "e edit title · d description · b add label · B remove label · M comment · v view · esc back"
+// detailFooterHints is the DETAILS keymap, one hint per entry so the footer
+// can break BETWEEN hints instead of through one.
+var detailFooterHints = []string{
+	"e edit title", "d description", "b add label", "B remove label",
+	"M comment", "v view", "C thread", "j/k move", "enter drill in", "esc back",
+}
+
+// drillRow is one cursor target on a page: the line it starts at, and the
+// level enter opens from it.
+type drillRow struct {
+	line int
+	kind drillKind
+	id   string
+}
+
+// drillPage is a rendered level: its lines, and the rows a cursor can walk.
+// Rows are registered through addRow so a row's line index is always the
+// line it was actually written at — the two cannot drift apart.
+type drillPage struct {
+	lines []string
+	rows  []drillRow
+}
+
+func (p *drillPage) addRow(r drillRow, lines []string) {
+	r.line = len(p.lines)
+	p.rows = append(p.rows, r)
+	p.lines = append(p.lines, lines...)
+}
 
 // handleDrillKey routes a key at whatever level the drill stack is on.
-// Scrolling and esc are common to every level; anything else belongs to the
-// level's own handler, so a drill-in cannot inherit the DETAILS mutations.
+// Scrolling, row navigation and esc are common to every level; anything else
+// belongs to the level's own handler, so a drill-in cannot inherit the
+// DETAILS mutations.
 func (t *tasksModel) handleDrillKey(k tea.KeyMsg) tea.Cmd {
 	level := t.currentDrill()
 	if level == nil {
 		return nil
 	}
+	page := t.drillPage(level)
 	switch k.String() {
 	case "j", "down":
-		level.offset++
-		t.clampDrill()
+		t.drillCursorDown(level, page)
 	case "k", "up":
-		if level.offset > 0 {
-			level.offset--
-		}
+		t.drillCursorUp(level, page)
 	case "g":
 		level.offset = 0
 	case "pgdown", " ":
 		level.offset += t.drillContentHeight() / 2
-		t.clampDrill()
+		t.clampOffset(level, page)
 	case "pgup":
 		if level.offset > t.drillContentHeight()/2 {
 			level.offset -= t.drillContentHeight() / 2
 		} else {
 			level.offset = 0
 		}
+	case "enter":
+		t.drillIntoCursorRow(level, page)
 	case "esc":
 		t.popDrill()
 	default:
@@ -64,6 +92,105 @@ func (t *tasksModel) handleDrillKey(k tea.KeyMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// drillCursorDown is the one key that both scrolls and selects: with no cursor it
+// walks the page down until the first row is on screen and then takes it,
+// which is what "j moves toward the comments, then through them" means.
+func (t *tasksModel) drillCursorDown(level *drillLevel, page drillPage) {
+	if len(page.rows) == 0 {
+		level.offset++
+		t.clampOffset(level, page)
+		return
+	}
+	switch {
+	case level.cursor < 0:
+		if t.rowVisible(level, page, 0) {
+			level.cursor = 0
+			return
+		}
+		level.offset++
+		t.clampOffset(level, page)
+	case level.cursor+1 < len(page.rows):
+		level.cursor++
+		t.scrollToRow(level, page, level.cursor)
+	default:
+		// Past the last row the page keeps scrolling, so the sections below
+		// the comments stay reachable from the same key.
+		level.offset++
+		t.clampOffset(level, page)
+	}
+}
+
+// drillCursorUp reverses it: back up the rows, off the top of them, then scroll.
+func (t *tasksModel) drillCursorUp(level *drillLevel, page drillPage) {
+	switch {
+	case level.cursor > 0:
+		level.cursor--
+		t.scrollToRow(level, page, level.cursor)
+	case level.cursor == 0:
+		level.cursor = -1
+	default:
+		if level.offset > 0 {
+			level.offset--
+		}
+	}
+}
+
+func (t *tasksModel) drillIntoCursorRow(level *drillLevel, page drillPage) {
+	if level.cursor < 0 || level.cursor >= len(page.rows) {
+		return
+	}
+	r := page.rows[level.cursor]
+	t.pushDrill(drillLevel{kind: r.kind, id: r.id, cursor: initialCursor(r.kind)})
+}
+
+// initialCursor decides whether a level opens with a row selected. A list of
+// rows opens on its first one; a page of prose opens with no cursor at all,
+// so its j/k scroll rather than select.
+func initialCursor(kind drillKind) int {
+	if kind == drillThread {
+		return 0
+	}
+	return -1
+}
+
+func (t *tasksModel) rowVisible(level *drillLevel, page drillPage, i int) bool {
+	if i < 0 || i >= len(page.rows) {
+		return false
+	}
+	line := page.rows[i].line
+	return line >= level.offset && line < level.offset+t.drillContentHeight()
+}
+
+func (t *tasksModel) scrollToRow(level *drillLevel, page drillPage, i int) {
+	if i < 0 || i >= len(page.rows) {
+		return
+	}
+	line := page.rows[i].line
+	h := t.drillContentHeight()
+	if line < level.offset {
+		level.offset = line
+	}
+	// The row's body line has to clear the bottom edge too, or selecting a
+	// row would scroll its own preview off the page.
+	if bottom := line + detailCommentRowLines; bottom > level.offset+h {
+		level.offset = bottom - h
+	}
+	t.clampOffset(level, page)
+}
+
+func (t *tasksModel) clampOffset(level *drillLevel, page drillPage) {
+	maxOff := len(page.lines) - t.drillContentHeight()
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if level.offset > maxOff {
+		level.offset = maxOff
+	}
+	if level.offset < 0 {
+		level.offset = 0
+	}
 }
 
 // handleDetailActionKey is the DETAILS level's own keymap: the mutations,
@@ -83,7 +210,9 @@ func (t *tasksModel) handleDetailActionKey(k tea.KeyMsg) tea.Cmd {
 	case "M":
 		t.openCommentAddForm()
 	case "v":
-		t.pushDrill(drillLevel{kind: drillDescription, id: t.detailID()})
+		t.pushDrill(drillLevel{kind: drillDescription, id: t.detailID(), cursor: -1})
+	case "C":
+		t.pushDrill(drillLevel{kind: drillThread, id: t.detailID(), cursor: 0})
 	}
 	return nil
 }
@@ -96,7 +225,7 @@ func (t *tasksModel) openDetail(id string) tea.Cmd {
 	if t.detailID() == id {
 		return nil
 	}
-	t.pushDrill(drillLevel{kind: drillDetail, id: id})
+	t.pushDrill(drillLevel{kind: drillDetail, id: id, cursor: -1})
 	return nil
 }
 
@@ -117,6 +246,33 @@ func detailRow(styles Styles, label, value string) string {
 // detailContinuationRow is a row under a label, aligned to the value column.
 func detailContinuationRow(value string) string {
 	return taskDetailIndent + spaces(detailLabelW) + value
+}
+
+// footerRows renders the keymap, wrapped rather than truncated: a keymap cut
+// off at the modal edge silently stops advertising its last keys, which are
+// the ones a reader is least likely to already know. It breaks between
+// hints, never through one — "esc" on one line and "back" on the next is
+// worse than either.
+func (t *tasksModel) footerRows(hints []string) []string {
+	w := t.detailContentWidth() - len(taskDetailIndent)
+	var out []string
+	line := ""
+	for _, h := range hints {
+		next := h
+		if line != "" {
+			next = line + " · " + h
+		}
+		if line != "" && lipgloss.Width(next) > w {
+			out = append(out, taskDetailIndent+t.m.styles.KeyMenuDim.Render(line))
+			line = h
+			continue
+		}
+		line = next
+	}
+	if line != "" {
+		out = append(out, taskDetailIndent+t.m.styles.KeyMenuDim.Render(line))
+	}
+	return out
 }
 
 // captionRows renders a section caption at the page's own indent — the
@@ -158,43 +314,48 @@ func (t *tasksModel) statusBadge(tk *core.Task) string {
 	return toneStyle(cell.Tone).Render(cell.Text)
 }
 
-// detailLines builds the DETAILS page. The order is the reading order: what
-// this task IS (title), how it is going (status), what it says (description),
-// then the bookkeeping (facts, labels) and the keymap.
-func (t *tasksModel) detailLines() []string {
-	tk, err := t.m.store.GetTask(t.detailID())
+// detailPage builds the DETAILS page. The order is the reading order: what
+// this task IS (title), how it is going (status), what it says
+// (description), where it sits (part-of), what was said about it (comments),
+// then the bookkeeping and the keymap.
+//
+// The page is assembled head-then-tail so the comments digest knows how many
+// lines everything else costs before it decides how many rows it can afford.
+func (t *tasksModel) detailPage(level *drillLevel) drillPage {
+	tk, err := t.m.store.GetTask(level.id)
 	if err != nil {
-		return nil
+		return drillPage{}
 	}
 	w := t.detailContentWidth()
-	var b strings.Builder
-
 	title := truncateRunes(tk.Title, w-len(taskDetailIndent))
 	// DialogTitle pads a column either side; the heading owns its own indent
 	// here, and the rule under it has to start at the same column.
 	heading := t.m.styles.DialogTitle.Padding(0, 0)
-	fmt.Fprintf(&b, "\n%s%s\n", taskDetailIndent, heading.Render(title))
-	fmt.Fprintf(&b, "%s%s\n\n", taskDetailIndent, t.m.styles.HeaderLine.Render(repeat("=", lipgloss.Width(title))))
 
-	fmt.Fprintf(&b, "%s\n\n", detailRow(t.m.styles, "STATUS", t.statusLine(tk)))
-
-	for _, row := range t.descriptionRows(tk) {
-		fmt.Fprintf(&b, "%s\n", row)
+	head := []string{
+		"",
+		taskDetailIndent + heading.Render(title),
+		taskDetailIndent + t.m.styles.HeaderLine.Render(repeat("=", lipgloss.Width(title))),
+		"",
+		detailRow(t.m.styles, "STATUS", t.statusLine(tk)),
+		"",
 	}
-	b.WriteString("\n")
-
-	for _, row := range t.commentRows(tk) {
-		fmt.Fprintf(&b, "%s\n", row)
+	head = append(head, t.descriptionRows(tk)...)
+	head = append(head, "")
+	if rows := t.partOfRows(tk); len(rows) > 0 {
+		head = append(head, rows...)
+		head = append(head, "")
 	}
-	b.WriteString("\n")
 
-	for _, row := range t.factsRows(tk) {
-		fmt.Fprintf(&b, "%s\n", row)
-	}
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s%s\n", taskDetailIndent, t.m.styles.KeyMenuDim.Render(detailFooterHint))
+	tail := []string{""}
+	tail = append(tail, t.factsRows(tk)...)
+	tail = append(tail, "")
+	tail = append(tail, t.footerRows(detailFooterHints)...)
 
-	return strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	page := drillPage{lines: head}
+	t.commentsSection(&page, level, tk, len(head)+len(tail))
+	page.lines = append(page.lines, tail...)
+	return page
 }
 
 // statusLine is the cell's full text, tone-styled. It repeats the border
@@ -250,36 +411,6 @@ func (t *tasksModel) descriptionRows(tk *core.Task) []string {
 	return rows
 }
 
-// commentRows is the COMMENTS section as it stood before this page was
-// reshaped. The latest-N collapsed rows, the cursor and the thread drill-in
-// replace it in the next commit of this plan; it stays verbatim here so this
-// commit changes one thing at a time.
-func (t *tasksModel) commentRows(tk *core.Task) []string {
-	rows := t.captionRows("COMMENTS")
-	cs, _ := t.m.store.ListComments(tk.ID)
-	if len(cs) == 0 {
-		return append(rows, taskDetailIndent+t.m.styles.Muted.Render("(no comments)"))
-	}
-	now := core.Now()
-	for _, c := range cs {
-		labels := "(no labels)"
-		if len(c.Labels) > 0 {
-			labels = strings.Join(c.Labels, " ")
-		}
-		rows = append(rows, fmt.Sprintf("%s%s   %s   %s", taskDetailIndent,
-			c.CreatedBy, relTime(c.CreatedAt, now), truncateRunes(labels, 36)))
-		bodyLines := strings.Split(c.Body, "\n")
-		const maxLines = 6
-		for i := 0; i < len(bodyLines) && i < maxLines; i++ {
-			rows = append(rows, taskDetailIndent+"    "+bodyLines[i])
-		}
-		if len(bodyLines) > maxLines {
-			rows = append(rows, taskDetailIndent+"    …")
-		}
-	}
-	return rows
-}
-
 // factsRows is the bookkeeping tail: one compact facts line and the label
 // chips. Timestamps are relative here — the same form the list column uses,
 // and the only form that fits six facts on one line; the exact stamps live
@@ -317,32 +448,20 @@ func (t *tasksModel) descriptionDrillLines(id string) []string {
 	return out
 }
 
-// drillLines is the content of whatever level the stack is on.
-func (t *tasksModel) drillLines(level *drillLevel) []string {
+// drillPage is the content of whatever level the stack is on, with the
+// cursor rows that level offers.
+func (t *tasksModel) drillPage(level *drillLevel) drillPage {
 	switch level.kind {
 	case drillDetail:
-		return t.detailLines()
+		return t.detailPage(level)
+	case drillThread:
+		return t.threadPage(level)
 	case drillDescription:
-		return t.descriptionDrillLines(level.id)
+		return drillPage{lines: t.descriptionDrillLines(level.id)}
+	case drillComment:
+		return drillPage{lines: t.commentDrillLines(level.id)}
 	}
-	return nil
-}
-
-func (t *tasksModel) clampDrill() {
-	level := t.currentDrill()
-	if level == nil {
-		return
-	}
-	maxOff := len(t.drillLines(level)) - t.drillContentHeight()
-	if maxOff < 0 {
-		maxOff = 0
-	}
-	if level.offset > maxOff {
-		level.offset = maxOff
-	}
-	if level.offset < 0 {
-		level.offset = 0
-	}
+	return drillPage{}
 }
 
 func (t *tasksModel) drillContentHeight() int {
@@ -382,8 +501,9 @@ func (t *tasksModel) renderDrillModal() string {
 		return ""
 	}
 	title, hint := t.drillTitle(level)
-	lines := t.drillLines(level)
-	t.clampDrill()
+	page := t.drillPage(level)
+	t.clampOffset(level, page)
+	lines := page.lines
 	end := level.offset + t.drillContentHeight()
 	if end > len(lines) {
 		end = len(lines)
@@ -408,6 +528,10 @@ func (t *tasksModel) drillTitle(level *drillLevel) (title, hint string) {
 		return "Task " + level.id, ""
 	case drillDescription:
 		return "Description · " + level.id, ""
+	case drillThread:
+		return "Thread · " + level.id, ""
+	case drillComment:
+		return "Comment " + level.id, ""
 	}
 	return level.id, ""
 }

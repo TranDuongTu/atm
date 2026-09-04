@@ -219,11 +219,13 @@ func TestDetailFooterAdvertisesTheLiveKeys(t *testing.T) {
 	tk := seedTask(t, m, "ATM", "footer", "ATM:scrum:task")
 	m.refreshAll()
 
-	lines := openDetailModal(t, m, tk.ID)
-	footer := detailLineWith(t, lines, "esc back")
-	for _, want := range []string{"e edit title", "d description", "b add label", "M comment", "v view"} {
-		if !strings.Contains(footer, want) {
-			t.Errorf("footer %q missing %q", footer, want)
+	// The footer breaks between hints when the modal is narrow, so the
+	// assertion is per hint rather than per line.
+	body := strings.Join(openDetailModal(t, m, tk.ID), "\n")
+	for _, want := range []string{"e edit title", "d description", "b add label", "B remove label",
+		"M comment", "v view", "C thread", "j/k move", "enter drill in", "esc back"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("footer missing %q:\n%s", want, body)
 		}
 	}
 }

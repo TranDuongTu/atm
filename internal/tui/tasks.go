@@ -44,6 +44,8 @@ type drillKind int
 const (
 	drillDetail drillKind = iota
 	drillDescription
+	drillThread
+	drillComment
 )
 
 type drillLevel struct {

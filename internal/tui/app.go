@@ -792,6 +792,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		m.spotlight.openSpotlight()
 		return nil
 	case "C":
+		// Inside a task drill C is the thread view; the capability switcher
+		// owns the key only on the list, where there is no thread to open.
+		if m.focused == paneTasks && len(m.tasks.drillStack) > 0 {
+			return m.tasks.handleKey(k)
+		}
 		if m.focused == paneTasks && m.projectScope != "" {
 			m.capability.openOverlay()
 		}

@@ -1,6 +1,10 @@
 package tui
 
-import "sort"
+import (
+	"sort"
+
+	"atm/internal/core"
+)
 
 // groupNode is one task in the grouped view's tree: its row plus the rows
 // whose ParentOf named it. Built fresh at every refresh, never stored.
@@ -12,10 +16,17 @@ type groupNode struct {
 // parentIDOf asks the current capability for the row's parent. "" when no
 // registry (no scope), no hook, or no parent.
 func (t *tasksModel) parentIDOf(r taskRow) string {
-	if t.annReg == nil || r.task == nil {
+	return t.parentOf(r.task)
+}
+
+// parentOf is the hook call itself. The grouped list and the details page
+// both go through here, so the tree and the PART-OF row can never name
+// different parents. "" when no registry (no scope), no hook, or no parent.
+func (t *tasksModel) parentOf(tk *core.Task) string {
+	if t.annReg == nil || tk == nil {
 		return ""
 	}
-	return t.annReg.ParentOf(t.m.capability.current, *r.task)
+	return t.annReg.ParentOf(t.m.capability.current, *tk)
 }
 
 // syntheticParentRow fetches an out-of-set parent and marks it synthetic —
