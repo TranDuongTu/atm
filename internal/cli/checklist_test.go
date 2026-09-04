@@ -260,7 +260,9 @@ func TestChecklistSeedIsSubstrate(t *testing.T) {
 	if strings.Contains(out, "created") || strings.Contains(out, "skipped") {
 		t.Fatalf("substrate seed must not report record writes:\n%s", out)
 	}
-	// No record appeared.
-	recs := runArgsOut(t, st, "checklist", "list", "--project", "ATM")
+	// No record appeared. --all, not a bare list: `checklist list` requires
+	// a persona and CI runs with no ATM_PERSONA in the environment (the
+	// developing session's own env leaked in here once and masked it).
+	recs := runArgsOut(t, st, "checklist", "list", "--project", "ATM", "--all")
 	mustNotContain(t, recs, "empty-project")
 }
