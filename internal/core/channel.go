@@ -146,6 +146,10 @@ type ChannelRecord struct {
 	// endpoints existed keep working; new code reads Endpoints.
 	Endpoints []ChannelEndpoint `json:"endpoints,omitempty"`
 	Address   ChannelAddress    `json:"address,omitzero"`
+	// Origin is reset provenance: user | <profile>@<version>. A channel
+	// applied from a profile restores its purpose and role hint from that
+	// version; its endpoints are project facts and are never part of it.
+	Origin string `json:"origin,omitempty"`
 }
 
 // Home is the endpoint content lands in.
@@ -347,6 +351,11 @@ func ChannelPayloadFrom(rec ChannelRecord) map[string]any {
 	if rec.RoleHint != "" && rec.RoleHint != ChannelRoleHome {
 		m["role_hint"] = rec.RoleHint
 	}
+	if rec.Origin != "" && rec.Origin != "user" {
+		// user is the default an unwritten key already means; writing it
+		// would churn every record that predates origins on first edit.
+		m["origin"] = rec.Origin
+	}
 	eps := rec.Endpoints
 	if len(eps) == 0 && rec.Type != "" {
 		// A caller still speaking the single-address shape writes one
@@ -453,9 +462,12 @@ func ChannelFromTask(code string, t Task) (*ChannelRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("task %s: %w", t.ID, err)
 	}
-	rec := &ChannelRecord{TaskID: t.ID, Name: channelStr(m["name"]), Purpose: t.Description, RoleHint: channelStr(m["role_hint"])}
+	rec := &ChannelRecord{TaskID: t.ID, Name: channelStr(m["name"]), Purpose: t.Description, RoleHint: channelStr(m["role_hint"]), Origin: channelStr(m["origin"])}
 	if rec.Name == "" {
 		rec.Name = t.Title
+	}
+	if rec.Origin == "" {
+		rec.Origin = "user"
 	}
 	if rec.RoleHint == "" {
 		rec.RoleHint = ChannelRoleHome

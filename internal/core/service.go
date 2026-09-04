@@ -67,6 +67,9 @@ type ChannelService interface {
 	// empty kind reads as use.
 	AddChannelStamp(code, name, typ, kind, note, actor string) error
 	MigrateReposToChannels(code, actor string) (migrated int, unwired []string, skipped []string, err error)
+	// ResetChannelRecord restores the channel's purpose and role hint from
+	// its OWN origin version; endpoints and wiring are untouched.
+	ResetChannelRecord(code, name, actor string) (*ChannelRecord, error)
 }
 
 type ChecklistService interface {
@@ -76,6 +79,8 @@ type ChecklistService interface {
 	ChecklistRecords(code string) ([]ChecklistRecord, error)
 	SuitedChecklists(code, persona string) ([]ChecklistRecord, error)
 	GetChecklist(code, name string) (*ChecklistRecord, error)
+	// ResetChecklistRecord restores the record from its OWN origin version.
+	ResetChecklistRecord(code, name, actor string) (*ChecklistRecord, error)
 }
 
 type LabelService interface {
@@ -221,4 +226,11 @@ type ProfileService interface {
 	// InstallProfile installs a built artifact from a local file. A
 	// non-empty wantDigest must match the artifact's own.
 	InstallProfile(artifactPath, wantDigest string) (ProfileEntry, error)
+	// PlanProfile reports what applying p to the project would do, writing
+	// nothing. ApplyProfile does it: records are created, updated, or
+	// restamped per the plan; conflicts stay untouched unless force.
+	// Neither enables capabilities — the caller that owns the registry
+	// does that, so an unknown name is refused before any write.
+	PlanProfile(code string, p *Profile) (*ApplyPlan, error)
+	ApplyProfile(code string, p *Profile, force bool, actor string) (*ApplyPlan, error)
 }

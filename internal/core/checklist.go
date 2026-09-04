@@ -3,7 +3,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,11 +86,12 @@ type ChecklistRecord struct {
 	Origin  string `json:"origin"`
 }
 
-var checklistOriginRe = regexp.MustCompile(`^shipped:[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
-
-// ValidChecklistOrigin reports whether origin is a legal provenance value.
+// ValidChecklistOrigin reports whether origin is a legal provenance value:
+// user, <profile>@<version>, or a legacy shipped:* value — the same rule
+// every record kind shares (ParseOrigin).
 func ValidChecklistOrigin(o string) bool {
-	return o == "user" || o == "shipped:atm" || checklistOriginRe.MatchString(o)
+	_, err := ParseOrigin(o)
+	return err == nil
 }
 
 // DefaultChecklistSet narrows a session's suited checklists by capability

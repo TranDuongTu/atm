@@ -32,6 +32,7 @@ func newChecklistCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newChecklistListCmd(st))
 	cmd.AddCommand(newChecklistShowCmd(st))
 	cmd.AddCommand(newChecklistSetCmd(st))
+	cmd.AddCommand(newChecklistResetCmd(st))
 	cmd.AddCommand(newChecklistRemoveCmd(st))
 	return cmd
 }
@@ -370,6 +371,50 @@ func newChecklistSetCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", "checklist document to import ('-' reads stdin)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("file")
+	return cmd
+}
+
+// newChecklistResetCmd restores a record from the profile version it came
+// from — its OWN origin version, never the newest installed one.
+func newChecklistResetCmd(st *cliState) *cobra.Command {
+	var name string
+	cmd := &cobra.Command{
+		Use:   "reset",
+		Short: "Restore a checklist from the profile version it came from",
+		Long: "Reset discards local edits and restores the record from its OWN origin " +
+			"version — not the newest installed one. Reset means back to what you " +
+			"were given; upgrading is `atm profile apply`. A record the project " +
+			"authored itself has no source to restore from and is refused; one " +
+			"whose version is not installed here names it.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, err := checklistProject(cmd)
+			if err != nil {
+				return err
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := requireChecklistCapability(s, project); err != nil {
+				return err
+			}
+			rec, err := s.ResetChecklistRecord(project, name, actor)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "checklist": rec}, func() {
+				fmt.Fprintf(st.stdout(), "reset checklist %s to %s\n", rec.Name, rec.Origin)
+			})
+		},
+	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
+	cmd.Flags().StringVar(&name, "name", "", "checklist name")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
