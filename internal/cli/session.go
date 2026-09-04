@@ -10,6 +10,7 @@ import (
 	"atm/internal/capability"
 	"atm/internal/compose"
 	"atm/internal/core"
+	"atm/internal/profile"
 	"atm/internal/session"
 
 	"github.com/spf13/cobra"
@@ -25,8 +26,9 @@ type sessionOpts struct {
 	Capability  string
 	Agent       string
 	Task        string
-	Checklists  []string // explicit --checklist selection; nil = computed default
-	Launch      string   // --launch override; "" = persona default
+	Checklist   string // the ACTION this dispatch runs; "" = ad-hoc bare-persona
+	Mode        string // --mode override; "" = the checklist's own mode
+	Launch      string // --launch vehicle override; "" = persona default
 	Integration string
 	DefaultArgs []string
 	ExtraArgs   []string
@@ -48,6 +50,18 @@ func (st *cliState) composeFor(s core.Service) *compose.Service {
 	return &compose.Service{
 		Svc:                 s,
 		EnabledCapabilities: func(code string) []string { return narrowedRegistry(st, s, code).Names() },
+		// Dispatch warnings and `atm profile status` answer the same
+		// question, so they run the same computation over the same reads.
+		Readiness: func(code string, agents []string) *profile.Readiness {
+			if code == "" {
+				return nil
+			}
+			r, err := readinessFor(s, code, agents)
+			if err != nil {
+				return nil
+			}
+			return r
+		},
 	}
 }
 
@@ -79,21 +93,25 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		return err
 	}
 	csvc := st.composeFor(s)
-	persona, err := csvc.ResolvePersona(opts.Project, opts.Persona)
+	// The persona derives from the ACTION (its suits) unless overridden, so
+	// routing asks compose for it rather than reading --persona directly.
+	persona, err := csvc.DispatchPersona(compose.Request{
+		Checklist: opts.Checklist, Code: opts.Project, Persona: opts.Persona,
+	})
 	if err != nil {
 		return err
 	}
-	// Routing reads the EFFECTIVE launch mode — the --launch override when
+	// Routing reads the EFFECTIVE launch vehicle — the --launch override when
 	// set, else the persona's default — validated before any route so a bad
 	// value fails even for tui personas.
 	if opts.Launch != "" && opts.Launch != "prompt" && opts.Launch != "hook" && opts.Launch != "tui" {
 		return fmt.Errorf("%w: --launch must be prompt, hook, or tui, got %q", ErrUsage, opts.Launch)
 	}
-	mode := compose.LaunchModeOf(persona)
+	vehicle := compose.LaunchModeOf(persona)
 	if opts.Launch != "" {
-		mode = opts.Launch
+		vehicle = opts.Launch
 	}
-	if mode == "tui" {
+	if vehicle == "tui" {
 		// The TUI ignores --project/--agent/--task/--capability, exactly as
 		// the former admin route did; positional args still reject.
 		if len(opts.ExtraArgs) > 0 {
@@ -167,7 +185,8 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		ProjName:    projName,
 		Task:        opts.Task,
 		Capability:  opts.Capability,
-		Checklists:  opts.Checklists,
+		Checklist:   opts.Checklist,
+		Mode:        opts.Mode,
 		Launch:      opts.Launch,
 		Launcher:    l,
 		Model:       sel.Model,
@@ -207,27 +226,25 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 // plumbing: thin-pointer subagent plugins call it at dispatch to render the
 // prompt without launching a host agent.
 func newSessionContextCmd(st *cliState) *cobra.Command {
-	var opts struct {
-		Persona    string
-		Project    string
-		Actor      string
-		Capability string
-		Task       string
-	}
+	var req contextRequest
 	cmd := &cobra.Command{
 		Use:    "session-context",
-		Short:  "Print a persona's rendered session prompt to stdout",
+		Short:  "Print a dispatch's rendered session prompt to stdout",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderSessionContext(st, opts.Persona, opts.Project, opts.Actor, opts.Capability, opts.Task)
+			return renderSessionContext(st, req)
 		},
 	}
-	cmd.Flags().StringVar(&opts.Persona, "persona", "", "persona name")
-	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project code (optional; when absent, placeholders are left for env-driven use)")
-	cmd.Flags().StringVar(&opts.Actor, "actor", "", "actor id (optional)")
-	cmd.Flags().StringVar(&opts.Capability, "capability", "", "scope to one capability")
-	cmd.Flags().StringVar(&opts.Task, "task", "", "assign the session a task (rendered into the prompt; not validated here)")
-	_ = cmd.MarkFlagRequired("persona")
+	cmd.Flags().StringVar(&req.Persona, "persona", "", "persona name (derived from the checklist's suits when omitted)")
+	cmd.Flags().StringVar(&req.Checklist, "checklist", "", "the ACTION to render the context for")
+	// Mode changes no rendered text, but it is part of the dispatch being
+	// previewed: accepting it here means the preview validates the same
+	// dispatch the launch would run, refusals included.
+	cmd.Flags().StringVar(&req.Mode, "mode", "", "override the checklist's mode: eager|interactive")
+	cmd.Flags().StringVar(&req.Project, "project", "", "ATM project code (optional; when absent, placeholders are left for env-driven use)")
+	cmd.Flags().StringVar(&req.Actor, "actor", "", "actor id (optional)")
+	cmd.Flags().StringVar(&req.Capability, "capability", "", "scope to one capability")
+	cmd.Flags().StringVar(&req.Task, "task", "", "assign the session a task (rendered into the prompt; not validated here)")
 	return cmd
 }
 
@@ -243,7 +260,9 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 		Short:  "Print the ATM manager system prompt to stdout (alias of session-context --persona manager)",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderSessionContext(st, "manager", opts.Project, opts.Actor, "", "")
+			return renderSessionContext(st, contextRequest{
+				Persona: "manager", Project: opts.Project, Actor: opts.Actor,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&opts.Project, "project", "", "ATM project code")
@@ -251,33 +270,55 @@ func newManageContextCmd(st *cliState) *cobra.Command {
 	return cmd
 }
 
+// contextRequest is what a context-only render is asked for. It mirrors the
+// launch inputs so `session-context` cannot render something a real dispatch
+// would not produce.
+type contextRequest struct {
+	Persona    string
+	Checklist  string
+	Mode       string
+	Project    string
+	Actor      string
+	Capability string
+	Task       string
+}
+
 // renderSessionContext is the shared render path for `session-context` and the
-// `manage-context` alias: a context-only Compose (no launcher, no argv) with
-// the same default checklist set a real launch would carry.
-func renderSessionContext(st *cliState, persona, project, actor, capability, task string) error {
+// `manage-context` alias: a context-only Compose (no launcher, no argv) over
+// the same binding a real launch runs.
+func renderSessionContext(st *cliState, req contextRequest) error {
 	s, err := st.openStore()
 	if err != nil {
 		return err
 	}
 	var projName string
-	if project != "" {
-		projName = project
-		if p, err := s.GetProject(project); err == nil {
+	if req.Project != "" {
+		projName = req.Project
+		if p, err := s.GetProject(req.Project); err == nil {
 			projName = p.Name
 		}
 	}
 	plan, err := st.composeFor(s).Compose(compose.Request{
-		Persona:    persona,
-		Code:       project,
+		Persona:    req.Persona,
+		Checklist:  req.Checklist,
+		Mode:       req.Mode,
+		Code:       req.Project,
 		ProjName:   projName,
-		Task:       task,
-		Capability: capability,
-		Actor:      actor,
+		Task:       req.Task,
+		Capability: req.Capability,
+		Actor:      req.Actor,
 	})
 	if err != nil {
 		return err
 	}
-	return st.emit(st.stdout(), map[string]any{"persona": persona, "context": plan.ContextText}, func() {
+	// Warnings go to stderr here for the same reason they do on the launch
+	// path: this IS the dispatch, rendered instead of run. A preview that
+	// silently drops what a real launch would print is a preview of a
+	// different dispatch.
+	for _, w := range plan.Warnings {
+		fmt.Fprintln(st.stderr(), "warning: "+w)
+	}
+	return st.emit(st.stdout(), map[string]any{"persona": plan.Persona, "context": plan.ContextText}, func() {
 		fmt.Fprint(st.stdout(), plan.ContextText)
 	})
 }

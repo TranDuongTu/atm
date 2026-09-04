@@ -1,11 +1,25 @@
 // Package compose is the single choke point for session binding
-// (DispatchV2 spec §5): it resolves a persona's dispatch defaults, computes
-// the suits-based default checklist set narrowed by capability scope,
-// applies overrides, validates requires (warn, never block), renders the
-// session context, and builds the host argv/env. The CLI launcher and the
-// TUI dispatch dialog both consume it, so they cannot diverge. Like
-// internal/session it stays registry-free: adapters inject the enabled
-// capability names and the pre-rendered capabilities block.
+// (DispatchV2 spec §5, plan §3.7): a dispatch names an ACTION — one
+// checklist — and everything else derives. The persona comes from the
+// action's suits, the mode from the action's own frontmatter, the eligible
+// task from its targets expression; requires are validated into warnings
+// that never block; the session context is rendered and the host argv/env
+// built. The CLI launcher and the TUI dispatch dialog both consume it, so
+// they cannot diverge.
+//
+// The two axes this package keeps apart:
+//
+//   - MODE is the session's autonomy and is user-facing: eager (spawned with
+//     a kickoff, executes immediately), interactive (context rendered, waits
+//     for the human), resident (future — lives on its channels; refused at
+//     launch). It rides on the checklist, because autonomy is a property of
+//     the work, and is dialog-overridable.
+//   - VEHICLE is how the host process is started — prompt, hook, or tui. It
+//     is launcher plumbing, invisible to the user, and stays with the
+//     persona/agent.
+//
+// Like internal/session it stays registry- and store-free: adapters inject
+// the enabled capability names and the readiness computation.
 package compose
 
 import (
@@ -15,12 +29,13 @@ import (
 	"strings"
 
 	"atm/internal/core"
+	"atm/internal/profile"
 	"atm/internal/session"
 	"atm/skills"
 )
 
-// Service composes session plans over the domain service. The two funcs are
-// adapter-injected registry views; nil behaves as empty.
+// Service composes session plans over the domain service. The funcs are
+// adapter-injected views; nil behaves as empty.
 type Service struct {
 	Svc core.Service
 	// EnabledCapabilities returns the project's enabled capability names
@@ -29,20 +44,39 @@ type Service struct {
 	// rather than pasting each brief: the guide is the definition, and a
 	// second copy in every rendered context is a copy that can go stale.
 	EnabledCapabilities func(code string) []string
+	// Readiness runs THE readiness computation (profile.ComputeReadiness) for
+	// this project over the given agents. It is injected rather than called
+	// directly because assembling its input is a pile of store reads, which
+	// belong to the adapters.
+	//
+	// Dispatch warnings come from here so that a launch and `atm profile
+	// status` cannot disagree about whether an action is ready: one
+	// computation, several surfaces. nil falls back to the capability- and
+	// channel-only evaluation in core, which is the same answer minus the
+	// agent-relative attestation rungs.
+	Readiness func(code string, agents []string) *profile.Readiness
 }
 
 // Request is one dispatch's binding inputs. Code/ProjName/Task arrive
 // resolved and validated by the caller — launch-time project auto-create and
 // task-ownership checks are CLI UX, not binding.
 type Request struct {
-	Persona    string
-	Code       string // "" for project-optional personas
-	ProjName   string
-	Task       string
+	// Checklist is the ACTION being dispatched — the one fact a dispatch
+	// starts from. Empty is the ad-hoc bare-persona dispatch, which renders
+	// the no-checklist fallback and requires an explicit Persona.
+	Checklist string
+	Code      string // "" for project-optional personas
+	ProjName  string
+	Task      string
+	// Persona overrides the action's suits[0]. Rare: the action names the
+	// persona that runs it, and disagreeing with that is a deliberate act.
+	Persona string
+	// Mode overrides the action's own mode (eager|interactive). "resident"
+	// is refused at launch — it is visible in the vocabulary, not runnable.
+	Mode       string
 	Capability string
-	Checklists []string // override; nil = computed default set
-	Launch     string   // override; "" = persona default
-	Actor      string   // override; "" computes persona@launcher:model (or stays empty for context-only renders)
+	Launch     string // VEHICLE override; "" = the persona's default
+	Actor      string // override; "" computes persona@launcher:model (or stays empty for context-only renders)
 
 	Launcher    session.Launcher // nil = context-only (no argv)
 	Model       string
@@ -56,14 +90,29 @@ type Request struct {
 
 // Plan is the composed session binding.
 type Plan struct {
-	Mode        string            // prompt | hook | tui
+	Vehicle     string            // prompt | hook | tui — how the host starts
+	Mode        string            // eager | interactive — the session's autonomy
 	Argv        []string          // nil for tui and context-only requests
 	EnvValues   map[string]string // merged over os.Environ by the caller
 	ContextPath string
 	ContextText string
-	Checklists  []string // resolved names, selection order
-	Warnings    []string // unmet requires — never blocking
+	Checklist   string   // the resolved action; "" for an ad-hoc dispatch
+	Persona     string   // the resolved persona, derived or overridden
+	Warnings    []string // unmet requires and target mismatches — never blocking
 	Actor       string
+}
+
+// DispatchPersona resolves the persona a dispatch will run as, from the same
+// inputs and by the same rule Compose uses: the action's suits[0] unless
+// overridden. The launcher needs it BEFORE composing — the vehicle decides
+// whether this dispatch is a host process or the TUI — and deriving it a
+// second time in the CLI is how the two would drift apart.
+func (s *Service) DispatchPersona(req Request) (core.Persona, error) {
+	action, err := s.resolveAction(req)
+	if err != nil {
+		return core.Persona{}, err
+	}
+	return s.resolveDispatchPersona(req, action)
 }
 
 // ResolvePersona resolves a persona for a project: the project's own record
@@ -140,37 +189,48 @@ func (s *Service) DispatchOptions(persona, code, capability string) (*DispatchOp
 	return opts, nil
 }
 
-// Compose computes the session binding for one dispatch.
+// Compose computes the session binding for one dispatch: resolve the action,
+// derive the persona and mode from it, validate the target, render the
+// context, build argv/env.
 func (s *Service) Compose(req Request) (*Plan, error) {
-	persona, err := resolvePersona(s.Svc, req.Code, req.Persona)
+	action, err := s.resolveAction(req)
 	if err != nil {
 		return nil, err
 	}
-	mode := LaunchModeOf(persona)
+	persona, err := s.resolveDispatchPersona(req, action)
+	if err != nil {
+		return nil, err
+	}
+	vehicle := LaunchModeOf(persona)
 	if req.Launch != "" {
 		switch req.Launch {
 		case "prompt", "hook", "tui":
-			mode = req.Launch
+			vehicle = req.Launch
 		default:
 			return nil, fmt.Errorf("%w: launch must be prompt, hook, or tui, got %q", core.ErrUsage, req.Launch)
 		}
 	}
-	if mode == "tui" && req.Launcher != nil {
+	if vehicle == "tui" && req.Launcher != nil {
 		// A tui LAUNCH ignores project/agent/task; nothing else is composed.
 		// A context-only request (nil Launcher) still renders — the caller
 		// asked for the context, not a session.
-		return &Plan{Mode: "tui"}, nil
+		return &Plan{Vehicle: "tui"}, nil
 	}
 
-	recs, err := s.selectChecklists(req)
+	mode, err := resolveMode(req, action)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, len(recs))
-	for i, r := range recs {
-		names[i] = r.Name
+	if err := validateTargetShape(req, action); err != nil {
+		return nil, err
 	}
-	warnings := s.requireWarnings(req.Code, recs)
+
+	var recs []core.ChecklistRecord
+	name := ""
+	if action != nil {
+		recs, name = []core.ChecklistRecord{*action}, action.Name
+	}
+	warnings := s.dispatchWarnings(req, action)
 
 	launcherName := req.AgentName
 	if req.Launcher != nil {
@@ -204,25 +264,26 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	})
 
 	role := persona.Name
-	if mode == "hook" {
+	if vehicle == "hook" {
 		role = "developing"
 	}
 	env := sessionEnvValues(req.Code, actor, req.RunID, contextPath, launcherName, persona.Name, role, req.Capability, req.Task, req.Timestamp)
-	if len(names) > 0 {
-		env["ATM_CHECKLISTS"] = strings.Join(names, ",")
+	env["ATM_MODE"] = mode
+	if name != "" {
+		env["ATM_CHECKLIST"] = name
 	}
 
 	var argv []string
 	if req.Launcher != nil {
 		var base []string
-		if mode == "hook" {
+		// MODE decides whether the host is handed an opening instruction;
+		// VEHICLE decides how. A hook vehicle has no message channel at all
+		// — its plugin loads the context at session start — so an eager hook
+		// session starts bare and reads its instruction from the file.
+		if vehicle == "hook" || mode == core.ChecklistModeInteractive {
 			base = req.Launcher.BuildArgv(req.Model)
 		} else {
-			// One generic kickoff for every persona. A per-persona
-			// kickoff template was identity carrying dispatch plumbing —
-			// no built-in ever set one, and increment 8 replaces the whole
-			// idea with a Compose-built message driven by the checklist.
-			base = req.Launcher.BuildArgvMessage(session.PromptMessage(contextPath), req.Model)
+			base = req.Launcher.BuildArgvMessage(session.KickoffMessage(contextPath, name, req.Task), req.Model)
 		}
 		base = append(base, req.DefaultArgs...)
 		argv = make([]string, 0, len(base)+len(req.EnvArgs)+len(req.ExtraArgs))
@@ -232,12 +293,14 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	}
 
 	return &Plan{
+		Vehicle:     vehicle,
 		Mode:        mode,
 		Argv:        argv,
 		EnvValues:   env,
 		ContextPath: contextPath,
 		ContextText: contextText,
-		Checklists:  names,
+		Checklist:   name,
+		Persona:     persona.Name,
 		Warnings:    warnings,
 		Actor:       actor,
 	}, nil
@@ -269,49 +332,165 @@ func (s *Service) channelViewsUnprobed(code string) []core.ChannelView {
 	return out
 }
 
-// selectChecklists resolves the dispatch's checklist set: an explicit
-// override resolves exactly those names; otherwise the default set is every
-// suited checklist, narrowed by capability scope (core.DefaultChecklistSet
-// — the rule itself is domain logic and lives in core).
-func (s *Service) selectChecklists(req Request) ([]core.ChecklistRecord, error) {
-	if req.Code == "" {
+// resolveAction resolves the dispatched checklist. A nil action is the
+// ad-hoc bare-persona dispatch — legitimate, and rendered as the
+// no-checklist fallback.
+func (s *Service) resolveAction(req Request) (*core.ChecklistRecord, error) {
+	if req.Checklist == "" {
 		return nil, nil
 	}
-	if req.Checklists != nil {
-		out := make([]core.ChecklistRecord, 0, len(req.Checklists))
-		for _, name := range req.Checklists {
-			r, err := s.Svc.GetChecklist(req.Code, name)
-			if err != nil {
-				return nil, fmt.Errorf("checklist %q: %w", name, err)
-			}
-			out = append(out, *r)
-		}
-		return out, nil
+	if req.Code == "" {
+		return nil, fmt.Errorf("%w: checklist %q needs a project — checklists are project records", core.ErrUsage, req.Checklist)
 	}
-	recs, err := s.Svc.SuitedChecklists(req.Code, req.Persona)
+	rec, err := s.Svc.GetChecklist(req.Code, req.Checklist)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("checklist %q: %w", req.Checklist, err)
 	}
-	return core.DefaultChecklistSet(recs, req.Capability), nil
+	return rec, nil
 }
 
-// requireWarnings gathers the inputs (enabled capabilities via the injected
-// registry view, channels via the port) and delegates the evaluation to
-// core.ChecklistRequireWarnings. Warnings never block a launch.
-func (s *Service) requireWarnings(code string, recs []core.ChecklistRecord) []string {
-	var enabled []string
-	if s.EnabledCapabilities != nil {
-		enabled = s.EnabledCapabilities(code)
+// resolveDispatchPersona derives the persona from the action's suits, which
+// is the inversion this increment is about: the action names who runs it, so
+// a dispatch does not have to. An explicit override still wins — it is the
+// rare deliberate case, not the entry point.
+//
+// An action with no suits and no override cannot be dispatched: something has
+// to be the identity, and guessing one would put an arbitrary persona's
+// judgment behind the work.
+func (s *Service) resolveDispatchPersona(req Request, action *core.ChecklistRecord) (core.Persona, error) {
+	name := req.Persona
+	if name == "" {
+		if action == nil {
+			return core.Persona{}, fmt.Errorf("%w: a dispatch needs an action (--checklist) or a persona (--persona)", core.ErrUsage)
+		}
+		if len(action.Suits) == 0 {
+			return core.Persona{}, fmt.Errorf("%w: checklist %q suits no persona; dispatch it with an explicit --persona", core.ErrUsage, action.Name)
+		}
+		name = action.Suits[0]
 	}
-	var channels []core.ChannelView
-	if v, err := s.Svc.ProjectChannels(code); err == nil {
-		channels = v
+	return resolvePersona(s.Svc, req.Code, name)
+}
+
+// resolveMode picks the session's autonomy: the override when given, else the
+// action's own mode, else eager. resident is refused — it is in the
+// vocabulary so the surfaces can show it as coming, and refusing it at the
+// binding layer means no surface has to remember to.
+func resolveMode(req Request, action *core.ChecklistRecord) (string, error) {
+	mode := req.Mode
+	if mode == "" && action != nil {
+		mode = action.Mode
 	}
-	var out []string
-	for _, r := range recs {
-		out = append(out, core.ChecklistRequireWarnings(r, enabled, channels)...)
+	if mode == "" {
+		mode = core.ChecklistModeEager
+	}
+	if mode == core.ChecklistModeResident {
+		return "", fmt.Errorf("%w: mode resident is not launchable yet", core.ErrUsage)
+	}
+	if !core.ValidChecklistMode(mode) {
+		return "", fmt.Errorf("%w: mode must be eager or interactive, got %q", core.ErrUsage, mode)
+	}
+	return mode, nil
+}
+
+// validateTargetShape refuses a dispatch whose target does not match the
+// action's declared shape. This is an ERROR, not a warning: a task-target
+// action with no task has nothing to work on, and a project-target action
+// handed a task would silently ignore it. The `targets` EXPRESSION is the
+// warning half — see targetsWarning.
+func validateTargetShape(req Request, action *core.ChecklistRecord) error {
+	if action == nil {
+		return nil
+	}
+	switch action.Target {
+	case core.ChecklistTargetTask:
+		if req.Task == "" {
+			return fmt.Errorf("%w: checklist %q targets a task; dispatch it with --task", core.ErrUsage, action.Name)
+		}
+	default:
+		if req.Task != "" {
+			return fmt.Errorf("%w: checklist %q targets the project, so it takes no --task", core.ErrUsage, action.Name)
+		}
+	}
+	return nil
+}
+
+// dispatchWarnings collects everything wrong with this dispatch that is not
+// worth refusing it over: the action's unmet requires, and a task that falls
+// outside the action's targets expression.
+func (s *Service) dispatchWarnings(req Request, action *core.ChecklistRecord) []string {
+	if action == nil {
+		return nil
+	}
+	out := s.requireWarnings(req, *action)
+	if w := s.targetsWarning(req, *action); w != "" {
+		out = append(out, w)
 	}
 	return out
+}
+
+// requireWarnings answers "is this action ready here?" from THE readiness
+// computation when the adapter injected it, so a launch and `atm profile
+// status` cannot disagree. Readiness also knows the agent-relative
+// attestation rungs, which the fallback cannot see.
+//
+// The fallback is core's capability/channel evaluation: the same question,
+// answered without the machine- and agent-level rungs. It exists so a
+// Service built without the injection still warns rather than going silent.
+func (s *Service) requireWarnings(req Request, rec core.ChecklistRecord) []string {
+	if s.Readiness != nil {
+		agent := req.AgentName
+		if req.Launcher != nil {
+			agent = req.Launcher.Name()
+		}
+		if agent != "" {
+			if r := s.Readiness(req.Code, []string{agent}); r != nil {
+				for _, a := range r.Actions {
+					if a.Name != rec.Name {
+						continue
+					}
+					var out []string
+					for _, w := range a.Warnings[agent] {
+						out = append(out, fmt.Sprintf("checklist %s: %s", rec.Name, w.Text))
+					}
+					return out
+				}
+			}
+		}
+	}
+	var enabled []string
+	if s.EnabledCapabilities != nil {
+		enabled = s.EnabledCapabilities(req.Code)
+	}
+	var channels []core.ChannelView
+	if v, err := s.Svc.ProjectChannels(req.Code); err == nil {
+		channels = v
+	}
+	return core.ChecklistRequireWarnings(rec, enabled, channels)
+}
+
+// targetsWarning evaluates the action's targets expression against the task
+// actually dispatched. A mismatch WARNS rather than refuses (plan §3.7): the
+// dialog offers only eligible tasks, so reaching this path means a human
+// asked for it explicitly, and the checklist's own gate step is the
+// defense-in-depth behind it.
+//
+// The expression is evaluated by the store's resolver through the ordinary
+// task query — the same evaluation the dialog's eligible-task list uses, so
+// the two cannot disagree about what "eligible" means.
+func (s *Service) targetsWarning(req Request, rec core.ChecklistRecord) string {
+	if rec.Targets == "" || req.Task == "" {
+		return ""
+	}
+	eligible, err := s.Svc.ListTasksErr(core.QueryFilters{Project: req.Code, Expr: rec.Targets})
+	if err != nil {
+		return fmt.Sprintf("checklist %s: could not evaluate targets %q: %v", rec.Name, rec.Targets, err)
+	}
+	for _, t := range eligible {
+		if t.ID == req.Task {
+			return ""
+		}
+	}
+	return fmt.Sprintf("checklist %s: task %s is outside its targets (%s)", rec.Name, req.Task, rec.Targets)
 }
 
 // resolvePersona resolves the persona a session runs as. The PROJECT'S OWN

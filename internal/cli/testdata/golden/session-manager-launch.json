@@ -9,6 +9,7 @@
     "ATM_ACTOR": "manager@claude:unset",
     "ATM_AGENT": "claude",
     "ATM_CONTEXT_FILE": "/STORE/projects/ATM/cache/session-manager.md",
+    "ATM_MODE": "eager",
     "ATM_PERSONA": "manager",
     "ATM_PROJECT": "ATM",
     "ATM_ROLE": "manager",

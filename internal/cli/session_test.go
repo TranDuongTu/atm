@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"atm/internal/core"
 )
 
 type capturedChild struct {
@@ -139,8 +141,14 @@ func TestPersonaDeveloperLaunchesHookStyle(t *testing.T) {
 	if !strings.Contains(joined, "session-developer.md") {
 		t.Errorf("ATM_CONTEXT_FILE should end with session-developer.md:\n%s", joined)
 	}
-	if strings.Contains(joined, "ATM_MODE=") {
-		t.Errorf("ATM_MODE must not be set:\n%s", joined)
+	// ATM_MODE is the AUTONOMY axis (eager|interactive), not the manager
+	// "modes" removed in ATM-0772ea. An ad-hoc dispatch names no action, so
+	// it takes the default.
+	if !strings.Contains(joined, "ATM_MODE=eager") {
+		t.Errorf("ATM_MODE=eager missing:\n%s", joined)
+	}
+	if strings.Contains(joined, "ATM_CHECKLIST=") {
+		t.Errorf("ATM_CHECKLIST must be absent for an ad-hoc dispatch:\n%s", joined)
 	}
 }
 
@@ -177,8 +185,11 @@ func TestPersonaManagerLaunch(t *testing.T) {
 			t.Errorf("manager env missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "ATM_MODE=") {
-		t.Errorf("ATM_MODE must not be set:\n%s", joined)
+	// See above: the dead manager-modes concept stays dead via the "## Mode:"
+	// context-block assertion at the end of this test; ATM_MODE itself is now
+	// the autonomy axis.
+	if !strings.Contains(joined, "ATM_MODE=eager") {
+		t.Errorf("ATM_MODE=eager missing:\n%s", joined)
 	}
 	if !strings.Contains(joined, "session-manager.md") {
 		t.Errorf("ATM_CONTEXT_FILE should end with session-manager.md:\n%s", joined)
@@ -856,11 +867,12 @@ func TestLaunchTUIPersonaIsDataDriven(t *testing.T) {
 	}
 }
 
-// TestLaunchSessionExportsChecklistsEnvAndWarnings: a developer launch picks
-// up the suited checklist set, renders it inline into the context file,
-// exports ATM_CHECKLISTS, and prints unmet requires to stderr WITHOUT
-// blocking the launch (exit 0).
-func TestLaunchSessionExportsChecklistsEnvAndWarnings(t *testing.T) {
+// TestLaunchSessionExportsActionEnvAndWarnings: a dispatch renders its action
+// inline into the context file, exports ATM_CHECKLIST, and prints unmet
+// requires to stderr WITHOUT blocking the launch (exit 0). The warning text
+// comes from THE readiness computation, so it is the same sentence `atm
+// profile status` prints, and it carries the command that fixes it.
+func TestLaunchSessionExportsActionEnvAndWarnings(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.registryFn = productionRegistry
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
@@ -877,19 +889,19 @@ func TestLaunchSessionExportsChecklistsEnvAndWarnings(t *testing.T) {
 	stubLookPath(h)
 	h.reset()
 
-	_, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude")
+	_, _, code := h.run("--project", "ATM", "--agent", "claude", "--checklist", "dev-routine")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
 	joined := strings.Join(c.env, "\n")
-	if !strings.Contains(joined, "ATM_CHECKLISTS=dev-routine") {
-		t.Fatalf("env missing ATM_CHECKLISTS=dev-routine:\n%s", joined)
+	if !strings.Contains(joined, "ATM_CHECKLIST=dev-routine") {
+		t.Fatalf("env missing ATM_CHECKLIST=dev-routine:\n%s", joined)
 	}
 	if strings.Contains(joined, "manager-only") {
-		t.Fatalf("unsuited checklist leaked into env:\n%s", joined)
+		t.Fatalf("an undispatched checklist leaked into env:\n%s", joined)
 	}
-	if !strings.Contains(h.stderr.String(), "warning: checklist dev-routine: requires channel journal (none exists)") {
-		t.Fatalf("stderr missing requires warning:\n%s", h.stderr.String())
+	if !strings.Contains(h.stderr.String(), "warning: checklist dev-routine: requires channel journal, which does not exist") {
+		t.Fatalf("stderr missing the readiness warning:\n%s", h.stderr.String())
 	}
 	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
 	if err != nil {
@@ -898,14 +910,17 @@ func TestLaunchSessionExportsChecklistsEnvAndWarnings(t *testing.T) {
 	if !strings.Contains(string(ctx), "## Checklist: dev-routine") {
 		t.Fatalf("context file missing checklist section:\n%s", ctx)
 	}
-	if n := strings.Count(string(ctx), "# Persona: developer"); n != 1 {
+	if n := strings.Count(string(ctx), "## Persona: developer"); n != 1 {
 		t.Fatalf("persona header count = %d, want 1 (dedup fix):\n%s", n, ctx)
 	}
 }
 
-// TestSessionContextRendersDefaultChecklists: the hidden session-context
-// plumbing renders the same default checklist set the launcher would.
-func TestSessionContextRendersDefaultChecklists(t *testing.T) {
+// TestSessionContextRendersTheDispatchedAction: the hidden session-context
+// plumbing renders the same binding a real launch would — the ACTION it was
+// given, and the explicit fallback when it was given none. It replaces the
+// v2 "default checklist set" render: there is no computed set any more,
+// because a dispatch names its action (plan §3.7).
+func TestSessionContextRendersTheDispatchedAction(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.registryFn = productionRegistry
 	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
@@ -915,12 +930,27 @@ func TestSessionContextRendersDefaultChecklists(t *testing.T) {
 		t.Fatalf("seed dev-routine failed: %s", stderr)
 	}
 	h.reset()
-	out, _, code := h.run("session-context", "--persona", "developer", "--project", "ATM")
+	// The action alone is enough — the persona derives from its suits.
+	out, _, code := h.run("session-context", "--checklist", "dev-routine", "--project", "ATM")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d; stderr=%s", code, h.stderr.String())
 	}
 	if !strings.Contains(out, "## Checklist: dev-routine") {
-		t.Fatalf("session-context missing checklist section:\n%s", out)
+		t.Fatalf("session-context missing the dispatched action:\n%s", out)
+	}
+	if !strings.Contains(out, "## Persona: developer") {
+		t.Fatalf("the persona must derive from the action's suits:\n%s", out)
+	}
+	// No action: the context says so rather than rendering an empty section.
+	out, _, code = h.run("session-context", "--persona", "developer", "--project", "ATM")
+	if code != ExitSuccess {
+		t.Fatalf("exit = %d; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "No checklists were selected for this session.") {
+		t.Fatalf("an ad-hoc render must carry the fallback:\n%s", out)
+	}
+	if strings.Contains(out, "## Checklist: dev-routine") {
+		t.Fatalf("nothing may be auto-selected for an ad-hoc render:\n%s", out)
 	}
 }
 
@@ -941,9 +971,12 @@ func seedTwoChecklists(t *testing.T, h *goldenHarness) {
 	}
 }
 
-// TestLaunchChecklistFlagsSelectExactly: explicit --checklist flags replace
-// the computed default set — only the named checklists ride the session.
-func TestLaunchChecklistFlagsSelectExactly(t *testing.T) {
+// TestLaunchDispatchesTheNamedActionAndDerivesThePersona: --checklist IS the
+// dispatch. The named action rides the session alone, and the persona comes
+// from its suits — nothing else is auto-selected. It replaces the v2
+// "explicit flags replace the computed default set" test: the default set is
+// what the inversion removed.
+func TestLaunchDispatchesTheNamedActionAndDerivesThePersona(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.registryFn = productionRegistry
 	seedTwoChecklists(t, h)
@@ -951,23 +984,39 @@ func TestLaunchChecklistFlagsSelectExactly(t *testing.T) {
 	stubLookPath(h)
 	h.reset()
 
-	_, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--checklist", "mgr-sweep")
+	// mgr-sweep suits manager, and no --persona is given: the action decides.
+	_, _, code := h.run("--project", "ATM", "--agent", "claude", "--checklist", "mgr-sweep")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
 	joined := strings.Join(c.env, "\n")
-	if !strings.Contains(joined, "ATM_CHECKLISTS=mgr-sweep") {
-		t.Fatalf("env missing ATM_CHECKLISTS=mgr-sweep:\n%s", joined)
+	if !strings.Contains(joined, "ATM_CHECKLIST=mgr-sweep") {
+		t.Fatalf("env missing ATM_CHECKLIST=mgr-sweep:\n%s", joined)
+	}
+	if strings.Contains(joined, "ATM_CHECKLISTS=") {
+		t.Fatalf("the plural env var must not survive the inversion:\n%s", joined)
+	}
+	if !strings.Contains(joined, "ATM_PERSONA=manager") {
+		t.Fatalf("the persona must derive from the action's suits:\n%s", joined)
 	}
 	if strings.Contains(joined, "dev-cycle") {
-		t.Fatalf("default set leaked past the explicit override:\n%s", joined)
+		t.Fatalf("nothing beyond the dispatched action may ride the session:\n%s", joined)
 	}
-	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
+	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(ctx), "## Checklist: mgr-sweep") || strings.Contains(string(ctx), "## Checklist: dev-cycle") {
-		t.Fatalf("context sections do not match the override:\n%s", ctx)
+		t.Fatalf("context sections do not match the dispatched action:\n%s", ctx)
+	}
+
+	// The persona override still wins — the rare deliberate case.
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--project", "ATM", "--agent", "claude", "--checklist", "mgr-sweep"); code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(strings.Join(c.env, "\n"), "ATM_PERSONA=developer") {
+		t.Fatalf("--persona must beat the action's suits:\n%s", strings.Join(c.env, "\n"))
 	}
 }
 
@@ -1044,5 +1093,67 @@ func TestLaunchInvalidLaunchValueFails(t *testing.T) {
 	}
 	if !strings.Contains(h.stderr.String(), "prompt, hook, or tui") {
 		t.Fatalf("stderr must list the valid launch modes:\n%s", h.stderr.String())
+	}
+}
+
+// TestLaunchTargetsExpressionWarnsThroughTheRealResolver: the targets
+// expression is evaluated by the STORE's resolver, through the ordinary task
+// query — the same evaluation the dialog's eligible-task list will use, so
+// the two cannot disagree about what "eligible" means. The compose unit test
+// stubs that query; this one runs it.
+//
+// A task outside the expression WARNS and launches anyway (plan §3.7): the
+// dialog offers only eligible tasks, so getting here means a human asked for
+// it, and the checklist's own gate step is the defense behind it.
+func TestLaunchTargetsExpressionWarnsThroughTheRealResolver(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	h.run("project", "create", "--code", "ATM", "--name", "Agent Tasks Management", "--actor", "admin@cli:unset")
+	h.run("project", "capability", "add", "--project", "ATM", "--name", "checklist", "--actor", "admin@cli:unset")
+	if _, stderr, code := h.run("checklist", "add", "--project", "ATM", "--name", "code-it", "--purpose", "Implement one task.",
+		"--step", "build", "--suits", "developer", "--target", "task", "--targets", "ready",
+		"--actor", "admin@cli:unset"); code != ExitSuccess {
+		t.Fatalf("seed code-it failed: %s", stderr)
+	}
+	h.run("task", "create", "--project", "ATM", "--title", "not ready", "--actor", "admin@cli:unset")
+	h.run("task", "create", "--project", "ATM", "--title", "ready to go", "--label", "ATM:ready", "--actor", "admin@cli:unset")
+	// A checklist record is itself a task, so select by title rather than by
+	// counting the project's tasks.
+	var ineligible, eligible string
+	for _, task := range h.store.ListTasks(core.QueryFilters{Project: "ATM"}) {
+		switch task.Title {
+		case "ready to go":
+			eligible = task.ID
+		case "not ready":
+			ineligible = task.ID
+		}
+	}
+	if eligible == "" || ineligible == "" {
+		t.Fatalf("seed failed: eligible=%q ineligible=%q", eligible, ineligible)
+	}
+	// The resolver, not the test, decides eligibility — assert the fixture
+	// really is what the expression selects before trusting the warnings.
+	byExpr := h.store.ListTasks(core.QueryFilters{Project: "ATM", Expr: "ready"})
+	if len(byExpr) != 1 || byExpr[0].ID != eligible {
+		t.Fatalf("expression `ready` selected %v, want just %s", byExpr, eligible)
+	}
+
+	captureChild(h)
+	stubLookPath(h)
+
+	h.reset()
+	if _, _, code := h.run("--project", "ATM", "--agent", "claude", "--checklist", "code-it", "--task", ineligible); code != ExitSuccess {
+		t.Fatalf("a targets mismatch must WARN, not block: exit %d, stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(h.stderr.String(), "is outside its targets (ready)") {
+		t.Fatalf("stderr missing the targets warning:\n%s", h.stderr.String())
+	}
+
+	h.reset()
+	if _, _, code := h.run("--project", "ATM", "--agent", "claude", "--checklist", "code-it", "--task", eligible); code != ExitSuccess {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if strings.Contains(h.stderr.String(), "outside its targets") {
+		t.Fatalf("an eligible task must not warn:\n%s", h.stderr.String())
 	}
 }

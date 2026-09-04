@@ -160,7 +160,9 @@ func TestProfileVerifyDispatchesAttestPerAgent(t *testing.T) {
 	st.st.lookPathFn = func(string) (string, error) { return "/fake/atm", nil }
 	out = runArgsOut(t, st, "profile", "verify", "--project", "DEMO", "--agent", "codex")
 	mustContain(t, out, "verifying DEMO on codex")
-	if len(launches) != 1 || !strings.HasPrefix(launches[0], "codex ") || !strings.Contains(launches[0], "ATM_CHECKLISTS=attest") || !strings.Contains(launches[0], "ATM_PERSONA=manager") {
+	// ATM_PERSONA=manager is now DERIVED from attest's own suits — `profile
+	// verify` no longer names the persona, it names the action.
+	if len(launches) != 1 || !strings.HasPrefix(launches[0], "codex ") || !strings.Contains(launches[0], "ATM_CHECKLIST=attest") || !strings.Contains(launches[0], "ATM_PERSONA=manager") {
 		t.Fatalf("launches = %v", launches)
 	}
 	launches = nil
