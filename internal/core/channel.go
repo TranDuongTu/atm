@@ -255,6 +255,25 @@ func statusWiring(v ChannelView) (EndpointWiring, bool) {
 	return EndpointWiring{}, false
 }
 
+// Stamp freshness, in days: a stamp this recent attests the endpoint; one
+// older than that but within the stale window is aging; beyond it the
+// endpoint reads as unverified. ChannelStatus and the readiness ladder
+// share these so the channel list and `profile status` cannot disagree.
+const (
+	StampFreshDays = 14
+	StampStaleDays = 45
+)
+
+// StampAgeDays is how many whole days ago a stamp was recorded; ok is
+// false when its timestamp does not parse.
+func StampAgeDays(st VerificationStamp, now time.Time) (int, bool) {
+	at, err := time.Parse(time.RFC3339, st.At)
+	if err != nil {
+		return 0, false
+	}
+	return int(now.Sub(at).Hours() / 24), true
+}
+
 // ChannelStatus is the single-sourced status rule every surface reads: ●
 // wired and verified fresh (or probe-green), ◐ wired but aging/dirty, ○
 // unwired, missing, or stale. It lives in core because the CLI and the TUI
@@ -300,9 +319,9 @@ func ChannelStatus(v ChannelView, now time.Time) (string, string) {
 	}
 	days := int(now.Sub(at).Hours() / 24)
 	switch {
-	case days <= 14:
+	case days <= StampFreshDays:
 		return "●", fmt.Sprintf("verified %dd ago", days)
-	case days <= 45:
+	case days <= StampStaleDays:
 		return "◐", fmt.Sprintf("verified %dd ago", days)
 	default:
 		return "○", fmt.Sprintf("stale · verified %dd ago", days)
