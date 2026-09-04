@@ -260,37 +260,3 @@ func TestSetupChannelDrillShowsPerAgentCoverage(t *testing.T) {
 		t.Fatalf("a wired repo channel is covered for every agent, got:\n%s", detail)
 	}
 }
-
-// The PERSONAS drill names the starters this project is missing — the table
-// row only counts them.
-func TestSetupPersonaDrillNamesMissingStarters(t *testing.T) {
-	m := newTestModel(t)
-	if _, err := m.store.CreateProject("ATM", "Acme", testActor); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	if err := m.store.EnableProjectCapability("ATM", "checklist", testActor); err != nil {
-		t.Fatalf("EnableProjectCapability: %v", err)
-	}
-	m.projectScope = "ATM"
-	m.setup.open()
-	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> CHANNELS
-	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> PERSONAS
-	// Not every persona ships starters (admin does not), so move to one that
-	// does rather than assuming the first row is the interesting one.
-	for i, p := range m.setup.model.Project.Personas {
-		if len(p.MissingStarters) > 0 {
-			m.setup.cursor = i
-			break
-		}
-	}
-	m.setup.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-
-	row, ok := m.setup.currentPersona()
-	if !ok || len(row.MissingStarters) == 0 {
-		t.Fatalf("fixture must have a persona with missing starters, got %+v (ok=%v)", row, ok)
-	}
-	detail := stripANSI(m.setup.render(120, 40))
-	if !strings.Contains(detail, row.MissingStarters[0]) {
-		t.Fatalf("the persona drill must name the missing starters, got:\n%s", detail)
-	}
-}

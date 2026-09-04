@@ -12,8 +12,9 @@ import (
 )
 
 // channelsModel is the read-only channels overlay: list every channel with
-// its status, enter for detail. The one action is dispatching a concierge
-// session to fix what the status shows; all writes go through `atm channel`.
+// its status, enter for detail. The one action is dispatching an ATTEST
+// session to re-reach the endpoints the status shows; all writes go through
+// `atm channel`.
 type channelsModel struct {
 	m       *Model
 	open    bool
@@ -28,6 +29,21 @@ type channelsModel struct {
 	// renderOverlay stays pure formatting over a snapshot, like every other
 	// pane in this package.
 	loadedAt time.Time
+}
+
+// dispatchDefaultPersona names the persona the overlay's attest dispatch
+// preselects: the project's own manager record when it has one, else the
+// manager every profile is expected to ship. No persona is special in the
+// dialog itself — this is only the row the cursor opens on.
+func (c *channelsModel) dispatchDefaultPersona() string {
+	if recs, err := c.m.store.PersonaRecords(c.project); err == nil {
+		for _, p := range recs {
+			if p.Name == "manager" {
+				return "manager"
+			}
+		}
+	}
+	return "manager"
 }
 
 // loadFor snapshots the project's channels and the clock the status glyphs
@@ -88,16 +104,19 @@ func (c *channelsModel) handleKey(k tea.KeyMsg) tea.Cmd {
 			c.detail, c.offset = true, 0
 		}
 	case "c":
-		// The overlay's empty-state body explains the dead end, but `c` must
-		// not dispatch anyway: a scoped session with no --project would render
-		// a literal `project <CODE>` placeholder. Refuse with a toast and keep
-		// the overlay open so the user can act on the hint.
+		// The concierge dispatch is gone (plan §7). The fix-it affordance
+		// re-targets to a prefilled ATTEST dispatch through the normal
+		// dialog: reaching the endpoint under this overlay is exactly what
+		// the attest action does, and the agent cycler selects which harness
+		// to attest. A scoped session with no --project would render a
+		// literal `project <CODE>` placeholder, so refuse with a toast and
+		// keep the overlay open.
 		if c.project == "" {
 			c.m.showToast("select a project first")
 			return nil
 		}
 		c.open = false
-		c.m.dispatchDlg.open("concierge", c.project, "", "", dispatchScope{Capability: "channel"})
+		c.m.dispatchDlg.open(c.dispatchDefaultPersona(), c.project, "", "", dispatchScope{Capability: "channel"})
 	}
 	return nil
 }
@@ -118,7 +137,7 @@ func (c *channelsModel) renderOverlay() string {
 	if c.loadErr != "" {
 		var body strings.Builder
 		body.WriteString(c.previewBody(bw-4) + "\n")
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch concierge  [Esc]close"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch attest  [Esc]close"))
 		return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), 6)
 	}
 
@@ -129,13 +148,13 @@ func (c *channelsModel) renderOverlay() string {
 	if len(c.entries) == 0 {
 		var body strings.Builder
 		body.WriteString(c.previewBody(bw-4) + "\n")
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch concierge  [Esc]close"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render("[c]dispatch attest  [Esc]close"))
 		return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), 6)
 	}
 
 	var body strings.Builder
 	body.WriteString(c.previewBody(bw-4) + "\n")
-	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]detail  [c]dispatch concierge  [Esc]close"))
+	body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]detail  [c]dispatch attest  [Esc]close"))
 	return titledBoxHeight(styles.DialogBody, bw, c.title(), body.String(), len(c.entries)+5)
 }
 
@@ -209,7 +228,7 @@ func (c *channelsModel) renderDetail(bw int) string {
 	for _, ln := range lines[c.offset:end] {
 		body.WriteString(fitLine(ln, bw-4) + "\n")
 	}
-	body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [c]dispatch concierge  [Esc]back"))
+	body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [c]dispatch attest  [Esc]back"))
 	return titledBoxHeight(styles.DialogBody, bw, "Channel: "+v.Name, body.String(), height)
 }
 
@@ -218,8 +237,9 @@ func (c *channelsModel) renderDetail(bw int) string {
 const detailIndent = "           "
 
 // wrapDetailLine hard-wraps one detail row to w columns instead of truncating
-// it. A wiring path or clone URL is the field a concierge acts on, so it must
-// survive the box edge; wordwrap would leave these space-free tokens long.
+// it. A wiring path or clone URL is the field an acting session needs whole,
+// so it must survive the box edge; wordwrap would leave these space-free
+// tokens long.
 func wrapDetailLine(line string, w int) []string {
 	if w <= len(detailIndent)+8 || lipgloss.Width(line) <= w {
 		return []string{line}

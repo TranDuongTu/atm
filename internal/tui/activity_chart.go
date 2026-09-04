@@ -223,7 +223,6 @@ func carouselStep(entries []carouselEntry, key string, dir int) string {
 
 const (
 	iconDeveloper = "\U0001F6E0"
-	iconConcierge = "\U0001F9ED"
 	iconManager   = "\U0001F4BC"
 	iconAdmin     = "\u2699"
 	iconAll       = "\u2733"
@@ -236,8 +235,6 @@ func personaIcon(key string) string {
 		return iconAll
 	case "developer":
 		return iconDeveloper
-	case "concierge":
-		return iconConcierge
 	case "manager":
 		return iconManager
 	case "admin":

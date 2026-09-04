@@ -22,7 +22,7 @@ const conventionsCoreText = "# ATM Conventions (advisory)\n\n" +
 	"- `atm capability <name> guide` — the capability's full agent-facing semantics, actions, and converged state (Semantics / Actions / Converge sections).\n" +
 	"\n" +
 	"## Actor identity\n" +
-	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`, `concierge`. `atm --persona <name> --project <CODE> -h`.\n\n" +
+	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`. `atm --persona <name> --project <CODE> -h`.\n\n" +
 	"Conventions are advisory only.\n"
 
 func conventionsStructured() map[string]any {
@@ -39,7 +39,7 @@ func conventionsStructured() map[string]any {
 			{"namespace": "atm search", "summary": "semantic search"},
 		},
 		"capabilities":   "Semantics beyond the substrate live in capabilities; a project enables a per-project subset, and commands for disabled capabilities are not mounted. Enumerate with `atm capability list`; discover one with `atm capability <name> -h` and `atm capability <name> guide`.",
-		"actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin, concierge. See `atm --persona <name> --project <CODE> -h`.",
+		"actor_identity": "Every mutation stamps persona@agent:model (e.g. developer@claude:opus-4.8). See `atm persona -h`; built-ins developer, manager, admin. See `atm --persona <name> --project <CODE> -h`.",
 	}
 }
 

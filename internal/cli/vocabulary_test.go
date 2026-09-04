@@ -48,14 +48,16 @@ func TestVocabularyWriteRejectsMalformedTerms(t *testing.T) {
 	}
 }
 
-func TestVocabularyWriteRejectsUnregisteredPersona(t *testing.T) {
+// Actor validation is form-only (plan §7): a well-formed ghost actor writes
+// like any other — persona registration is no longer its authority.
+func TestVocabularyWriteAcceptsUnregisteredPersona(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	h.reset()
 	_, _, code := h.run("vocabulary", "write", "--project", "FOO",
 		"--terms", `[{"term":"x","weight":1}]`, "--actor", "ghost@cli:unset")
-	if code != ExitUsage {
-		t.Fatalf("ghost-actor write exit = %d, want %d (usage)", code, ExitUsage)
+	if code != 0 {
+		t.Fatalf("ghost-actor write exit = %d, want 0 (form-only validation)", code)
 	}
 }
 

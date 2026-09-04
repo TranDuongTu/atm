@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-func TestPersonaCreateListShowRemove(t *testing.T) {
+// The machine-global persona store is pruned (plan §7): `persona create`
+// and `persona remove` are gone, and list/show outside a project carry the
+// built-ins only. A persona someone wants on a machine goes into a project
+// with `atm persona set`.
+func TestPersonaListShowAreBuiltinOnlyOutsideAProject(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 
-	if _, se, code := h.run("persona", "create", "--store", sp, "--name", "staff", "--prompt", "high bar", "--actor", "admin@cli:unset"); code != 0 {
-		t.Fatalf("create: code=%d stderr=%s", code, se)
-	}
-
-	out, se, code := h.run("persona", "list", "--store", sp, "--actor", "admin@cli:unset")
+	out, _, code := h.run("persona", "list", "--store", sp, "--actor", "admin@cli:unset")
 	if code != 0 {
-		t.Fatalf("list: code=%d stderr=%s", code, se)
+		t.Fatalf("list: code=%d", code)
 	}
 	var listed struct {
 		Personas []struct{ Name string } `json:"personas"`
@@ -24,45 +24,32 @@ func TestPersonaCreateListShowRemove(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &listed); err != nil {
 		t.Fatal(err)
 	}
-	// Built-ins (developer/manager/admin) are lazily seeded by validateActor,
-	// so the list contains them plus the staff persona created above.
-	var hasStaff bool
-	for _, p := range listed.Personas {
-		if p.Name == "staff" {
-			hasStaff = true
+	if len(listed.Personas) != 3 {
+		t.Fatalf("built-ins only: %s", out)
+	}
+	for _, want := range []string{"developer", "manager", "admin"} {
+		found := false
+		for _, p := range listed.Personas {
+			if p.Name == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("list missing built-in %s: %s", want, out)
 		}
 	}
-	if !hasStaff {
-		t.Fatalf("list missing staff: %s", out)
-	}
 
-	out, se, code = h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset")
+	// The removed verbs are gone from the command tree. Cobra answers an
+	// unknown subcommand with the parent's help and a zero exit, so absence
+	// is asserted against the help text, not the exit code.
+	help, _, code := h.run("persona", "-h", "--store", sp)
 	if code != 0 {
-		t.Fatalf("show: code=%d stderr=%s", code, se)
+		t.Fatalf("persona -h: code=%d", code)
 	}
-	if !strings.Contains(out, "high bar") {
-		t.Fatalf("show = %s", out)
-	}
-
-	if _, se, code := h.run("persona", "remove", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset"); code != 0 {
-		t.Fatalf("remove: code=%d stderr=%s", code, se)
-	}
-
-	if _, se, code := h.run("persona", "show", "--store", sp, "--name", "staff", "--actor", "admin@cli:unset"); code == 0 {
-		t.Fatalf("show after remove should fail, stderr=%s", se)
-	}
-}
-
-func TestPersonaPromptMutualExclusion(t *testing.T) {
-	h := newGoldenHarness(t)
-	sp := h.store.StorePath()
-
-	_, se, code := h.run("persona", "create", "--store", sp, "--name", "x", "--prompt", "a", "--prompt-file", "/tmp/x", "--actor", "admin@cli:unset")
-	if code == 0 {
-		t.Fatalf("want mutual-exclusion error, got code=0")
-	}
-	if !strings.Contains(se, "prompt") {
-		t.Fatalf("want mutual-exclusion error mentioning prompt, got stderr=%s", se)
+	for _, gone := range []string{"create", "remove"} {
+		if strings.Contains(help, "\n  "+gone+"\t") {
+			t.Fatalf("persona %s must be gone from the command tree (plan §7):\n%s", gone, help)
+		}
 	}
 }
 

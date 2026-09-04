@@ -187,7 +187,7 @@ func TestChecklistSetReplacesWholesale(t *testing.T) {
 		Steps:    []core.ChecklistStep{{Text: "a"}},
 		Suits:    []string{"developer"},
 		Requires: core.ChecklistRequires{Channels: []string{"journal"}},
-		Origin:   "shipped:atm",
+		Origin:   "scrumban@1.0.0",
 	}, chActor)
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestChecklistSetReplacesWholesale(t *testing.T) {
 	if len(got.Suits) != 0 || len(got.Requires.Channels) != 0 {
 		t.Fatalf("absent fields must be dropped, not merged: %+v", got)
 	}
-	if got.Name != "main" || got.Origin != "shipped:atm" {
+	if got.Name != "main" || got.Origin != "scrumban@1.0.0" {
 		t.Fatalf("identity/provenance must come from the existing record: %+v", got)
 	}
 	if got.TaskID != created.ID {

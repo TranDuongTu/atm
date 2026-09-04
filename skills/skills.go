@@ -8,17 +8,13 @@ import (
 	"strings"
 )
 
-//go:embed persona/*.md checklist/*.md
+//go:embed persona/*.md
 var files embed.FS
 
-var (
-	builtinPersonas       []PersonaSpec
-	builtinChecklistSeeds []ChecklistSeed
-)
+var builtinPersonas []PersonaSpec
 
 func init() {
 	builtinPersonas = mustLoadPersonas()
-	builtinChecklistSeeds = mustLoadChecklistSeeds()
 }
 
 func mustLoadPersonas() []PersonaSpec {
@@ -37,29 +33,10 @@ func mustLoadPersonas() []PersonaSpec {
 	return out
 }
 
-func mustLoadChecklistSeeds() []ChecklistSeed {
-	var out []ChecklistSeed
-	for _, name := range mustList("checklist") {
-		src, err := files.ReadFile(path.Join("checklist", name))
-		if err != nil {
-			panic(fmt.Sprintf("skills: read %s: %v", name, err))
-		}
-		s, err := ParseChecklistSeed(strings.TrimSuffix(name, ".md"), src)
-		if err != nil {
-			panic(fmt.Sprintf("skills: %v", err))
-		}
-		if s.Origin == "" {
-			s.Origin = "shipped:atm"
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 func mustList(dir string) []string {
 	entries, err := files.ReadDir(dir)
 	if err != nil {
-		// capability/ may be empty until Task 3; treat missing dir as empty.
+		// A pruned directory reads as empty, never a load failure.
 		return nil
 	}
 	var names []string
@@ -84,6 +61,3 @@ func Persona(name string) (PersonaSpec, bool) {
 	}
 	return PersonaSpec{}, false
 }
-
-// ChecklistSeeds returns the built-in starter checklists (name-sorted order).
-func ChecklistSeeds() []ChecklistSeed { return append([]ChecklistSeed(nil), builtinChecklistSeeds...) }

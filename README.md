@@ -43,8 +43,7 @@ atm
 
 The whole loop is select-and-dispatch — you pick a row, press `D`, and an agent session does the work:
 
-- **Get ready**: press `W` for the setup & readiness wizard — which harnesses are ready, which of this project's channels each one can reach, which starter checklists are missing, and the fix for each, one key away (see "Setup And Readiness" below). A store with no projects opens on it; a status-line `⚠ setup [W]` says when the agent you would dispatch with is not ready.
-- **Onboard**: press `D` anywhere to open the dispatch dialog, press `p` to cycle to **concierge**, and dispatch a plain-language onboarding session that creates your project, enables the right capabilities, and seeds their vocabulary.
+- **Get ready**: press `W` for the setup & readiness wizard — which harnesses are ready, which of this project's channels each one can reach, and the fix for each, one key away (see "Setup And Readiness" below). A store with no projects opens on it; a status-line `⚠ setup [W]` says when the agent you would dispatch with is not ready.
 - **Autopilot**: select a project, press `D` (it preselects **manager**), and dispatch a session that grooms the backlog, converges the enabled capabilities, and briefs you on what's next.
 - **Work a task**: select a task and press `D` to dispatch a **developer** session bound to it — no re-explaining the context. Cycle the persona with `p`, the host agent with `←/→`, the repo to spawn into with `↑/↓`, the spawn target with `t` (herdr pane, tmux window, or terminal tab), then `Enter` launches it.
 - **Explore**: `V` browses personas; `\` opens the spotlight — a horizontal launcher grouped by Project/Task/Board/Reference, drill in with `Enter`, search by typing, hover a row for a live preview (see "The Spotlight" below).
@@ -170,7 +169,7 @@ atm task list --project ATM --label ATM:next-sprint
 
 A new project enables `scrum` plus the registry capabilities; the downstream flows are an explicit choice, and `atm project wiring` decides what reaches each one's inbox.
 
-Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`, with seeded concierge starter checklists.
+Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`; operating checklists are profile content, imported with provenance by `atm profile apply`.
 
 Enable capabilities per project and scope manager actions to one:
 
@@ -279,17 +278,16 @@ Retrieval never breaks because generation cannot run. With no chat model configu
 
 ### Personas And Agent Defaults
 
-Personas shape the role prompt and actor identity used in `atm --persona <name> --project <CODE>`. ATM ships three built-in personas: `developer` (the default developer persona), `manager` (the default manager persona), and `admin` (human-driven CLI/TUI actions), plus `concierge` (plain-language onboarding, launchable without `--project`). Built-ins ship inside the binary from the top-level `skills/` folder and are no longer seeded into the store; inspect one with `atm persona show <name>` and customize it with `atm persona personality <name>`.
+Personas shape the role prompt and actor identity used in `atm --persona <name> --project <CODE>`. A persona is a PROJECT record: import one with `atm persona set --project <CODE> --file <doc>`, restore it with `atm persona reset`, and the project's records win over the built-ins the binary carries as the pre-profile fallback (`developer`, `manager`, `admin`). Inspect one with `atm persona show <name>`; a project's records list with `atm persona list --project <CODE>`.
 
-Create a custom persona when you want a recurring working style, and use it for one session with `--persona`:
+Create a custom persona when you want a recurring working style, and use it for one session with `--persona` — a persona is project state, so import it into the project that runs it:
 
 ```sh
-atm persona create \
-  --name reviewer \
-  --description "reviews implementation quality before handoff" \
-  --prompt-file ./prompts/reviewer.md
+atm persona set \
+  --project ATM \
+  --file ./prompts/reviewer.md
 
-atm --persona developer --project ATM --persona reviewer
+atm --persona reviewer --project ATM
 ```
 
 `atm init` records your default agent separately from personas. Use `atm agents` to inspect readiness, change the default host, or save default host-agent args; for one-off launches, override with `--agent` and pass host-agent args after `--`:
@@ -330,8 +328,7 @@ into the focused section and `Esc` peels the drill before closing the view,
 `r` re-probes, and `Esc` on the top level closes it. The drill keeps the
 section's rows on screen — `↑/↓` still move, and the detail follows the cursor
 — and shows what the table has no column for: an agent's **MCP servers and
-each one's health**, a channel's **per-agent coverage**, a persona's **missing
-and customised starters**.
+each one's health**, a channel's **per-agent coverage**.
 
 **AGENTS** is always there: a row per harness with a readiness glyph — `●`
 ready, `◐` fixable right here, `○` the fix is outside ATM (ATM can install its
@@ -339,9 +336,8 @@ own plugin for a harness, but it cannot install the harness) — plus the
 installed version, the plugin state, which launchers can start it, its model,
 and how many of the scoped project's channels it covers (the optional columns
 drop from the right as the terminal narrows; the glyph and the agent name never
-do). **CHANNELS** and
-**PERSONAS** appear only when a project is in scope; with none selected the
-wizard is honestly global and those sections are absent rather than empty.
+do). **CHANNELS** appears only when a project is in scope; with none selected
+the wizard is honestly global and that section is absent rather than empty.
 
 The view opens instantly and fills in. Everything reachable without a
 subprocess — PATH lookups, plugin files on disk, the stored selection — is on
@@ -359,14 +355,12 @@ Each section carries its own fix ladder, advertised in the footer:
 | --- | --- |
 | AGENTS | `i` install ATM's plugin · `d` make this the default agent · `m` set its model · `a` add this project's MCP servers via the harness's own `mcp add` · `l` authorize one (`mcp login`/`mcp auth`) · `u` run the harness's own update verb |
 | CHANNELS | `w` wire this machine's path · `s` stamp it verified |
-| PERSONAS | `e` enable the `checklist` capability · `s` author the shipped starter checklists this project is missing |
-| Anywhere | `c` dispatch a concierge session, scoped to the section you are in |
 
 Most of those are done by ATM itself and work with **no agent ready at all** —
 which matters, because on a fresh store nothing is ready and the action that
 ends that bootstrap (`i`) must not require what it is there to produce. The
-three that need a terminal of their own — `l`, `u`, `c` — are handed to the
-same dispatcher `D` uses; only the concierge waits for a ready agent. When
+two that need a terminal of their own — `l`, `u` — are handed to the
+same dispatcher `D` uses. When
 there is no dispatch target (no herdr, no tmux, no `terminal_cmd` — plausibly
 the first-run case) ATM shows the literal command to paste instead of
 dead-ending.
@@ -418,7 +412,7 @@ Two things this surface will not do, in the TUI and in `setup status` alike:
 
 ### Dispatching Sessions From The TUI
 
-The TUI can spawn manager, developer, concierge, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project. From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's wired repo channels (see Channels, below); when none are wired it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (list built-ins and customs, `Enter` views a persona's effective prompt, `Esc` backs out); `E` opens a read-only **channels** overlay (every channel with its wiring and stamp status, `Enter` for detail, `Esc` backs out).
+The TUI can spawn manager, developer, and admin sessions into a separate terminal surface. The spawn target is auto-detected (herdr pane → tmux window → new terminal tab, in that order), and `t` in the dispatch dialog cycles it by hand (`auto`, `herdr`, `tmux`, `terminal`). From the projects pane, `D` dispatches a **manager** session for the selected project. From the tasks pane, `D` dispatches a **developer** session bound to the selected task row. The host agent is an interactive field in every dialog (cycle with `←/→`, dispatch with `Enter`); an unready agent is refused with its missing-bin hint. The developer dialog adds one more field — the **repo** to spawn into (cycle with `↑/↓`), drawn from the project's wired repo channels (see Channels, below); when none are wired it falls back to the TUI's current directory. `V` opens a read-only **personas** browser (the project's records plus the built-ins, `Enter` views a persona's effective prompt, `Esc` backs out); `E` opens a read-only **channels** overlay (every channel with its wiring and stamp status, `Enter` for detail, `Esc` backs out; `c` preselects an attest dispatch).
 
 A developer session can equally be handed a task from the shell with the new
 `--task <id>` flag — it is validated against `--project`'s store, exported to

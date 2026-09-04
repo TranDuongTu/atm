@@ -55,7 +55,7 @@ func BuildProject(code string, views []core.ChannelView, servers map[string][]MC
 			PerAgent: make(map[string]Fact, len(agents)),
 		}
 		// The recipe names the server a fresh `mcp add` would use; the
-		// channel's own wiring.mcp_server — set once a concierge session or
+		// channel's own wiring.mcp_server — set once a session or
 		// a hand edit has actually recorded one — wins when the two
 		// disagree, because that is the name this machine's harnesses were
 		// actually configured against.

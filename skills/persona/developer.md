@@ -2,8 +2,6 @@
 name: developer
 description: Default working persona: implements features, fixes, and chores.
 launch: hook
-expects: [CODE, PROJECT_NAME, ACTOR]
-optional: [TASK_ID]
 ---
 # Persona: developer
 

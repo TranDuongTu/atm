@@ -41,7 +41,6 @@ const (
 	formTaskLabelRemove   // task detail: remove label
 	formProjectSetName    // project detail: set name
 	formCommentAdd        // task detail: add comment
-	formPersonaCreate     // Projects pane / overlay: add persona
 	formBoardEditor       // Boards pane: new/edit a board (live-validated expr)
 	formNamespaceDescribe // Boards pane: edit a namespace descriptor (description-only)
 	formSetupAgentModel   // Setup wizard: the model an agent's selection launches with
@@ -866,8 +865,8 @@ func (m *Model) overlayProject() string {
 // openDispatch opens the universal dispatch dialog, resolving the current
 // pane/selection into persona, project, and task defaults. Context never
 // changes dispatch logic — it only preselects. With no selection the dialog
-// still opens, defaulting to concierge (the one built-in usable without a
-// project).
+// still opens; no persona is special, so the empty default is the dialog's
+// own first row.
 func (m *Model) openDispatch() {
 	persona, project, taskID, taskTitle := m.dispatchDefaults()
 	m.dispatchDlg.open(persona, project, taskID, taskTitle, m.dispatchScopeDefault())
@@ -888,9 +887,10 @@ func (m *Model) dispatchScopeDefault() dispatchScope {
 // dispatchDefaults resolves the persona/project/task defaults openDispatch
 // preselects from the current pane and selection. Extracted so the
 // spotlight preview can compute the same defaults — without opening the
-// dialog — and never show something the real D key would not.
+// dialog — and never show something the real D key would not. No persona is
+// special: the empty default is the dialog's own first row.
 func (m *Model) dispatchDefaults() (persona, project, taskID, taskTitle string) {
-	persona, project = "concierge", m.projectScope
+	project = m.projectScope
 	switch {
 	case m.focused == paneProjects:
 		if row, ok := m.projects.selected(); ok {
@@ -969,8 +969,6 @@ func (m *Model) submitForm() tea.Cmd {
 		return m.doTaskLabelRemove(vals)
 	case formCommentAdd:
 		return m.doCommentAdd(vals)
-	case formPersonaCreate:
-		return m.doPersonaCreate(vals)
 	case formNamespaceDescribe:
 		return m.doNamespaceDescribe(vals)
 	case formSetupAgentModel:
@@ -996,23 +994,6 @@ func (m *Model) doCommentAdd(vals map[string]string) tea.Cmd {
 	}
 	m.refreshAll()
 	m.tasks.openDetail(taskID)
-	return nil
-}
-
-func (m *Model) doPersonaCreate(vals map[string]string) tea.Cmd {
-	name := vals["name"]
-	desc := vals["description"]
-	_, err := m.store.CreatePersona(name, "", desc, m.actor)
-	if err != nil {
-		if core.IsConflict(err) {
-			m.showToast(fmt.Sprintf("persona %s already exists", name))
-		} else {
-			m.showToast("error: " + err.Error())
-		}
-		return nil
-	}
-	m.showToast(fmt.Sprintf("created persona %s", name))
-	m.refreshAll()
 	return nil
 }
 
@@ -1059,26 +1040,6 @@ func (m *Model) toggleScopedArt() {
 		delete(m.artPair, code)
 		m.showToast("art: off")
 	}
-}
-
-// openPersonaCreateForm opens the New persona form (name + description only).
-// The prompt is left empty; the user sets it later via CLI --prompt-file.
-func (m *Model) openPersonaCreateForm() tea.Cmd {
-	nameValidator := func(field, value string) error {
-		if value == "" {
-			return nil
-		}
-		return core.ValidatePersonaName(value)
-	}
-	fields := []formField{
-		{Label: "name", Required: true, Hint: "lowercase slug, e.g. staff-engineer", Validator: nameValidator},
-		{Label: "description", Hint: "one-line summary (optional)"},
-	}
-	f := NewForm("New persona", fields)
-	f.SetWidth(FormWidth(m.width))
-	m.form = f
-	m.formKind = formPersonaCreate
-	return nil
 }
 
 // View renders the full screen: workspace, status line, plus any active

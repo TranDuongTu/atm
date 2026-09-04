@@ -14,10 +14,15 @@ func TestPersonasOverlayListsAndViews(t *testing.T) {
 		t.Fatal("V must open the personas overlay")
 	}
 	view := m.personasOv.renderOverlay()
-	for _, want := range []string{"developer", "manager", "concierge", "admin"} {
+	for _, want := range []string{"developer", "manager", "admin"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overlay missing built-in %q:\n%s", want, view)
 		}
+	}
+	// The concierge persona is pruned (plan §7): plain-language onboarding
+	// went with it, and a built-in that no longer exists must not render.
+	if strings.Contains(view, "concierge") {
+		t.Errorf("overlay still lists the pruned concierge persona:\n%s", view)
 	}
 
 	// Move to a persona and open its prompt.

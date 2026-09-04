@@ -12,7 +12,6 @@ import (
 	"atm/internal/core"
 	atmsetup "atm/internal/setup"
 	"atm/internal/version"
-	"atm/skills"
 
 	"github.com/spf13/cobra"
 )
@@ -24,9 +23,9 @@ import (
 const probeTimeout = 10 * time.Second
 
 // newSetupCmd is the read-only diagnostic noun: it proves internal/setup's
-// model end to end with no rendering in the way, and gives a concierge
-// checklist step one endpoint to call instead of describing five separate
-// probes by hand.
+// model end to end with no rendering in the way, and gives a checklist
+// step one endpoint to call instead of describing five separate probes by
+// hand.
 func newSetupCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -41,7 +40,7 @@ func newSetupCmd(st *cliState) *cobra.Command {
 func newSetupStatusCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Probe agent readiness and (with --project) channel/checklist coverage",
+		Short: "Probe agent readiness and (with --project) channel coverage",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, _ := cmd.Flags().GetString("project")
@@ -102,12 +101,6 @@ func newSetupStatusCmd(st *cliState) *cobra.Command {
 					return err
 				}
 				ps = atmsetup.BuildProject(project, views, servers, states, m.ProbedAt)
-				records, err := s.ChecklistRecords(project)
-				if err != nil {
-					return err
-				}
-				ps.Personas = atmsetup.BuildPersonas(personaNames(s.ListPersonas()), records, skills.ChecklistSeeds())
-				ps.ChecklistCapEnabled = projectCapabilityEnabled(proj, "checklist")
 			}
 			atmsetup.Fill(&m, ps)
 			m.Project = ps
@@ -119,31 +112,6 @@ func newSetupStatusCmd(st *cliState) *cobra.Command {
 	}
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
 	return cmd
-}
-
-// personaNames flattens the persona catalog to the names BuildPersonas wants.
-func personaNames(ps []*core.Persona) []string {
-	names := make([]string, len(ps))
-	for i, p := range ps {
-		names[i] = p.Name
-	}
-	return names
-}
-
-// projectCapabilityEnabled mirrors requireChannelCapability/
-// requireChecklistCapability's rule (a nil Capabilities list is a legacy
-// project: every built-in reads as enabled) but returns a bool instead of an
-// error — setup status reports the fact, it does not gate on it.
-func projectCapabilityEnabled(p *core.Project, name string) bool {
-	if p.Capabilities == nil {
-		return true
-	}
-	for _, n := range p.Capabilities {
-		if n == name {
-			return true
-		}
-	}
-	return false
 }
 
 // ---- JSON shape ----
@@ -216,33 +184,9 @@ func setupChannelToJSON(c atmsetup.ChannelRow) jsonSetupChannel {
 	}
 }
 
-type jsonSetupPersona struct {
-	Persona         string   `json:"persona"`
-	Checklists      int      `json:"checklists"`
-	Steps           int      `json:"steps"`
-	StartersSeeded  int      `json:"starters_seeded"`
-	StartersTotal   int      `json:"starters_total"`
-	MissingStarters []string `json:"missing_starters"`
-	Customised      []string `json:"customised"`
-}
-
-func setupPersonaToJSON(p atmsetup.PersonaRow) jsonSetupPersona {
-	return jsonSetupPersona{
-		Persona:         p.Persona,
-		Checklists:      p.Checklists,
-		Steps:           p.Steps,
-		StartersSeeded:  p.StartersSeeded,
-		StartersTotal:   p.StartersTotal,
-		MissingStarters: normalizeStrSlice(p.MissingStarters),
-		Customised:      normalizeStrSlice(p.Customised),
-	}
-}
-
 type jsonSetupProject struct {
-	Code                string             `json:"code"`
-	Channels            []jsonSetupChannel `json:"channels"`
-	Personas            []jsonSetupPersona `json:"personas"`
-	ChecklistCapEnabled bool               `json:"checklist_cap_enabled"`
+	Code     string             `json:"code"`
+	Channels []jsonSetupChannel `json:"channels"`
 }
 
 // setupModelToJSON builds the emit payload as a plain map so a nil Project
@@ -265,15 +209,9 @@ func setupModelToJSON(m atmsetup.Model) map[string]any {
 		for _, c := range m.Project.Channels {
 			channels = append(channels, setupChannelToJSON(c))
 		}
-		personas := make([]jsonSetupPersona, 0, len(m.Project.Personas))
-		for _, p := range m.Project.Personas {
-			personas = append(personas, setupPersonaToJSON(p))
-		}
 		payload["project"] = jsonSetupProject{
-			Code:                m.Project.Code,
-			Channels:            channels,
-			Personas:            personas,
-			ChecklistCapEnabled: m.Project.ChecklistCapEnabled,
+			Code:     m.Project.Code,
+			Channels: channels,
 		}
 	}
 	return payload
@@ -323,23 +261,9 @@ func writeSetupText(w io.Writer, m atmsetup.Model) {
 	if ps == nil {
 		return
 	}
-	fmt.Fprintf(w, "\nproject %s (checklist capability: %s)\n", ps.Code, capEnabledNote(ps.ChecklistCapEnabled))
+	fmt.Fprintf(w, "\nproject %s\n", ps.Code)
 	fmt.Fprintln(w, "CHANNEL\tTYPE\tSTATUS\tNOTE\tMCP SERVER")
 	for _, c := range ps.Channels {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.Name, c.Type, c.Glyph, c.Note, c.MCPServer)
 	}
-	fmt.Fprintln(w, "\nPERSONA\tCHECKLISTS\tSTEPS\tSTARTERS")
-	for _, p := range ps.Personas {
-		fmt.Fprintf(w, "%s\t%d\t%d\t%d/%d\n", p.Persona, p.Checklists, p.Steps, p.StartersSeeded, p.StartersTotal)
-		if len(p.MissingStarters) > 0 {
-			fmt.Fprintf(w, "  missing starters: %s\n", strings.Join(p.MissingStarters, ", "))
-		}
-	}
-}
-
-func capEnabledNote(enabled bool) string {
-	if enabled {
-		return "enabled"
-	}
-	return "disabled"
 }

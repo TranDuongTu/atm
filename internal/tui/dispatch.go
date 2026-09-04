@@ -226,14 +226,14 @@ func bwInner(width int) int {
 }
 
 // loadFor preselects the given default persona (falling back to the first
-// store persona when it is not in the list — no name is special, spec
+// listed persona when it is not in the list — no name is special, spec
 // decision 10), sets the context defaults, and refreshes the target preview
 // — everything open does except flipping active. open calls it and then
 // activates; the spotlight preview calls it alone, so previewing never
 // activates the dialog. Dispatch logic never branches on how it was opened.
 func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle string, scope dispatchScope) {
 	d.project, d.taskID, d.taskTitle, d.scope = project, taskID, taskTitle, scope
-	d.personas = d.m.store.ListPersonas()
+	d.personas = d.dispatchPersonas(project)
 	d.personaCursor = 0
 	for i, p := range d.personas {
 		if p.Name == defaultPersona {
@@ -277,6 +277,32 @@ func (d *dispatchModel) loadFor(defaultPersona, project, taskID, taskTitle strin
 		return
 	}
 	d.refreshPreview()
+}
+
+// dispatchPersonas lists what the dialog can launch: the project's OWN
+// records first (a persona is that project's operating identity, and the
+// record wins the same name collision compose resolves), then the built-ins
+// the binary carries. The machine-global custom store is pruned (plan §7),
+// so this is the whole list — a persona outside the project goes into it
+// with `atm persona set`.
+func (d *dispatchModel) dispatchPersonas(project string) []*core.Persona {
+	var out []*core.Persona
+	seen := map[string]bool{}
+	if project != "" {
+		if recs, err := d.m.store.PersonaRecords(project); err == nil {
+			for _, p := range recs {
+				cp := p
+				out = append(out, &cp)
+				seen[p.Name] = true
+			}
+		}
+	}
+	for _, p := range d.m.store.ListPersonas() {
+		if !seen[p.Name] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // loadOptions recomputes the checklist rows and launch state for the

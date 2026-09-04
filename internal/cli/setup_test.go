@@ -41,7 +41,7 @@ func TestSetupStatusJSONShape(t *testing.T) {
 	}
 }
 
-func TestSetupStatusWithProjectIncludesChannelsAndPersonas(t *testing.T) {
+func TestSetupStatusWithProjectIncludesChannels(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runSetupJSON(t, st, "--project", "ATM")
@@ -52,10 +52,14 @@ func TestSetupStatusWithProjectIncludesChannelsAndPersonas(t *testing.T) {
 	if p["code"] != "ATM" {
 		t.Fatalf("code = %v", p["code"])
 	}
-	for _, k := range []string{"channels", "personas"} {
-		if _, ok := p[k]; !ok {
-			t.Fatalf("missing %s", k)
-		}
+	if _, ok := p["channels"]; !ok {
+		t.Fatalf("missing channels")
+	}
+	// The personas table went with the starter checklists it accounted for
+	// (plan §7): operating checklists are profile content, and `atm
+	// profile status` is their readiness surface.
+	if _, ok := p["personas"]; ok {
+		t.Fatalf("personas key must be gone (plan §7): %#v", p)
 	}
 }
 
@@ -68,12 +72,11 @@ func TestSetupStatusUnknownProjectIsUsageError(t *testing.T) {
 
 // TestSetupStatusTextModeRendersAgentsAndProject exercises the default
 // (text) output, which the three JSON-mode tests above never touch.
-// Assertions are on stable anchors — the table header, a harness name that
-// agent.Harnesses() always contributes (regardless of whether that binary
-// happens to be on this machine's PATH), and a persona name that ships
-// built-in (skills.Personas(), independent of store content) — not on exact
-// column widths, so a reflow of writeSetupText's format string doesn't turn
-// this into a brittle golden file.
+// Assertions are on stable anchors — the table header and a harness name
+// that agent.Harnesses() always contributes (regardless of whether that
+// binary happens to be on this machine's PATH) — not on exact column
+// widths, so a reflow of writeSetupText's format string doesn't turn this
+// into a brittle golden file.
 func TestSetupStatusTextModeRendersAgentsAndProject(t *testing.T) {
 	t.Setenv("ATM_PROJECT", "")
 	st := newTestCLI(t)
@@ -87,24 +90,22 @@ func TestSetupStatusTextModeRendersAgentsAndProject(t *testing.T) {
 	// column is headed "CHANNELS" and would match regardless of whether the
 	// project's channel table rendered at all).
 	mustContain(t, out, "MCP SERVER")
-	mustContain(t, out, "PERSONA")
-	mustContain(t, out, "developer")
+	// The PERSONA table is gone with the starter checklists (plan §7).
+	mustNotContain(t, out, "PERSONA\t")
 }
 
 // TestSetupStatusTextModeNoProjectOmitsProjectSection pins the early-return
 // at the bottom of writeSetupText: with no project selected there is no
-// "project" header, no CHANNEL table, no PERSONA table — the agent table is
-// the whole picture, honestly, rather than an empty/misleading section.
+// "project" header, no CHANNEL table — the agent table is the whole
+// picture, honestly, rather than an empty/misleading section.
 func TestSetupStatusTextModeNoProjectOmitsProjectSection(t *testing.T) {
 	t.Setenv("ATM_PROJECT", "")
 	st := newTestCLI(t)
 	out := runArgsOut(t, st, "setup", "status")
 	mustContain(t, out, "AGENT")
-	mustNotContain(t, out, "PERSONA")
 	// Not "CHANNEL" alone: the agent table's own coverage column is headed
 	// "CHANNELS" and is always present, so that substring would false-fail.
-	// "checklist capability" only appears in the project header line.
-	mustNotContain(t, out, "checklist capability")
+	mustNotContain(t, out, "MCP SERVER")
 }
 
 // TestUpdateArgvContractPresentAndAbsent pins setup.UpdateArgv's contract at

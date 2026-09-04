@@ -40,13 +40,13 @@ type BoardsConfig struct {
 
 // RepoConfig is one machine-local dispatch target recorded for a project:
 // a local path to spawn agent sessions into, plus an optional remote link
-// the concierge logged during onboarding. It is config, not substrate
+// an onboarding session logged. It is config, not substrate
 // state — no event-log entry, not synced — so a fresh machine carrying a
-// synced event log has no repos until a concierge session records them.
+// synced event log has no repos until a session records them.
 type RepoConfig struct {
 	Name string `json:"name"`          // short handle, unique within the project
 	Path string `json:"path"`          // absolute local path (existence-validated on add)
-	URL  string `json:"url,omitempty"` // remote link the concierge logged; optional
+	URL  string `json:"url,omitempty"` // remote link an onboarding session logged; optional
 }
 
 // Stamp kinds. A stamp records HOW the endpoint was reached: real work

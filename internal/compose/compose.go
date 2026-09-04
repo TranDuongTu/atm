@@ -316,9 +316,9 @@ func (s *Service) requireWarnings(code string, recs []core.ChecklistRecord) []st
 // resolvePersona resolves the persona a session runs as. The PROJECT'S OWN
 // RECORD WINS: a persona is that project's operating identity, so two
 // projects running the same-named persona from different profiles each get
-// their own text. The code-side built-ins are the fallback, and the
-// machine-global custom personas behind them are what the second half of
-// ATM-207ab8 retires.
+// their own text. The code-side built-ins are the fallback. The machine-
+// global custom-persona store is pruned (plan §7): a persona outside a
+// project is imported into it with `atm persona set --file`.
 func resolvePersona(s core.Service, code, name string) (core.Persona, error) {
 	if code != "" {
 		if rec, err := s.GetPersonaRecord(code, name); err == nil {
@@ -340,18 +340,7 @@ func resolvePersona(s core.Service, code, name string) (core.Persona, error) {
 			Origin:          "builtin",
 		}, nil
 	}
-	doc, err := s.PersonaDoc(name)
-	if err != nil {
-		return core.Persona{}, err
-	}
-	spec, err := skills.ParsePersona(name, []byte(doc))
-	if err != nil {
-		return core.Persona{}, fmt.Errorf("%w: stored persona %q: %v", core.ErrUsage, name, err)
-	}
-	return core.Persona{
-		Name: spec.Name, Description: spec.Description, Prompt: spec.Body,
-		Launch: spec.Launch, ProjectOptional: spec.ProjectOptional, Origin: "user",
-	}, nil
+	return core.Persona{}, fmt.Errorf("%w: persona %q: not a project record (import one with `atm persona set --file`) and not a built-in", core.ErrNotFound, name)
 }
 
 // LaunchModeOf is the vehicle a session for this persona actually starts

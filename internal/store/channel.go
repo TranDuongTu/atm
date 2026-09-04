@@ -385,7 +385,7 @@ func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
 }
 
 // MigrateReposToChannels lifts every legacy RepoConfig into a repo channel:
-// tier-1 record (handle, URL; purpose left for the concierge to author) plus
+// tier-1 record (handle, URL; purpose left for a hand or an agent to author) plus
 // tier-2 wiring (path), then clears the legacy repos entries actually
 // accounted for. Returns the number migrated, the handles whose PATH could
 // not be wired, and the handles left in place because their name already
@@ -395,7 +395,7 @@ func (s *Store) GetChannelByName(code, name string) (*core.ChannelView, error) {
 // recorded) must not abort the migration: SetChannelWiring rejects a missing
 // directory, and failing there would leave the tier-1 record created, `repos`
 // uncleared, and every re-run stuck on the same entry forever. The ledger
-// record is the part worth keeping — it is what lets a concierge re-wire the
+// record is the part worth keeping — it is what lets anyone re-wire the
 // channel — so a missing path is reported, not fatal.
 //
 // A legacy repo name that collides with an EXISTING channel of a different
@@ -444,7 +444,7 @@ func (s *Store) MigrateReposToChannels(code, actor string) (int, []string, []str
 			if !errors.Is(err, core.ErrUsage) {
 				return n, unwired, skipped, err
 			}
-			unwired = append(unwired, r.Name) // path gone: record kept, wiring left to concierge
+			unwired = append(unwired, r.Name) // path gone: record kept, wiring left for later
 		}
 		accounted[r.Name] = true
 		n++

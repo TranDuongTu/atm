@@ -27,7 +27,7 @@ import (
 //	agentRowNamed -> agentRow    (setup_actions_test.go)
 //
 // The channel/persona lookups have no equivalent yet, so they are written
-// here as channelRowNamed/personaRowNamed.
+// here as channelRowNamed.
 
 // --- fixtures: real harness output ---
 //
@@ -74,21 +74,6 @@ func channelRowNamed(t *testing.T, m *Model, name string) setup.ChannelRow {
 	}
 	t.Fatalf("no channel row %q", name)
 	return setup.ChannelRow{}
-}
-
-// personaRowNamed is the wizard's row for one persona.
-func personaRowNamed(t *testing.T, m *Model, name string) setup.PersonaRow {
-	t.Helper()
-	if m.setup.model.Project == nil {
-		t.Fatalf("no project section to find persona %q in", name)
-	}
-	for _, p := range m.setup.model.Project.Personas {
-		if p.Persona == name {
-			return p
-		}
-	}
-	t.Fatalf("no persona row %q", name)
-	return setup.PersonaRow{}
 }
 
 // mustAddRepoChannel authors a repo channel AND wires it to a real directory
@@ -156,14 +141,20 @@ func stampChannelDaysAgo(t *testing.T, m *Model, code, name string, days int) {
 
 // seedOnlyStarters authors exactly the named shipped starters, with the
 // shipped steps, and nothing else — the state of a project seeded by an OLDER
-// atm that shipped fewer starters than this one does.
-func seedOnlyStarters(t *testing.T, m *Model, code string, names ...string) {
+// atm that shipped fewer starters than this one does. With the starter
+// checklists pruned (plan §7) there are no shipped starters left, so the
+// repair narrative uses hand-authored checklist records instead: the drift it
+// stands in for (a checklist this atm no longer accounts for) is expressed by
+// the records the store actually holds.
+func seedOneChecklist(t *testing.T, m *Model, code, name string) {
 	t.Helper()
-	for _, name := range names {
-		seed := checklistSeedNamed(t, "concierge", name)
-		if _, err := m.store.CreateChecklist(code, setup.SeedRecord(code, seed), testActor); err != nil {
-			t.Fatalf("CreateChecklist %s: %v", name, err)
-		}
+	rec := core.ChecklistRecord{
+		Name:    name,
+		Purpose: "hand-authored operating checklist",
+		Steps:   []core.ChecklistStep{{Text: "one step"}},
+	}
+	if _, err := m.store.CreateChecklist(code, rec, testActor); err != nil {
+		t.Fatalf("CreateChecklist %s: %v", name, err)
 	}
 }
 
@@ -191,22 +182,12 @@ func TestNarrativeEmptyStore(t *testing.T) {
 	if row.Glyph() != "◐" {
 		t.Fatalf("binary present, plugin missing => ◐, got %q", row.Glyph())
 	}
-	if m.setup.actionGated("i") {
-		t.Fatal("installing the first plugin cannot require a ready agent")
-	}
-	// The other side of the same rule, and the one that makes the assertion
-	// above mean something: the gate is real, it just never stands in front of
-	// the action that ENDS the bootstrap.
-	if !m.setup.actionGated("interview") {
-		t.Fatal("a concierge session needs an agent to run in; with none ready it must be gated")
-	}
-
+	// Every fix on the screen is DIRECT (plan §7 took the only SPAWNED
+	// action, the concierge session, with it), so the bootstrap paradox is
+	// gone too: nothing on the wizard waits for a ready agent.
 	m.setup.installPlugin("claude")
 	if got := agentRow(t, m, "claude").Glyph(); got != "●" {
 		t.Fatalf("after install glyph = %q, want ●", got)
-	}
-	if m.setup.actionGated("interview") {
-		t.Fatal("one ready agent lifts the concierge gate")
 	}
 	if !strings.Contains(m.setup.render(100, 30), "first project") {
 		t.Fatal("a ready agent should hand off to project creation")
@@ -267,15 +248,17 @@ func TestNarrativeFourthProject(t *testing.T) {
 
 // --- narrative 3: repair ---
 
-// Narrative 3: repair. Three distinct drifts side by side, each with its fix
-// beside it — including a starter that is missing only because a newer atm
-// shipped it after this project was seeded.
+// Narrative 3: repair. Two distinct drifts side by side, each with its fix
+// beside it. The third drift this narrative used to carry — a missing starter
+// checklist — went with the starter checklists themselves (plan §7):
+// operating checklists are profile content now, reported by `atm profile
+// status`, and the wizard has nothing left to say about them.
 func TestNarrativeRepair(t *testing.T) {
 	m := setupActionsModel(t)
 	seedActionProject(t, m, "ATM")
 	mustAddNotionChannel(t, m, "ATM", "specs", "notion")
 	stampChannelDaysAgo(t, m, "ATM", "specs", 61)
-	seedOnlyStarters(t, m, "ATM", "empty-project", "setup-agent-launcher") // a third now ships
+	seedOneChecklist(t, m, "ATM", "planning")
 	m.setup.run = fakeMCPRun(map[string]string{
 		"claude": claudeMCPOutWithNotion,
 		"codex":  realEmptyMCPLists["codex"], "opencode": realEmptyMCPLists["opencode"],
@@ -290,39 +273,16 @@ func TestNarrativeRepair(t *testing.T) {
 	if got := channelRowNamed(t, m, "specs").PerAgent["codex"]; got != setup.FactAbsent {
 		t.Fatalf("codex is missing the notion server, got %v", got)
 	}
-	// Drift 3: the project was seeded before this atm shipped a third starter.
-	concierge := personaRowNamed(t, m, "concierge")
-	if len(concierge.MissingStarters) != 1 || concierge.MissingStarters[0] != "setup-channels" {
-		t.Fatalf("missing starters = %v", concierge.MissingStarters)
-	}
-	// The three drifts are distinct, and each is reported where its own fix
-	// is: a stale stamp is [s] on the channel row, a missing server is [a] on
-	// the agent row, a missing starter is [s] on the personas section. A
-	// wizard that merged them into one "not ready" verdict would name no fix
-	// at all.
+	// The two drifts are distinct, and each is reported where its own fix
+	// is: a stale stamp is [s] on the channel row, a missing server is [a]
+	// on the agent row. A wizard that merged them into one "not ready"
+	// verdict would name no fix at all.
 	m.setup.section = setupSectionChannels
-	if !strings.Contains(m.setup.actionHints(), "[s]stamp") {
-		t.Fatalf("channels ladder must offer the stamp fix: %q", m.setup.actionHints())
+	if !strings.Contains(m.setup.agentActionHints(), "[s]stamp") {
+		t.Fatalf("channels ladder must offer the stamp fix: %q", m.setup.agentActionHints())
 	}
 	m.setup.section = setupSectionAgents
-	if !strings.Contains(m.setup.actionHints(), "[a]mcp add") {
-		t.Fatalf("agents ladder must offer the mcp add fix: %q", m.setup.actionHints())
-	}
-	m.setup.section = setupSectionPersonas
-	if !strings.Contains(m.setup.actionHints(), "[s]seed starters") {
-		t.Fatalf("personas ladder must offer the seed fix: %q", m.setup.actionHints())
-	}
-
-	// And the repair actually repairs: seeding authors the one missing starter
-	// and adds nothing else. The checklist count is what proves the second
-	// half — three records, not five — since re-authoring the two that were
-	// already there would land as duplicates rather than as a visible failure.
-	m.setup.seedStarters("ATM")
-	got := personaRowNamed(t, m, "concierge")
-	if len(got.MissingStarters) != 0 || got.StartersSeeded != got.StartersTotal {
-		t.Fatalf("after seeding: missing = %v, seeded %d/%d", got.MissingStarters, got.StartersSeeded, got.StartersTotal)
-	}
-	if got.Checklists != 3 {
-		t.Fatalf("after seeding the concierge has %d checklists, want exactly the 3 shipped starters", got.Checklists)
+	if !strings.Contains(m.setup.agentActionHints(), "[a]mcp add") {
+		t.Fatalf("agents ladder must offer the mcp add fix: %q", m.setup.agentActionHints())
 	}
 }

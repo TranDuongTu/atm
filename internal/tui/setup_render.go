@@ -92,12 +92,11 @@ func (s *setupModel) render(termWidth, height int) string {
 		b.WriteString(s.agentsSection(width))
 		if ps := s.model.Project; ps != nil {
 			b.WriteString(s.channelsSection(ps, width))
-			b.WriteString(s.personasSection(ps, width))
 		} else if setupAnyReady(s.model.Agents) {
 			// The wizard hands off; it never creates projects itself. Once at
 			// least one agent can dispatch there is nothing left for THIS view
 			// to do — pointing at the Projects pane is more useful than an
-			// empty CHANNELS/PERSONAS section that can't exist without one.
+			// empty CHANNELS section that can't exist without one.
 			//
 			// FIRST project only when the store genuinely has none. This
 			// branch is also reached whenever no project is SELECTED, which on
@@ -120,7 +119,7 @@ func (s *setupModel) render(termWidth, height int) string {
 	//
 	// The action text belongs to the ladder itself (setup_actions.go) so a key
 	// can never be advertised here without being bound there.
-	b.WriteString("\n" + styles.KeyMenu.Render(fitLine(s.actionHints(), width-4)) + "\n")
+	b.WriteString("\n" + styles.KeyMenu.Render(fitLine(s.agentActionHints(), width-4)) + "\n")
 	b.WriteString(styles.KeyMenuDim.Render(setupNavHints(s.drilled)))
 
 	// Sized to its content and centred on both axes, the way every overlay in
@@ -168,28 +167,6 @@ func (s *setupModel) channelsSection(ps *atmsetup.ProjectSetup, width int) strin
 	return b.String()
 }
 
-func (s *setupModel) personasSection(ps *atmsetup.ProjectSetup, width int) string {
-	styles := s.m.styles
-	var b strings.Builder
-	b.WriteString("\n" + styles.HeaderLabel.Render("PERSONAS · "+ps.Code) + "\n")
-	switch {
-	case s.checklistErr != "":
-		// The capability's state could not be read, which is NOT the same as
-		// the capability being off — and [e] would not fix it, so it is not
-		// offered here.
-		b.WriteString(styles.Error.Render(fitLine(
-			"  cannot tell whether checklists are on for "+ps.Code+": "+s.checklistErr, width-4)) + "\n")
-	case !ps.ChecklistCapEnabled:
-		b.WriteString(styles.Muted.Render(fitLine(
-			"  checklists are off for "+ps.Code+" — press [e] to enable the capability", width-4)) + "\n")
-	}
-	for i, p := range ps.Personas {
-		b.WriteString(s.row(setupSectionPersonas, i, fmt.Sprintf("%-16s %d checklists · starters %d/%d",
-			p.Persona, p.Checklists, p.StartersSeeded, p.StartersTotal), width) + "\n")
-	}
-	return b.String()
-}
-
 // drill renders the level Enter opens: the focused section's rows, and under
 // them the detail for the row the cursor is on. Only the focused section is
 // drawn — the box is height-clipped (titledBoxHeight), so carrying all three
@@ -200,12 +177,9 @@ func (s *setupModel) drill(width int) string {
 	styles := s.m.styles
 	var b strings.Builder
 	ps := s.model.Project
-	switch {
-	case s.section == setupSectionChannels && ps != nil:
+	if s.section == setupSectionChannels && ps != nil {
 		b.WriteString(s.channelsSection(ps, width))
-	case s.section == setupSectionPersonas && ps != nil:
-		b.WriteString(s.personasSection(ps, width))
-	default:
+	} else {
 		b.WriteString(s.agentsSection(width))
 	}
 	b.WriteString("\n" + styles.HeaderLabel.Render("DETAIL") + "\n")
@@ -232,12 +206,6 @@ func (s *setupModel) detailLines() []string {
 			return nil
 		}
 		return s.channelDetail(ch)
-	case setupSectionPersonas:
-		p, ok := s.currentPersona()
-		if !ok {
-			return nil
-		}
-		return setupPersonaDetail(p)
 	default:
 		if s.cursor < 0 || s.cursor >= len(s.model.Agents) {
 			return nil
@@ -348,24 +316,6 @@ func setupCoverageWord(f atmsetup.Fact) string {
 	default:
 		return "unknown"
 	}
-}
-
-// setupPersonaDetail is the PERSONAS drill body: which shipped starters this
-// persona is missing, and which have been edited since they were seeded.
-func setupPersonaDetail(p atmsetup.PersonaRow) []string {
-	out := []string{
-		fmt.Sprintf("checklists %d · %d steps", p.Checklists, p.Steps),
-		fmt.Sprintf("starters   %d of %d seeded", p.StartersSeeded, p.StartersTotal),
-	}
-	if len(p.MissingStarters) > 0 {
-		out = append(out, "missing    "+strings.Join(p.MissingStarters, ", ")+"  — press [s] to author them")
-	}
-	if len(p.Customised) > 0 {
-		// Informational, never actionable: a seeded starter is MEANT to be
-		// edited (see setup.BuildPersonas).
-		out = append(out, "customised "+strings.Join(p.Customised, ", "))
-	}
-	return out
 }
 
 // agentTable renders the AGENTS section's header and rows. setupColumns picks

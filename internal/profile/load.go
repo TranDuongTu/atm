@@ -187,13 +187,31 @@ func parsePersona(stem string, src []byte) (core.Persona, []error) {
 	}
 	// Prompt is the whole body. The personality section skills/ used to
 	// split out of a persona file is pruned by this unit: identity is one
-	// document, not a base plus an overlay.
+	// document, not a base plus an overlay. launch and project_optional
+	// ride the document: vehicle is launcher plumbing (a document that
+	// declares how it boots keeps choosing), and project_optional keeps a
+	// persona's say over launching without --project. Empty launch means
+	// the code-side default for the name.
 	p := core.Persona{
-		Name:        fm.scalars["name"],
-		Description: fm.scalars["description"],
-		Prompt:      strings.TrimSpace(body),
+		Name:            fm.scalars["name"],
+		Description:     fm.scalars["description"],
+		Prompt:          strings.TrimSpace(body),
+		Launch:          fm.scalars["launch"],
+		ProjectOptional: fm.scalars["project_optional"] == "true",
 	}
 	problems := nameProblems("persona", stem, p.Name)
+	if v := fm.scalars["launch"]; v != "" {
+		switch v {
+		case "prompt", "hook", "tui":
+		default:
+			problems = append(problems, fmt.Errorf("persona %s: launch must be prompt, hook, or tui, got %q", stem, v))
+		}
+	}
+	if v := fm.scalars["project_optional"]; v != "" {
+		if v != "true" && v != "false" {
+			problems = append(problems, fmt.Errorf("persona %s: project_optional must be true or false", stem))
+		}
+	}
 	if p.Description == "" {
 		problems = append(problems, fmt.Errorf("persona %s: description is required", stem))
 	}
@@ -201,6 +219,24 @@ func parsePersona(stem string, src []byte) (core.Persona, []error) {
 		problems = append(problems, fmt.Errorf("persona %s: body is required — a persona with no prompt says nothing", stem))
 	}
 	return p, problems
+}
+
+// ParseChecklistDocument parses one checklist document — the same parser
+// the profile loader uses, exported so `atm checklist set` imports identical
+// text through identical rules. A checklist a user writes by hand and one a
+// profile ships are the same thing. An empty stem means "trust the
+// document": there is no filename to agree with when a checklist arrives on
+// stdin.
+func ParseChecklistDocument(stem string, src []byte) (core.ChecklistRecord, error) {
+	if stem == "" {
+		fm, _, err := parseFrontmatter(src)
+		if err != nil {
+			return core.ChecklistRecord{}, fmt.Errorf("checklist: %w", err)
+		}
+		stem = fm.scalars["name"]
+	}
+	c, problems := parseChecklist(stem, src)
+	return c, errors.Join(problems...)
 }
 
 func parseChecklist(stem string, src []byte) (core.ChecklistRecord, []error) {

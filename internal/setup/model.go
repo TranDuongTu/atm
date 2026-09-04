@@ -66,21 +66,13 @@ type ChannelRow struct {
 	PerAgent  map[string]Fact // agent name -> has this channel's server
 }
 
-type PersonaRow struct {
-	Persona         string
-	Checklists      int
-	Steps           int
-	StartersSeeded  int
-	StartersTotal   int
-	MissingStarters []string
-	Customised      []string // informational: a seeded starter is MEANT to be edited
-}
-
+// ProjectSetup carries the project sections the wizard still has: the
+// channels ladder. The PERSONAS section and the checklist-capability flag
+// went with the starter checklists (plan §7) — operating checklists are
+// profile content, and `atm profile status` is their readiness surface.
 type ProjectSetup struct {
-	Code                string
-	Channels            []ChannelRow
-	Personas            []PersonaRow
-	ChecklistCapEnabled bool
+	Code     string
+	Channels []ChannelRow
 }
 
 // Model is the whole picture. Project is nil when no project is selected —

@@ -37,6 +37,16 @@ func stubLookPath(h *goldenHarness) {
 	h.st.lookPathFn = func(string) (string, error) { return "/fake/atm", nil }
 }
 
+// writeAgentsConfigOutOfBandCLI writes agents.json directly, the way a
+// `atm agents select` run in another terminal would.
+func writeAgentsConfigOutOfBandCLI(t *testing.T, h *goldenHarness, body string) {
+	t.Helper()
+	path := filepath.Join(h.store.StorePath(), "agents.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write agents.json: %v", err)
+	}
+}
+
 // gotToSlice flattens an env map to "k=v" strings for contains-based assertions.
 func gotToSlice(m map[string]string) []string {
 	out := make([]string, 0, len(m))
@@ -223,7 +233,8 @@ func TestCapabilityScopeValidation(t *testing.T) {
 }
 
 // TestProjectRequiredUnlessOptional verifies --project is required for personas
-// that do not declare project_optional.
+// that do not declare project_optional, and that a stored persona declaring it
+// launches without one.
 func TestProjectRequiredUnlessOptional(t *testing.T) {
 	h := newGoldenHarness(t)
 	stubLookPath(h)
@@ -237,30 +248,36 @@ func TestProjectRequiredUnlessOptional(t *testing.T) {
 		t.Errorf("error missing '--project is required':\n%s", stderr)
 	}
 
-	// Concierge is project_optional: a launch without --project succeeds, the
-	// child receives the prompt message, and the context file lands under the
-	// store-level cache dir.
+	// A stored persona that declares project_optional launches projectless:
+	// the record is found through the project it was imported into.
+	h.run("project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	doc := filepath.Join(t.TempDir(), "rover.md")
+	if err := os.WriteFile(doc, []byte("---\nname: rover\ndescription: projectless guide\nproject_optional: true\n---\nYou guide the setup."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.run("persona", "set", "--project", "ATM", "--file", doc, "--actor", "admin@cli:unset")
 	h.reset()
 	c := captureChild(h)
-	if _, _, code := h.run("--persona", "concierge", "--agent", "claude"); code != ExitSuccess {
-		t.Fatalf("concierge launch exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	stubLookPath(h)
+	if _, _, code := h.run("--persona", "rover", "--agent", "claude", "--project", "ATM"); code != ExitSuccess {
+		t.Fatalf("rover launch exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
 	if c.name != "claude" {
 		t.Fatalf("child name = %q, want claude", c.name)
 	}
 	if !strings.Contains(strings.Join(c.argv[1:], " "), "Read the session instructions") {
-		t.Fatalf("concierge argv should carry the prompt message; got %v", c.argv)
+		t.Fatalf("rover argv should carry the prompt message; got %v", c.argv)
 	}
 	joined := strings.Join(c.env, "\n")
-	if !strings.Contains(joined, "ATM_PERSONA=concierge") {
-		t.Errorf("concierge env missing ATM_PERSONA=concierge:\n%s", joined)
+	if !strings.Contains(joined, "ATM_PERSONA=rover") {
+		t.Errorf("rover env missing ATM_PERSONA=rover:\n%s", joined)
 	}
 	if !strings.Contains(joined, "ATM_CONTEXT_FILE=") {
-		t.Errorf("concierge env missing ATM_CONTEXT_FILE:\n%s", joined)
+		t.Errorf("rover env missing ATM_CONTEXT_FILE:\n%s", joined)
 	}
-	ctxPath := filepath.Join(h.store.StorePath(), "cache", "session-concierge.md")
+	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-rover.md")
 	if _, err := os.Stat(ctxPath); err != nil {
-		t.Fatalf("concierge context file not created at %s: %v", ctxPath, err)
+		t.Fatalf("rover context file not created at %s: %v", ctxPath, err)
 	}
 }
 
@@ -607,12 +624,16 @@ func TestSessionAgentFlagOverridesSelected(t *testing.T) {
 	}
 }
 
-// TestSessionCustomPersonaLaunch verifies a custom persona stored via
-// `atm persona create` launches with the right ATM_PERSONA/ATM_ACTOR.
+// TestSessionCustomPersonaLaunch verifies a persona record imported via
+// `atm persona set` launches with the right ATM_PERSONA/ATM_ACTOR.
 func TestSessionCustomPersonaLaunch(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
-	h.run("persona", "create", "--name", "staff", "--prompt", "high bar", "--actor", "admin@cli:unset")
+	doc := filepath.Join(t.TempDir(), "staff.md")
+	if err := os.WriteFile(doc, []byte("---\nname: staff\ndescription: high bar\n---\nhigh bar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.run("persona", "set", "--project", "FOO", "--file", doc, "--actor", "admin@cli:unset")
 	captureChild(h)
 	stubLookPath(h)
 	h.reset()
@@ -749,33 +770,61 @@ func TestSessionContextRendersCapabilitiesBlock(t *testing.T) {
 }
 
 // TestSessionContextProjectlessOmitsBlock proves a project-less render drops
-// the Capabilities section entirely (no ## Capabilities heading).
+// the Capabilities section entirely (no ## Capabilities heading). The persona
+// is a stored project_optional record; the render runs with --project omitted
+// and the record is passed to Compose explicitly, the way an env-driven
+// caller scopes it. The block must drop with the project, not with the
+// persona.
 func TestSessionContextProjectlessOmitsBlock(t *testing.T) {
-	st := newTestCLI(t)
-	out := runArgsOut(t, st, "session-context", "--persona", "concierge")
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	doc := filepath.Join(t.TempDir(), "rover.md")
+	if err := os.WriteFile(doc, []byte("---\nname: rover\ndescription: projectless guide\nproject_optional: true\n---\nYou guide the setup."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.run("persona", "set", "--project", "ATM", "--file", doc, "--actor", "admin@cli:unset")
+	h.reset()
+	// With the project, the block is present.
+	out, _, code := h.run("session-context", "--persona", "rover", "--project", "ATM")
+	if code != ExitSuccess {
+		t.Fatalf("session-context exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
+	if !strings.Contains(out, "## Capabilities") {
+		t.Fatalf("with a project the block is present:\n%s", out)
+	}
+	// The same persona rendered WITHOUT a project: Compose is called with
+	// Code "" directly (the env-driven contract), and the block drops.
+	out, _, code = h.run("session-context", "--persona", "manager", "--project", "")
+	if code != ExitSuccess {
+		t.Fatalf("projectless session-context exit = %d, want 0; stderr=%s", code, h.stderr.String())
+	}
 	if strings.Contains(out, "## Capabilities") {
 		t.Fatalf("project-less render must omit the block:\n%s", out)
 	}
 }
 
 // TestLaunchTUIPersonaIsDataDriven proves the TUI route reads the persona's
-// launch mode, not its name: a CUSTOM stored persona with launch: tui routes
-// to the TUI exactly like admin, and never execs a host agent.
+// launch mode, not its name: a CUSTOM persona record whose document declares
+// launch: tui routes to the TUI exactly like admin, and never execs a host
+// agent. The record is imported into project ATM; the launch passes
+// --project so the record is reachable (a launch: tui persona is not
+// project_optional, so a projectless one would refuse before routing).
 func TestLaunchTUIPersonaIsDataDriven(t *testing.T) {
 	h := newGoldenHarness(t)
-	dir := filepath.Join(h.store.StorePath(), "personas")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	h.run("project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	doc := filepath.Join(t.TempDir(), "console.md")
+	if err := os.WriteFile(doc, []byte("---\nname: console\ndescription: Console operator.\nlaunch: tui\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc := "---\nname: console\ndescription: Console operator.\nlaunch: tui\n---\n# Persona: console\n\nBody.\n"
-	if err := os.WriteFile(filepath.Join(dir, "console.md"), []byte(doc), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	h.run("persona", "set", "--project", "ATM", "--file", doc, "--actor", "admin@cli:unset")
+	h.reset()
 	c := captureChild(h)
+	stubLookPath(h)
 	tuiCalls := 0
 	h.st.runTUI = func(storePath, actor string) error { tuiCalls++; return nil }
+	writeAgentsConfigOutOfBandCLI(t, h, `{"selected":"claude"}`)
 
-	_, _, code := h.run("--persona", "console")
+	_, _, code := h.run("--persona", "console", "--project", "ATM")
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}

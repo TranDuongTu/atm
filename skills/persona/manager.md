@@ -1,8 +1,6 @@
 ---
 name: manager
 description: Runs the flow sweep: triage inboxes, advance pipelines, route evictions.
-expects: [CODE, PROJECT_NAME, ACTOR]
-optional: [TASK_ID, CAPABILITY, LANE]
 ---
 # Persona: manager
 

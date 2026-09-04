@@ -3,13 +3,14 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // The brief's sketch actors ("c@t:u") are not registered personas; the store
-// validateActor gate rejects them (built-ins are admin/concierge/developer/
-// manager), so, as in Task 6, the mutation tests here use the package's
-// established "developer@test:unit" actor. Behavior is unchanged.
+// validateActor gate rejects them (built-ins are admin/developer/manager), so,
+// as in Task 6, the mutation tests here use the package's established
+// "developer@test:unit" actor. Behavior is unchanged.
 
 // runChecklistErrText runs args against the testCLI harness and returns the
 // resulting error's message text (empty on success) plus the exit code. See
@@ -37,7 +38,7 @@ func TestChecklistAddListShowJSON(t *testing.T) {
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	out := runArgsOut(t, st, "checklist", "add", "--project", "ATM", "--name", "main",
 		"--purpose", "day to day", "--suits", "developer", "--requires-capability", "scrum",
-		"--step", "check the notion channel", "--step", "post progress", "--actor", "concierge@test:unit")
+		"--step", "check the notion channel", "--step", "post progress", "--actor", "developer@test:unit")
 	mustContain(t, out, "created checklist main")
 
 	st.output = outputJSON
@@ -58,7 +59,7 @@ func TestChecklistShowTextRendersHeaderAndNestedSteps(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
 	steps := filepath.Join(t.TempDir(), "steps.md")
-	if err := os.WriteFile(steps, []byte("- top\n  - child\n    - grand\n- second\n"), 0o644); err != nil {
+	if err := os.WriteFile(steps, []byte("---\nname: nested\npurpose: p\n---\n- top\n  - child\n    - grand\n- second\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--name", "nested",
@@ -242,39 +243,24 @@ func TestChecklistGateWhenCapabilityDisabled(t *testing.T) {
 	mustContain(t, errText, "atm project capability add --project ATM --name checklist")
 }
 
-// TestChecklistSeedIdempotent proves `atm capability checklist seed` creates
-// the shipped starter checklists once (create-if-absent) and never overwrites
-// them: a second run skips, and an edited record survives re-seeding.
-func TestChecklistSeedIdempotent(t *testing.T) {
+// TestChecklistSeedIsSubstrate proves the capability's seed verb converges
+// the label vocabulary and board WITHOUT shipping content: operating
+// checklists are profile content (plan §7), so seed creates no records and
+// is idempotent by construction.
+func TestChecklistSeedIsSubstrate(t *testing.T) {
 	st := newRegistryTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
-	out := runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
-	mustContain(t, out, "created 3")
-	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
-	mustContain(t, out, "skipped 3")
-	// JSON re-seed: created emits [] (not null) and skipped names every existing seed.
+	out := runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "developer@test:unit")
+	mustContain(t, out, "ensured checklist vocabulary for ATM")
+	mustContain(t, out, "atm profile apply")
+	// JSON: boards named, no created/skipped record lists at all.
 	st.output = outputJSON
-	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
-	mustContain(t, out, `"created": []`)
-	mustContain(t, out, `"skipped": [`)
-	mustContain(t, out, `"empty-project"`)
-	// seeded records carry the seed's suits and shipped origin
-	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--name", "empty-project")
-	mustContain(t, out, `"suits"`)
-	mustContain(t, out, `"concierge"`)
-	mustContain(t, out, `"origin": "shipped:atm"`)
-	// a replaced seed survives re-seeding, and keeps its shipped provenance
-	st.output = outputText
-	doc := filepath.Join(t.TempDir(), "setup-channels.md")
-	if err := os.WriteFile(doc, []byte("---\nname: setup-channels\npurpose: edited\n---\n1. my own step\n"), 0o644); err != nil {
-		t.Fatal(err)
+	out = runArgsOut(t, st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "developer@test:unit")
+	mustContain(t, out, `"boards": [`)
+	if strings.Contains(out, "created") || strings.Contains(out, "skipped") {
+		t.Fatalf("substrate seed must not report record writes:\n%s", out)
 	}
-	out = runArgsOut(t, st, "checklist", "set", "--project", "ATM", "--name", "setup-channels",
-		"--file", doc, "--actor", "developer@test:unit")
-	mustContain(t, out, "set checklist setup-channels")
-	_, _, _ = runArgs(st, "capability", "checklist", "seed", "--project", "ATM", "--actor", "concierge@test:unit")
-	st.output = outputJSON
-	out = runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--name", "setup-channels")
-	mustContain(t, out, `"purpose": "edited"`)
-	mustContain(t, out, `"origin": "shipped:atm"`)
+	// No record appeared.
+	recs := runArgsOut(t, st, "checklist", "list", "--project", "ATM")
+	mustNotContain(t, recs, "empty-project")
 }
