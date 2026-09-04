@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"atm/internal/developing"
 	"atm/internal/dispatch"
 	atmsetup "atm/internal/setup"
-	"atm/skills"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -23,47 +21,24 @@ import (
 //	DIRECT   — ATM performs it. It may shell out (a harness's own `mcp add`,
 //	           codex's plugin registration), but it starts NO agent session.
 //	SPAWNED  — handed to dispatch.Service, because it is interactive or long
-//	           running: `mcp login`, a harness update, a concierge session.
+//	           running: `mcp login`, a harness update.
 //
 // The line matters because of the bootstrap paradox: on an empty store no
 // agent is ready, so every action that makes the FIRST agent ready must work
 // with no agent at all. That is why `mcp add` is direct and `mcp login` is
-// spawned, and why only the concierge class is ever gated.
-
-// conciergeActions are the actions that run INSIDE an agent session. They are
-// the only gated ones — see actionGated.
-var conciergeActions = map[string]bool{"interview": true, "author": true}
-
-// actionGated reports whether an action must wait for a ready agent. ONLY
-// concierge dispatches are gated: every direct action has to work on an
-// empty store, or making the first agent ready would require an agent.
-func (s *setupModel) actionGated(action string) bool {
-	if !conciergeActions[action] {
-		return false
-	}
-	// Glyph() is the single readiness authority (see setupAnyReady); readiness
-	// is never re-derived from the individual Fact fields here.
-	return !setupAnyReady(s.model.Agents)
-}
+// spawned. The concierge dispatch is gone (plan §7): the Profiles overlay is
+// the is-this-set-up surface and `profile verify` is the guided dispatch, so
+// no wizard action starts an agent session any more.
 
 // action runs the fix bound to key. The ladder is section-scoped because the
-// cursor is: in AGENTS a row names a harness, in CHANNELS a channel, in
-// PERSONAS the project's checklist accounting. So the same key can mean
-// different things in different sections (`s` stamps a channel and seeds
-// starters), exactly as the workspace panes already work. An unbound key is a
-// no-op, never an error toast — the wizard is a place to look around in.
+// cursor is: in AGENTS a row names a harness, in CHANNELS a channel. So the
+// same key can mean different things in different sections, exactly as the
+// workspace panes already work. An unbound key is a no-op, never an error
+// toast — the wizard is a place to look around in.
 func (s *setupModel) action(key string) tea.Cmd {
-	// The concierge is reachable from every section: it is a session about the
-	// whole setup, not about the row under the cursor.
-	if key == "c" {
-		s.concierge()
-		return nil
-	}
 	switch s.section {
 	case setupSectionChannels:
 		return s.channelAction(key)
-	case setupSectionPersonas:
-		return s.personaAction(key)
 	default:
 		return s.agentAction(key)
 	}
@@ -113,32 +88,16 @@ func (s *setupModel) channelAction(key string) tea.Cmd {
 	return nil
 }
 
-// personaAction runs the PERSONAS ladder. Both fixes are section-level rather
-// than row-level: with the capability off the section has NO rows, and that is
-// precisely the state [e] exists to leave.
-func (s *setupModel) personaAction(key string) tea.Cmd {
-	switch key {
-	case "e":
-		s.enableChecklists()
-	case "s":
-		s.seedStarters(s.m.projectScope)
+// agentActionHints is the footer's action line: what the focused section's
+// ladder can do. The AGENTS ladder is the only one left (the PERSONAS
+// section went with the starter checklists it accounted for), so the hint is
+// one string — but it lives beside the ladder so a key can never be
+// advertised here without being bound there.
+func (s *setupModel) agentActionHints() string {
+	if s.section == setupSectionChannels {
+		return "[w]wire  [s]stamp"
 	}
-	return nil
-}
-
-// actionHints is the focused section's half of the footer. A ladder nobody
-// can see is not a ladder: the keys differ per section (see action), so the
-// hint has to as well, and the renderer draws this line above its own
-// navigation one. The `c` hint is listed everywhere because the concierge is.
-func (s *setupModel) actionHints() string {
-	switch s.section {
-	case setupSectionChannels:
-		return "[w]wire  [s]stamp  [c]concierge"
-	case setupSectionPersonas:
-		return "[e]enable  [s]seed starters  [c]concierge"
-	default:
-		return "[i]plugin  [d]default  [m]model  [a]mcp add  [l]login  [u]update  [c]concierge"
-	}
+	return "[i]plugin  [d]default  [m]model  [a]mcp add  [l]login  [u]update"
 }
 
 // currentAgent is the harness under the cursor, or "" when the AGENTS section
@@ -157,16 +116,6 @@ func (s *setupModel) currentChannel() (atmsetup.ChannelRow, bool) {
 		return atmsetup.ChannelRow{}, false
 	}
 	return s.model.Project.Channels[s.cursor], true
-}
-
-// currentPersona is the persona row under the cursor. The bool is false when
-// the section is empty — with the checklist capability off there is nothing
-// to account for, so there is nothing to detail either.
-func (s *setupModel) currentPersona() (atmsetup.PersonaRow, bool) {
-	if s.model.Project == nil || s.cursor < 0 || s.cursor >= len(s.model.Project.Personas) {
-		return atmsetup.PersonaRow{}, false
-	}
-	return s.model.Project.Personas[s.cursor], true
 }
 
 // rowFor returns the snapshot row for a harness.
@@ -348,74 +297,6 @@ func (s *setupModel) stampChannel(name string) {
 	s.m.showToast("stamped " + name)
 }
 
-// enableChecklists turns the checklist capability on for the scoped project.
-// DIRECT: it is the affordance the PERSONAS section already offers by name,
-// and until it is on there is nothing to account for. The capability name is
-// the same literal checklistEnabled reads, so the two cannot drift.
-func (s *setupModel) enableChecklists() {
-	code := s.m.projectScope
-	if code == "" {
-		s.m.showToast("select a project first")
-		return
-	}
-	if err := s.m.store.EnableProjectCapability(code, "checklist", s.m.actor); err != nil {
-		s.m.showToast("enable checklists: " + err.Error())
-		return
-	}
-	s.reload()
-	s.m.showToast("checklists enabled for " + code)
-}
-
-// seedStarters authors the shipped starter checklists this project does not
-// have. It adds ONLY what is absent: a seeded starter is MEANT to be edited
-// afterwards — setup.BuildPersonas calls an edited one Customised, which is
-// informational and never actionable — so an existing record is left exactly
-// as it is, whatever its steps now say. DIRECT: store writes only, which
-// matters because the starters are how a concierge session knows what to do.
-func (s *setupModel) seedStarters(code string) {
-	if code == "" {
-		s.m.showToast("select a project first")
-		return
-	}
-	// Re-read the capability rather than trusting the snapshot: a CLI can have
-	// disabled it since the wizard was opened, and `atm checklist` would then
-	// refuse to work with what the wizard had just written.
-	enabled, err := s.checklistEnabled(code)
-	if err != nil {
-		// Say what actually happened. Reporting an unreadable project as "the
-		// capability is off" would send the user to press [e], which reads the
-		// same record and would fail the same way.
-		s.m.showToast("read project " + code + ": " + err.Error())
-		return
-	}
-	if !enabled {
-		s.m.showToast("checklists are off for " + code + " — press [e] first")
-		return
-	}
-	created := 0
-	for _, seed := range skills.ChecklistSeeds() {
-		// A fresh read per starter, not the snapshot's MissingStarters: the
-		// model is only as new as the last reload, and CreateChecklist refuses
-		// a duplicate — so a starter authored elsewhere since would abort the
-		// whole seed.
-		_, err := s.m.store.GetChecklist(code, seed.Name)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, core.ErrNotFound) {
-			s.m.showToast("read checklists: " + err.Error())
-			return
-		}
-		if _, err := s.m.store.CreateChecklist(code, atmsetup.SeedRecord(code, seed), s.m.actor); err != nil {
-			s.m.showToast("seed " + seed.Name + ": " + err.Error())
-			return
-		}
-		created++
-	}
-	s.reload()
-	s.m.showToast(fmt.Sprintf("seeded %d starter checklist(s) for %s", created, code))
-}
-
 // openModelForm asks which model this agent's selection should launch with.
 // Still DIRECT despite the prompt: the value is typed into ATM's own form and
 // the write is ATM's own — no agent session is started to collect it, so this
@@ -556,42 +437,6 @@ func (s *setupModel) updateAgent(agentName string) {
 		return
 	}
 	s.runSpawnAction(agentName, argv)
-}
-
-// concierge hands off to the dispatch dialog for a guided session, scoped to
-// whatever the user is looking at. This is the ONE class of action that waits
-// for a ready agent, and the toast has to say so in terms of the fix: the
-// bootstrap out of "nothing is ready" is [i], never this.
-func (s *setupModel) concierge() {
-	if s.actionGated(s.conciergeAction()) {
-		s.m.showToast("no agent is ready yet — press [i] on an agent row to install its plugin")
-		return
-	}
-	capability := ""
-	if s.m.projectScope != "" {
-		// A capability scope only means something with a project to scope it
-		// to; --capability without --project would render a session context
-		// naming a project that was never chosen.
-		switch s.section {
-		case setupSectionChannels:
-			capability = "channel"
-		case setupSectionPersonas:
-			capability = "checklist"
-		}
-	}
-	// concierge is project-optional, so this works with no project selected —
-	// which is the empty-store case the wizard opens in.
-	s.m.dispatchDlg.open("concierge", s.m.projectScope, "", "", dispatchScope{Capability: capability})
-}
-
-// conciergeAction names which concierge session the current section wants.
-// Both names appear in conciergeActions: the gate is about the session, not
-// about which question it will ask.
-func (s *setupModel) conciergeAction() string {
-	if s.section == setupSectionPersonas {
-		return "author"
-	}
-	return "interview"
 }
 
 // setupShellCommand renders argv as a command a stranded user can PASTE. Both

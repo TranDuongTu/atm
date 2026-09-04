@@ -216,7 +216,7 @@ func TestChannelsOverlayRendersGlyphs(t *testing.T) {
 	}
 }
 
-func TestChannelsOverlayDispatchConcierge(t *testing.T) {
+func TestChannelsOverlayDispatchAttest(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedChannels(t, m)
@@ -231,8 +231,8 @@ func TestChannelsOverlayDispatchConcierge(t *testing.T) {
 	if !m.dispatchDlg.active {
 		t.Fatal("c must open the dispatch dialog")
 	}
-	if got := m.dispatchDlg.persona(); got != "concierge" {
-		t.Errorf("persona = %q, want concierge", got)
+	if got := m.dispatchDlg.persona(); got != "manager" {
+		t.Errorf("persona = %q, want the manager attest default", got)
 	}
 	if m.dispatchDlg.project != "ATM" {
 		t.Errorf("dispatch project = %q, want ATM", m.dispatchDlg.project)
@@ -284,7 +284,7 @@ func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
 		t.Fatalf("spawned %d, want 1", len(fd.spawned))
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	for _, want := range []string{"--persona concierge", "--project ATM", "--capability channel"} {
+	for _, want := range []string{"--persona manager", "--project ATM", "--capability channel"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv missing %q: %s", want, argv)
 		}

@@ -87,7 +87,6 @@ func TestRelDayLabel(t *testing.T) {
 func TestPersonaIcons(t *testing.T) {
 	tests := map[string]string{
 		"developer": "\U0001F6E0",
-		"concierge": "\U0001F9ED",
 		"manager":   "\U0001F4BC",
 		"admin":     "\u2699",
 		"":          "\u2733",

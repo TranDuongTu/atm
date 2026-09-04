@@ -93,40 +93,6 @@ func TestSetupWithoutProjectHasNoProjectSections(t *testing.T) {
 	}
 }
 
-// A project the store cannot read is NOT a project whose checklist capability
-// is off. Reporting the read failure as an absent fact is the exact shape the
-// cardinal rule exists to prevent: it offered [e] for a problem [e] cannot
-// fix — [e] reads the same record and fails the same way — and said nothing
-// about the read having failed at all.
-func TestSetupUnreadableProjectIsNotADisabledCapability(t *testing.T) {
-	m := newTestModel(t)
-	m.projectScope = "GHOST" // never created: GetProject fails
-	m.setup.open()
-
-	if m.setup.model.Project.ChecklistCapEnabled {
-		t.Fatal("an unreadable project must not read as enabled either — the CLI would refuse the ladder")
-	}
-	if m.setup.checklistErr == "" {
-		t.Fatal("the read failure must be recorded, not swallowed")
-	}
-	if m.setup.loadErr == "" {
-		t.Fatal("a failed store read is reported on the error line like every other one")
-	}
-	out := stripANSI(m.setup.render(100, 30))
-	if !strings.Contains(out, "cannot tell whether checklists are on") {
-		t.Fatalf("the section must say the state could not be read, got:\n%s", out)
-	}
-	if strings.Contains(out, "press [e] to enable") {
-		t.Fatalf("a read failure must not be offered the enable fix, got:\n%s", out)
-	}
-
-	// And the write path says the same honest thing.
-	m.setup.seedStarters("GHOST")
-	if !strings.Contains(m.toastMsg, "read project") {
-		t.Fatalf("seedStarters toast = %q; a read failure is not 'the capability is off'", m.toastMsg)
-	}
-}
-
 // A CLI in another terminal can change agents.json underneath us. Every
 // action re-reads first, so a fix never writes over a stale read.
 //
@@ -149,52 +115,6 @@ func TestSetupActionRereadsBeforeWriting(t *testing.T) {
 	}
 	if cfg.Models["claude"] != "" {
 		t.Fatalf("models = %+v; the native key is not the selection's key", cfg.Models)
-	}
-}
-
-// The brief's disabled-capability test scopes a project that is not in the
-// store, so it proves the unreadable-project path. This one proves the rule
-// itself against a real project whose enabled set omits checklist.
-func TestSetupChecklistCapabilityDisabledOnRealProject(t *testing.T) {
-	m := newTestModel(t)
-	if _, err := m.store.CreateProject("ATM", "Acme", testActor); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	// Recording ANY capability makes the enabled set explicit, so checklist
-	// is no longer covered by the legacy "nil means all built-ins" rule.
-	if err := m.store.EnableProjectCapability("ATM", "scrum", testActor); err != nil {
-		t.Fatalf("EnableProjectCapability: %v", err)
-	}
-	m.projectScope = "ATM"
-	m.setup.open()
-	if m.setup.model.Project == nil || m.setup.model.Project.ChecklistCapEnabled {
-		t.Fatalf("checklist is not in the project's enabled set: %+v", m.setup.model.Project)
-	}
-	if len(m.setup.model.Project.Personas) != 0 {
-		t.Fatal("no starter accounting until the capability is enabled")
-	}
-	if !strings.Contains(m.setup.render(100, 30), "enable") {
-		t.Fatal("offer to enable it instead of rendering an empty section")
-	}
-}
-
-// With the capability on, the personas section accounts for the starters ATM
-// ships — the section exists precisely because there is something to say.
-func TestSetupChecklistCapabilityEnabledAccountsStarters(t *testing.T) {
-	m := newTestModel(t)
-	if _, err := m.store.CreateProject("ATM", "Acme", testActor); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	if err := m.store.EnableProjectCapability("ATM", "checklist", testActor); err != nil {
-		t.Fatalf("EnableProjectCapability: %v", err)
-	}
-	m.projectScope = "ATM"
-	m.setup.open()
-	if !m.setup.model.Project.ChecklistCapEnabled {
-		t.Fatal("checklist is in the project's enabled set")
-	}
-	if len(m.setup.model.Project.Personas) == 0 {
-		t.Fatal("an enabled capability accounts for every persona's starters")
 	}
 }
 

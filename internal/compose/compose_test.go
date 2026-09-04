@@ -16,9 +16,8 @@ type fakeSvc struct {
 	all        []core.ChecklistRecord // every project checklist (ChecklistRecords)
 	suited     []core.ChecklistRecord
 	channels   []core.ChannelView
-	personaDoc map[string]string
 	// personaRecords keys project persona records by "<CODE>/<name>", the
-	// source resolution now prefers.
+	// source resolution prefers.
 	personaRecords map[string]*core.Persona
 }
 
@@ -53,13 +52,6 @@ func (f *fakeSvc) GetPersonaRecord(code, name string) (*core.Persona, error) {
 		return rec, nil
 	}
 	return nil, core.ErrNotFound
-}
-
-func (f *fakeSvc) PersonaDoc(name string) (string, error) {
-	if d, ok := f.personaDoc[name]; ok {
-		return d, nil
-	}
-	return "", core.ErrNotFound
 }
 
 func (f *fakeSvc) SuitedChecklists(code, persona string) ([]core.ChecklistRecord, error) {
@@ -232,8 +224,8 @@ func TestComposeModes(t *testing.T) {
 // thing for everyone, and increment 8 replaces it with a Compose-built one
 // driven by the checklist.
 func TestComposeKickoffIsGenericForEveryPersona(t *testing.T) {
-	f := &fakeSvc{personaDoc: map[string]string{
-		"kicked": "---\nname: kicked\ndescription: d\nkickoff: Go read <CONTEXT_FILE> for <TASK_ID> in <CODE>.\n---\nbody",
+	f := &fakeSvc{personaRecords: map[string]*core.Persona{
+		"ATM/kicked": {Name: "kicked", Description: "d", Prompt: "body"},
 	}}
 	req := devRequest()
 	req.Persona = "kicked"

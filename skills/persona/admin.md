@@ -2,8 +2,7 @@
 name: admin
 description: Human operator persona: a person driving ATM directly via the CLI or TUI, not an autonomous agent.
 launch: tui
-expects: []
-optional: []
+project_optional: true
 ---
 # Persona: admin
 

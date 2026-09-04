@@ -144,7 +144,7 @@ func (s *Store) CreateChecklist(code string, rec core.ChecklistRecord, actor str
 		rec.Origin = "user"
 	}
 	if !core.ValidChecklistOrigin(rec.Origin) {
-		return nil, fmt.Errorf("%w: origin %q must be user, shipped:atm, or shipped:<capability>", core.ErrUsage, rec.Origin)
+		return nil, fmt.Errorf("%w: origin %q must be user or <profile>@<version>", core.ErrUsage, rec.Origin)
 	}
 	if _, existing, err := s.findChecklist(code, rec.Name); err == nil {
 		return nil, fmt.Errorf("%w: checklist %s already exists (task %s)", core.ErrUsage, rec.Name, existing.TaskID)

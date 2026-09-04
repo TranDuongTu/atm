@@ -26,9 +26,12 @@ func PersonaLabel(code string) string { return code + ":persona" }
 // description cannot say about itself — the one-line summary and the
 // provenance. Channels store their purpose the same way.
 //
-// Launch, kickoff, and project_optional are deliberately absent: autonomy
-// moved onto the checklist as the mode axis, so identity carries no
-// dispatch plumbing.
+// Kickoff is deliberately absent: autonomy moved onto the checklist as the
+// mode axis. Launch rides the payload as data — a document that declares its
+// vehicle keeps deciding it; records that declare none fall through to the
+// code-side default. project_optional IS carried — a persona a project
+// imports keeps its document's say over whether it can launch without
+// --project.
 
 // PersonaPayloadFrom builds the payload map for a persona record.
 func PersonaPayloadFrom(p Persona) map[string]any {
@@ -38,6 +41,15 @@ func PersonaPayloadFrom(p Persona) map[string]any {
 	}
 	if p.Origin != "" {
 		m["origin"] = p.Origin
+	}
+	if p.ProjectOptional {
+		m["project_optional"] = true
+	}
+	// Launch is launcher plumbing carried as data, never honored as
+	// identity: a document that declares a vehicle keeps deciding it, and
+	// records that declare none fall through to the code-side default.
+	if p.Launch != "" {
+		m["launch"] = p.Launch
 	}
 	return m
 }
@@ -102,6 +114,12 @@ func PersonaFromTask(code string, t Task) (*Persona, error) {
 		Description: personaStr(m["description"]),
 		Prompt:      strings.TrimSpace(t.Description),
 		Origin:      personaStr(m["origin"]),
+	}
+	if v, ok := m["project_optional"].(bool); ok {
+		p.ProjectOptional = v
+	}
+	if v, ok := m["launch"].(string); ok {
+		p.Launch = v
 	}
 	if p.Name == "" {
 		p.Name = t.Title

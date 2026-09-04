@@ -646,29 +646,45 @@ func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
 	}
 }
 
-func TestDispatchConciergeOmitsProject(t *testing.T) {
+// A project-optional persona still launches without a project: the record
+// carries the document's own say (project_optional), and the dialog passes no
+// --project when none is in scope. Replaces the concierge-omits-project test
+// the pruned persona used to carry (plan §7).
+func TestDispatchProjectOptionalPersonaOmitsProject(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
+	if _, err := m.store.SetPersonaRecord("ATM", core.Persona{Name: "rover", Description: "projectless guide", Prompt: "You guide the setup.", ProjectOptional: true, Origin: "user"}, testActor); err != nil {
+		t.Fatalf("SetPersonaRecord: %v", err)
+	}
 	m.SetSize(100, 30)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("concierge", "", "", "", dispatchScope{})
-	if m.dispatchDlg.persona() != "concierge" {
-		t.Fatalf("persona = %q want concierge", m.dispatchDlg.persona())
+	// The dialog sees the project's own records (plan §7: personas are
+	// project records), and a project-optional one dispatches with NO
+	// --project even though the dialog knows the project.
+	m.dispatchDlg.open("rover", "ATM", "", "", dispatchScope{})
+	if m.dispatchDlg.persona() != "rover" {
+		t.Fatalf("persona = %q want rover", m.dispatchDlg.persona())
 	}
+	if m.dispatchDlg.projectRequired() {
+		t.Fatal("a project_optional record must not require --project")
+	}
+	// Clear the scope the way an unscoped launch does: projectRequired() is
+	// the gate, and the argv must follow it.
+	m.dispatchDlg.project = ""
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
-		t.Fatal("concierge should spawn")
+		t.Fatal("rover should spawn")
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
 	if strings.Contains(argv, "--project") {
-		t.Errorf("concierge argv must omit --project: %s", argv)
+		t.Errorf("project-optional argv must omit --project: %s", argv)
 	}
-	if !strings.Contains(argv, "--persona concierge") {
-		t.Errorf("concierge argv must set --persona concierge: %s", argv)
+	if !strings.Contains(argv, "--persona rover") {
+		t.Errorf("argv must set --persona rover: %s", argv)
 	}
 }
 
@@ -681,7 +697,7 @@ func TestDispatchNoCapabilityByDefault(t *testing.T) {
 	// agent and spawns — on a machine with no ready agent the real catalog
 	// refuses, spawned stays empty, and fd.spawned[0] below would panic.
 	m.agentOptionsFn = testAgents
-	m.openDispatch() // empty workspace → concierge, no project, no capability
+	m.openDispatch() // empty workspace → first row, no project, no capability
 	if v := m.dispatchDlg.renderOverlay(); strings.Contains(v, "Scope:") {
 		t.Errorf("unscoped dialog must not render a Scope line:\n%s", v)
 	}
@@ -726,20 +742,15 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 }
 
 // TestDispatchTUILaunchPersonaIsDataDriven proves the dialog's TUI-launch
-// behavior reads the persona's launch mode, not the "admin" name: a CUSTOM
-// persona with launch: tui gets the same treatment admin does — project not
+// behavior reads the persona's launch mode, not the "admin" name: a PROJECT
+// RECORD with launch: tui gets the same treatment admin does — project not
 // required, bare title, bare argv, no agent-readiness gate — and the
 // rendered overlay still shows it as ready.
 func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	dir := filepath.Join(m.store.StorePath(), "personas")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	doc := "---\nname: console\ndescription: Console operator.\nlaunch: tui\n---\n# Persona: console\n\nBody.\n"
-	if err := os.WriteFile(filepath.Join(dir, "console.md"), []byte(doc), 0o644); err != nil {
-		t.Fatal(err)
+	if _, err := m.store.SetPersonaRecord("ATM", core.Persona{Name: "console", Description: "Console operator.", Prompt: "# Persona: console\n\nBody.", Launch: "tui", Origin: "user"}, testActor); err != nil {
+		t.Fatalf("SetPersonaRecord: %v", err)
 	}
 	m.SetSize(100, 30)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
@@ -815,8 +826,8 @@ func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
 	if !m.dispatchDlg.active {
 		t.Fatal("D must open the dialog on the tasks pane with no task")
 	}
-	if m.dispatchDlg.persona() != "concierge" {
-		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
+		t.Fatalf("persona = %q, want the dialog's own first row %q (no selection, no special default)", got, want)
 	}
 }
 
@@ -831,8 +842,8 @@ func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
 	if !m.dispatchDlg.active {
 		t.Fatal("D must open the dialog from an empty workspace")
 	}
-	if m.dispatchDlg.persona() != "concierge" {
-		t.Fatalf("persona = %q, want concierge fallback", m.dispatchDlg.persona())
+	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
+		t.Fatalf("persona = %q, want the dialog's own first row %q", got, want)
 	}
 }
 

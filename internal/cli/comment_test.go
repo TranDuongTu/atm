@@ -103,12 +103,14 @@ func TestGoldenCommentRemove(t *testing.T) {
 	compareGolden(t, "comment-remove", out)
 }
 
-func TestCommentAddRejectsUnregisteredPersona(t *testing.T) {
+// Actor validation is form-only (plan §7): a persona that exists nowhere as
+// a record still stamps, so a well-formed ghost actor writes like any other.
+func TestCommentAddAcceptsUnregisteredPersona(t *testing.T) {
 	h := newGoldenHarness(t)
 	tk1, _ := h.seedScenario1()
 	_, _, code := h.run("task", "comment", "add", "--task", tk1, "--body", "x", "--actor", "ghost@cli:unset")
-	if code != ExitUsage {
-		t.Fatalf("expected exit 2 (unregistered persona), got %d", code)
+	if code != 0 {
+		t.Fatalf("ghost-actor comment exit = %d, want 0 (form-only validation)", code)
 	}
 }
 

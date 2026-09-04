@@ -11,7 +11,6 @@ import (
 	"atm/internal/core"
 	atmsetup "atm/internal/setup"
 	"atm/internal/version"
-	"atm/skills"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,15 +24,12 @@ type setupSection int
 const (
 	setupSectionAgents setupSection = iota
 	setupSectionChannels
-	setupSectionPersonas
 )
 
 func (s setupSection) String() string {
 	switch s {
 	case setupSectionChannels:
 		return "channels"
-	case setupSectionPersonas:
-		return "personas"
 	default:
 		return "agents"
 	}
@@ -96,12 +92,6 @@ type setupModel struct {
 	// loadErr records a failed store read from the last reload. A read
 	// failure is reported, never rendered as an absent fact.
 	loadErr string
-
-	// checklistErr records that the checklist capability's state could not be
-	// READ, which is a different thing from the capability being off — one is
-	// fixed by [e], the other is not a problem with the capability at all.
-	// The PERSONAS section has to say which, so it needs the two apart.
-	checklistErr string
 
 	// formTarget is the agent or channel a wizard form is editing, captured
 	// when the form opens rather than re-read from the cursor on submit: a
@@ -175,7 +165,7 @@ func (s *setupModel) reloadAgents() {
 // instant takes the subprocess-free agent snapshot both reload paths start
 // from, so the two can never read the store differently.
 func (s *setupModel) instant() {
-	s.loadErr, s.checklistErr = "", ""
+	s.loadErr = ""
 	cfg, err := s.m.store.GetAgentsConfig()
 	if err != nil {
 		s.loadErr = "read agents config: " + err.Error()
@@ -234,7 +224,11 @@ func (s *setupModel) applyProbed(msg setupProbedMsg) {
 
 // buildProject builds the project sections for the selected project, or nil
 // when none is selected: with no project the wizard is honestly global, so
-// the project sections are ABSENT rather than empty-with-a-hint.
+// the project sections are ABSENT rather than empty-with-a-hint. The former
+// PERSONAS/checklist section is gone with the starter checklists it
+// accounted for (plan §7): operating checklists are profile content —
+// `atm profile apply` imports them and `profile status` reports their
+// readiness — so the wizard has nothing left to say about them.
 func (s *setupModel) buildProject() *atmsetup.ProjectSetup {
 	code := s.m.projectScope
 	if code == "" {
@@ -244,68 +238,7 @@ func (s *setupModel) buildProject() *atmsetup.ProjectSetup {
 	if err != nil {
 		s.loadErr = "read channels: " + err.Error()
 	}
-	ps := atmsetup.BuildProject(code, views, s.servers, s.states, s.model.ProbedAt)
-	enabled, err := s.checklistEnabled(code)
-	if err != nil {
-		// A read that failed is reported as a read that failed — on the error
-		// line like every other one, and again in the section itself, which
-		// would otherwise offer [e] for a problem [e] cannot fix.
-		s.loadErr = "read project: " + err.Error()
-		s.checklistErr = err.Error()
-	}
-	ps.ChecklistCapEnabled = enabled
-	// A disabled capability is not an empty personas section: there is
-	// nothing to account for until it is on, so the rows stay absent and the
-	// renderer offers to enable it instead.
-	if ps.ChecklistCapEnabled {
-		records, err := s.m.store.ChecklistRecords(code)
-		if err != nil {
-			s.loadErr = "read checklists: " + err.Error()
-		}
-		ps.Personas = atmsetup.BuildPersonas(setupPersonaNames(s.m.store.ListPersonas()), records, skills.ChecklistSeeds())
-	}
-	return ps
-}
-
-// checklistEnabled mirrors internal/cli's requireChecklistCapability rule —
-// a nil Capabilities list is a legacy project, where every built-in reads as
-// enabled — so the wizard and `atm setup status` say the same thing about
-// the same project. It reads the project record rather than the injected
-// registry because the question is what the CLI would allow, not which
-// capabilities this binary happens to have compiled in.
-//
-// The error is returned rather than folded into the bool because the two
-// answers need different words. A project that cannot be READ is not a
-// project whose capability is off: swallowing the error would render
-// "checklists are off — press [e] to enable the capability" and refuse
-// seeding with the same line, offering a fix for a problem that is not the
-// problem. It still reports NOT enabled alongside the error — claiming it is
-// on would offer a ladder the CLI would then refuse — but the callers must
-// say which of the two they are looking at.
-func (s *setupModel) checklistEnabled(code string) (bool, error) {
-	p, err := s.m.store.GetProject(code)
-	if err != nil {
-		return false, err
-	}
-	if p.Capabilities == nil {
-		return true, nil
-	}
-	for _, n := range p.Capabilities {
-		if n == "checklist" {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// setupPersonaNames flattens the persona catalog to the names BuildPersonas
-// wants (the same shape internal/cli's personaNames produces).
-func setupPersonaNames(ps []*core.Persona) []string {
-	names := make([]string, len(ps))
-	for i, p := range ps {
-		names[i] = p.Name
-	}
-	return names
+	return atmsetup.BuildProject(code, views, s.servers, s.states, s.model.ProbedAt)
 }
 
 // probeCmd runs tier 2 off the render path. It closes over the agent names,
@@ -345,25 +278,18 @@ func (s *setupModel) sections() []setupSection {
 	if s.model.Project == nil {
 		return []setupSection{setupSectionAgents}
 	}
-	return []setupSection{setupSectionAgents, setupSectionChannels, setupSectionPersonas}
+	return []setupSection{setupSectionAgents, setupSectionChannels}
 }
 
 // rowCount is how many rows the focused section lists; it bounds the cursor.
 func (s *setupModel) rowCount() int {
-	switch s.section {
-	case setupSectionChannels:
+	if s.section == setupSectionChannels {
 		if s.model.Project == nil {
 			return 0
 		}
 		return len(s.model.Project.Channels)
-	case setupSectionPersonas:
-		if s.model.Project == nil {
-			return 0
-		}
-		return len(s.model.Project.Personas)
-	default:
-		return len(s.model.Agents)
 	}
+	return len(s.model.Agents)
 }
 
 // clampCursor keeps the cursor inside the focused section after a reload

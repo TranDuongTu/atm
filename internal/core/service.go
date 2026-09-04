@@ -109,8 +109,7 @@ type CommentService interface {
 
 // PersonaRecordService is the PROJECT-scoped persona surface: an identity a
 // project owns, imported from a document and restorable to the profile it
-// came from. It sits beside PersonaService while the machine-global personas
-// are still being retired (ATM-207ab8, second PR).
+// came from.
 type PersonaRecordService interface {
 	PersonaRecords(code string) ([]Persona, error)
 	GetPersonaRecord(code, name string) (*Persona, error)
@@ -123,14 +122,13 @@ type PersonaRecordService interface {
 	RemovePersonaRecord(code, name, taskID, actor string) error
 }
 
+// PersonaService is the machine-global fallback surface: the built-ins a
+// binary carries, so a machine with no profile applied yet still resolves
+// its personas. The machine-global custom-persona store is pruned (plan §7)
+// — the write verbs are gone; only the reads remain.
 type PersonaService interface {
-	CreatePersona(name, prompt, description, actor string) (*Persona, error)
 	GetPersona(name string) (*Persona, error)
 	ListPersonas() []*Persona
-	RemovePersona(name string) error
-	// PersonaDoc returns a custom persona's raw markdown document (usage
-	// error for built-ins, which ship inside the binary).
-	PersonaDoc(name string) (string, error)
 }
 
 type VocabularyService interface {

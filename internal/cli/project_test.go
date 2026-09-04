@@ -88,14 +88,16 @@ func TestGoldenProjectSetEmbedding(t *testing.T) {
 	compareGolden(t, "project-set-embedding", out)
 }
 
-func TestGoldenProjectSetEmbeddingRejectsUnregisteredPersona(t *testing.T) {
+// Actor validation is form-only (plan §7): a well-formed ghost actor writes
+// like any other — persona registration is no longer its authority.
+func TestGoldenProjectSetEmbeddingAcceptsUnregisteredPersona(t *testing.T) {
 	h := newGoldenHarness(t)
 	sp := h.store.StorePath()
 	h.run("init", "--store", sp, "--actor", "admin@cli:unset")
 	h.run("project", "create", "--store", sp, "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	_, _, code := h.run("project", "set-embedding", "--store", sp, "--project", "FOO", "--model", "m", "--endpoint", "http://x", "--dim", "4", "--threshold", "0.5", "--actor", "ghost@cli:unset")
-	if code != ExitUsage {
-		t.Errorf("exit=%d, want %d (unregistered persona)", code, ExitUsage)
+	if code != 0 {
+		t.Errorf("exit=%d, want 0 (form-only validation)", code)
 	}
 }
 

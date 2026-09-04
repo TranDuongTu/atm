@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"atm/internal/core"
-	"atm/skills"
+	"atm/internal/profile"
 
 	"github.com/spf13/cobra"
 )
@@ -67,20 +67,9 @@ func requireChecklistCapability(s core.Service, project string) error {
 	return fmt.Errorf("%w: capability \"checklist\" is not enabled for project %s (enable with: atm project capability add --project %s --name checklist)", core.ErrUsage, project, project)
 }
 
-func coreStepsOf(in []skills.SeedStep) []core.ChecklistStep {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]core.ChecklistStep, len(in))
-	for i, s := range in {
-		out[i] = core.ChecklistStep{Text: s.Text, Children: coreStepsOf(s.Children)}
-	}
-	return out
-}
-
 // checklistSteps resolves the step tree from --step (repeatable, flat
-// top-level nodes) and/or --steps-file (a markdown nested list — the seed
-// body format; '-' reads stdin). The two are mutually exclusive.
+// top-level nodes) and/or --steps-file (a markdown nested list — the
+// checklist body format; '-' reads stdin). The two are mutually exclusive.
 func checklistSteps(cmd *cobra.Command, st *cliState) ([]core.ChecklistStep, error) {
 	stepFlags, _ := cmd.Flags().GetStringArray("step")
 	file, _ := cmd.Flags().GetString("steps-file")
@@ -104,11 +93,11 @@ func checklistSteps(cmd *cobra.Command, st *cliState) ([]core.ChecklistStep, err
 	if err != nil {
 		return nil, err
 	}
-	seedSteps, err := skills.ParseSteps(string(data))
+	rec, err := profile.ParseChecklistDocument("", data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
 	}
-	return coreStepsOf(seedSteps), nil
+	return rec.Steps, nil
 }
 
 // renderChecklistSteps writes the step tree with the shared nested numbering:
@@ -345,17 +334,17 @@ func newChecklistSetCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			seed, err := skills.ParseChecklistSeed(name, data)
+			doc, err := profile.ParseChecklistDocument(name, data)
 			if err != nil {
-				return fmt.Errorf("%w: %s", core.ErrUsage, err)
+				return fmt.Errorf("%w: %v", core.ErrUsage, err)
 			}
 			rec := core.ChecklistRecord{
-				Purpose: seed.Purpose,
-				Steps:   coreStepsOf(seed.Steps),
-				Suits:   seed.Suits,
+				Purpose: doc.Purpose,
+				Steps:   doc.Steps,
+				Suits:   doc.Suits,
 				Requires: core.ChecklistRequires{
-					Capabilities: seed.Requires.Capabilities,
-					Channels:     seed.Requires.Channels,
+					Capabilities: doc.Requires.Capabilities,
+					Channels:     doc.Requires.Channels,
 				},
 			}
 			if err := s.SetChecklist(project, name, rec, actor); err != nil {

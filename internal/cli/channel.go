@@ -412,13 +412,14 @@ func newChannelStampCmd(st *cliState) *cobra.Command {
 // left alone. Three outcomes are reported: migrated handles got both a
 // ledger record and this machine's wiring; unwired handles got a ledger
 // record but their legacy path no longer exists on disk, so wiring is left
-// to a concierge; skipped handles were left untouched in the legacy config
-// because their name already belongs to a different-typed channel — nothing
-// is lost, but nothing is migrated either.
+// for a hand or an agent to finish later (`atm channel wiring set`); skipped
+// handles were left untouched in the legacy config because their name
+// already belongs to a different-typed channel — nothing is lost, but
+// nothing is migrated either.
 func newChannelMigrateCmd(st *cliState) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate-repos",
-		Short: "Lift legacy repo dispatch targets into repo channels (idempotent; concierge confirms purpose later)",
+		Short: "Lift legacy repo dispatch targets into repo channels (idempotent; confirm purpose later)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, err := channelProject(cmd)

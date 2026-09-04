@@ -9,8 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// personasModel is the read-only personas overlay: list built-ins and
-// customs, enter to view the effective prompt. No mutation paths.
+// personasModel is the read-only personas overlay: the scoped project's own
+// records (the project's operating identities) plus the built-ins the binary
+// carries, enter to view the effective prompt. No mutation paths.
 type personasModel struct {
 	m       *Model
 	open    bool
@@ -21,11 +22,12 @@ type personasModel struct {
 	offset  int
 }
 
-// loadFor populates the persona list. openOverlay calls it and then opens;
-// the spotlight preview calls it alone, so previewing never opens the
-// overlay.
+// loadFor populates the persona list: the project's records first (a
+// same-named record wins the collision, the same resolution a dispatch
+// uses), then the built-ins. openOverlay calls it and then opens; the
+// spotlight preview calls it alone, so previewing never opens the overlay.
 func (p *personasModel) loadFor() {
-	p.entries = p.m.store.ListPersonas()
+	p.entries = (&dispatchModel{m: p.m}).dispatchPersonas(p.m.projectScope)
 	if p.cursor >= len(p.entries) {
 		p.cursor = 0
 	}

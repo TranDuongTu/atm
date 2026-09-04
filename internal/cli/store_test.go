@@ -28,9 +28,19 @@ type testCLI struct {
 
 func newTestCLI(t *testing.T) *testCLI {
 	t.Helper()
-	// The readiness surface reads ATM_AGENT; tests must not depend on the
-	// developer's own environment.
-	t.Setenv("ATM_AGENT", "")
+	// Tests must not depend on the developer's own environment: a developing
+	// session exports the full ATM_* context (ATM_PROJECT, ATM_PERSONA,
+	// ATM_ACTOR, ...), and a CLI test that silently inherits it passes
+	// locally and fails in CI — the golden harness neutralises the same
+	// list (see newGoldenHarness). Tests that WANT env defaults set them
+	// explicitly with t.Setenv (TestChecklistEnvDefaults).
+	for _, k := range []string{
+		"ATM_ACTOR", "ATM_ROLE", "ATM_PROJECT", "ATM_BIN", "ATM_RUN_ID",
+		"ATM_CONTEXT_FILE", "ATM_AGENT", "ATM_PERSONA", "ATM_TASK",
+		"ATM_CAPABILITY",
+	} {
+		t.Setenv(k, "")
+	}
 	dir := t.TempDir()
 	openService, openAdmin := storeOpeners()
 	st := &cliState{flags: globalFlags{output: outputText}, openServiceFn: openService, openAdminFn: openAdmin}

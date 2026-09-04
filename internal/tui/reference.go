@@ -175,6 +175,6 @@ var conventionsTextTUI = "## What ATM is\n" +
 	"- `atm capability <name> guide` — the capability's full agent-facing semantics, actions, and converged state (Semantics / Actions / Converge sections).\n" +
 	"\n" +
 	"## Actor identity\n" +
-	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`, `concierge`. `atm --persona <name> --project <CODE> -h`.\n" +
+	"Every mutation stamps `persona@agent:model` (e.g. `developer@claude:opus-4.8`). `atm persona -h`; built-ins `developer`, `manager`, `admin`. `atm --persona <name> --project <CODE> -h`.\n" +
 	"\n" +
 	"Conventions are advisory only."
