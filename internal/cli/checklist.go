@@ -239,11 +239,11 @@ func newChecklistShowCmd(st *cliState) *cobra.Command {
 // flag: CLI-created records are always "user"; shipped origins come from the
 // seed paths only.
 func newChecklistAddCmd(st *cliState) *cobra.Command {
-	var name, purpose string
+	var name, purpose, target, targets, mode string
 	var stepFlags, suits, reqCaps, reqChans []string
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Author a checklist (purpose, suits, requires, and a step tree)",
+		Short: "Author a checklist (purpose, suits, requires, dispatch axes, and a step tree)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, err := checklistProject(cmd)
@@ -265,6 +265,12 @@ func newChecklistAddCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if target != "" && !core.ValidChecklistTarget(target) {
+				return fmt.Errorf("%w: --target must be project or task, got %q", ErrUsage, target)
+			}
+			if mode != "" && !core.ValidChecklistMode(mode) {
+				return fmt.Errorf("%w: --mode must be eager, interactive, or resident, got %q", ErrUsage, mode)
+			}
 			rec := core.ChecklistRecord{
 				Name:    name,
 				Purpose: purpose,
@@ -274,6 +280,9 @@ func newChecklistAddCmd(st *cliState) *cobra.Command {
 					Capabilities: reqCaps,
 					Channels:     reqChans,
 				},
+				Target:  target,
+				Targets: targets,
+				Mode:    mode,
 			}
 			tk, err := s.CreateChecklist(project, rec, actor)
 			if err != nil {
@@ -292,6 +301,13 @@ func newChecklistAddCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringArrayVar(&suits, "suits", nil, "persona this checklist suits — a default-bind hint (repeatable)")
 	cmd.Flags().StringArrayVar(&reqCaps, "requires-capability", nil, "capability this checklist needs (repeatable)")
 	cmd.Flags().StringArrayVar(&reqChans, "requires-channel", nil, "channel handle this checklist needs (repeatable)")
+	// The DISPATCH axes. They landed on the record with the vocabulary but
+	// never on this verb, so a checklist authored from the CLI could only
+	// ever be a project-target eager one — the document import was the sole
+	// way to say otherwise.
+	cmd.Flags().StringVar(&target, "target", "", "what a dispatch of this action operates on: project|task (default project)")
+	cmd.Flags().StringVar(&targets, "targets", "", "label expression narrowing the tasks this action may be dispatched on (target: task only)")
+	cmd.Flags().StringVar(&mode, "mode", "", "the action's natural autonomy: eager|interactive|resident (default eager)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

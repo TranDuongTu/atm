@@ -350,11 +350,10 @@ func newProfileVerifyCmd(st *cliState) *cobra.Command {
 				}
 				fmt.Fprintf(st.stdout(), "verifying %s on %s\n", code, key)
 				if err := st.launchSession(sessionOpts{
-					Persona:    "manager",
-					Project:    code,
-					Agent:      key,
-					Checklists: []string{"attest"},
-					Launch:     "prompt",
+					Project:   code,
+					Agent:     key,
+					Checklist: "attest",
+					Launch:    "prompt",
 				}); err != nil {
 					return fmt.Errorf("attest on %s: %w", key, err)
 				}

@@ -30,6 +30,28 @@ func PromptMessage(contextPath string) string {
 	return promptMessagePrefix + contextPath + promptMessageSuffix
 }
 
+// KickoffMessage is what an EAGER session is spawned with: read the context,
+// then execute this action on this target. It names the action and the task
+// so the opening instruction is unambiguous even before the context file is
+// read — the context says what the checklist IS, this says to run it.
+//
+// It is built here, generically, from the dispatch's own facts. A per-persona
+// kickoff template was identity carrying dispatch plumbing: the persona does
+// not know which action it was dispatched for, so it could never write this
+// sentence. An empty checklist falls back to PromptMessage — an ad-hoc
+// session has no action to name.
+func KickoffMessage(contextPath, checklist, task string) string {
+	if checklist == "" {
+		return PromptMessage(contextPath)
+	}
+	msg := promptMessagePrefix + contextPath + promptMessageSuffix +
+		" Execute the `" + checklist + "` checklist"
+	if task != "" {
+		msg += " on task " + task
+	}
+	return msg + ", journaling your progress and reasoning as they instruct."
+}
+
 type staticLauncher struct {
 	name          string
 	hint          string

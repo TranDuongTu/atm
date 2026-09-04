@@ -107,7 +107,10 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.Persona == "" {
+			// Bare `atm` opens the TUI. A dispatch names either an ACTION
+			// or a persona — naming only the action is the ordinary v3
+			// form, since the persona derives from its suits.
+			if opts.Persona == "" && opts.Checklist == "" {
 				if len(args) > 0 {
 					return fmt.Errorf("%w: unknown command %q", ErrUsage, args[0])
 				}
@@ -141,8 +144,9 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
 	root.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 	root.Flags().StringVar(&opts.Task, "task", "", "assign the session a task from the project (exported as ATM_TASK and rendered into the session prompt)")
-	root.Flags().StringArrayVar(&opts.Checklists, "checklist", nil, "select this checklist for the session (repeatable; default: the persona's suited set)")
-	root.Flags().StringVar(&opts.Launch, "launch", "", "override the persona's launch mode for this dispatch: prompt|hook|tui")
+	root.Flags().StringVar(&opts.Checklist, "checklist", "", "the ACTION to dispatch — one checklist; the persona and mode derive from it")
+	root.Flags().StringVar(&opts.Mode, "mode", "", "override the checklist's mode for this dispatch: eager|interactive")
+	root.Flags().StringVar(&opts.Launch, "launch", "", "override the persona's launch vehicle for this dispatch: prompt|hook|tui")
 
 	root.AddCommand(newInitCmd(st))
 	root.AddCommand(newStoreCmd(st))

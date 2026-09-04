@@ -97,8 +97,9 @@ func TestCacheKeyCapabilitySegment(t *testing.T) {
 // through Compose: base argv + DefaultArgs + EnvArgs + ExtraArgs, in order,
 // no dedup.
 func TestComposeArgvAppendsInOrder(t *testing.T) {
-	s := testService(&fakeSvc{})
-	req := devRequest()
+	s := actionService()
+	req := actionRequest("scrum-coding")
+	req.Task = "ATM-1"
 	req.DefaultArgs = []string{"--default"}
 	req.EnvArgs = []string{"--yolo"}
 	req.ExtraArgs = []string{"--yolo", "--extra"}
