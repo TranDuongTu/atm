@@ -13,9 +13,9 @@ import (
 // embedded interface panics on anything else, keeping the seam honest.
 type fakeSvc struct {
 	core.Service
-	all        []core.ChecklistRecord // every project checklist (ChecklistRecords)
-	suited     []core.ChecklistRecord
-	channels   []core.ChannelView
+	all      []core.ChecklistRecord // every project checklist (ChecklistRecords)
+	suited   []core.ChecklistRecord
+	channels []core.ChannelView
 	// personaRecords keys project persona records by "<CODE>/<name>", the
 	// source resolution prefers.
 	personaRecords map[string]*core.Persona
@@ -75,7 +75,6 @@ func testService(f *fakeSvc) *Service {
 	return &Service{
 		Svc:                 f,
 		EnabledCapabilities: func(code string) []string { return []string{"scrum"} },
-		CapabilitiesBlock:   func(code string) string { return "## Capabilities\n\n- **scrum** — brief" },
 	}
 }
 
@@ -273,7 +272,7 @@ func TestComposeFallsBackToTheBuiltinPersona(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plan.ContextText, "# Persona: developer") {
+	if !strings.Contains(plan.ContextText, "## Persona: developer") {
 		t.Fatalf("built-in fallback missing:\n%s", plan.ContextText)
 	}
 }
@@ -404,9 +403,20 @@ func TestComposeContextDedupAndSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The developer persona body starts with its own "# Persona: developer"
-	// heading; the composed prompt must carry it exactly once.
-	if n := strings.Count(plan.ContextText, "# Persona: developer"); n != 1 {
+	// heading; the composed prompt must carry it exactly once, DEMOTED to
+	// "##" so it sits inside the context's "# Who you are" frame rather than
+	// beside it.
+	if n := strings.Count(plan.ContextText, "## Persona: developer"); n != 1 {
 		t.Fatalf("persona header count = %d, want 1:\n%s", n, plan.ContextText)
+	}
+	if strings.Contains(plan.ContextText, "\n# Persona: developer") {
+		t.Fatalf("the persona heading must not sit at the framing level:\n%s", plan.ContextText)
+	}
+	// v2 appended a sentence pointing at "the working routine below" — the
+	// Orientation tail v3 removed. The template's own framing prose says it
+	// now, in one place.
+	if strings.Contains(plan.ContextText, "You are operating as this persona") {
+		t.Fatalf("the v2 persona coda survived:\n%s", plan.ContextText)
 	}
 	if !strings.Contains(plan.ContextText, "## Checklist: scrum-backlog") {
 		t.Fatalf("checklist section missing:\n%s", plan.ContextText)
@@ -419,5 +429,41 @@ func TestComposeContextDedupAndSections(t *testing.T) {
 	}
 	if plan.Actor != "developer@claude:unset" {
 		t.Fatalf("actor = %q", plan.Actor)
+	}
+}
+
+// TestComposeRendersEnabledCapabilityNames pins the injection contract PR 1
+// changes: Compose feeds the context the enabled capability NAMES, taken
+// from the one registry view it already had. The pre-rendered briefs block
+// is gone — the context names the capabilities and points at the guide, so
+// there is no second copy of a capability's own words to go stale.
+func TestComposeRendersEnabledCapabilityNames(t *testing.T) {
+	s := testService(&fakeSvc{suited: testChecklists()})
+	s.EnabledCapabilities = func(code string) []string { return []string{"scrum", "qa", "channel"} }
+	plan, err := s.Compose(devRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.ContextText, "Enabled capabilities: scrum, qa, channel") {
+		t.Fatalf("enabled names not rendered:\n%s", plan.ContextText)
+	}
+	if strings.Contains(plan.ContextText, "## Capabilities") {
+		t.Fatalf("the briefs block must not survive:\n%s", plan.ContextText)
+	}
+}
+
+// TestComposeProjectlessLeavesCapabilityNamesPlaceholder: with no project
+// there is no enabled set to name, and the render is a generic template —
+// the placeholder stays literal, exactly as <CODE> and <ACTOR> do.
+func TestComposeProjectlessLeavesCapabilityNamesPlaceholder(t *testing.T) {
+	s := testService(&fakeSvc{suited: testChecklists()})
+	req := devRequest()
+	req.Code, req.ProjName = "", ""
+	plan, err := s.Compose(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.ContextText, "<CAPABILITY_NAMES>") {
+		t.Fatalf("projectless render must leave the placeholder literal:\n%s", plan.ContextText)
 	}
 }

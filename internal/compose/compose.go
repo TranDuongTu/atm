@@ -25,9 +25,10 @@ type Service struct {
 	Svc core.Service
 	// EnabledCapabilities returns the project's enabled capability names
 	// (registry-narrowed; a project with nil Capabilities means all built-ins).
+	// The context file names them and points at `atm capability <name> guide`
+	// rather than pasting each brief: the guide is the definition, and a
+	// second copy in every rendered context is a copy that can go stale.
 	EnabledCapabilities func(code string) []string
-	// CapabilitiesBlock returns the pre-rendered ## Capabilities block.
-	CapabilitiesBlock func(code string) string
 }
 
 // Request is one dispatch's binding inputs. Code/ProjName/Task arrive
@@ -180,9 +181,9 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 		actor = sessionActor(persona.Name, launcherName, req.Model)
 	}
 
-	capBlock := ""
-	if req.Code != "" && s.CapabilitiesBlock != nil {
-		capBlock = s.CapabilitiesBlock(req.Code)
+	capNames := ""
+	if req.Code != "" && s.EnabledCapabilities != nil {
+		capNames = strings.Join(s.EnabledCapabilities(req.Code), ", ")
 	}
 	contextPath := contextCachePath(s.Svc.StorePath(), req.Code, persona.Name, req.Task, req.Capability)
 	sections := make([]session.ChecklistSection, len(recs))
@@ -195,11 +196,11 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	}
 	contextText := session.RenderContext(session.ContextData{
 		Code: req.Code, Name: req.ProjName, Actor: actor,
-		TaskID:        req.Task,
-		Capability:    req.Capability,
-		Capabilities:  capBlock,
-		PersonaPrompt: buildPersonaPrompt(persona, req.Code, req.ProjName, actor, req.Task),
-		Checklists:    sections,
+		TaskID:          req.Task,
+		Capability:      req.Capability,
+		CapabilityNames: capNames,
+		PersonaPrompt:   buildPersonaPrompt(persona, req.Code, req.ProjName, actor, req.Task),
+		Checklists:      sections,
 	})
 
 	role := persona.Name
@@ -379,6 +380,16 @@ func LaunchVehicle(persona string) string {
 // buildPersonaPrompt renders a persona's prompt text with context params
 // substituted. The prompt's own leading "# Persona: <name>" heading is
 // stripped — this function writes the one header the context carries.
+//
+// That header is "##", one level BELOW the context's three framing headers:
+// the persona is the material "# Who you are" frames, not a fourth peer of
+// it. A document that arrives with the "#" form is demoted here rather than
+// rejected, so persona sources stay readable on their own.
+//
+// Nothing is appended after the body. v2 closed with a sentence pointing at
+// "the working routine below" — the Orientation tail v3 replaced — and the
+// template's own framing prose now says what that sentence said. One
+// statement of a rule cannot drift out of step with another.
 func buildPersonaPrompt(p core.Persona, code, name, actor, taskID string) string {
 	sub := func(s string) string {
 		r := strings.NewReplacer(
@@ -395,10 +406,12 @@ func buildPersonaPrompt(p core.Persona, code, name, actor, taskID string) string
 		body = strings.TrimLeft(rest, "\n")
 	}
 
+	// No trailing newline: the template already separates <PERSONA_PROMPT>
+	// from the next framing header with a blank line, and a prompt that ends
+	// in one adds a second.
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Persona: %s\n\n%s\n\n", p.Name, p.Description)
-	b.WriteString(sub(body))
-	b.WriteString("\nYou are operating as this persona. Hold to its principles throughout the session, alongside repo instructions and the working routine below.\n")
+	fmt.Fprintf(&b, "## Persona: %s\n\n%s\n\n", p.Name, p.Description)
+	b.WriteString(strings.TrimRight(sub(body), "\n"))
 	return b.String()
 }
 

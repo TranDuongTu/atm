@@ -48,7 +48,6 @@ func (st *cliState) composeFor(s core.Service) *compose.Service {
 	return &compose.Service{
 		Svc:                 s,
 		EnabledCapabilities: func(code string) []string { return narrowedRegistry(st, s, code).Names() },
-		CapabilitiesBlock:   func(code string) string { return composeCapabilitiesBlock(narrowedRegistry(st, s, code)) },
 	}
 }
 
@@ -293,21 +292,4 @@ func narrowedRegistry(st *cliState, s core.Service, code string) *capability.Reg
 		}
 	}
 	return st.registry
-}
-
-// composeCapabilitiesBlock renders the ## Capabilities section from the
-// project's enabled capabilities. Every word about a capability comes from
-// its own markdown (brief, falling back to description) — the template and
-// this function stay capability-name-free.
-func composeCapabilitiesBlock(reg *capability.Registry) string {
-	descs := reg.Describe()
-	if len(descs) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("## Capabilities\n\nThis project has these capabilities enabled. Each line is that capability's own brief — run `atm capability <name> guide` before relying on one.\n\n")
-	for _, d := range descs {
-		fmt.Fprintf(&b, "- **%s** — %s\n", d.Name, d.Brief)
-	}
-	return strings.TrimRight(b.String(), "\n")
 }
