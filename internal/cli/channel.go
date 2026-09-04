@@ -31,6 +31,7 @@ func newChannelCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newChannelShowCmd(st))
 	cmd.AddCommand(newChannelEndpointCmd(st))
 	cmd.AddCommand(newChannelEditCmd(st))
+	cmd.AddCommand(newChannelResetCmd(st))
 	cmd.AddCommand(newChannelRemoveCmd(st))
 	cmd.AddCommand(newChannelWireCmd(st))
 	cmd.AddCommand(newChannelStampCmd(st))
@@ -490,4 +491,48 @@ func formatChannelAddress(a core.ChannelAddress) string {
 	add("database", a.Database)
 	add("page", a.Page)
 	return out
+}
+
+// newChannelResetCmd restores a channel's purpose and role hint from the
+// profile version it came from. Endpoints and wiring are the project's and
+// this machine's own facts and survive.
+func newChannelResetCmd(st *cliState) *cobra.Command {
+	var name string
+	cmd := &cobra.Command{
+		Use:   "reset",
+		Short: "Restore a channel's purpose from the profile version it came from",
+		Long: "Reset restores what the profile shipped — the purpose and role hint — " +
+			"from the record's OWN origin version. Endpoints and this machine's " +
+			"wiring are never part of a profile and are left exactly as they are. " +
+			"A channel the project authored itself is refused.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, err := channelProject(cmd)
+			if err != nil {
+				return err
+			}
+			actor, err := st.resolveActor(true)
+			if err != nil {
+				return err
+			}
+			s, err := st.openStore()
+			if err != nil {
+				return err
+			}
+			if err := requireChannelCapability(s, project); err != nil {
+				return err
+			}
+			rec, err := s.ResetChannelRecord(project, name, actor)
+			if err != nil {
+				return err
+			}
+			return st.emit(st.stdout(), map[string]any{"project": project, "channel": rec}, func() {
+				fmt.Fprintf(st.stdout(), "reset channel %s to %s\n", rec.Name, rec.Origin)
+			})
+		},
+	}
+	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
+	cmd.Flags().StringVar(&name, "name", "", "channel handle")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
 }

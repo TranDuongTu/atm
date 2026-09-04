@@ -82,7 +82,17 @@ func (s *Store) CreateChannel(code string, rec core.ChannelRecord, actor string)
 	if len(rec.Endpoints) == 0 && rec.Type != "" {
 		rec.Endpoints = []core.ChannelEndpoint{{Type: rec.Type, Role: core.DefaultRoleForType(rec.Type), Address: rec.Address}}
 	}
-	if len(rec.Endpoints) == 0 {
+	if rec.Origin == "" {
+		rec.Origin = "user"
+	}
+	origin, err := core.ParseOrigin(rec.Origin)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
+	}
+	// A profile ships a channel EXPECTATION — a handle and its purpose,
+	// addressed later with `endpoint add`. A channel the project authors
+	// itself has no such later step, so it must say what it is now.
+	if len(rec.Endpoints) == 0 && origin.Kind != core.OriginProfile {
 		return nil, fmt.Errorf("%w: channel needs at least one endpoint type in %v", core.ErrUsage, core.ChannelTypes)
 	}
 	if err := core.ValidateChannelEndpoints(rec.Endpoints); err != nil {
