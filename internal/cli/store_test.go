@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,6 +28,9 @@ type testCLI struct {
 
 func newTestCLI(t *testing.T) *testCLI {
 	t.Helper()
+	// The readiness surface reads ATM_AGENT; tests must not depend on the
+	// developer's own environment.
+	t.Setenv("ATM_AGENT", "")
 	dir := t.TempDir()
 	openService, openAdmin := storeOpeners()
 	st := &cliState{flags: globalFlags{output: outputText}, openServiceFn: openService, openAdminFn: openAdmin}
@@ -57,6 +61,11 @@ func (h *testCLI) run(args ...string) (string, string, int) {
 	code := ExitSuccess
 	if err != nil {
 		code = ExitCodeForError(err)
+		if h.st.isJSON() {
+			fmt.Fprintln(h.stderr, NewErrorEnvelopeFromError(err).String())
+		} else {
+			fmt.Fprintln(h.stderr, "error:", err)
+		}
 	}
 	return h.stdout.String(), h.stderr.String(), code
 }

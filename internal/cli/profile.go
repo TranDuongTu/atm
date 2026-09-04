@@ -263,6 +263,8 @@ func newProfileCmd(st *cliState) *cobra.Command {
 	cmd.AddCommand(newProfileInstallCmd(st))
 	cmd.AddCommand(newProfileListCmd(st))
 	cmd.AddCommand(newProfileApplyCmd(st))
+	cmd.AddCommand(newProfileStatusCmd(st))
+	cmd.AddCommand(newProfileVerifyCmd(st))
 	return cmd
 }
 
