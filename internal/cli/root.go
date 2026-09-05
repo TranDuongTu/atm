@@ -167,6 +167,7 @@ func newRootCmdWithState(st *cliState) *cobra.Command {
 	root.AddCommand(newInquiryCmd(st))
 	root.AddCommand(newAgentsCmd(st))
 	root.AddCommand(newSetupCmd(st))
+	root.AddCommand(newDispatchCmd(st))
 	root.AddCommand(newSessionContextCmd(st))
 	root.AddCommand(newManageContextCmd(st))
 	root.AddCommand(newVersionCmd(st))

@@ -21,14 +21,17 @@ import (
 // --agent flags and the positional args (passthrough after cobra parsing);
 // session-context fills a subset directly.
 type sessionOpts struct {
-	Persona     string
-	Project     string
-	Capability  string
-	Agent       string
-	Task        string
-	Checklist   string // the ACTION this dispatch runs; "" = ad-hoc bare-persona
-	Mode        string // --mode override; "" = the checklist's own mode
-	Launch      string // --launch vehicle override; "" = persona default
+	Persona    string
+	Project    string
+	Capability string
+	Agent      string
+	Task       string
+	Checklist  string // the ACTION this dispatch runs; "" = ad-hoc bare-persona
+	Mode       string // --mode override; "" = the checklist's own mode
+	Launch     string // --launch vehicle override; "" = persona default
+	// DryRun binds and renders the dispatch, then reports it instead of
+	// execing the host agent.
+	DryRun      bool
 	Integration string
 	DefaultArgs []string
 	ExtraArgs   []string
@@ -208,6 +211,12 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 
 	env := assembleEnv(plan.EnvValues)
 	runID := plan.EnvValues["ATM_RUN_ID"]
+	if opts.DryRun {
+		// Everything above this line already ran: the binding is real and
+		// the context file is written. Only the exec is skipped, so what is
+		// reported is what a launch would do, not a description of it.
+		return emitDispatchPlan(st, code, l.Name(), plan)
+	}
 	if err := emitLaunchHeader(st, persona.Name, code, runID, plan.ContextPath, l.Name(), plan.Argv, plan.EnvValues); err != nil {
 		return err
 	}
