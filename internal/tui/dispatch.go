@@ -481,6 +481,23 @@ func (d *dispatchModel) open(defaultPersona, project, taskID, taskTitle string, 
 	d.active = true
 }
 
+// openOnAction opens the dialog with the cursor on a NAMED action — what a
+// readiness surface's fix-it key does, since it knows exactly which action
+// the user was looking at. An action that is not in the list leaves the
+// cursor where loadFor put it: the dialog still opens, which teaches more
+// than refusing to.
+func (d *dispatchModel) openOnAction(project, action string) {
+	d.loadFor("", project, "", "", dispatchScope{})
+	for i, vi := range d.visible {
+		if d.actions[vi].Name == action {
+			d.actionCursor = i
+			d.selectAction()
+			break
+		}
+	}
+	d.active = true
+}
+
 func (d *dispatchModel) refreshPreview() {
 	d.preview, d.previewErr = "", ""
 	target := ""

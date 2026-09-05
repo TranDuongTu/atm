@@ -138,6 +138,7 @@ var menuEntries = []menuEntry{
 	{key: "D", label: "Dispatch a session", summary: "Launch an agent session — pick persona, agent, and target.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "↯"},
 	{key: "E", label: "Channels", summary: "Channel health for the selected project: records, wiring, stamps.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "⇄"},
 	{key: "V", label: "Personas", summary: "The registered personas and the prompt each one launches with.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "◉"},
+	{key: "P", label: "Profiles & readiness", summary: "Applied profiles and what each action still needs, per agent.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "▤"},
 	// scopes here does not filter the list (Views entries are always shown
 	// per needsProject alone) — it feeds preludeFor so activation focuses the
 	// Tasks pane before replaying "C", matching the handler's own guard
