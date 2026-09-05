@@ -371,3 +371,24 @@ func (r *ChecklistRecord) applyDispatchDefaults() {
 		r.Targets = ""
 	}
 }
+
+// RecordLabels are the labels that mark a task as a project RECORD — a
+// checklist, a channel, or a persona — rather than a unit of work. Records
+// are tasks because the store has one entity, but nothing dispatches ON a
+// record, so surfaces that offer tasks to work on must exclude them.
+func RecordLabels(code string) []string {
+	return []string{ChecklistLabel(code), ChannelLabel(code), PersonaLabel(code)}
+}
+
+// IsRecordTask reports whether t is a project record rather than work.
+func IsRecordTask(t *Task) bool {
+	if t == nil {
+		return false
+	}
+	for _, l := range RecordLabels(t.ProjectCode) {
+		if slices.Contains(t.Labels, l) {
+			return true
+		}
+	}
+	return false
+}

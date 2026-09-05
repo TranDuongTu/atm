@@ -133,7 +133,22 @@ func (s *Service) EligibleTasks(code string, row ActionRow) ([]*core.Task, error
 	if code == "" || row.Target != core.ChecklistTargetTask {
 		return nil, nil
 	}
-	return s.Svc.ListTasksErr(core.QueryFilters{Project: code, Expr: row.Targets})
+	tasks, err := s.Svc.ListTasksErr(core.QueryFilters{Project: code, Expr: row.Targets})
+	if err != nil {
+		return nil, err
+	}
+	// Project RECORDS are tasks in this store — a checklist, a channel and a
+	// persona each live as one — but nothing is ever dispatched ON a record.
+	// They are filtered here rather than left to the targets expression
+	// because an action with no expression would otherwise offer the
+	// project's own checklists as work to do.
+	out := tasks[:0]
+	for _, t := range tasks {
+		if !core.IsRecordTask(t) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }
 
 // AppliedProfiles lists the distinct record origins the project's actions

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"atm/internal/agent"
+	"atm/internal/compose"
 	"atm/internal/core"
 	"atm/internal/profile"
 
@@ -60,42 +61,12 @@ func attestingSegment(key string) string {
 	return key
 }
 
-// readinessFor gathers the readiness inputs from the store and runs the
-// ONE computation. agents are harness names.
+// readinessFor runs the shared readiness assembly (compose.ReadinessFor).
+// The CLI keeps this thin alias because it is named all over this package;
+// the assembly itself is shared with the TUI, so the dialog's warnings and
+// `atm profile status` cannot answer differently.
 func readinessFor(s core.Service, code string, agents []string) (*profile.Readiness, error) {
-	proj, err := s.GetProject(code)
-	if err != nil {
-		return nil, err
-	}
-	in := profile.ReadinessInput{Code: code, Agents: agents, Now: core.Now()}
-	in.Current.Enabled = proj.Capabilities
-	if in.Current.Personas, err = s.PersonaRecords(code); err != nil {
-		return nil, err
-	}
-	if in.Current.Checklists, err = s.ChecklistRecords(code); err != nil {
-		return nil, err
-	}
-	if in.Current.Channels, err = s.ChannelRecords(code); err != nil {
-		return nil, err
-	}
-	if in.Channels, err = s.ProjectChannels(code); err != nil {
-		return nil, err
-	}
-	if in.Available, err = s.ListProfiles(); err != nil {
-		return nil, err
-	}
-	in.Profile = func(ref string) *core.Profile {
-		o, err := core.ParseOrigin(ref)
-		if err != nil || o.Kind != core.OriginProfile {
-			return nil
-		}
-		p, _, err := s.GetProfile(o.Profile, o.Version)
-		if err != nil {
-			return nil
-		}
-		return p.ForProject(code)
-	}
-	return profile.ComputeReadiness(in), nil
+	return compose.ReadinessFor(s, code, agents)
 }
 
 func newProfileStatusCmd(st *cliState) *cobra.Command {

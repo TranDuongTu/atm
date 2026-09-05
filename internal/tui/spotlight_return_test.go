@@ -122,7 +122,7 @@ func TestEscFromSpotlightSpawnedOverlayReopensSpotlight(t *testing.T) {
 func TestSuccessfulDispatchFromSpotlightLandsOnTheWorkspace(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
 	m.agentOptionsFn = testAgents

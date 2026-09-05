@@ -59,7 +59,7 @@ func sizeDispatchModel(m *Model) {
 
 func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -87,12 +87,14 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 		t.Fatal("enter on ready agent must spawn")
 	}
 	got := fd.spawned[0]
-	wantArgv := []string{"atm", "--persona", "manager", "--project", "ATM", "--agent", "claude"}
+	wantArgv := []string{"atm", "dispatch", "--checklist", "mgr-sweep", "--project", "ATM", "--agent", "claude"}
 	if strings.Join(got.Argv, " ") != strings.Join(wantArgv, " ") {
 		t.Errorf("argv = %v, want %v", got.Argv, wantArgv)
 	}
-	if got.Title != "ATM · manager" {
-		t.Errorf("title = %q, want ATM · manager", got.Title)
+	// The title names the ACTION and what it runs on — what a human scanning
+	// their windows is actually looking for.
+	if got.Title != "mgr-sweep: ATM" {
+		t.Errorf("title = %q, want mgr-sweep: ATM", got.Title)
 	}
 	if m.dispatchDlg.active {
 		t.Error("dialog must close after dispatch")
@@ -108,7 +110,7 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 // m.projectScope.
 func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	if _, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor); err != nil {
 		t.Fatal(err)
@@ -130,9 +132,6 @@ func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
 	if m.toastMsg != "" {
 		t.Fatalf("opening the dialog must not toast, got %q", m.toastMsg)
 	}
-	if m.dispatchDlg.persona() != "developer" {
-		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
-	}
 	if m.dispatchDlg.project != "" {
 		t.Fatalf("project = %q, want empty", m.dispatchDlg.project)
 	}
@@ -140,8 +139,10 @@ func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
 	if len(fd.spawned) != 0 {
 		t.Fatal("enter with no project scope must not spawn")
 	}
-	if !strings.Contains(m.toastMsg, "requires a project scope") {
-		t.Errorf("toast = %q, want project-scope error", m.toastMsg)
+	// Checklists are project records, so with no project there is no action
+	// to dispatch at all — that is what the refusal says.
+	if !strings.Contains(m.toastMsg, "no actions available") {
+		t.Errorf("toast = %q, want a no-actions error", m.toastMsg)
 	}
 	if !m.dispatchDlg.active {
 		t.Error("dialog must stay open after refusal")
@@ -150,7 +151,7 @@ func TestDispatchDOnTaskRowNoProjectRefusesInline(t *testing.T) {
 
 func TestDispatchEscCloses(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -169,7 +170,7 @@ func TestDispatchEscCloses(t *testing.T) {
 
 func TestDispatchTargetCycle(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -191,7 +192,8 @@ func TestDispatchTargetCycle(t *testing.T) {
 
 func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
+	seedTaskAction(t, m) // "code-it" sorts first and suits developer
 	m.projectScope = "ATM"
 	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
@@ -212,25 +214,25 @@ func TestDispatchDeveloperFromTaskRow(t *testing.T) {
 	if m.dispatchDlg.persona() != "developer" {
 		t.Fatalf("persona = %q, want developer", m.dispatchDlg.persona())
 	}
-	if m.dispatchDlg.taskID != task.ID {
-		t.Fatalf("task = %q, want %q", m.dispatchDlg.taskID, task.ID)
+	if m.dispatchDlg.taskID() != task.ID {
+		t.Fatalf("task = %q, want %q", m.dispatchDlg.taskID(), task.ID)
 	}
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("must spawn")
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	if !strings.Contains(argv, "--persona developer") || !strings.Contains(argv, "--task "+task.ID) {
+	if !strings.Contains(argv, "--checklist code-it") || !strings.Contains(argv, "--task "+task.ID) {
 		t.Errorf("argv = %s", argv)
 	}
-	if want := task.ID; fd.spawned[0].Title != want {
+	if want := "code-it: " + task.ID; fd.spawned[0].Title != want {
 		t.Errorf("title = %q, want %q", fd.spawned[0].Title, want)
 	}
 }
 
 func TestDispatchUnreadyAgentRefused(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -240,7 +242,7 @@ func TestDispatchUnreadyAgentRefused(t *testing.T) {
 	m.agentOptionsFn = testAgents
 
 	dispatchKey(m, "D")
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // move to codex (unready)
+	dispatchKey(m, "a") // move to codex (unready)
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 0 {
 		t.Fatal("unready agent must not spawn")
@@ -255,7 +257,7 @@ func TestDispatchUnreadyAgentRefused(t *testing.T) {
 
 func TestDispatchNoTargetDisables(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -276,7 +278,7 @@ func TestDispatchNoTargetDisables(t *testing.T) {
 
 func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	repoDir := t.TempDir()
 	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "https://example.com/atm.git", testActor); err != nil {
@@ -317,7 +319,7 @@ func TestDispatchDeveloperWithRepoSpawnsIntoRepoPath(t *testing.T) {
 
 func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	_, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
@@ -364,7 +366,7 @@ func TestDispatchDeveloperNoRepoFallsBackToCwd(t *testing.T) {
 
 func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	d1, d2 := t.TempDir(), t.TempDir()
 	if err := m.store.SetProjectRepo("ATM", "main", d1, "", testActor); err != nil {
@@ -417,7 +419,7 @@ func TestDispatchDeveloperRepoCyclePicker(t *testing.T) {
 // RepoChannelTargets, not the legacy ProjectRepos list.
 func TestDispatchReadsRepoChannels(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	dir := t.TempDir()
 	if _, err := m.store.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
@@ -442,7 +444,7 @@ func TestDispatchReadsRepoChannels(t *testing.T) {
 // the deprecation window the brief describes.
 func TestDispatchLegacyRepoFallback(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	dir := t.TempDir()
 	if err := m.store.SetProjectRepo("ATM", "main", dir, "", testActor); err != nil {
@@ -501,7 +503,7 @@ func TestDispatchDoesNotProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewModel: %v", err)
 	}
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	dir := t.TempDir() // deliberately never `git init`-ed
 	if _, err := s.CreateChannel("ATM", core.ChannelRecord{Name: "code", Type: core.ChannelTypeRepo}, testActor); err != nil {
@@ -532,7 +534,7 @@ func TestDispatchDoesNotProbe(t *testing.T) {
 // Repo picker appears for any persona whenever a project is present.
 func TestDispatchManagerShowsRepoWhenProjectPresent(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	repoDir := t.TempDir()
 	if err := m.store.SetProjectRepo("ATM", "main", repoDir, "", testActor); err != nil {
@@ -564,7 +566,7 @@ func TestDispatchManagerShowsRepoWhenProjectPresent(t *testing.T) {
 
 func TestDispatchPersonaCycle(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneProjects
 	sizeDispatchModel(m)
@@ -581,14 +583,17 @@ func TestDispatchPersonaCycle(t *testing.T) {
 
 func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.SetSize(100, 30)
 	fd := &fakeDispatcher{preview: "tmux"}
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("manager", "", "", "", dispatchScope{})
+	// The action list needs a project to exist at all, so the dialog opens
+	// scoped and then loses the scope — the state an unscoped launch is in.
+	m.dispatchDlg.open("manager", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.project = ""
 	if m.dispatchDlg.persona() != "manager" {
 		t.Fatalf("persona = %q want manager", m.dispatchDlg.persona())
 	}
@@ -608,9 +613,10 @@ func TestDispatchProjectRequiredNoScopeRefuses(t *testing.T) {
 	}
 }
 
-func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
+func TestDispatchTaskPersistsAcrossPersonaOverride(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
+	seedTaskAction(t, m) // "code-it" sorts first and suits developer
 	m.projectScope = "ATM"
 	task, err := m.store.CreateTask("ATM", "dispatch work", "", nil, testActor)
 	if err != nil {
@@ -633,15 +639,15 @@ func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
 	if m.dispatchDlg.persona() != "developer" {
 		t.Fatalf("persona = %q, want developer after full cycle", m.dispatchDlg.persona())
 	}
-	if m.dispatchDlg.taskID != task.ID {
-		t.Fatalf("task = %q, want %q after persona cycle", m.dispatchDlg.taskID, task.ID)
+	if m.dispatchDlg.taskID() != task.ID {
+		t.Fatalf("task = %q, want %q after the persona override", m.dispatchDlg.taskID(), task.ID)
 	}
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("must spawn")
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	if !strings.Contains(argv, "--persona developer") || !strings.Contains(argv, "--task "+task.ID) {
+	if !strings.Contains(argv, "--checklist code-it") || !strings.Contains(argv, "--task "+task.ID) {
 		t.Errorf("argv = %s", argv)
 	}
 }
@@ -652,7 +658,7 @@ func TestDispatchTaskPersistsAcrossPersonaSwitch(t *testing.T) {
 // the pruned persona used to carry (plan §7).
 func TestDispatchProjectOptionalPersonaOmitsProject(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	if _, err := m.store.SetPersonaRecord("ATM", core.Persona{Name: "rover", Description: "projectless guide", Prompt: "You guide the setup.", ProjectOptional: true, Origin: "user"}, testActor); err != nil {
 		t.Fatalf("SetPersonaRecord: %v", err)
 	}
@@ -665,7 +671,8 @@ func TestDispatchProjectOptionalPersonaOmitsProject(t *testing.T) {
 	// The dialog sees the project's own records (plan §7: personas are
 	// project records), and a project-optional one dispatches with NO
 	// --project even though the dialog knows the project.
-	m.dispatchDlg.open("rover", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.open("developer", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.personaOverride = "rover" // what [p] sets
 	if m.dispatchDlg.persona() != "rover" {
 		t.Fatalf("persona = %q want rover", m.dispatchDlg.persona())
 	}
@@ -690,6 +697,8 @@ func TestDispatchProjectOptionalPersonaOmitsProject(t *testing.T) {
 
 func TestDispatchNoCapabilityByDefault(t *testing.T) {
 	m := newTestModel(t)
+	seedDispatchProject(t, m)
+	m.projectScope = "ATM"
 	m.SetSize(120, 40)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
@@ -697,7 +706,7 @@ func TestDispatchNoCapabilityByDefault(t *testing.T) {
 	// agent and spawns — on a machine with no ready agent the real catalog
 	// refuses, spawned stays empty, and fd.spawned[0] below would panic.
 	m.agentOptionsFn = testAgents
-	m.openDispatch() // empty workspace → first row, no project, no capability
+	m.openDispatch() // no capability selected → no scope rides the argv
 	if v := m.dispatchDlg.renderOverlay(); strings.Contains(v, "Scope:") {
 		t.Errorf("unscoped dialog must not render a Scope line:\n%s", v)
 	}
@@ -712,19 +721,21 @@ func TestDispatchNoCapabilityByDefault(t *testing.T) {
 
 func TestDispatchAdminOpensTUI(t *testing.T) {
 	m := newTestModel(t)
+	seedDispatchProject(t, m)
 	m.SetSize(100, 30)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("admin", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.open("developer", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.personaOverride = "admin" // what [p] sets
 	if m.dispatchDlg.persona() != "admin" {
 		t.Fatalf("persona = %q want admin", m.dispatchDlg.persona())
 	}
 	// admin is not gated on agent readiness: move to the unready codex and
 	// dispatch anyway.
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	dispatchKey(m, "a")
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("admin should spawn even with an unready agent")
@@ -748,7 +759,7 @@ func TestDispatchAdminOpensTUI(t *testing.T) {
 // rendered overlay still shows it as ready.
 func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	if _, err := m.store.SetPersonaRecord("ATM", core.Persona{Name: "console", Description: "Console operator.", Prompt: "# Persona: console\n\nBody.", Launch: "tui", Origin: "user"}, testActor); err != nil {
 		t.Fatalf("SetPersonaRecord: %v", err)
 	}
@@ -758,7 +769,8 @@ func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("console", "ATM", "ATM-1", "Some task", dispatchScope{Capability: "scrum"})
+	m.dispatchDlg.open("developer", "ATM", "ATM-1", "Some task", dispatchScope{Capability: "scrum"})
+	m.dispatchDlg.personaOverride = "console" // what [p] sets
 	if m.dispatchDlg.persona() != "console" {
 		t.Fatalf("persona = %q want console", m.dispatchDlg.persona())
 	}
@@ -773,7 +785,10 @@ func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
 		t.Fatalf("overlay must show ready for a tui-launch persona:\n%s", view)
 	}
 	// Not gated on agent readiness: move to the unready codex and dispatch.
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	// [a] cycles the agent now; the override survives it because the action
+	// does not change.
+	dispatchKey(m, "a")
+	m.dispatchDlg.personaOverride = "console"
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("tui-launch persona should spawn even with an unready agent")
@@ -793,7 +808,7 @@ func TestDispatchTUILaunchPersonaIsDataDriven(t *testing.T) {
 // launch-mode split: a prompt-launch persona keeps the full argv.
 func TestDispatchPromptPersonaStillCarriesFlags(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.SetSize(100, 30)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
@@ -806,7 +821,9 @@ func TestDispatchPromptPersonaStillCarriesFlags(t *testing.T) {
 		t.Fatal("manager should spawn")
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	for _, want := range []string{"--persona manager", "--project ATM", "--agent claude", "--capability scrum"} {
+	// The persona is DERIVED from the action, so the argv names the action
+	// instead of restating it.
+	for _, want := range []string{"--checklist mgr-sweep", "--project ATM", "--agent claude", "--capability scrum"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv missing %s: %s", want, argv)
 		}
@@ -815,7 +832,7 @@ func TestDispatchPromptPersonaStillCarriesFlags(t *testing.T) {
 
 func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	m.projectScope = "ATM"
 	m.focused = paneTasks // no tasks seeded, no row selected
 	sizeDispatchModel(m)
@@ -826,8 +843,10 @@ func TestDispatchDOpensFromTasksPaneWithoutTask(t *testing.T) {
 	if !m.dispatchDlg.active {
 		t.Fatal("D must open the dialog on the tasks pane with no task")
 	}
-	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
-		t.Fatalf("persona = %q, want the dialog's own first row %q (no selection, no special default)", got, want)
+	// With no task row selected there is no default persona, so the cursor
+	// sits on the first ACTION and the persona follows it.
+	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.action().Persona; got != want {
+		t.Fatalf("persona = %q, want the first action's %q", got, want)
 	}
 }
 
@@ -842,8 +861,10 @@ func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
 	if !m.dispatchDlg.active {
 		t.Fatal("D must open the dialog from an empty workspace")
 	}
-	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
-		t.Fatalf("persona = %q, want the dialog's own first row %q", got, want)
+	// An empty workspace has no project, so there is nothing to dispatch —
+	// the dialog still opens and says so rather than refusing to appear.
+	if m.dispatchDlg.action() != nil {
+		t.Fatalf("action = %v, want none without a project", m.dispatchDlg.action())
 	}
 }
 
@@ -851,7 +872,7 @@ func TestDispatchDOpensFromEmptyWorkspace(t *testing.T) {
 // omission about what will start.
 func TestDispatchAgentRowShowsConfiguredModel(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
+	seedDispatchProject(t, m)
 	sizeDispatchModel(m)
 	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
 	m.agentOptionsFn = testAgents
@@ -901,6 +922,29 @@ func seedDispatchChecklists(t *testing.T, m *Model) {
 	}
 }
 
+// seedDispatchProject creates project ATM together with the actions the
+// dialog selects between. v3 dispatches ACTIONS, so a project with no
+// checklists has nothing to dispatch at all — every dialog test needs a
+// roster, which is why this replaces the bare seedProject here.
+func seedDispatchProject(t *testing.T, m *Model) {
+	t.Helper()
+	seedProject(t, m, "ATM", "Acme")
+	seedDispatchChecklists(t, m)
+}
+
+// seedTaskAction adds a task-target action so the task cycler has something
+// to walk. No targets expression: every task of the project is eligible.
+func seedTaskAction(t *testing.T, m *Model) {
+	t.Helper()
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "code-it", Purpose: "implement one task",
+		Steps: []core.ChecklistStep{{Text: "build"}}, Suits: []string{"developer"},
+		Target: core.ChecklistTargetTask, Origin: "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // openDevDispatch opens the dialog for developer on project ATM the way the
 // checklist tests need it, mirroring the direct-open pattern used above.
 func openDevDispatch(m *Model) {
@@ -908,81 +952,97 @@ func openDevDispatch(m *Model) {
 	m.dispatchDlg.open("developer", "ATM", "", "", dispatchScope{})
 }
 
-func TestDispatchChecklistDefaultsPreselected(t *testing.T) {
+// TestDispatchActionListRendersPersonaAndPurpose: v3's list IS the dialog's
+// primary axis. Each row names the action, the persona its suits derive, and
+// its purpose — everything the user needs to choose without opening anything
+// else. It replaces the v2 checkbox multi-select entirely.
+func TestDispatchActionListRendersPersonaAndPurpose(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	seedDispatchProject(t, m)
 	m.SetSize(120, 40)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
 	openDevDispatch(m)
 
 	view := m.dispatchDlg.renderOverlay()
-	for _, want := range []string{"[x] dev-cycle", "[ ] mgr-sweep", "Launch: hook"} {
+	for _, want := range []string{"Action:", "dev-cycle", "developer", "one task's flow", "mgr-sweep", "manager", "sweep the board"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overlay missing %q:\n%s", want, view)
 		}
 	}
-}
-
-func TestDispatchPersonaCycleResetsSelection(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
-	m.SetSize(120, 40)
-	m.dispatcher = &fakeDispatcher{preview: "tmux"}
-	m.agentOptionsFn = testAgents
-	openDevDispatch(m)
-
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	dispatchKey(m, " ")
-	if !strings.Contains(m.dispatchDlg.renderOverlay(), "[x] mgr-sweep") {
-		t.Fatal("space must toggle mgr-sweep on")
-	}
-	for i := 0; i < len(m.dispatchDlg.personas); i++ {
-		dispatchKey(m, "p")
-	}
-	if m.dispatchDlg.persona() != "developer" {
-		t.Fatalf("persona = %q, want developer after full cycle", m.dispatchDlg.persona())
-	}
-	if strings.Contains(m.dispatchDlg.renderOverlay(), "[x] mgr-sweep") {
-		t.Fatal("persona cycle must reset the selection to the computed default")
+	// The v2 multi-select and the launch field are gone with the axes they
+	// served: one dispatch runs one action, and vehicle is not user-facing.
+	for _, gone := range []string{"[x] ", "[ ] ", "Checklists:", "Launch:"} {
+		if strings.Contains(view, gone) {
+			t.Errorf("v2 element %q survived:\n%s", gone, view)
+		}
 	}
 }
 
-func TestDispatchChecklistCursorAndToggle(t *testing.T) {
+// The persona is DERIVED and labelled as such, so a reader can tell a value
+// that came from the checklist from one the user chose.
+func TestDispatchPersonaIsDerivedFromTheAction(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	seedDispatchProject(t, m)
 	m.SetSize(120, 40)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
 	openDevDispatch(m)
 
 	d := &m.dispatchDlg
-	if d.rowCursor != 0 {
-		t.Fatalf("rowCursor = %d, want 0 at open", d.rowCursor)
+	if d.persona() != "developer" || d.personaSource() != "from suits" {
+		t.Fatalf("persona = %q (%s), want developer from suits", d.persona(), d.personaSource())
 	}
+	if !strings.Contains(d.renderOverlay(), "from suits") {
+		t.Errorf("the overlay must say where the persona came from:\n%s", d.renderOverlay())
+	}
+	// Moving to the manager-suited action moves the persona with it.
 	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	if d.rowCursor != 1 {
-		t.Fatalf("rowCursor = %d, want 1 after down", d.rowCursor)
-	}
-	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	if d.rowCursor != 1 {
-		t.Fatalf("rowCursor = %d, want to stay on the last row", d.rowCursor)
-	}
-	dispatchKey(m, " ")
-	if !d.rows[1].selected || d.rows[0].selected != true {
-		t.Fatalf("space must toggle only the row under the cursor: %+v", d.rows)
-	}
-	d.handleKey(tea.KeyMsg{Type: tea.KeyUp})
-	dispatchKey(m, " ")
-	if d.rows[0].selected {
-		t.Fatalf("space must toggle row 0 off: %+v", d.rows)
+	if d.persona() != "manager" {
+		t.Fatalf("persona = %q, want manager after moving to mgr-sweep", d.persona())
 	}
 }
 
-func TestDispatchGreyedRowSelectableWithReason(t *testing.T) {
+// TestDispatchActionCursorWalksTheListAndResetsOverrides: the cursor is the
+// selection now — there is nothing to toggle. Moving it re-derives
+// everything, and DROPS the overrides, which were chosen against the action
+// the user just left.
+func TestDispatchActionCursorWalksTheListAndResetsOverrides(t *testing.T) {
+	m := newTestModel(t)
+	seedDispatchProject(t, m)
+	m.SetSize(120, 40)
+	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	d := &m.dispatchDlg
+	if d.actionCursor != 0 || d.action().Name != "dev-cycle" {
+		t.Fatalf("cursor = %d on %v, want 0 on dev-cycle", d.actionCursor, d.action())
+	}
+	dispatchKey(m, "m") // an override against dev-cycle
+	if d.modeOverride == "" {
+		t.Fatal("m must set a mode override")
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if d.actionCursor != 1 || d.action().Name != "mgr-sweep" {
+		t.Fatalf("cursor = %d on %v, want 1 on mgr-sweep", d.actionCursor, d.action())
+	}
+	if d.modeOverride != "" {
+		t.Fatalf("modeOverride = %q; moving to another action must drop an override chosen against the previous one", d.modeOverride)
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if d.actionCursor != 1 {
+		t.Fatalf("cursor = %d, want to stay on the last row", d.actionCursor)
+	}
+	d.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if d.actionCursor != 0 {
+		t.Fatalf("cursor = %d, want back to 0", d.actionCursor)
+	}
+}
+
+// TestDispatchGreyedActionStaysSelectable: unmet requires WARN, they never
+// gate (spec decision 4). The row carries its reason and still dispatches.
+func TestDispatchGreyedActionStaysSelectable(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
 	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
@@ -995,156 +1055,165 @@ func TestDispatchGreyedRowSelectableWithReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.SetSize(120, 40)
-	m.dispatcher = &fakeDispatcher{preview: "tmux"}
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 	openDevDispatch(m)
 
 	d := &m.dispatchDlg
 	view := d.renderOverlay()
-	if !strings.Contains(view, "requires channel journal (none exists)") {
+	if !strings.Contains(view, "requires channel journal") {
 		t.Fatalf("greyed row must carry its reason:\n%s", view)
 	}
-	// Unmet requires WARN, never gate: the row is a default and stays toggleable.
-	if !d.rows[0].selected {
-		t.Fatal("suited row with unmet requires must still be a default")
-	}
-	dispatchKey(m, " ")
-	if d.rows[0].selected {
-		t.Fatal("greyed row must stay toggleable")
+	d.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatal("an action with unmet requires must still dispatch — warn never blocks")
 	}
 }
 
-func TestDispatchLaunchOverrideCycle(t *testing.T) {
+// TestDispatchModeCycleAnnotatesItsSource: the mode comes from the action,
+// and [m] departs from it. The annotation is the whole point — a value that
+// does not say whether it is the default is not readable.
+func TestDispatchModeCycleAnnotatesItsSource(t *testing.T) {
 	m := newTestModel(t)
 	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "designing", Purpose: "brainstorm with the user",
+		Steps: []core.ChecklistStep{{Text: "talk"}}, Suits: []string{"developer"},
+		Mode: core.ChecklistModeInteractive, Origin: "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
+	}
 	m.SetSize(120, 40)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
 	openDevDispatch(m)
 
 	d := &m.dispatchDlg
-	if !strings.Contains(d.renderOverlay(), "Launch: hook") {
-		t.Fatalf("status line must show the persona default:\n%s", d.renderOverlay())
+	if d.mode() != core.ChecklistModeInteractive || d.modeSource() != "checklist default" {
+		t.Fatalf("mode = %q (%s), want interactive as the checklist default", d.mode(), d.modeSource())
 	}
-	dispatchKey(m, "L")
-	if !strings.Contains(d.renderOverlay(), "Launch: prompt (override)") {
-		t.Fatalf("L must override to prompt:\n%s", d.renderOverlay())
-	}
-	// hook is the persona default, so the cycle skips it and lands on tui.
-	dispatchKey(m, "L")
 	view := d.renderOverlay()
-	if !strings.Contains(view, "Launch: tui (override)") {
-		t.Fatalf("second L must land on tui (hook skipped as default):\n%s", view)
+	if !strings.Contains(view, "interactive") || !strings.Contains(view, "checklist default") {
+		t.Fatalf("overlay must show the mode and where it came from:\n%s", view)
 	}
-	if strings.Contains(view, "Checklists:") || strings.Contains(view, "Repo:") {
-		t.Fatalf("effective tui must hide the session-only blocks:\n%s", view)
+	// resident is shown as coming, never cycled into: Compose refuses it, so
+	// offering it would offer a dispatch that cannot start.
+	if !strings.Contains(view, "resident (future)") {
+		t.Errorf("overlay must show resident as future:\n%s", view)
 	}
-	dispatchKey(m, "L")
-	if !strings.Contains(d.renderOverlay(), "Launch: hook") || d.launchOverride != "" {
-		t.Fatalf("third L must return to the persona default:\n%s", d.renderOverlay())
+	dispatchKey(m, "m")
+	if d.mode() != core.ChecklistModeEager || d.modeSource() != "override (default: interactive)" {
+		t.Fatalf("mode = %q (%s), want eager as an override", d.mode(), d.modeSource())
+	}
+	dispatchKey(m, "m")
+	if d.mode() != core.ChecklistModeInteractive || d.modeOverride != "" {
+		t.Fatalf("cycling back to the action's own value must clear the override, got %q/%q", d.mode(), d.modeOverride)
 	}
 }
 
-func TestDispatchArgvCarriesChecklistSelection(t *testing.T) {
+// TestDispatchArgvIsTheDispatchVerb: the spawned command is the v3 CLI form,
+// so it is a reproducible record of exactly this dialog state — running it by
+// hand does the same thing.
+func TestDispatchArgvIsTheDispatchVerb(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	seedDispatchProject(t, m)
 	m.SetSize(120, 40)
 	fd := &fakeDispatcher{preview: "tmux"}
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
 	openDevDispatch(m)
 
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	dispatchKey(m, " ") // mgr-sweep joins the default dev-cycle
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 1 {
 		t.Fatal("must spawn")
 	}
+	want := "atm dispatch --checklist dev-cycle --project ATM --agent claude"
+	if got := strings.Join(fd.spawned[0].Argv, " "); got != want {
+		t.Fatalf("argv = %q, want %q", got, want)
+	}
+}
+
+// TestDispatchArgvCarriesOnlyRealOverrides: an argv restating the action's
+// own persona and mode would record a decision the user never made, and
+// would go stale the moment the checklist changed. Only departures ride.
+func TestDispatchArgvCarriesOnlyRealOverrides(t *testing.T) {
+	m := newTestModel(t)
+	seedDispatchProject(t, m)
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	// No overrides: neither flag appears.
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	if !strings.HasSuffix(argv, "--checklist dev-cycle --checklist mgr-sweep") {
-		t.Errorf("argv must end with the explicit selection in row order: %s", argv)
+	if strings.Contains(argv, "--persona") || strings.Contains(argv, "--mode") {
+		t.Fatalf("argv must not restate derived values: %s", argv)
 	}
-	if strings.Contains(argv, "--launch") {
-		t.Errorf("argv must not carry --launch without an override: %s", argv)
-	}
-}
 
-// TestDispatchArgvEmptySelection: deselect-all emits NO --checklist flags —
-// the launcher recomputes the default set, so deselect-all means "default
-// set", not "no checklists" (journaled plan decision; the one spot argv is
-// not a perfect record).
-func TestDispatchArgvEmptySelection(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
-	m.SetSize(120, 40)
-	fd := &fakeDispatcher{preview: "tmux"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
+	// With both overridden, both ride.
 	openDevDispatch(m)
-
-	dispatchKey(m, " ") // toggle the sole default (dev-cycle) off
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(fd.spawned) != 1 {
-		t.Fatal("must spawn")
-	}
-	if argv := strings.Join(fd.spawned[0].Argv, " "); strings.Contains(argv, "--checklist") {
-		t.Errorf("empty selection must emit no --checklist flags: %s", argv)
-	}
-}
-
-func TestDispatchArgvLaunchOverride(t *testing.T) {
-	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
-	m.SetSize(120, 40)
-	fd := &fakeDispatcher{preview: "tmux"}
-	m.dispatcher = fd
-	m.agentOptionsFn = testAgents
-	openDevDispatch(m)
-
-	dispatchKey(m, "L") // hook → prompt override
-	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(fd.spawned) != 1 {
-		t.Fatal("must spawn")
-	}
-	if argv := strings.Join(fd.spawned[0].Argv, " "); !strings.Contains(argv, "--launch prompt") {
-		t.Errorf("argv must carry the launch override: %s", argv)
-	}
-
-	// Override to tui: the argv is the minimal tui route plus the override —
-	// without it the spawned command would launch a session, not the TUI.
-	openDevDispatch(m)
-	dispatchKey(m, "L")
-	dispatchKey(m, "L")
+	dispatchKey(m, "m")
+	dispatchKey(m, "p")
 	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(fd.spawned) != 2 {
-		t.Fatal("must spawn the tui-override dispatch")
+		t.Fatal("must spawn the overridden dispatch")
 	}
-	want := []string{"atm", "--persona", "developer", "--launch", "tui"}
-	if got := strings.Join(fd.spawned[1].Argv, " "); got != strings.Join(want, " ") {
-		t.Errorf("argv = %s, want %s", got, strings.Join(want, " "))
+	argv = strings.Join(fd.spawned[1].Argv, " ")
+	if !strings.Contains(argv, "--mode ") || !strings.Contains(argv, "--persona ") {
+		t.Fatalf("argv must carry both overrides: %s", argv)
 	}
 }
 
-// TestDispatchUnknownDefaultFallsBackToFirstPersona: the concierge
-// special-case is gone — an unknown default persona lands on the first
-// store persona (spec decision 10).
-func TestDispatchUnknownDefaultFallsBackToFirstPersona(t *testing.T) {
+// TestDispatchUnknownDefaultLandsOnTheFirstAction: the caller's default
+// persona only PRESELECTS a row — it names no persona of its own in v3. One
+// nobody suits leaves the cursor at the top of the list rather than failing,
+// because a dialog that will not open teaches the user nothing.
+func TestDispatchUnknownDefaultLandsOnTheFirstAction(t *testing.T) {
 	m := newTestModel(t)
+	seedDispatchProject(t, m)
 	m.SetSize(100, 30)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
 
-	m.dispatchDlg.open("ghost", "", "", "", dispatchScope{})
-	if m.dispatchDlg.personaCursor != 0 {
-		t.Fatalf("personaCursor = %d, want 0 (first persona)", m.dispatchDlg.personaCursor)
+	m.dispatchDlg.open("ghost", "ATM", "", "", dispatchScope{})
+	if m.dispatchDlg.actionCursor != 0 {
+		t.Fatalf("actionCursor = %d, want 0 (first action)", m.dispatchDlg.actionCursor)
 	}
-	if got, want := m.dispatchDlg.persona(), m.dispatchDlg.personas[0].Name; got != want {
-		t.Fatalf("persona = %q, want first persona %q", got, want)
+	if got := m.dispatchDlg.action().Name; got != "dev-cycle" {
+		t.Fatalf("action = %q, want the first listed action", got)
+	}
+	// And the persona follows that action, not the unknown default.
+	if got := m.dispatchDlg.persona(); got != "developer" {
+		t.Fatalf("persona = %q, want the action's own developer", got)
+	}
+}
+
+// TestDispatchProjectWithNoActionsRefuses: v3 dispatches ACTIONS. A project
+// with no checklists has nothing to dispatch, and the dialog says so instead
+// of spawning something undefined. The ad-hoc bare-persona form stays on the
+// CLI, where it always was.
+func TestDispatchProjectWithNoActionsRefuses(t *testing.T) {
+	m := newTestModel(t)
+	seedProject(t, m, "ATM", "Acme")
+	m.SetSize(120, 40)
+	fd := &fakeDispatcher{preview: "tmux"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	openDevDispatch(m)
+
+	if !strings.Contains(m.dispatchDlg.renderOverlay(), "no checklists") {
+		t.Fatalf("the dialog must say why there is nothing to dispatch:\n%s", m.dispatchDlg.renderOverlay())
+	}
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 0 {
+		t.Fatal("enter with no actions must not spawn")
+	}
+	if !strings.Contains(m.toastMsg, "no actions available") {
+		t.Errorf("toast = %q, want an explanation", m.toastMsg)
 	}
 }
 
@@ -1154,8 +1223,7 @@ func TestDispatchUnknownDefaultFallsBackToFirstPersona(t *testing.T) {
 // still truncates (long repo paths cannot blow the dialog open).
 func TestDispatchOverlayWidthHugsContent(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	seedDispatchProject(t, m)
 	m.SetSize(200, 40)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
@@ -1188,21 +1256,28 @@ func TestDispatchOverlayWidthHugsContent(t *testing.T) {
 	}
 }
 
-func TestDispatchTUIPersonaHidesChecklists(t *testing.T) {
+// TestDispatchTUIPersonaHidesSessionOnlyFields: a tui-vehicle dispatch opens
+// a fresh TUI, which has no repo to start in. The v2 "Launch:" line is gone
+// with the axis it showed — vehicle is launcher plumbing, and the mode field
+// is what the user actually steers now (§3.7).
+func TestDispatchTUIPersonaHidesSessionOnlyFields(t *testing.T) {
 	m := newTestModel(t)
-	seedProject(t, m, "ATM", "Acme")
-	seedDispatchChecklists(t, m)
+	seedDispatchProject(t, m)
 	m.SetSize(120, 40)
 	m.dispatcher = &fakeDispatcher{preview: "tmux"}
 	m.agentOptionsFn = testAgents
 	m.dispatchDlg.m = m
-	m.dispatchDlg.open("admin", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.open("developer", "ATM", "", "", dispatchScope{})
+	m.dispatchDlg.personaOverride = "admin" // a tui-vehicle persona
 
 	view := m.dispatchDlg.renderOverlay()
-	if strings.Contains(view, "Checklists:") {
-		t.Fatalf("tui persona must not render the checklist block:\n%s", view)
+	if strings.Contains(view, "Repo:") {
+		t.Fatalf("a tui dispatch has no repo to start in:\n%s", view)
 	}
-	if !strings.Contains(view, "Launch: tui") {
-		t.Fatalf("status line must show tui:\n%s", view)
+	if strings.Contains(view, "Launch:") {
+		t.Fatalf("the vehicle is not a user-facing field in v3:\n%s", view)
+	}
+	if !strings.Contains(view, "Mode:") {
+		t.Fatalf("the mode field is what replaced it:\n%s", view)
 	}
 }
