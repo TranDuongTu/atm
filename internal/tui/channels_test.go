@@ -102,7 +102,7 @@ func TestChannelsOverlayDetailShowsWiringAndStamps(t *testing.T) {
 	detail := m.channelsOv.renderOverlay()
 	// The stamp row now names its kind too, so a long note wraps; assert on
 	// the pieces rather than one pre-wrap line.
-	for _, want := range []string{"product source", "code.git", "path", "endpoint", "cloned and", testActor, core.StampKindUse, "probe"} {
+	for _, want := range []string{"product source", "code.git", "path", "endpoint", "cloned and", core.StampKindUse, "probe"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail missing %q:\n%s", want, detail)
 		}
@@ -115,7 +115,7 @@ func TestChannelsOverlayDetailShowsWiringAndStamps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectChannels: %v", err)
 	}
-	body := strings.Join(channelDetailLines(views[0], "ATM", time.Now()), "\n")
+	body := strings.Join(channelDetailLines(views[0], "ATM", []string{"claude"}, time.Now()), "\n")
 	for _, want := range []string{dir, "exists=true", "git=false"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail lines missing %q:\n%s", want, body)

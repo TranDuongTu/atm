@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"atm/internal/agent"
 	"atm/internal/capability"
 	"atm/internal/compose"
 	"atm/internal/core"
@@ -100,6 +101,13 @@ type Model struct {
 	personasOv      personasModel
 	personaAct      personaActivityModel
 	channelsOv      channelsModel
+	profilesOv      profilesModel
+	// profileDegraded is how many of the scoped project's actions fall short
+	// of attested for the DEFAULT agent, and profileAgent is that agent.
+	// Refreshed by refreshAll and read by the status line, so View never
+	// computes readiness — the glyph must cost nothing on a frame.
+	profileDegraded int
+	profileAgent    string
 	// setup is the setup & readiness wizard. Unlike every model above it, it
 	// is NOT an overlay: while active it replaces the workspace in View and
 	// consumes keys, so it is also one of workspaceIdle()'s gates.
@@ -209,6 +217,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.personasOv.m = m
 	m.personaAct.m = m
 	m.channelsOv.m = m
+	m.profilesOv.m = m
 	m.setup.m = m
 	m.setup.run = setupRun
 	m.spotlight = spotlightModel{m: m}
@@ -361,6 +370,7 @@ func (m *Model) refreshAll() {
 	m.artOn = on
 	m.artPair = pairs
 	m.tasks.refresh()
+	m.refreshProfileReadiness()
 	// After capability.refresh, which resolves current: the lane strip is
 	// scoped to the current flow capability.
 	m.lanes.refresh()
@@ -488,6 +498,7 @@ func (m *Model) spotlightReturnReady() bool {
 		!m.personasOv.open &&
 		!m.personaAct.open &&
 		!m.channelsOv.open &&
+		!m.profilesOv.open &&
 		!m.setup.active
 }
 
@@ -741,6 +752,12 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return m.personaAct.handleKey(k)
 	}
 
+	// Profiles overlay (read-only) consumes keys until closed (Esc) or until
+	// [d]/[v] hands off to the dispatch dialog.
+	if m.profilesOv.open {
+		return m.profilesOv.handleKey(k)
+	}
+
 	// Channels overlay (read-only) consumes keys until closed (Esc) or until
 	// `c` hands off to the dispatch dialog.
 	if m.channelsOv.open {
@@ -827,6 +844,12 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "V":
 		m.personasOv.openOverlay()
+		return nil
+	case "P":
+		// Readiness for the project the user is looking at, resolved the way
+		// D and E resolve it so the three never disagree about which project
+		// is on screen.
+		m.profilesOv.openOverlay(m.overlayProject())
 		return nil
 	case "E":
 		// Read-only channel status. In the Projects pane this resolves to the
@@ -1131,6 +1154,9 @@ func (m *Model) View() string {
 	if m.channelsOv.open {
 		out = m.placeOverlay(out, m.channelsOv.renderOverlay())
 	}
+	if m.profilesOv.open {
+		out = m.placeOverlay(out, m.profilesOv.renderOverlay())
+	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.
 	return out
@@ -1174,6 +1200,14 @@ func (m *Model) renderStatusLine() string {
 	// render that runs every frame.
 	if setupUnready(m.setup.model.Agents) {
 		rightSegments = append(rightSegments, m.styles.Warning.Render("⚠ setup [W]"))
+	}
+	// The readiness glyph is one aggregate signal, never a list: §3.11 asks
+	// for a passive hint with the drill-in behind [P]. It reads the snapshot
+	// refreshAll took, for the same reason the setup nudge does — a status
+	// line runs every frame and cannot afford to ask.
+	if m.profileDegraded > 0 {
+		rightSegments = append(rightSegments,
+			m.styles.Warning.Render(fmt.Sprintf("⚠ profile: %d degraded [P]", m.profileDegraded)))
 	}
 	rightSegments = append(rightSegments,
 		m.styles.KeyMenu.Render("[\\]spotlight"),
@@ -1341,4 +1375,37 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// refreshProfileReadiness recomputes the status line's aggregate readiness
+// glyph for the scoped project and the DEFAULT agent.
+//
+// It takes the UNPROBED reading. This runs on every refresh, and probing
+// would shell out to git per repo channel each time — the same reason the
+// dispatch dialog is unprobed. The glyph is a hint that something is worth
+// looking at; the Profiles overlay, opened deliberately, gives the probed
+// truth behind it.
+func (m *Model) refreshProfileReadiness() {
+	m.profileDegraded, m.profileAgent = 0, ""
+	if !m.storeSet || m.projectScope == "" {
+		return
+	}
+	cfg, err := m.store.GetAgentsConfig()
+	if err != nil {
+		return
+	}
+	agents := agent.AttestingAgents(cfg)
+	if len(agents) == 0 {
+		return
+	}
+	def := agent.AttestingSegment(cfg.Selected)
+	if def == "" {
+		def = agents[0]
+	}
+	r, err := compose.ReadinessForUnprobed(m.store, m.projectScope, []string{def})
+	if err != nil {
+		return
+	}
+	m.profileAgent = def
+	m.profileDegraded = DegradedActions(r, def)
 }

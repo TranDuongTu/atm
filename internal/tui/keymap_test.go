@@ -265,6 +265,13 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
+		"P|views": {
+			check: func(t *testing.T, m *Model) {
+				if !m.profilesOv.open {
+					t.Error("P must open the profiles overlay")
+				}
+			},
+		},
 		"C|views": {
 			setup: func(t *testing.T, m *Model) {
 				parityTasksScope(t, m)

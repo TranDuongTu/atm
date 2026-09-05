@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 
 	"atm/internal/agent"
@@ -20,46 +19,14 @@ import (
 // configuredAgentKeys lists the agent selections this machine knows about
 // (agents.json): the selected one and every one with stored args or a
 // model — never every conceivable harness. Sorted, deduplicated.
-func configuredAgentKeys(cfg core.AgentsConfig) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(k string) {
-		if k == "" || seen[k] {
-			return
-		}
-		if _, err := agent.ParseSelectionKey(k); err != nil {
-			return
-		}
-		seen[k] = true
-		out = append(out, k)
-	}
-	add(cfg.Selected)
-	for k := range cfg.Args {
-		add(k)
-	}
-	for k := range cfg.Models {
-		add(k)
-	}
-	sort.Strings(out)
-	return out
-}
+// configuredAgentKeys and attestingSegment are thin aliases for the shared
+// definitions in internal/agent. They stay named here because this package
+// uses them in several places; the DEFINITION is shared so `atm profile
+// status` and the TUI's readiness overlays cannot disagree about which
+// agents exist or what segment each one attests under.
+func configuredAgentKeys(cfg core.AgentsConfig) []string { return agent.ConfiguredKeys(cfg) }
 
-// attestingSegment maps a selection key to the actor segment its sessions
-// record stamps under. sessionActor composes persona@LAUNCHER:model, so a
-// native claude session attests as "claude" while an ollama-launched one —
-// whatever harness it hosts — attests as "ollama". The matrix must key on
-// what stamps actually say, not on the harness the launcher hosts.
-func attestingSegment(key string) string {
-	if sel, err := agent.ParseSelectionKey(key); err == nil {
-		if sel.Launcher == agent.LauncherOllama {
-			return "ollama"
-		}
-		return sel.Agent
-	}
-	// A bare "ollama" (ATM_AGENT inside an ollama-launched session) is a
-	// legitimate segment — it is what those sessions' stamps record.
-	return key
-}
+func attestingSegment(key string) string { return agent.AttestingSegment(key) }
 
 // readinessFor runs the shared readiness assembly (compose.ReadinessFor).
 // The CLI keeps this thin alias because it is named all over this package;
