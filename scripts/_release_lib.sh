@@ -46,6 +46,31 @@ rel_sha_line() {
   printf '%s  %s\n' "$hash" "$file"
 }
 
+# rel_profile_dirs lists the profile sources this repo publishes as release
+# artifacts. A profile is content, not code: it ships alongside the binaries
+# so an install can apply it without cloning the repo.
+rel_profile_dirs() {
+  printf 'profiles/scrumban\n'
+}
+
+# rel_profile_artifact_name is the published filename: <name>-<version>
+# .atmprofile, where BOTH come from the profile's own manifest, not from the
+# atm release tag. A profile versions itself — the same scrumban@1.0.0 ships
+# unchanged across several atm releases, and renaming it per tag would invent
+# versions nobody authored.
+rel_profile_artifact_name() {
+  name=$1; version=$2
+  printf '%s-%s.atmprofile' "$name" "$version"
+}
+
+# rel_profile_manifest_field reads one top-level scalar from a profile
+# manifest. Enough for name and version; the binary does the real parsing,
+# and `profile build` validates before writing anything.
+rel_profile_manifest_field() {
+  dir=$1; field=$2
+  sed -n "s/^${field}:[[:space:]]*//p" "$dir/manifest.yaml" | head -1 | tr -d '\r'
+}
+
 rel_git_dirty() {
   [ -n "$(git status --porcelain)" ]
 }
