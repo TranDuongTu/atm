@@ -10,7 +10,6 @@ import (
 	"atm/internal/capability"
 	"atm/internal/compose"
 	"atm/internal/core"
-	"atm/internal/profile"
 	"atm/internal/session"
 
 	"github.com/spf13/cobra"
@@ -55,16 +54,7 @@ func (st *cliState) composeFor(s core.Service) *compose.Service {
 		EnabledCapabilities: func(code string) []string { return narrowedRegistry(st, s, code).Names() },
 		// Dispatch warnings and `atm profile status` answer the same
 		// question, so they run the same computation over the same reads.
-		Readiness: func(code string, agents []string) *profile.Readiness {
-			if code == "" {
-				return nil
-			}
-			r, err := readinessFor(s, code, agents)
-			if err != nil {
-				return nil
-			}
-			return r
-		},
+		Readiness: compose.ReadinessInjection(s),
 	}
 }
 

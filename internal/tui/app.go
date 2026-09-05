@@ -88,13 +88,18 @@ type Model struct {
 	// *dispatch.Service facade). nil disables dispatch with a clear error.
 	dispatcher     Dispatcher
 	agentOptionsFn func() []agentOption
-	// dispatchOptionsFn computes the dispatch dialog's checklist rows and
-	// launch default via compose.DispatchOptions; swapped in tests.
-	dispatchOptionsFn func(persona, code, capability string) (*compose.DispatchOptions, error)
-	dispatchDlg       dispatchModel
-	personasOv        personasModel
-	personaAct        personaActivityModel
-	channelsOv        channelsModel
+	// dispatchActionsFn computes the dispatch dialog's ACTION list via
+	// compose.DispatchActions; swapped in tests. It takes the agent because
+	// the rows' warnings are agent-relative — cycling the dialog's agent
+	// recomputes them.
+	dispatchActionsFn func(code, agent string) ([]compose.ActionRow, error)
+	// eligibleTasksFn lists the tasks the selected action may run on,
+	// filtered by its targets expression; swapped in tests.
+	eligibleTasksFn func(code string, row compose.ActionRow) ([]*core.Task, error)
+	dispatchDlg     dispatchModel
+	personasOv      personasModel
+	personaAct      personaActivityModel
+	channelsOv      channelsModel
 	// setup is the setup & readiness wizard. Unlike every model above it, it
 	// is NOT an overlay: while active it replaces the workspace in View and
 	// consumes keys, so it is also one of workspaceIdle()'s gates.
@@ -198,7 +203,8 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.capability = newCapabilityModel(m)
 	m.dispatcher = opts.Dispatcher
 	m.agentOptionsFn = agentOptions
-	m.dispatchOptionsFn = m.composeDispatchOptions
+	m.dispatchActionsFn = m.composeDispatchActions
+	m.eligibleTasksFn = m.composeEligibleTasks
 	m.dispatchDlg.m = m
 	m.personasOv.m = m
 	m.personaAct.m = m
@@ -417,19 +423,34 @@ func (m *Model) regFor(code string) *capability.Registry {
 	return m.reg.For(p)
 }
 
-// composeDispatchOptions is the production dispatchOptionsFn: a registry-
-// narrowed compose.Service over the model's own store. Built per call — the
-// dialog opens on a keypress; two store reads are cheap and always fresh.
-func (m *Model) composeDispatchOptions(persona, code, capability string) (*compose.DispatchOptions, error) {
+// composeService builds the registry-narrowed compose.Service the dialog
+// reads. Built per call — the dialog opens on a keypress; the store reads are
+// cheap and always fresh.
+//
+// Readiness is injected so the dialog's warnings are the SAME answer `atm
+// profile status` and a real launch give, agent-relative attestation rungs
+// included. Without it the dialog would quietly grade actions by a different
+// rule than the launcher it feeds.
+func (m *Model) composeService(code string) *compose.Service {
 	reg := m.reg
 	if code != "" {
 		reg = m.regFor(code)
 	}
-	csvc := &compose.Service{
+	return &compose.Service{
 		Svc:                 m.store,
 		EnabledCapabilities: func(string) []string { return reg.Names() },
+		Readiness:           compose.ReadinessInjectionUnprobed(m.store),
 	}
-	return csvc.DispatchOptions(persona, code, capability)
+}
+
+// composeDispatchActions is the production dispatchActionsFn.
+func (m *Model) composeDispatchActions(code, agentName string) ([]compose.ActionRow, error) {
+	return m.composeService(code).DispatchActions(code, agentName)
+}
+
+// composeEligibleTasks is the production eligibleTasksFn.
+func (m *Model) composeEligibleTasks(code string, row compose.ActionRow) ([]*core.Task, error) {
+	return m.composeService(code).EligibleTasks(code, row)
 }
 
 func (m *Model) cycleTheme() {

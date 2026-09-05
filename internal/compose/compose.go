@@ -312,12 +312,18 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 // a per-repo git probe is not acceptable (the launch path keeps the fully
 // probed ProjectChannels read).
 func (s *Service) channelViewsUnprobed(code string) []core.ChannelView {
-	recs, err := s.Svc.ChannelRecords(code)
+	return channelViewsUnprobed(s.Svc, code)
+}
+
+// channelViewsUnprobed joins channel records with this machine's wiring
+// without running the repo probes.
+func channelViewsUnprobed(svc core.Service, code string) []core.ChannelView {
+	recs, err := svc.ChannelRecords(code)
 	if err != nil {
 		return nil
 	}
 	var wirings map[string]core.ChannelWiring
-	if cfg, err := s.Svc.GetProjectConfig(code); err == nil && cfg != nil {
+	if cfg, err := svc.GetProjectConfig(code); err == nil && cfg != nil {
 		wirings = cfg.Channels
 	}
 	out := make([]core.ChannelView, 0, len(recs))

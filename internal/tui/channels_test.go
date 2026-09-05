@@ -220,6 +220,7 @@ func TestChannelsOverlayDispatchAttest(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedChannels(t, m)
+	seedAttestAction(t, m)
 	m.agentOptionsFn = testAgents
 	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
 
@@ -266,6 +267,7 @@ func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
 	seedChannels(t, m)
+	seedAttestAction(t, m)
 	fd := &fakeDispatcher{preview: "tmux · new window"}
 	m.dispatcher = fd
 	m.agentOptionsFn = testAgents
@@ -284,7 +286,9 @@ func TestChannelsDispatchIsCapabilityScoped(t *testing.T) {
 		t.Fatalf("spawned %d, want 1", len(fd.spawned))
 	}
 	argv := strings.Join(fd.spawned[0].Argv, " ")
-	for _, want := range []string{"--persona manager", "--project ATM", "--capability channel"} {
+	// The persona is DERIVED from attest's suits, so the argv names the
+	// ACTION rather than restating who runs it.
+	for _, want := range []string{"--checklist attest", "--project ATM", "--capability channel"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv missing %q: %s", want, argv)
 		}
@@ -311,5 +315,19 @@ func TestChannelsOverlayIsReadOnly(t *testing.T) {
 	}
 	if len(before) != len(after) {
 		t.Fatalf("channels changed %d -> %d; overlay must be read-only", len(before), len(after))
+	}
+}
+
+// seedAttestAction adds the manager-suited attest action the channels
+// overlay's fix-it key dispatches. v3 dispatches ACTIONS, so the overlay's
+// prefill needs one to exist.
+func seedAttestAction(t *testing.T, m *Model) {
+	t.Helper()
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "attest", Purpose: "verify this project's channels on this agent",
+		Steps: []core.ChecklistStep{{Text: "reach every endpoint"}},
+		Suits: []string{"manager"}, Origin: "user",
+	}, testActor); err != nil {
+		t.Fatal(err)
 	}
 }

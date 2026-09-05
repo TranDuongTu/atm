@@ -21,6 +21,9 @@ type fakeSvc struct {
 	// eligible maps a targets expression to the task IDs the resolver would
 	// return for it — the store's own evaluation, stubbed.
 	eligible map[string][]string
+	// tasks, when set, is returned verbatim by ListTasksErr — for fixtures
+	// that need real labels rather than bare IDs.
+	tasks []*core.Task
 	// personaRecords keys project persona records by "<CODE>/<name>", the
 	// source resolution prefers.
 	personaRecords map[string]*core.Persona
@@ -29,6 +32,9 @@ type fakeSvc struct {
 // ListTasksErr answers the targets expression the way the store's resolver
 // does: whatever the fixture declares eligible for that expression.
 func (f *fakeSvc) ListTasksErr(filters core.QueryFilters) ([]*core.Task, error) {
+	if f.tasks != nil {
+		return append([]*core.Task(nil), f.tasks...), nil
+	}
 	var out []*core.Task
 	for _, id := range f.eligible[filters.Expr] {
 		out = append(out, &core.Task{ID: id, ProjectCode: filters.Project})
