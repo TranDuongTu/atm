@@ -216,6 +216,26 @@ phase6_tarballs() {
     hash=$(sha256sum "dist/$tb" | awk '{print $1}')
     rel_sha_line "$hash" "$tb" >> "$sums"
   done
+  # Profile artifacts ride the same release and the same SHA256SUMS. A
+  # profile is the operating content the binary is useless without, so
+  # shipping the binary alone would leave every install a git clone away
+  # from a working project. `profile build` validates before it writes, so a
+  # broken profile fails the release rather than being published.
+  for pdir in $(rel_profile_dirs); do
+    pname=$(rel_profile_manifest_field "$pdir" name)
+    pver=$(rel_profile_manifest_field "$pdir" version)
+    if [ -z "$pname" ] || [ -z "$pver" ]; then
+      echo "cannot read name/version from $pdir/manifest.yaml" >&2
+      exit 6
+    fi
+    art=$(rel_profile_artifact_name "$pname" "$pver")
+    echo "building profile $pname@$pver -> dist/$art"
+    "dist/atm_${vstripped}_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')" \
+      profile build --dir "$pdir" -o "dist/$art" >/dev/null
+    hash=$(sha256sum "dist/$art" | awk '{print $1}')
+    rel_sha_line "$hash" "$art" >> "$sums"
+  done
+
   echo "LATEST=$VERSION" > dist/LATEST
   echo "tarballs ok:"
   cat "$sums"
@@ -265,7 +285,7 @@ phase8_upload() {
         --data "$body" \
         "$api/projects/$project/releases" >/dev/null
       # Upload the 5 artifacts as package files and link them.
-      for f in dist/*.tar.gz dist/SHA256SUMS; do
+      for f in dist/*.tar.gz dist/*.atmprofile dist/SHA256SUMS; do
         curl -sf --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
           --form "file=@$f" \
           "$api/projects/$project/uploads" >/dev/null
@@ -292,7 +312,7 @@ phase8_upload() {
           "https://api.github.com/repos/$repo/releases")
       fi
       upload_url=$(printf '%s' "$resp" | jq -r '.upload_url' | sed 's/{?name,label}//')
-      for f in dist/*.tar.gz dist/SHA256SUMS; do
+      for f in dist/*.tar.gz dist/*.atmprofile dist/SHA256SUMS; do
         name=$(basename "$f")
         echo "uploading $name"
         curl -sf --header "Authorization: token $GITHUB_TOKEN" \
@@ -311,7 +331,7 @@ phase9_tail() {
   phase_banner 9 "tail"
   vstripped=$(rel_version_strip_v "$VERSION")
   echo "Release $VERSION produced:"
-  ls -la dist/*.tar.gz dist/SHA256SUMS 2>/dev/null || true
+  ls -la dist/*.tar.gz dist/*.atmprofile dist/SHA256SUMS 2>/dev/null || true
   echo
   echo "SHA256SUMS:"
   cat dist/SHA256SUMS 2>/dev/null || true
