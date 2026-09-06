@@ -20,7 +20,7 @@ func TestSpotlightRootRows(t *testing.T) {
 	m.SetSize(120, 40)
 	m.spotlight.openSpotlight()
 
-	want := []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Personas", "Profiles & checklists", "Cycle theme", "Setup & readiness"}
+	want := []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Sessions", "Personas", "Profiles & checklists", "Cycle theme", "Setup & readiness"}
 	if got := rowLabels(m); !equalStrings(got, want) {
 		t.Errorf("root rows without a project scope =\n%v\nwant\n%v", got, want)
 	}
@@ -30,7 +30,7 @@ func TestSpotlightRootRows(t *testing.T) {
 	seedProject(t, m, "ATM", "Acme")
 	m.projectScope = "ATM"
 	m.spotlight.openSpotlight()
-	want = []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Personas", "Profiles & checklists", "Capabilities", "Cycle theme", "Setup & readiness"}
+	want = []string{"Project", "Task", "Lane", "Reference", "Dispatch a session", "Channels", "Sessions", "Personas", "Profiles & checklists", "Capabilities", "Cycle theme", "Setup & readiness"}
 	if got := rowLabels(m); !equalStrings(got, want) {
 		t.Errorf("root rows with a project scope =\n%v\nwant\n%v", got, want)
 	}

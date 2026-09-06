@@ -11,6 +11,7 @@ import (
 	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	"atm/internal/runtime"
 	atmsetup "atm/internal/setup"
 	"atm/internal/store"
 
@@ -24,6 +25,19 @@ type fakeDispatcher struct {
 	spawned       []dispatch.Spec
 	spawnErr      error
 	previewTarget func(string) (string, error)
+	focused       []runtime.Surface
+	focusErr      error
+}
+
+func (f *fakeDispatcher) Focus(s runtime.Surface) error {
+	f.focused = append(f.focused, s)
+	if f.focusErr != nil {
+		return f.focusErr
+	}
+	if s.Kind == "terminal" {
+		return dispatch.ErrFocusUnsupported
+	}
+	return nil
 }
 
 func (f *fakeDispatcher) Preview() (string, error) { return f.preview, f.previewErr }

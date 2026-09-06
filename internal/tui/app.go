@@ -104,6 +104,7 @@ type Model struct {
 	personasOv      personasModel
 	personaAct      personaActivityModel
 	channelsOv      channelsModel
+	sessions        sessionsModel
 	profilesOv      profilesModel
 	// profileDegraded is how many of the scoped project's actions fall short
 	// of attested for the DEFAULT agent, and profileAgent is that agent.
@@ -220,6 +221,7 @@ func NewModel(opts NewModelOpts) (*Model, error) {
 	m.personasOv.m = m
 	m.personaAct.m = m
 	m.channelsOv.m = m
+	m.sessions.m = m
 	m.profilesOv.m = m
 	m.setup.m = m
 	m.setup.run = setupRun
@@ -379,6 +381,7 @@ func (m *Model) refreshAll() {
 	m.lanes.refresh()
 	// The momentum chart reads the same flow the lane strip just resolved.
 	m.momentum.refresh()
+	m.sessions.refresh()
 	// Keeping the setup snapshot fresh is what makes the status-bar nudge mean
 	// something on a normal launch: without it, m.setup.model stays at its
 	// zero value until the user has opened the wizard at least once, so an
@@ -501,6 +504,7 @@ func (m *Model) spotlightReturnReady() bool {
 		!m.personasOv.open &&
 		!m.personaAct.open &&
 		!m.channelsOv.open &&
+		!m.sessions.open &&
 		!m.profilesOv.open &&
 		!m.setup.active
 }
@@ -768,6 +772,9 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 	if m.channelsOv.open {
 		return m.channelsOv.handleKey(k)
 	}
+	if m.sessions.open {
+		return m.sessions.handleKey(k)
+	}
 
 	// The setup wizard consumes keys until closed (Esc peels the drill, then
 	// the view). It is checked AFTER the overlays above because those can be
@@ -864,6 +871,11 @@ func (m *Model) dispatchKey(k tea.KeyMsg) tea.Cmd {
 		// dialog. Elsewhere it stays on m.projectScope: the overlay is a
 		// project-wide status view and must not chase the task cursor.
 		m.channelsOv.openOverlay(m.overlayProject())
+		return nil
+	case "R":
+		// Machine-wide, like the registry it reads: a run on another
+		// project is still a run this machine is hosting.
+		m.sessions.openOverlay("")
 		return nil
 	case "W":
 		// The wizard is global (menuEntries' W row sets needsProject: false),
@@ -1165,6 +1177,9 @@ func (m *Model) View() string {
 	}
 	if m.channelsOv.open {
 		out = m.placeOverlay(out, m.channelsOv.renderOverlay())
+	}
+	if m.sessions.open {
+		out = m.placeOverlay(out, m.sessions.renderOverlay())
 	}
 	if m.profilesOv.open {
 		out = m.placeOverlay(out, m.profilesOv.renderOverlay())

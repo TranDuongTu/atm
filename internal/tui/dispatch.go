@@ -11,6 +11,7 @@ import (
 	"atm/internal/compose"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	"atm/internal/runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +23,8 @@ type Dispatcher interface {
 	Preview() (string, error)
 	PreviewTarget(string) (string, error)
 	Spawn(dispatch.Spec) error
+	// Focus brings a registered run's recorded surface to the front.
+	Focus(runtime.Surface) error
 }
 
 type agentOption struct {

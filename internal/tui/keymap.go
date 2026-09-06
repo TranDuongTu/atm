@@ -137,6 +137,7 @@ var menuEntries = []menuEntry{
 	// ⚡ (U+26A1) at width 2, which would fail the single-width invariant.
 	{key: "D", label: "Dispatch a session", summary: "Launch an agent session — pick persona, agent, and target.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "↯"},
 	{key: "E", label: "Channels", summary: "Channel health for the selected project: records, wiring, stamps.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "⇄"},
+	{key: "R", label: "Sessions", summary: "Live agent sessions: who is on which task, on which surface, and whether one needs input.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "⚑"},
 	{key: "V", label: "Personas", summary: "The registered personas and the prompt each one launches with.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "◉"},
 	{key: "P", label: "Profiles & checklists", summary: "Applied profiles, every checklist's record, and what each still needs per agent.", kind: kindDialog, section: sectionViews, group: groupNone, icon: "▤"},
 	// scopes here does not filter the list (Views entries are always shown
