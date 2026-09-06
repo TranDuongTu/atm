@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"atm/internal/capability"
 	"atm/internal/core"
+	"atm/internal/profile"
 
 	"github.com/spf13/cobra"
 )
@@ -37,23 +39,57 @@ func newProjectCmd(st *cliState) *cobra.Command {
 }
 
 func newProjectCreateCmd(st *cliState) *cobra.Command {
-	var code, name string
+	var code, name, profileRef string
 	var capabilities []string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a project (minimal: code + name)",
+		Long: "Create records a project and its explicit capability choice. With " +
+			"--profile it also applies that profile in the same command: the " +
+			"project gets exactly the capabilities the profile requires plus any " +
+			"--capabilities you name, and the profile's personas, checklists and " +
+			"channel expectations are imported with the same plan and setup " +
+			"report `atm profile apply` prints. Everything that can refuse runs " +
+			"BEFORE the project exists, so a rejected profile leaves nothing " +
+			"half-made.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := st.resolveActor(true)
-			if err != nil {
-				return err
-			}
-			chosen, err := resolveCapabilityChoice(st.registry, capabilities)
 			if err != nil {
 				return err
 			}
 			s, err := st.openStore()
 			if err != nil {
 				return err
+			}
+			// reg is the registry the vocabulary is seeded from: the mounted
+			// (possibly narrowed) one for a plain create, the full one when a
+			// profile may require capabilities outside the narrowing.
+			reg := st.registry
+			var prof *core.Profile
+			var chosen []string
+			if profileRef == "" {
+				if chosen, err = resolveCapabilityChoice(st.registry, capabilities); err != nil {
+					return err
+				}
+			} else {
+				reg = st.fullRegistry
+				// Everything that can refuse runs before the project exists:
+				// a failed create must leave no half-made project behind.
+				if prof, err = resolveProfileRef(s, profileRef); err != nil {
+					return err
+				}
+				if err := profile.ValidateCapabilities(profile.RequiredCapabilities(prof), st.fullRegistry.Names()); err != nil {
+					return fmt.Errorf("%w: %v", core.ErrUsage, err)
+				}
+				if err := validateCapabilityNames(st.fullRegistry, capabilities); err != nil {
+					return err
+				}
+				chosen = profile.RequiredCapabilities(prof)
+				for _, c := range capabilities {
+					if !slices.Contains(chosen, c) {
+						chosen = append(chosen, c)
+					}
+				}
 			}
 			p, err := s.CreateProject(code, name, actor)
 			if err != nil {
@@ -68,16 +104,28 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := st.registry.For(proj).EnsureVocabulary(s, p.Code, actor); err != nil {
+			if _, err := reg.For(proj).EnsureVocabulary(s, p.Code, actor); err != nil {
 				return err
 			}
-			return st.emit(st.stdout(), map[string]any{"project": projectToJSON(proj, nil)}, func() {
-				fmt.Fprintf(os.Stdout, "created project %s\n", proj.Code)
-			})
+			if prof == nil {
+				return st.emit(st.stdout(), map[string]any{"project": projectToJSON(proj, nil)}, func() {
+					fmt.Fprintf(os.Stdout, "created project %s\n", proj.Code)
+				})
+			}
+			if !st.isJSON() {
+				fmt.Fprintf(st.stdout(), "created project %s\n", proj.Code)
+			}
+			plan, setup, err := applyProfileToProject(st, s, proj.Code, prof, actor, false, false)
+			if err != nil {
+				return err
+			}
+			return emitApplyResult(st, proj.Code, plan, setup, false, map[string]any{"project": projectToJSON(proj, nil)})
 		},
 	}
 	cmd.Flags().StringVar(&code, "code", "", "project code (^[A-Z]{3,6}$)")
 	cmd.Flags().StringVar(&name, "name", "", "project name")
+	cmd.Flags().StringVar(&profileRef, "profile", "",
+		"apply this profile after creating: an installed/embedded name[@version], or a profile directory (applied as name@dev); the project gets exactly the capabilities the profile requires, plus --capabilities")
 	cmd.Flags().StringSliceVar(&capabilities, "capabilities", nil,
 		"capabilities to enable for the project (default: the registry capabilities plus "+capability.DefaultFlow+")")
 	_ = cmd.MarkFlagRequired("code")
@@ -90,20 +138,30 @@ func newProjectCreateCmd(st *cliState) *cobra.Command {
 // registry capability plus the default flow). New projects always record an
 // explicit choice — only pre-enablement projects read as nil/all.
 func resolveCapabilityChoice(reg *capability.Registry, requested []string) ([]string, error) {
-	known := reg.Names()
 	if len(requested) == 0 {
 		return reg.DefaultNames(), nil
 	}
+	if err := validateCapabilityNames(reg, requested); err != nil {
+		return nil, err
+	}
+	return requested, nil
+}
+
+// validateCapabilityNames refuses names the registry does not know. It is
+// resolveCapabilityChoice without the defaulting, for callers that decide
+// the set themselves — a profile's required capabilities, say.
+func validateCapabilityNames(reg *capability.Registry, names []string) error {
+	known := reg.Names()
 	valid := make(map[string]bool, len(known))
 	for _, n := range known {
 		valid[n] = true
 	}
-	for _, r := range requested {
+	for _, r := range names {
 		if !valid[r] {
-			return nil, fmt.Errorf("%w: unknown capability %q (registered: %s)", ErrUsage, r, strings.Join(known, ", "))
+			return fmt.Errorf("%w: unknown capability %q (registered: %s)", ErrUsage, r, strings.Join(known, ", "))
 		}
 	}
-	return requested, nil
+	return nil
 }
 
 func newProjectCapabilityCmd(st *cliState) *cobra.Command {
