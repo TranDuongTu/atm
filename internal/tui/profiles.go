@@ -41,10 +41,10 @@ type profilesModel struct {
 	// from readiness.Profiles, never recomputed. A user-origin record has no
 	// entry: there is nothing to compare it with.
 	syncs map[string]profile.RecordSync
-	// expanded shows the selected action's reason chain — every warning with
+	// detail shows the selected action's reason chain — every warning with
 	// the command that answers it.
-	expanded bool
-	offset   int
+	detail bool
+	offset int
 }
 
 // loadFor snapshots the project's readiness. Like the channels overlay it
@@ -101,25 +101,25 @@ func (p *profilesModel) selected() *profile.ActionReadiness {
 
 func (p *profilesModel) openOverlay(project string) {
 	p.loadFor(project)
-	p.open, p.expanded, p.offset = true, false, 0
+	p.open, p.detail, p.offset = true, false, 0
 }
 
 func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "esc", "P":
-		if p.expanded {
-			p.expanded = false
+		if p.detail {
+			p.detail = false
 			return nil
 		}
 		p.open = false
 	case "j", "down":
-		if p.expanded {
+		if p.detail {
 			p.offset++
 		} else if p.cursor < len(p.actions())-1 {
 			p.cursor++
 		}
 	case "k", "up":
-		if p.expanded {
+		if p.detail {
 			if p.offset > 0 {
 				p.offset--
 			}
@@ -128,12 +128,12 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "g":
 		p.offset = 0
-		if !p.expanded {
+		if !p.detail {
 			p.cursor = 0
 		}
 	case "enter":
-		if !p.expanded && len(p.actions()) > 0 {
-			p.expanded, p.offset = true, 0
+		if !p.detail && len(p.actions()) > 0 {
+			p.detail, p.offset = true, 0
 		}
 	case "d":
 		// Dispatch THIS action. The overlay does not fix anything itself;
@@ -161,10 +161,13 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 const attestActionName = "attest"
 
 func (p *profilesModel) title() string {
-	if p.project == "" {
-		return "Profiles"
+	switch {
+	case p.project == "":
+		return "Profiles & checklists"
+	case p.detail && p.selected() != nil:
+		return "Checklist: " + p.selected().Name + " · " + p.project
 	}
-	return "Profiles · " + p.project
+	return "Profiles & checklists · " + p.project
 }
 
 func (p *profilesModel) renderOverlay() string {
@@ -179,13 +182,13 @@ func (p *profilesModel) renderOverlay() string {
 	var body strings.Builder
 	body.WriteString(p.previewBody(bw-4) + "\n")
 	switch {
-	case p.expanded:
+	case p.detail:
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [d]dispatch  [v]attest  [Esc]back"))
 	default:
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]why  [d]dispatch  [v]attest  [Esc]close"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]open  [d]dispatch  [v]attest  [Esc]close"))
 	}
 	h := len(p.actions()) + len(p.appliedLines()) + 9
-	if p.expanded {
+	if p.detail {
 		h = p.m.height - 8
 		if h < 10 {
 			h = 10
@@ -207,8 +210,8 @@ func (p *profilesModel) previewBody(w int) string {
 	if p.readiness == nil {
 		return fitLine("no readiness for this project", w)
 	}
-	if p.expanded {
-		return p.reasonChain(w)
+	if p.detail {
+		return p.scrolled(p.detailLines(), w)
 	}
 
 	var b strings.Builder
@@ -352,23 +355,71 @@ func rungCell(rung string) string {
 	return rung
 }
 
-// reasonChain is the [enter] view: every warning holding this action back,
-// bottom rung first, each with the command that answers it. It is the whole
-// point of the overlay — a rung name says WHERE an action stopped, and the
-// chain says what to type.
-func (p *profilesModel) reasonChain(w int) string {
+// originLine is the detail's first line and the reset confirm's subject: the
+// origin, and how the record stands against it.
+func (p *profilesModel) originLine(name string) string {
+	origin := p.records[name].Origin
+	if origin == "" {
+		origin = "—"
+	}
+	rs, tracked := p.syncs[name]
+	switch {
+	case !tracked:
+		return origin // user or legacy: nothing to compare with
+	case rs.State == "modified":
+		return origin + " · modified: " + strings.Join(rs.Diff, ", ")
+	case rs.State == "unverifiable":
+		return origin + " · not installed here"
+	}
+	return origin + " · in sync"
+}
+
+// detailLines is the [enter] view: the checklist's whole record, then its
+// step tree, then every warning holding the action back, bottom rung first,
+// each with the command that answers it. A rung name says WHERE an action
+// stopped; the chain says what to type. Unwrapped: scrolled wraps to the
+// width it is given.
+func (p *profilesModel) detailLines() []string {
 	a := p.selected()
 	if a == nil {
-		return fitLine("no action selected", w)
+		return []string{"no action selected"}
 	}
-	var lines []string
-	lines = append(lines, "action   "+a.Name)
-	if a.Persona != "" {
-		lines = append(lines, "persona  "+a.Persona)
+	rec := p.records[a.Name]
+	target, mode := rec.Target, rec.Mode
+	if target == "" {
+		target = core.ChecklistTargetProject
 	}
-	if len(a.Channels) > 0 {
-		lines = append(lines, "channels "+strings.Join(a.Channels, ", "))
+	if mode == "" {
+		mode = core.ChecklistModeEager
 	}
+	suits := strings.Join(rec.Suits, ", ")
+	if suits == "" {
+		suits = "—"
+	}
+	lines := []string{
+		"origin    " + p.originLine(a.Name),
+		fmt.Sprintf("suits     %-18s target %s · mode %s", suits, target, mode),
+	}
+	if rec.Targets != "" {
+		lines = append(lines, "targets   "+rec.Targets)
+	}
+	lines = append(lines, "purpose   "+rec.Purpose)
+	var req []string
+	if len(rec.Requires.Capabilities) > 0 {
+		req = append(req, "capabilities "+strings.Join(rec.Requires.Capabilities, ", "))
+	}
+	if len(rec.Requires.Channels) > 0 {
+		req = append(req, "channels "+strings.Join(rec.Requires.Channels, ", "))
+	}
+	if len(req) > 0 {
+		lines = append(lines, "requires  "+strings.Join(req, " · "))
+	}
+	lines = append(lines, "")
+	steps := strings.TrimRight(core.RenderChecklistSteps(rec.Steps), "\n")
+	if steps == "" {
+		steps = "(no steps)"
+	}
+	lines = append(lines, strings.Split(steps, "\n")...)
 	agents := p.agents
 	if len(agents) == 0 {
 		agents = []string{""}
@@ -392,7 +443,12 @@ func (p *profilesModel) reasonChain(w int) string {
 			}
 		}
 	}
+	return lines
+}
 
+// scrolled wraps lines to w and returns the window at p.offset. The height
+// rule is the reason chain's: the overlay body minus its chrome.
+func (p *profilesModel) scrolled(lines []string, w int) string {
 	var wrapped []string
 	for _, ln := range lines {
 		wrapped = append(wrapped, wrapDetailLine(ln, w)...)

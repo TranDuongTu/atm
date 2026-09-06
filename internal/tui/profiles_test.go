@@ -63,7 +63,7 @@ func TestProfilesOverlayReasonChainNamesTheCommand(t *testing.T) {
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
 	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.profilesOv.expanded {
+	if !m.profilesOv.detail {
 		t.Fatal("enter must expand the reason chain")
 	}
 	view := m.profilesOv.renderOverlay()
@@ -77,7 +77,7 @@ func TestProfilesOverlayReasonChainNamesTheCommand(t *testing.T) {
 		}
 	}
 	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
-	if m.profilesOv.expanded || !m.profilesOv.open {
+	if m.profilesOv.detail || !m.profilesOv.open {
 		t.Fatal("esc must return to the table, not close the overlay")
 	}
 }
@@ -250,5 +250,60 @@ func TestProfilesOverlayListShowsOriginAndTheModifiedMark(t *testing.T) {
 	}
 	if m.profilesOv.syncs["standup"].State != "modified" || m.profilesOv.records["my-routine"].Origin != "user" {
 		t.Fatalf("caches: syncs=%+v records=%+v", m.profilesOv.syncs, m.profilesOv.records)
+	}
+}
+
+// TestProfilesOverlayEnterOpensTheChecklistRecord: one keystroke answers both
+// what the checklist is and how far it gets — the record on top, the
+// per-agent chain below. Esc returns to the list, not to the workspace.
+func TestProfilesOverlayEnterOpensTheChecklistRecord(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.profilesOv.detail {
+		t.Fatal("Enter must open the record detail")
+	}
+	view := m.profilesOv.renderOverlay()
+	for _, want := range []string{"Checklist: planning", "origin", "scrumban@1.0.0 · in sync", "suits", "manager", "target project", "purpose", "1. "} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail missing %q:\n%s", want, view)
+		}
+	}
+	// The chain sits UNDER the record (spec §13.3), so a checklist with a
+	// long step tree scrolls it past the window — assert it on the document
+	// the window is cut from, not on one screenful of it.
+	doc := strings.Join(m.profilesOv.detailLines(), "\n")
+	for _, want := range []string{"claude:", "codex:"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("the chain must answer per agent, missing %q:\n%s", want, doc)
+		}
+	}
+	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.profilesOv.detail || !m.profilesOv.open {
+		t.Fatal("Esc in the detail must return to the list and keep the overlay open")
+	}
+}
+
+// TestProfilesOverlayDetailNamesTheDrift: a modified record says which
+// fields drifted, from RecordSync.Diff — the same list the reset confirm
+// will show.
+func TestProfilesOverlayDetailNamesTheDrift(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	edited := seedScrumbanChecklist(t, m, "planning")
+	edited.Purpose = "edited locally"
+	if err := m.store.SetChecklist("ATM", "planning", edited, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if view := m.profilesOv.renderOverlay(); !strings.Contains(view, "modified: purpose") {
+		t.Fatalf("detail must name the drifted field:\n%s", view)
 	}
 }
