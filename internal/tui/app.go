@@ -57,6 +57,8 @@ const (
 	confirmRemoveTask
 	confirmDropIndex
 	confirmChecklistReedit
+	confirmChecklistReset
+	confirmChecklistRemove
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
@@ -1379,10 +1381,38 @@ func (m *Model) renderConfirm() string {
 	b.WriteString("\n")
 	b.WriteString(repeat("-", min(len(m.confirmMsg)+2, m.width-4)))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Warning.Render(m.confirmArg))
+	b.WriteString(m.styles.Warning.Render(wrapConfirmArg(m.confirmArg, m.width-8)))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.KeyMenuDim.Render("[Enter] confirm   [Esc] cancel"))
 	return m.styles.Dialog.Render(b.String())
+}
+
+// wrapConfirmArg word-wraps the confirm's warning to w, keeping the author's
+// own line breaks. The dialog sizes itself from its content, so an arg wider
+// than the terminal used to paint past the right edge and lose its tail —
+// the checklist confirms are the first that can carry one (a ~100-column
+// warning, or a parser error of unknown length).
+func wrapConfirmArg(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		line := ""
+		for _, word := range strings.Fields(para) {
+			switch {
+			case line == "":
+				line = word
+			case lipgloss.Width(line)+1+lipgloss.Width(word) <= w:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func min(a, b int) int {

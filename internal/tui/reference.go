@@ -104,6 +104,13 @@ atm agents args <name> [-- args...]   — (CLI only)
 atm setup status                      W Setup & readiness
 atm setup status --project <CODE>     W Setup & readiness (project sections)
 
+atm profile status --project <CODE>   P Profiles & checklists
+atm checklist show --name             P Profiles & checklists  [Enter]
+atm checklist set --name --file       P Profiles & checklists  [e] ($EDITOR round-trip)
+atm checklist add                     P Profiles & checklists  [n] ($EDITOR on a skeleton)
+atm checklist reset --name            P Profiles & checklists  [r]
+atm checklist remove --name           P Profiles & checklists  [x]
+
 atm tui                                (you are here)`
 
 // keymapReferenceText renders the menu entry table flat: one row per keyed

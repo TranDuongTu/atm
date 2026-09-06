@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"atm/profiles"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // seedProfilesProject gives the readiness table something to grade: a
@@ -122,20 +124,88 @@ func TestProfilesOverlayAttestKeyPrefillsAttest(t *testing.T) {
 	}
 }
 
-// TestProfilesOverlayIsReadOnly: every fix is a named command or a dispatch.
-// The overlay must not write, so no key may reach the store.
-func TestProfilesOverlayIsReadOnly(t *testing.T) {
+// TestProfilesOverlayNavigationWritesNothing: browsing keys never touch the
+// store, and the writing keys always stop at a confirm or an editor first —
+// r and x open a confirm and write nothing until Enter.
+func TestProfilesOverlayNavigationWritesNothing(t *testing.T) {
 	m := newTestModel(t)
 	m.SetSize(120, 40)
-	seedProfilesProject(t, m)
+	seedMatrixProject(t, m)
+	edited := seedScrumbanChecklist(t, m, "planning")
+	edited.Purpose = "edited locally"
+	if err := m.store.SetChecklist("ATM", "planning", edited, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
 	before, _ := m.store.StoreStats("ATM")
 
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
-	for _, k := range []string{"j", "k", "g", "x", "a", "s", "r", "enter"} {
-		m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	openProfilesOn(t, m, "planning")
+	for _, k := range []string{"j", "k", "g", "enter", "j", "k", "esc", "a", "s"} {
+		keys(m, k)
+	}
+	for _, k := range []string{"r", "x"} {
+		keys(m, k)
+		if m.confirm == confirmNone {
+			t.Fatalf("%s must stop at a confirm", k)
+		}
+		keys(m, "esc")
 	}
 	if after, _ := m.store.StoreStats("ATM"); after.EventCount != before.EventCount {
-		t.Fatalf("event count %d -> %d; the overlay must write nothing", before.EventCount, after.EventCount)
+		t.Fatalf("event count %d -> %d; nothing above may write", before.EventCount, after.EventCount)
+	}
+}
+
+// TestConfirmWrapsALongArgToTheTerminal: the checklist confirms are the
+// first whose text can outrun the terminal — the remove warning is ~100
+// columns and the re-edit one carries a parser error of unknown length.
+// Unwrapped, the dialog painted past the right edge.
+func TestConfirmWrapsALongArgToTheTerminal(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(80, 30)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	openProfilesOn(t, m, "planning")
+	keys(m, "x")
+	for _, line := range strings.Split(m.View(), "\n") {
+		if lipgloss.Width(line) > 80 {
+			t.Fatalf("line is %d wide at 80 columns: %q", lipgloss.Width(line), line)
+		}
+	}
+	if !strings.Contains(m.View(), "atm profile apply") {
+		t.Fatalf("the wrapped warning must keep its whole text:\n%s", m.View())
+	}
+}
+
+// TestProfilesOverlayRemoveAsksThenRemoves: x always confirms; Enter removes
+// the record by name and the overlay reloads without it.
+func TestProfilesOverlayRemoveAsksThenRemoves(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "my-routine", Purpose: "mine", Steps: []core.ChecklistStep{{Text: "do"}}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	openProfilesOn(t, m, "my-routine")
+	keys(m, "enter", "x")
+	if m.confirm != confirmChecklistRemove || m.confirmMsg != "Remove checklist my-routine?" || !strings.Contains(m.confirmArg, "atm profile apply") {
+		t.Fatalf("confirm=%v msg=%q arg=%q", m.confirm, m.confirmMsg, m.confirmArg)
+	}
+	keys(m, "esc")
+	if _, err := m.store.GetChecklist("ATM", "my-routine"); err != nil {
+		t.Fatal("Esc must not remove")
+	}
+	keys(m, "x", "enter")
+	if _, err := m.store.GetChecklist("ATM", "my-routine"); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("record must be gone, got %v", err)
+	}
+	if _, ok := m.profilesOv.records["my-routine"]; ok || m.profilesOv.detail || !m.profilesOv.open {
+		t.Fatalf("overlay must reload to the list without the record: records=%v detail=%v open=%v", m.profilesOv.records, m.profilesOv.detail, m.profilesOv.open)
+	}
+	if !strings.Contains(m.profilesOv.renderOverlay(), "1 checklists") {
+		t.Fatalf("summary must recount:\n%s", m.profilesOv.renderOverlay())
 	}
 }
 
@@ -305,5 +375,75 @@ func TestProfilesOverlayDetailNamesTheDrift(t *testing.T) {
 	m.profilesOv.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if view := m.profilesOv.renderOverlay(); !strings.Contains(view, "modified: purpose") {
 		t.Fatalf("detail must name the drifted field:\n%s", view)
+	}
+}
+
+// TestProfilesOverlayResetGatesOnSyncState: only a modified profile record
+// has something to restore. The other states say why without a confirm
+// and without a store round-trip.
+func TestProfilesOverlayResetGatesOnSyncState(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "my-routine", Purpose: "mine", Steps: []core.ChecklistStep{{Text: "do"}}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	before, _ := m.store.StoreStats("ATM")
+
+	openProfilesOn(t, m, "my-routine")
+	keys(m, "r")
+	if m.confirm != confirmNone || !strings.Contains(m.toastMsg, "nothing to reset to") {
+		t.Fatalf("user record: confirm=%v toast=%q", m.confirm, m.toastMsg)
+	}
+	openProfilesOn(t, m, "planning")
+	keys(m, "r")
+	if m.confirm != confirmNone || !strings.Contains(m.toastMsg, "already matches scrumban@1.0.0") {
+		t.Fatalf("in-sync record: confirm=%v toast=%q", m.confirm, m.toastMsg)
+	}
+	if after, _ := m.store.StoreStats("ATM"); after.EventCount != before.EventCount {
+		t.Fatal("gating must write nothing")
+	}
+}
+
+// TestProfilesOverlayResetRestoresTheOriginVersion: the confirm names the
+// drifted fields; Enter restores the record from scrumban@1.0.0 and the
+// overlay reads it as in sync again.
+func TestProfilesOverlayResetRestoresTheOriginVersion(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	shipped := seedScrumbanChecklist(t, m, "planning")
+	edited := shipped
+	edited.Purpose = "edited locally"
+	if err := m.store.SetChecklist("ATM", "planning", edited, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+
+	openProfilesOn(t, m, "planning")
+	keys(m, "r")
+	if m.confirm != confirmChecklistReset || m.confirmMsg != "Reset planning to scrumban@1.0.0?" || !strings.Contains(m.confirmArg, "purpose") {
+		t.Fatalf("confirm=%v msg=%q arg=%q", m.confirm, m.confirmMsg, m.confirmArg)
+	}
+	keys(m, "esc")
+	if rec, _ := m.store.GetChecklist("ATM", "planning"); rec.Purpose != "edited locally" {
+		t.Fatal("Esc must not reset")
+	}
+	keys(m, "r", "enter")
+	rec, err := m.store.GetChecklist("ATM", "planning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Purpose != shipped.Purpose || rec.Origin != "scrumban@1.0.0" {
+		t.Fatalf("record after reset = %+v", rec)
+	}
+	if m.profilesOv.syncs["planning"].State != "in-sync" || !strings.Contains(m.toastMsg, "reset planning to scrumban@1.0.0") {
+		t.Fatalf("syncs=%+v toast=%q", m.profilesOv.syncs["planning"], m.toastMsg)
+	}
+	if !m.profilesOv.open || m.confirm != confirmNone {
+		t.Fatal("the overlay stays open; the confirm closes")
 	}
 }

@@ -1136,6 +1136,14 @@ func (m *Model) confirmYes() tea.Cmd {
 	case confirmChecklistReedit:
 		m.confirm = confirmNone
 		return m.profilesOv.reedit()
+	case confirmChecklistReset:
+		name := m.confirmPayload
+		m.confirm, m.confirmPayload = confirmNone, ""
+		return m.profilesOv.resetConfirmed(name)
+	case confirmChecklistRemove:
+		name := m.confirmPayload
+		m.confirm, m.confirmPayload = confirmNone, ""
+		return m.profilesOv.removeConfirmed(name)
 	}
 	m.confirm = confirmNone
 	return nil
