@@ -30,6 +30,7 @@ import (
 
 	"atm/internal/core"
 	"atm/internal/profile"
+	"atm/internal/runtime"
 	"atm/internal/session"
 	"atm/skills"
 )
@@ -245,7 +246,7 @@ func (s *Service) Compose(req Request) (*Plan, error) {
 	if req.Code != "" && s.EnabledCapabilities != nil {
 		capNames = strings.Join(s.EnabledCapabilities(req.Code), ", ")
 	}
-	contextPath := contextCachePath(s.Svc.StorePath(), req.Code, persona.Name, req.Task, req.Capability)
+	contextPath := contextCachePath(s.Svc.StorePath(), req.Code, persona.Name, req.Task, req.Capability, req.RunID)
 	sections := make([]session.ChecklistSection, len(recs))
 	for i, r := range recs {
 		sections[i] = session.ChecklistSection{
@@ -635,11 +636,16 @@ func sessionEnvValues(project, actor, runID, contextPath, agentName, persona, ro
 	return m
 }
 
-// contextCachePath returns the stable on-disk path for a rendered session
-// prompt keyed on (persona, task, capability). Repeated launches of the same
-// tuple reuse the same file. With no project (project-optional personas), the
-// file lives in the store-level cache dir.
-func contextCachePath(storePath, code, persona, task, capability string) string {
+// contextCachePath returns the on-disk path for a rendered session prompt.
+// A real launch has a run id and gets its OWN file under cache/sessions/
+// (spec §5.2): two live sessions of the same persona/task/capability used to
+// share one file and the second launch silently rewrote the first session's
+// prompt, which Claude Code re-reads on resume and compact. Context-only
+// renders (no run id) keep the stable per-tuple key.
+func contextCachePath(storePath, code, persona, task, capability, runID string) string {
+	if runID != "" {
+		return runtime.ContextPath(storePath, code, runID)
+	}
 	key := cacheKey(persona, task, capability)
 	if code == "" {
 		return filepath.Join(storePath, "cache", key+".md")

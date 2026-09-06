@@ -181,10 +181,10 @@ func TestDispatchDryRunRendersTheContextFile(t *testing.T) {
 	if code != ExitSuccess {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, h.stderr.String())
 	}
-	path := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md")
-	if !strings.Contains(out, path) {
-		t.Fatalf("dry-run must name the context file it wrote:\n%s", out)
-	}
+	// A dry run mints a run id like a real launch, so the file it names is
+	// the per-run one under cache/sessions/ (ATM-9339a7 §5.2).
+	dir := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions")
+	path := contextFileNamedIn(t, out, dir)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("dry-run must WRITE the context file, not just name it: %v", err)

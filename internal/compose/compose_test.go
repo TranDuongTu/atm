@@ -698,7 +698,7 @@ func TestComposeContextDedupAndSections(t *testing.T) {
 	if !strings.Contains(plan.ContextText, "   1.1 read the plan") {
 		t.Fatalf("nested numbering missing:\n%s", plan.ContextText)
 	}
-	if plan.ContextPath != "/store/projects/ATM/cache/session-developer-atm-1.md" {
+	if plan.ContextPath != "/store/projects/ATM/cache/sessions/ATM-RUNID.md" {
 		t.Fatalf("context path = %q", plan.ContextPath)
 	}
 	if plan.Actor != "developer@claude:unset" {

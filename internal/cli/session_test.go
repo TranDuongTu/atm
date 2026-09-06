@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"atm/internal/core"
 )
@@ -138,8 +137,8 @@ func TestPersonaDeveloperLaunchesHookStyle(t *testing.T) {
 			t.Errorf("developer env missing %q:\n%s", want, joined)
 		}
 	}
-	if !strings.Contains(joined, "session-developer.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-developer.md:\n%s", joined)
+	if !strings.Contains(joined, filepath.Join("cache", "sessions")+string(filepath.Separator)) {
+		t.Errorf("ATM_CONTEXT_FILE should be the per-run file under cache/sessions:\n%s", joined)
 	}
 	// ATM_MODE is the AUTONOMY axis (eager|interactive), not the manager
 	// "modes" removed in ATM-0772ea. An ad-hoc dispatch names no action, so
@@ -191,13 +190,13 @@ func TestPersonaManagerLaunch(t *testing.T) {
 	if !strings.Contains(joined, "ATM_MODE=eager") {
 		t.Errorf("ATM_MODE=eager missing:\n%s", joined)
 	}
-	if !strings.Contains(joined, "session-manager.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-manager.md:\n%s", joined)
+	if !strings.Contains(joined, filepath.Join("cache", "sessions")+string(filepath.Separator)) {
+		t.Errorf("ATM_CONTEXT_FILE should be the per-run file under cache/sessions:\n%s", joined)
 	}
 	got := normalizeSessionOutput(h.stdout.String(), h.store.StorePath())
 	compareGolden(t, "session-manager-launch", got)
 
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md")
+	ctxPath := soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions"))
 	body, err := os.ReadFile(ctxPath)
 	if err != nil {
 		t.Fatalf("read context file %s: %v", ctxPath, err)
@@ -286,7 +285,7 @@ func TestProjectRequiredUnlessOptional(t *testing.T) {
 	if !strings.Contains(joined, "ATM_CONTEXT_FILE=") {
 		t.Errorf("rover env missing ATM_CONTEXT_FILE:\n%s", joined)
 	}
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-rover.md")
+	ctxPath := soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions"))
 	if _, err := os.Stat(ctxPath); err != nil {
 		t.Fatalf("rover context file not created at %s: %v", ctxPath, err)
 	}
@@ -399,9 +398,12 @@ func TestSessionPATHGuard(t *testing.T) {
 	}
 }
 
-// TestSessionWriteIfDiffNoOp verifies a second launch of the same tuple is a
-// no-op on the context file (mtime unchanged).
-func TestSessionWriteIfDiffNoOp(t *testing.T) {
+// TestSessionEachLaunchGetsItsOwnContextFile pins the reason the per-run
+// path exists (ATM-9339a7 §5.2): two launches of the SAME persona/task/
+// capability used to share one context file, so the second launch silently
+// rewrote the first session's prompt underneath it — and Claude Code re-reads
+// that file on resume and compact. Each launch now writes its own.
+func TestSessionEachLaunchGetsItsOwnContextFile(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
@@ -411,24 +413,23 @@ func TestSessionWriteIfDiffNoOp(t *testing.T) {
 	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
 		t.Fatalf("first launch exit=%d stderr=%s", code, h.stderr.String())
 	}
-	path := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "session-developer.md")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("context file not created at %s: %v", path, err)
-	}
-	prev := info.ModTime()
-
-	time.Sleep(15 * time.Millisecond)
-
 	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
 		t.Fatalf("second launch exit=%d stderr=%s", code, h.stderr.String())
 	}
-	info, err = os.Stat(path)
+
+	dir := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions")
+	files, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("context file disappeared: %v", err)
+		t.Fatalf("read %s: %v", dir, err)
 	}
-	if !info.ModTime().Equal(prev) {
-		t.Fatalf("context file mtime changed on second launch; write-if-diff should be a no-op")
+	var md []string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".md") {
+			md = append(md, f.Name())
+		}
+	}
+	if len(md) != 2 {
+		t.Fatalf("context files after two launches = %v, want 2 distinct per-run files", md)
 	}
 }
 
@@ -707,8 +708,8 @@ func TestSessionTaskAssignment(t *testing.T) {
 	if cm == nil {
 		t.Fatalf("no ATM_CONTEXT_FILE in env:\n%s", joined)
 	}
-	if !strings.Contains(cm[1], "session-developer-atm-") {
-		t.Errorf("context cache key must include task: %s", cm[1])
+	if !strings.Contains(cm[1], filepath.Join("cache", "sessions")) {
+		t.Errorf("context file must be the per-run one under cache/sessions: %s", cm[1])
 	}
 	b, err := os.ReadFile(cm[1])
 	if err != nil {
@@ -750,6 +751,38 @@ func TestSessionTaskValidation(t *testing.T) {
 // tokens so golden fixtures are byte-stable across processes: the store path
 // prefix collapses to /STORE, the run id (CODE-YYYYMMDDHHMMSS-6hex) to
 // FOO-RUNID, and the timestamp to TIMESTAMP.
+// contextFileNamedIn finds the per-run context path the launcher printed and
+// asserts it lives in dir. Each launch mints its own run id, so no test can
+// hardcode the filename any more (ATM-9339a7 §5.2).
+func contextFileNamedIn(t *testing.T, out, dir string) string {
+	t.Helper()
+	re := regexp.MustCompile(regexp.QuoteMeta(dir) + `[/\\][A-Za-z]+-\d{14}-[0-9a-f]{6}\.md`)
+	m := re.FindString(out)
+	if m == "" {
+		t.Fatalf("no per-run context file under %s named in:\n%s", dir, out)
+	}
+	return m
+}
+
+// soleContextFile returns the single per-run context file under dir.
+func soleContextFile(t *testing.T, dir string) string {
+	t.Helper()
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read session context dir %s: %v", dir, err)
+	}
+	var md []string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".md") {
+			md = append(md, filepath.Join(dir, f.Name()))
+		}
+	}
+	if len(md) != 1 {
+		t.Fatalf("context files under %s = %v, want exactly 1", dir, md)
+	}
+	return md[0]
+}
+
 func normalizeSessionOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
@@ -903,7 +936,7 @@ func TestLaunchSessionExportsActionEnvAndWarnings(t *testing.T) {
 	if !strings.Contains(h.stderr.String(), "warning: checklist dev-routine: requires channel journal, which does not exist") {
 		t.Fatalf("stderr missing the readiness warning:\n%s", h.stderr.String())
 	}
-	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
+	ctx, err := os.ReadFile(soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,7 +1035,7 @@ func TestLaunchDispatchesTheNamedActionAndDerivesThePersona(t *testing.T) {
 	if strings.Contains(joined, "dev-cycle") {
 		t.Fatalf("nothing beyond the dispatched action may ride the session:\n%s", joined)
 	}
-	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md"))
+	ctx, err := os.ReadFile(soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions")))
 	if err != nil {
 		t.Fatal(err)
 	}

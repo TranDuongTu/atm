@@ -59,14 +59,25 @@ func TestSessionEnvSetsCapabilityAndTaskWhenPresent(t *testing.T) {
 // conflicts. Pinned through Compose in TestComposeArgvAppendsInOrder.
 
 func TestContextCachePaths(t *testing.T) {
-	if got, want := contextCachePath("/STORE", "FOO", "developer", "", ""), "/STORE/projects/FOO/cache/session-developer.md"; got != want {
+	if got, want := contextCachePath("/STORE", "FOO", "developer", "", "", ""), "/STORE/projects/FOO/cache/session-developer.md"; got != want {
 		t.Fatalf("contextCachePath developer = %q, want %q", got, want)
 	}
-	if got, want := contextCachePath("/STORE", "", "concierge", "", ""), "/STORE/cache/session-concierge.md"; got != want {
+	if got, want := contextCachePath("/STORE", "", "concierge", "", "", ""), "/STORE/cache/session-concierge.md"; got != want {
 		t.Fatalf("contextCachePath no-project = %q, want %q", got, want)
 	}
-	if got, want := contextCachePath("/STORE", "FOO", "Dev-Staff", "", ""), "/STORE/projects/FOO/cache/session-dev-staff.md"; got != want {
+	if got, want := contextCachePath("/STORE", "FOO", "Dev-Staff", "", "", ""), "/STORE/projects/FOO/cache/session-dev-staff.md"; got != want {
 		t.Fatalf("contextCachePath normalize = %q, want %q", got, want)
+	}
+}
+
+func TestContextCachePathPerRun(t *testing.T) {
+	got := contextCachePath("/STORE", "FOO", "developer", "FOO-1", "scrum", "FOO-20260905080000-abc123")
+	want := "/STORE/projects/FOO/cache/sessions/FOO-20260905080000-abc123.md"
+	if got != want {
+		t.Fatalf("per-run path = %q, want %q", got, want)
+	}
+	if got := contextCachePath("/STORE", "", "concierge", "", "", "atm-20260905080000-abc123"); got != "/STORE/cache/sessions/atm-20260905080000-abc123.md" {
+		t.Fatalf("no-project per-run path = %q, want /STORE/cache/sessions/atm-20260905080000-abc123.md", got)
 	}
 }
 
