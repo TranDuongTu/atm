@@ -55,6 +55,15 @@ func TestInstallPluginWritesAssetsAndStatusInstalled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "atm-developing", "skills", "atm-developing", "SKILL.md")); err != nil {
 		t.Fatalf("bundled Claude skill missing: %v", err)
 	}
+	// The status hook is exec'd by the harness, so it has to land executable
+	// or every status event is a silent no-op.
+	info, err := os.Stat(filepath.Join(home, ".claude", "skills", "atm-developing", "hooks", "session-status"))
+	if err != nil {
+		t.Fatalf("status hook missing: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("status hook mode = %o, want the executable bit set", info.Mode())
+	}
 }
 
 func TestInstallOpenCodePluginWritesPluginAndSkill(t *testing.T) {

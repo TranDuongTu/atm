@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# session-status <working|idle|blocked>
+# Reports this run's state to ATM's session registry. Fire-and-forget: it
+# never blocks the agent, never prints, and exits 0 whatever happens.
+state="${1:-}"
+[ -n "${ATM_RUN_ID:-}" ] || exit 0
+[ -n "$state" ] || exit 0
+command -v atm >/dev/null 2>&1 || exit 0
+
+input="$(cat 2>/dev/null || true)"
+text=""
+if [ "$state" = "blocked" ]; then
+  # Best-effort: the "message" string of a Notification payload. No jq
+  # dependency; a message with escaped quotes is simply cut short.
+  text="$(printf '%s' "$input" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p' | head -n 1)"
+fi
+
+run() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 2 "$@" >/dev/null 2>&1 || true
+  else
+    "$@" >/dev/null 2>&1 || true
+  fi
+}
+
+if [ -n "$text" ]; then
+  run atm session status --state "$state" --text "$text"
+else
+  run atm session status --state "$state"
+fi
+exit 0

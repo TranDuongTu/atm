@@ -19,10 +19,12 @@ import (
 //go:embed plugin_assets/claude/.claude-plugin/plugin.json
 //go:embed plugin_assets/claude/hooks/hooks.json
 //go:embed plugin_assets/claude/hooks/session-start
+//go:embed plugin_assets/claude/hooks/session-status
 //go:embed plugin_assets/claude/skills/atm-developing/SKILL.md
 //go:embed plugin_assets/codex/.codex-plugin/plugin.json
 //go:embed plugin_assets/codex/hooks/hooks.json
 //go:embed plugin_assets/codex/hooks/session-start
+//go:embed plugin_assets/codex/hooks/session-status
 //go:embed plugin_assets/codex/skills/atm-developing/SKILL.md
 var pluginFS embed.FS
 
@@ -54,7 +56,9 @@ func PluginAssets(agent string) ([]Asset, bool) {
 			return err
 		}
 		mode := fs.FileMode(0o644)
-		if filepath.Base(path) == "session-start" {
+		// Every extensionless file under hooks/ is a script the harness
+		// execs; hooks.json stays 0644.
+		if strings.HasPrefix(filepath.ToSlash(rel), "hooks/") && filepath.Ext(rel) == "" {
 			mode = 0o755
 		}
 		assets = append(assets, Asset{
@@ -359,6 +363,7 @@ func claudePluginComplete(home string) bool {
 		filepath.Join(root, ".claude-plugin", "plugin.json"),
 		filepath.Join(root, "hooks", "hooks.json"),
 		filepath.Join(root, "hooks", "session-start"),
+		filepath.Join(root, "hooks", "session-status"),
 		filepath.Join(root, "skills", "atm-developing", "SKILL.md"),
 	} {
 		if _, err := os.Stat(path); err != nil {

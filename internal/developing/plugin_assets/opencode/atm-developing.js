@@ -1,5 +1,6 @@
 import os from "os"
 import path from "path"
+import { spawn } from "child_process"
 
 const bootstrap = () => {
   const role = process.env.ATM_ROLE
@@ -72,6 +73,24 @@ export const ATMDevelopingPlugin = async ({ client } = {}) => {
         project: process.env.ATM_PROJECT || "",
         run_id: process.env.ATM_RUN_ID || "",
       })
+    },
+    event: async ({ event }) => {
+      if (!process.env.ATM_RUN_ID || !event || !event.type) return
+      const states = {
+        "chat.message": "working",
+        "permission.replied": "working",
+        "session.idle": "idle",
+        "permission.asked": "blocked",
+      }
+      const state = states[event.type]
+      if (!state) return
+      try {
+        const child = spawn("atm", ["session", "status", "--state", state], { stdio: "ignore", detached: true })
+        child.on("error", () => {})
+        child.unref()
+      } catch {
+        // Status reporting must never affect the user's OpenCode session.
+      }
     },
     "shell.env": async (_input, output) => {
       if (!process.env.ATM_CONTEXT_FILE) return
