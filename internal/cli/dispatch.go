@@ -44,6 +44,8 @@ func newDispatchCmd(st *cliState) *cobra.Command {
 	cmd.Flags().StringVar(&opts.Capability, "capability", "", "scope the session to one enabled capability")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "override the selected agent for this launch (see `atm agents list`)")
 	cmd.Flags().StringVar(&opts.Launch, "launch", "", "override the persona's launch vehicle: prompt|hook|tui")
+	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "run id to register this session under (minted when empty)")
+	_ = cmd.Flags().MarkHidden("run-id")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "bind and render the dispatch, then report it instead of launching")
 	_ = cmd.MarkFlagRequired("checklist")
 	return cmd

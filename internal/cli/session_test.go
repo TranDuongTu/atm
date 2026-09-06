@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,9 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"atm/internal/core"
+	"atm/internal/runtime"
 )
 
 type capturedChild struct {
@@ -138,8 +139,8 @@ func TestPersonaDeveloperLaunchesHookStyle(t *testing.T) {
 			t.Errorf("developer env missing %q:\n%s", want, joined)
 		}
 	}
-	if !strings.Contains(joined, "session-developer.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-developer.md:\n%s", joined)
+	if !strings.Contains(joined, filepath.Join("cache", "sessions")+string(filepath.Separator)) {
+		t.Errorf("ATM_CONTEXT_FILE should be the per-run file under cache/sessions:\n%s", joined)
 	}
 	// ATM_MODE is the AUTONOMY axis (eager|interactive), not the manager
 	// "modes" removed in ATM-0772ea. An ad-hoc dispatch names no action, so
@@ -191,13 +192,13 @@ func TestPersonaManagerLaunch(t *testing.T) {
 	if !strings.Contains(joined, "ATM_MODE=eager") {
 		t.Errorf("ATM_MODE=eager missing:\n%s", joined)
 	}
-	if !strings.Contains(joined, "session-manager.md") {
-		t.Errorf("ATM_CONTEXT_FILE should end with session-manager.md:\n%s", joined)
+	if !strings.Contains(joined, filepath.Join("cache", "sessions")+string(filepath.Separator)) {
+		t.Errorf("ATM_CONTEXT_FILE should be the per-run file under cache/sessions:\n%s", joined)
 	}
 	got := normalizeSessionOutput(h.stdout.String(), h.store.StorePath())
 	compareGolden(t, "session-manager-launch", got)
 
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md")
+	ctxPath := soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions"))
 	body, err := os.ReadFile(ctxPath)
 	if err != nil {
 		t.Fatalf("read context file %s: %v", ctxPath, err)
@@ -286,7 +287,7 @@ func TestProjectRequiredUnlessOptional(t *testing.T) {
 	if !strings.Contains(joined, "ATM_CONTEXT_FILE=") {
 		t.Errorf("rover env missing ATM_CONTEXT_FILE:\n%s", joined)
 	}
-	ctxPath := filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-rover.md")
+	ctxPath := soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions"))
 	if _, err := os.Stat(ctxPath); err != nil {
 		t.Fatalf("rover context file not created at %s: %v", ctxPath, err)
 	}
@@ -399,9 +400,12 @@ func TestSessionPATHGuard(t *testing.T) {
 	}
 }
 
-// TestSessionWriteIfDiffNoOp verifies a second launch of the same tuple is a
-// no-op on the context file (mtime unchanged).
-func TestSessionWriteIfDiffNoOp(t *testing.T) {
+// TestSessionEachLaunchGetsItsOwnContextFile pins the reason the per-run
+// path exists (ATM-9339a7 §5.2): two launches of the SAME persona/task/
+// capability used to share one context file, so the second launch silently
+// rewrote the first session's prompt underneath it — and Claude Code re-reads
+// that file on resume and compact. Each launch now writes its own.
+func TestSessionEachLaunchGetsItsOwnContextFile(t *testing.T) {
 	h := newGoldenHarness(t)
 	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
 	captureChild(h)
@@ -411,24 +415,23 @@ func TestSessionWriteIfDiffNoOp(t *testing.T) {
 	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
 		t.Fatalf("first launch exit=%d stderr=%s", code, h.stderr.String())
 	}
-	path := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "session-developer.md")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("context file not created at %s: %v", path, err)
-	}
-	prev := info.ModTime()
-
-	time.Sleep(15 * time.Millisecond)
-
 	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
 		t.Fatalf("second launch exit=%d stderr=%s", code, h.stderr.String())
 	}
-	info, err = os.Stat(path)
+
+	dir := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions")
+	files, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("context file disappeared: %v", err)
+		t.Fatalf("read %s: %v", dir, err)
 	}
-	if !info.ModTime().Equal(prev) {
-		t.Fatalf("context file mtime changed on second launch; write-if-diff should be a no-op")
+	var md []string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".md") {
+			md = append(md, f.Name())
+		}
+	}
+	if len(md) != 2 {
+		t.Fatalf("context files after two launches = %v, want 2 distinct per-run files", md)
 	}
 }
 
@@ -707,8 +710,8 @@ func TestSessionTaskAssignment(t *testing.T) {
 	if cm == nil {
 		t.Fatalf("no ATM_CONTEXT_FILE in env:\n%s", joined)
 	}
-	if !strings.Contains(cm[1], "session-developer-atm-") {
-		t.Errorf("context cache key must include task: %s", cm[1])
+	if !strings.Contains(cm[1], filepath.Join("cache", "sessions")) {
+		t.Errorf("context file must be the per-run one under cache/sessions: %s", cm[1])
 	}
 	b, err := os.ReadFile(cm[1])
 	if err != nil {
@@ -750,6 +753,38 @@ func TestSessionTaskValidation(t *testing.T) {
 // tokens so golden fixtures are byte-stable across processes: the store path
 // prefix collapses to /STORE, the run id (CODE-YYYYMMDDHHMMSS-6hex) to
 // FOO-RUNID, and the timestamp to TIMESTAMP.
+// contextFileNamedIn finds the per-run context path the launcher printed and
+// asserts it lives in dir. Each launch mints its own run id, so no test can
+// hardcode the filename any more (ATM-9339a7 §5.2).
+func contextFileNamedIn(t *testing.T, out, dir string) string {
+	t.Helper()
+	re := regexp.MustCompile(regexp.QuoteMeta(dir) + `[/\\][A-Za-z]+-\d{14}-[0-9a-f]{6}\.md`)
+	m := re.FindString(out)
+	if m == "" {
+		t.Fatalf("no per-run context file under %s named in:\n%s", dir, out)
+	}
+	return m
+}
+
+// soleContextFile returns the single per-run context file under dir.
+func soleContextFile(t *testing.T, dir string) string {
+	t.Helper()
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read session context dir %s: %v", dir, err)
+	}
+	var md []string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".md") {
+			md = append(md, filepath.Join(dir, f.Name()))
+		}
+	}
+	if len(md) != 1 {
+		t.Fatalf("context files under %s = %v, want exactly 1", dir, md)
+	}
+	return md[0]
+}
+
 func normalizeSessionOutput(s, storePath string) string {
 	s = normalizeOutput(s)
 	if storePath != "" {
@@ -903,7 +938,7 @@ func TestLaunchSessionExportsActionEnvAndWarnings(t *testing.T) {
 	if !strings.Contains(h.stderr.String(), "warning: checklist dev-routine: requires channel journal, which does not exist") {
 		t.Fatalf("stderr missing the readiness warning:\n%s", h.stderr.String())
 	}
-	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-developer.md"))
+	ctx, err := os.ReadFile(soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,7 +1037,7 @@ func TestLaunchDispatchesTheNamedActionAndDerivesThePersona(t *testing.T) {
 	if strings.Contains(joined, "dev-cycle") {
 		t.Fatalf("nothing beyond the dispatched action may ride the session:\n%s", joined)
 	}
-	ctx, err := os.ReadFile(filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "session-manager.md"))
+	ctx, err := os.ReadFile(soleContextFile(t, filepath.Join(h.store.StorePath(), "projects", "ATM", "cache", "sessions")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1155,5 +1190,146 @@ func TestLaunchTargetsExpressionWarnsThroughTheRealResolver(t *testing.T) {
 	}
 	if strings.Contains(h.stderr.String(), "outside its targets") {
 		t.Fatalf("an eligible task must not warn:\n%s", h.stderr.String())
+	}
+}
+
+// TestSessionLaunchRegistersAndEndsRun is the whole of Runtime 2 in one
+// assertion set: a launch registers a record carrying its identity and its
+// terminal surface, ends it with the child's exit code when the child
+// returns, and journals a start and an end comment on the bound task.
+func TestSessionLaunchRegistersAndEndsRun(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	out, _, _ := h.run("task", "create", "--project", "FOO", "--title", "Monitor", "--actor", "admin@cli:unset", "--output", "json")
+	taskID := regexp.MustCompile(`"id":\s*"(FOO-[0-9a-f]+)"`).FindStringSubmatch(out)[1]
+	captureChild(h)
+	stubLookPath(h)
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,6099,0")
+	t.Setenv("TMUX_PANE", "%30")
+	h.reset()
+
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO", "--task", taskID, "--run-id", "FOO-20260905080000-abc123"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	reg := runtime.Open(h.store.StorePath())
+	rec, err := reg.Get("FOO-20260905080000-abc123")
+	if err != nil {
+		t.Fatalf("record not registered: %v", err)
+	}
+	if rec.Project != "FOO" || rec.Task != taskID || rec.Persona != "developer" || rec.Agent != "codex" || rec.LauncherPID != os.Getpid() {
+		t.Fatalf("record identity wrong: %+v", rec)
+	}
+	if rec.Surface.Kind != "tmux" || rec.Surface.TmuxPane != "%30" || rec.Surface.TmuxSocket != "/tmp/tmux-1000/default" {
+		t.Fatalf("surface not captured: %+v", rec.Surface)
+	}
+	if rec.EndedAt == "" || rec.ExitCode == nil || *rec.ExitCode != 0 || rec.Status.State != runtime.StateEnded {
+		t.Fatalf("record not ended after the child returned: %+v", rec)
+	}
+	want := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions", "FOO-20260905080000-abc123.md")
+	if rec.ContextPath != want {
+		t.Fatalf("context path = %q, want %q", rec.ContextPath, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("per-run context file missing: %v", err)
+	}
+	cs, err := h.store.ListComments(taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 2 {
+		t.Fatalf("comments = %d, want start + end", len(cs))
+	}
+	if !strings.HasPrefix(cs[0].Body, "session started · run FOO-20260905080000-abc123 · developer · ad-hoc · codex:unset · host ") {
+		t.Errorf("start comment = %q", cs[0].Body)
+	}
+	if !strings.HasPrefix(cs[1].Body, "session ended · run FOO-20260905080000-abc123 · exit 0 · ") {
+		t.Errorf("end comment = %q", cs[1].Body)
+	}
+	for _, c := range cs {
+		if len(c.Labels) != 1 || c.Labels[0] != "FOO:comment:session" || c.CreatedBy != "developer@codex:unset" {
+			t.Errorf("comment labels/actor = %v %s", c.Labels, c.CreatedBy)
+		}
+	}
+}
+
+// TestSessionLaunchMintsRunIDAndPassesItToTheChild pins that the id the child
+// sees in ATM_RUN_ID is the id the registry knows, and that the context file
+// it is pointed at is that run's own.
+func TestSessionLaunchMintsRunIDAndPassesItToTheChild(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	re := regexp.MustCompile(`ATM_RUN_ID=(FOO-\d{14}-[0-9a-f]{6})`)
+	m := re.FindStringSubmatch(strings.Join(c.env, "\n"))
+	if m == nil {
+		t.Fatalf("ATM_RUN_ID missing or malformed in child env")
+	}
+	if _, err := runtime.Open(h.store.StorePath()).Get(m[1]); err != nil {
+		t.Fatalf("minted run %s not registered: %v", m[1], err)
+	}
+	if !strings.Contains(strings.Join(c.env, "\n"), "ATM_CONTEXT_FILE="+filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions", m[1]+".md")) {
+		t.Fatalf("ATM_CONTEXT_FILE must be the per-run file:\n%s", strings.Join(c.env, "\n"))
+	}
+}
+
+// TestSessionLaunchWithoutTaskWritesNoComment: a taskless session is still
+// registered — there is just nowhere to journal it.
+func TestSessionLaunchWithoutTaskWritesNoComment(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d", code)
+	}
+	entries, _ := runtime.Open(h.store.StorePath()).List()
+	if len(entries) != 1 || entries[0].Record.Task != "" {
+		t.Fatalf("one taskless record expected: %+v", entries)
+	}
+}
+
+// TestSessionLaunchDryRunRegistersNothing: a dry run binds and renders, but
+// nothing ran, so there is no run to monitor.
+func TestSessionLaunchDryRunRegistersNothing(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	seedDispatchProject(t, h)
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("dispatch", "--checklist", "planning", "--project", "ATM", "--agent", "claude", "--dry-run"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	entries, _ := runtime.Open(h.store.StorePath()).List()
+	if len(entries) != 0 {
+		t.Fatalf("dry run must not register: %+v", entries)
+	}
+}
+
+// TestSessionLaunchPrunesStaleRecordsFirst: the registry cycles at launch, so
+// nobody has to remember to clean it.
+func TestSessionLaunchPrunesStaleRecordsFirst(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	stubLookPath(h)
+	reg := runtime.Open(h.store.StorePath())
+	old := runtime.Record{RunID: "FOO-20200101000000-000000", Persona: "developer", Agent: "codex", Actor: "x@codex:unset",
+		LauncherPID: 2147483647, StartedAt: "2020-01-01T00:00:00Z", EndedAt: "2020-01-01T01:00:00Z"}
+	if err := reg.Create(old); err != nil {
+		t.Fatal(err)
+	}
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d", code)
+	}
+	if _, err := reg.Get("FOO-20200101000000-000000"); !errors.Is(err, runtime.ErrNotFound) {
+		t.Fatalf("a 6-year-old ended record must be pruned at launch, got %v", err)
 	}
 }

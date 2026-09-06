@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"atm/internal/capability"
 	"atm/internal/compose"
 	"atm/internal/core"
+	"atm/internal/runtime"
 	"atm/internal/session"
 
 	"github.com/spf13/cobra"
@@ -32,6 +34,9 @@ type sessionOpts struct {
 	// execing the host agent.
 	DryRun      bool
 	Integration string
+	// RunID is pre-minted by the TUI dispatch dialog so the post-dispatch
+	// toast can name the run; "" mints one here.
+	RunID       string
 	DefaultArgs []string
 	ExtraArgs   []string
 }
@@ -172,6 +177,10 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	if runCode == "" {
 		runCode = "atm"
 	}
+	runID := opts.RunID
+	if runID == "" {
+		runID = runtime.NewRunID(runCode)
+	}
 	plan, err := csvc.Compose(compose.Request{
 		Persona:     persona.Name,
 		Code:        code,
@@ -186,11 +195,29 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		DefaultArgs: defArgs,
 		EnvArgs:     agentEnvArgs(e.Launcher, e.Integration),
 		ExtraArgs:   opts.ExtraArgs,
-		RunID:       newRunID(runCode),
+		RunID:       runID,
 		Timestamp:   core.RFC3339UTC(time.Now().UTC()),
 	})
 	if err != nil {
 		return err
+	}
+	// Registration comes BEFORE the context file is written, and both come
+	// before the prune. Prune's orphan sweep deletes every context file no
+	// record claims, so a concurrent launch's sweep would otherwise delete
+	// this session's prompt in the window between writing it and registering
+	// it — the exact class of bug the per-run file exists to end.
+	//
+	// Registration never blocks a launch (spec ATM-9339a7 §11): a session you
+	// cannot monitor beats a session that does not start, so every registry
+	// failure here is a stderr warning, never a returned error.
+	var reg *runtime.Registry
+	var rec runtime.Record
+	if !opts.DryRun {
+		reg = runtime.Open(s.StorePath())
+		rec = sessionRecord(runID, code, opts, plan, l.Name(), sel.Model)
+		if err := reg.Create(rec); err != nil {
+			fmt.Fprintln(st.stderr(), "warning: register session: "+err.Error())
+		}
 	}
 	if err := writeContextIfDiff(plan.ContextPath, []byte(plan.ContextText)); err != nil {
 		return fmt.Errorf("write context file %s: %w", plan.ContextPath, err)
@@ -200,18 +227,43 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 	}
 
 	env := assembleEnv(plan.EnvValues)
-	runID := plan.EnvValues["ATM_RUN_ID"]
 	if opts.DryRun {
 		// Everything above this line already ran: the binding is real and
-		// the context file is written. Only the exec is skipped, so what is
-		// reported is what a launch would do, not a description of it.
+		// the context file is written. Only the exec (and the registration
+		// that belongs to a real run) is skipped, so what is reported is
+		// what a launch would do, not a description of it.
 		return emitDispatchPlan(st, code, l.Name(), plan)
 	}
+
+	// The registry cycles at launch, so nobody has to remember to clean it.
+	// This run is already registered and live, so the sweep cannot touch it.
+	if _, err := reg.Prune(runtime.PruneOptions{}); err != nil {
+		fmt.Fprintln(st.stderr(), "warning: prune session registry: "+err.Error())
+	}
+	if opts.Task != "" {
+		body := fmt.Sprintf("session started · run %s · %s · %s · %s:%s · host %s",
+			runID, plan.Persona, orDefault(plan.Checklist, "ad-hoc"), l.Name(), orDefault(sel.Model, "unset"), rec.Host)
+		if _, err := s.CreateComment(opts.Task, body, []string{code + ":comment:session"}, "", plan.Actor); err != nil {
+			fmt.Fprintln(st.stderr(), "warning: session start comment: "+err.Error())
+		}
+	}
+
 	if err := emitLaunchHeader(st, persona.Name, code, runID, plan.ContextPath, l.Name(), plan.Argv, plan.EnvValues); err != nil {
 		return err
 	}
 
+	started := time.Now()
 	exitCode, runErr := st.runChild(l.Name(), plan.Argv, env, l.NotFoundHint())
+
+	if err := reg.End(runID, exitCode); err != nil {
+		fmt.Fprintln(st.stderr(), "warning: end session record: "+err.Error())
+	}
+	if opts.Task != "" {
+		body := fmt.Sprintf("session ended · run %s · exit %d · %s", runID, exitCode, time.Since(started).Round(time.Second))
+		if _, err := s.CreateComment(opts.Task, body, []string{code + ":comment:session"}, "", plan.Actor); err != nil {
+			fmt.Fprintln(st.stderr(), "warning: session end comment: "+err.Error())
+		}
+	}
 	if err := emitLaunchTail(st, persona.Name, code, runID, plan.ContextPath, l.Name(), exitCode); err != nil {
 		return err
 	}
@@ -219,6 +271,40 @@ func (st *cliState) launchSession(opts sessionOpts) error {
 		return fmt.Errorf("%s exited: %w", l.Name(), runErr)
 	}
 	return nil
+}
+
+// sessionRecord is the registry record for one launch: identity from the
+// compose plan, runtime facts from this process.
+func sessionRecord(runID, code string, opts sessionOpts, plan *compose.Plan, launcher, model string) runtime.Record {
+	host, _ := os.Hostname()
+	bin, _ := os.Executable()
+	cwd, _ := os.Getwd()
+	return runtime.Record{
+		RunID:       runID,
+		Project:     code,
+		Task:        opts.Task,
+		Persona:     plan.Persona,
+		Checklist:   plan.Checklist,
+		Mode:        plan.Mode,
+		Capability:  opts.Capability,
+		Agent:       launcher,
+		Model:       model,
+		Actor:       plan.Actor,
+		LauncherPID: os.Getpid(),
+		AtmBin:      bin,
+		Host:        host,
+		Cwd:         cwd,
+		ContextPath: plan.ContextPath,
+		Surface:     runtime.DetectSurface(os.Getenv, ttyPath()),
+	}
+}
+
+// orDefault returns def when v is empty.
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // newSessionContextCmd renders a persona's session prompt to stdout. Hidden

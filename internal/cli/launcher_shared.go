@@ -2,26 +2,14 @@ package cli
 
 import (
 	"bytes"
-	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"atm/internal/core"
 )
-
-// newRunID builds a run id of the form <CODE>-<YYYYMMDDHHMMSS>-<6-hex>.
-// Shared by the developing and manager launchers.
-func newRunID(code string) string {
-	return fmt.Sprintf("%s-%s-%s",
-		code,
-		time.Now().UTC().Format("20060102150405"),
-		shortUUID(),
-	)
-}
 
 func ensureProjectForLaunch(s core.Service, code string) (*core.Project, error) {
 	p, err := s.GetProject(code)
@@ -41,13 +29,14 @@ func ensureProjectForLaunch(s core.Service, code string) (*core.Project, error) 
 	return nil, err
 }
 
-// shortUUID returns a 6-char hex suffix for collision safety in run IDs.
-func shortUUID() string {
-	var b [3]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "000000"
+// ttyPath is the controlling terminal of this process, best effort: the
+// readlink of fd 0 on Linux, "" anywhere it cannot be answered.
+func ttyPath() string {
+	p, err := os.Readlink("/proc/self/fd/0")
+	if err != nil || !strings.HasPrefix(p, "/dev/") {
+		return ""
 	}
-	return fmt.Sprintf("%x", b[:])
+	return p
 }
 
 // runChild executes the host agent with inherited stdio and the given env.
