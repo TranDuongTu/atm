@@ -169,7 +169,7 @@ atm task list --project ATM --label ATM:next-sprint
 
 A new project enables `scrum` plus the registry capabilities; the downstream flows are an explicit choice, and `atm project wiring` decides what reaches each one's inbox.
 
-Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`; operating checklists are profile content, imported with provenance by `atm profile apply`.
+Session contexts render a `## Capabilities` block: every enabled capability's one-line brief, sourced from its own guide frontmatter. The checklist capability stores named, per-persona standing operating procedures behind `atm checklist`; operating checklists are profile content, imported with provenance by `atm profile apply`. `atm profile export` writes a project's operating content back out as a new profile directory, ready to build.
 
 Enable capabilities per project and scope manager actions to one:
 

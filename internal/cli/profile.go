@@ -256,13 +256,15 @@ func newProfileCmd(st *cliState) *cobra.Command {
 			"presuppose. `build` validates a profile directory and packs a digest-" +
 			"identified artifact; `install` puts an artifact into this machine's " +
 			"profile store; `list` shows what is available, installed or embedded in " +
-			"the binary. `--output json` on list is the agent endpoint.",
+			"the binary. `export` writes a project's live content back out as a " +
+			"new profile directory. `--output json` on list is the agent endpoint.",
 	}
 	bindActorFlag(cmd, st)
 	cmd.AddCommand(newProfileBuildCmd(st))
 	cmd.AddCommand(newProfileInstallCmd(st))
 	cmd.AddCommand(newProfileListCmd(st))
 	cmd.AddCommand(newProfileApplyCmd(st))
+	cmd.AddCommand(newProfileExportCmd(st))
 	cmd.AddCommand(newProfileStatusCmd(st))
 	cmd.AddCommand(newProfileVerifyCmd(st))
 	return cmd
