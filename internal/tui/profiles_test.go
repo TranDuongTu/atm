@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"atm/internal/core"
+	"atm/internal/profile"
+	"atm/profiles"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -183,5 +185,70 @@ func TestStatusGlyphAbsentWithoutAProject(t *testing.T) {
 	}
 	if strings.Contains(m.renderStatusLine(), "profile:") {
 		t.Fatalf("no project means no readiness glyph:\n%s", m.renderStatusLine())
+	}
+}
+
+// seedScrumbanChecklist creates the named checklist exactly as the embedded
+// scrumban@1.0.0 ships it for project ATM, so readiness reads it as in sync.
+// seedProfilesProject's hand-written records are all "modified" against the
+// real profile, which is fine for rung tests but useless for sync tests.
+func seedScrumbanChecklist(t *testing.T, m *Model, name string) core.ChecklistRecord {
+	t.Helper()
+	fsys, ok := profiles.FS("scrumban")
+	if !ok {
+		t.Fatal("scrumban is not embedded")
+	}
+	p, err := profile.Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, ok := p.ForProject("ATM").ProfileChecklist(name)
+	if !ok {
+		t.Fatalf("scrumban ships no checklist %s", name)
+	}
+	doc.Origin = "scrumban@1.0.0"
+	if _, err := m.store.CreateChecklist("ATM", doc, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	return doc
+}
+
+// TestProfilesOverlayListShowsOriginAndTheModifiedMark: the origin column and
+// the ~ mark are read from RecordSync, and the summary line folds the same
+// facts — one computation, three renderings.
+func TestProfilesOverlayListShowsOriginAndTheModifiedMark(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	edited := seedScrumbanChecklist(t, m, "standup")
+	edited.Purpose = "edited locally"
+	if err := m.store.SetChecklist("ATM", "standup", edited, testActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "my-routine", Purpose: "mine", Steps: []core.ChecklistStep{{Text: "do"}}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	view := m.profilesOv.renderOverlay()
+	for _, want := range []string{"origin", "scrumban@1.0.0 ~", "3 checklists", "2 from scrumban@1.0.0 (1 modified)", "1 user"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overlay missing %q:\n%s", want, view)
+		}
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "planning") && strings.Contains(line, "~") {
+			t.Errorf("planning is in sync and must carry no mark: %q", line)
+		}
+		if strings.Contains(line, "my-routine") && !strings.Contains(line, "user") {
+			t.Errorf("my-routine must show origin user: %q", line)
+		}
+	}
+	if m.profilesOv.syncs["standup"].State != "modified" || m.profilesOv.records["my-routine"].Origin != "user" {
+		t.Fatalf("caches: syncs=%+v records=%+v", m.profilesOv.syncs, m.profilesOv.records)
 	}
 }

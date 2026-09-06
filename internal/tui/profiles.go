@@ -6,6 +6,7 @@ import (
 
 	"atm/internal/agent"
 	"atm/internal/compose"
+	"atm/internal/core"
 	"atm/internal/profile"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,15 @@ type profilesModel struct {
 	// surface starts lying.
 	readiness *profile.Readiness
 	agents    []string
+	// records is the checklist roster keyed by name, loaded with the
+	// readiness snapshot so the detail view and the editor never read the
+	// store from a render path (view_purity_test).
+	records map[string]core.ChecklistRecord
+	// syncs is each checklist's state against its origin version, keyed by
+	// name — the ~ mark, the detail's origin line, and the reset diff. Read
+	// from readiness.Profiles, never recomputed. A user-origin record has no
+	// entry: there is nothing to compare it with.
+	syncs map[string]profile.RecordSync
 	// expanded shows the selected action's reason chain — every warning with
 	// the command that answers it.
 	expanded bool
@@ -57,6 +67,19 @@ func (p *profilesModel) loadFor(project string) {
 	p.readiness = r
 	if p.cursor >= len(p.actions()) {
 		p.cursor = 0
+	}
+	p.records, p.syncs = map[string]core.ChecklistRecord{}, map[string]profile.RecordSync{}
+	if recs, err := p.m.store.ChecklistRecords(project); err == nil {
+		for _, rec := range recs {
+			p.records[rec.Name] = rec
+		}
+	}
+	for _, ps := range r.Profiles {
+		for _, rs := range ps.Records {
+			if rs.Kind == core.ApplyKindChecklist {
+				p.syncs[rs.Name] = rs
+			}
+		}
 	}
 }
 
@@ -161,7 +184,7 @@ func (p *profilesModel) renderOverlay() string {
 	default:
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]why  [d]dispatch  [v]attest  [Esc]close"))
 	}
-	h := len(p.actions()) + len(p.appliedLines()) + 7
+	h := len(p.actions()) + len(p.appliedLines()) + 9
 	if p.expanded {
 		h = p.m.height - 8
 		if h < 10 {
@@ -208,6 +231,7 @@ func (p *profilesModel) previewBody(w int) string {
 		}
 		b.WriteString(line + "\n")
 	}
+	b.WriteString("\n" + fitLine(p.summaryLine(), w) + "\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -239,15 +263,63 @@ func (p *profilesModel) appliedLines() []string {
 	return out
 }
 
+// originCell is the record's origin, truncated to the column, with a ~ when
+// the record differs from what that origin version ships.
+func (p *profilesModel) originCell(name string) string {
+	origin := p.records[name].Origin
+	if origin == "" {
+		origin = "—"
+	}
+	cell := fitLine(origin, 16)
+	if p.syncs[name].State == "modified" {
+		cell += " ~"
+	}
+	return fmt.Sprintf("%-18s", cell)
+}
+
 // tableHeader names the agent columns. The rung a row reports is
 // agent-relative below "wired", which is why the columns exist at all.
 func (p *profilesModel) tableHeader() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-16s %-10s", "action", "persona")
+	fmt.Fprintf(&b, "%-16s %-10s %-18s", "action", "persona", "origin")
 	for _, a := range p.agents {
 		fmt.Fprintf(&b, " %-12s", a)
 	}
 	return b.String()
+}
+
+// summaryLine folds the roster: how many checklists, how many from each
+// applied profile (and how many of those drifted), how many the project
+// authored. Counts come from the same maps the rows render from.
+func (p *profilesModel) summaryLine() string {
+	acts := p.actions()
+	parts := []string{fmt.Sprintf("%d checklists", len(acts))}
+	fromProfiles := 0
+	for _, ps := range p.readiness.Profiles {
+		n, modified := 0, 0
+		for _, a := range acts {
+			if p.records[a.Name].Origin != ps.Ref {
+				continue
+			}
+			n++
+			if p.syncs[a.Name].State == "modified" {
+				modified++
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		fromProfiles += n
+		part := fmt.Sprintf("%d from %s", n, ps.Ref)
+		if modified > 0 {
+			part += fmt.Sprintf(" (%d modified)", modified)
+		}
+		parts = append(parts, part)
+	}
+	if u := len(acts) - fromProfiles; u > 0 {
+		parts = append(parts, fmt.Sprintf("%d user", u))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (p *profilesModel) actionRow(a profile.ActionReadiness) string {
@@ -256,7 +328,7 @@ func (p *profilesModel) actionRow(a profile.ActionReadiness) string {
 	if persona == "" {
 		persona = "—"
 	}
-	fmt.Fprintf(&b, "%-16s %-10s", a.Name, persona)
+	fmt.Fprintf(&b, "%-16s %-10s %s", a.Name, persona, p.originCell(a.Name))
 	if len(p.agents) == 0 {
 		fmt.Fprintf(&b, " %s", a.Rung[""])
 		return b.String()
