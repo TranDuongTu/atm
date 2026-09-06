@@ -247,3 +247,81 @@ func TestProfilesOverlayEditRefusesARename(t *testing.T) {
 	}
 	m.profilesOv.discardEdit()
 }
+
+// TestProfilesOverlayNewCreatesAUserChecklist: [n] opens the skeleton; a
+// valid document comes back as a user-origin record.
+func TestProfilesOverlayNewCreatesAUserChecklist(t *testing.T) {
+	t.Setenv("VISUAL", "fake-editor")
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	stubEditor(m)
+	openProfilesOn(t, m, "planning")
+	keys(m, "n")
+	pe := m.profilesOv.pending
+	if pe == nil || pe.name != "" {
+		t.Fatalf("pending = %+v", pe)
+	}
+	if data, _ := os.ReadFile(pe.path); string(data) != checklistSkeleton {
+		t.Fatalf("skeleton:\n%s", data)
+	}
+	doc := "---\nname: my-routine\npurpose: mine\nsuits: [manager]\ntarget: project\nmode: interactive\n---\n1. do the thing\n"
+	if err := os.WriteFile(pe.path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(checklistEditedMsg{name: "", path: pe.path})
+	rec, err := m.store.GetChecklist("ATM", "my-routine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Origin != "user" || rec.Mode != "interactive" || rec.Purpose != "mine" {
+		t.Fatalf("record = %+v", rec)
+	}
+	if !strings.Contains(m.toastMsg, "created checklist my-routine") || m.profilesOv.records["my-routine"].Name != "my-routine" {
+		t.Fatalf("toast=%q records=%v", m.toastMsg, m.profilesOv.records)
+	}
+}
+
+// TestProfilesOverlayNewNameCollisionReedits: a name the project already
+// has comes back from the store as a conflict and enters the same loop, so
+// the author renames in place instead of losing the text.
+func TestProfilesOverlayNewNameCollisionReedits(t *testing.T) {
+	t.Setenv("VISUAL", "fake-editor")
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	stubEditor(m)
+	openProfilesOn(t, m, "planning")
+	keys(m, "n")
+	path := m.profilesOv.pending.path
+	doc := "---\nname: planning\npurpose: dup\n---\n1. x\n"
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(checklistEditedMsg{name: "", path: path})
+	if m.confirm != confirmChecklistReedit || !strings.Contains(m.confirmArg, "already exists") {
+		t.Fatalf("confirm=%v arg=%q", m.confirm, m.confirmArg)
+	}
+	keys(m, "esc")
+	if _, err := m.store.GetChecklist("ATM", "planning"); err != nil {
+		t.Fatal("the existing record must be untouched")
+	}
+}
+
+// TestProfilesOverlayNewWithoutAnEditorSaysSo: there is no import verb for
+// a new record, so [n] without an editor writes no file and points at add.
+func TestProfilesOverlayNewWithoutAnEditorSaysSo(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	openProfilesOn(t, m, "planning")
+	keys(m, "n")
+	if m.profilesOv.pending != nil || !strings.Contains(m.toastMsg, "atm checklist add") {
+		t.Fatalf("pending=%v toast=%q", m.profilesOv.pending, m.toastMsg)
+	}
+}

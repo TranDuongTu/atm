@@ -144,6 +144,8 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		if a := p.selected(); a != nil {
 			return p.beginEdit(a.Name)
 		}
+	case "n":
+		return p.beginEdit("")
 	case "d":
 		// Dispatch THIS action. The overlay does not fix anything itself;
 		// it hands the dispatch to the dialog, which is the one place a
@@ -194,7 +196,7 @@ func (p *profilesModel) renderOverlay() string {
 	case p.detail:
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [d]dispatch  [v]attest  [Esc]back"))
 	default:
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]open  [d]dispatch  [v]attest  [Esc]close"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render(fitLine("[Enter]open  [n]new  [e]edit  [d]dispatch  [v]attest  [Esc]close", bw-4)))
 	}
 	h := len(p.actions()) + len(p.appliedLines()) + 9
 	if p.detail {
