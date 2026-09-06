@@ -129,9 +129,14 @@ func writeAgentTable(w io.Writer, rows []agentRow, ready map[string]agent.Readin
 	for _, h := range agent.Harnesses() {
 		nativeKey, ollamaKey := h.Name, "ollama:"+h.Name
 		ollamaBin = !ready[ollamaKey].MissingBin
+		// missing and stale have different fixes, so they are different
+		// words: one needs an install, the other a reinstall.
 		plugin := "ok"
-		if ready[nativeKey].MissingPlugin {
+		switch {
+		case ready[nativeKey].MissingPlugin:
 			plugin = "missing"
+		case ready[nativeKey].StalePlugin:
+			plugin = "stale"
 		}
 		note := ""
 		if ready[nativeKey].MissingBin {

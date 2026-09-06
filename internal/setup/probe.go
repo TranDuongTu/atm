@@ -45,7 +45,7 @@ func (p Probes) on(binary string) Fact {
 // it joins "missing" as FactAbsent.
 func pluginFact(state string) Fact {
 	switch state {
-	case "installed":
+	case "installed", "stale":
 		return FactPresent
 	case "unknown":
 		return FactUnknown
@@ -68,7 +68,9 @@ func Instant(cfg core.AgentsConfig, p Probes) Model {
 			NativeOK: p.on(h.Name),
 			OllamaOK: m.Ollama,
 		}
-		row.Plugin = pluginFact(developing.PluginStatus(h.Plugin, p.Home).State)
+		state := developing.PluginStatus(h.Plugin, p.Home).State
+		row.Plugin = pluginFact(state)
+		row.PluginStale = state == "stale"
 		// Every row shows ITS OWN model, not just the default's. A model set
 		// on a non-default agent is still configured and still used the moment
 		// that agent is selected, so hiding it made `atm agents list` and this

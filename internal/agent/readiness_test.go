@@ -47,3 +47,18 @@ func TestReadinessStates(t *testing.T) {
 		t.Fatalf("ollama String = %q", r.String())
 	}
 }
+
+// TestReadinessStalePluginIsReadyButSaysSo: a stale plugin still launches —
+// only status reporting degrades — so it must not read as not-ready.
+func TestReadinessStalePluginIsReadyButSaysSo(t *testing.T) {
+	r := Readiness{launcher: "claude", StalePlugin: true}
+	if !r.Ready() {
+		t.Fatal("a stale plugin still launches; Ready must be true")
+	}
+	if r.String() != "plugin outdated (reinstall)" {
+		t.Fatalf("String = %q", r.String())
+	}
+	if (Readiness{launcher: "claude"}).String() != "ready" {
+		t.Fatal("no stale flag must still read ready")
+	}
+}

@@ -267,3 +267,36 @@ printf '{"name":"atm-developing"}\n' > "$HOME/.codex/plugins/cache/atm-local/atm
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return bin
 }
+
+// TestPluginStatusStaleWhenAnyAssetDiffers: an upgraded atm ships newer
+// plugin assets than the installed ones, and until now that read "installed"
+// forever. One byte of difference is enough to call it stale.
+func TestPluginStatusStaleWhenAnyAssetDiffers(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := PluginInstallRoot("claude", home)
+	p := filepath.Join(root, "hooks", "session-start")
+	b, _ := os.ReadFile(p)
+	_ = os.WriteFile(p, append(b, '\n'), 0o755) // one byte off
+	if st := PluginStatus("claude", home); st.State != "stale" {
+		t.Fatalf("state = %q, want stale", st.State)
+	}
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	if st := PluginStatus("claude", home); st.State != "installed" {
+		t.Fatalf("reinstall must clear stale, got %q", st.State)
+	}
+}
+
+func TestPluginStatusOpenCodeStaleOnPluginFile(t *testing.T) {
+	home := t.TempDir()
+	_, _ = InstallPlugin("opencode", home, false)
+	root, _ := PluginInstallRoot("opencode", home)
+	_ = os.WriteFile(root, []byte("// old plugin"), 0o644)
+	if st := PluginStatus("opencode", home); st.State != "stale" {
+		t.Fatalf("state = %q, want stale", st.State)
+	}
+}

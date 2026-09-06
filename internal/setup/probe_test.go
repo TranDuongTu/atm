@@ -2,6 +2,8 @@ package setup
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -199,5 +201,33 @@ func TestFillWithNilProjectLeavesCountsZero(t *testing.T) {
 		if r.ChannelsAll != 0 || r.ChannelsOK != 0 {
 			t.Fatalf("%s counts = %d/%d, want 0/0", r.Agent, r.ChannelsOK, r.ChannelsAll)
 		}
+	}
+}
+
+// TestInstantMarksStalePlugin: a stale plugin is still PRESENT — it launches
+// — so the row stays ● and only the stale flag records that it is behind.
+func TestInstantMarksStalePlugin(t *testing.T) {
+	home := t.TempDir()
+	if _, err := developing.InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := developing.PluginInstallRoot("claude", home)
+	p := filepath.Join(root, "hooks", "session-start")
+	b, _ := os.ReadFile(p)
+	if err := os.WriteFile(p, append(b, '\n'), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := Instant(core.AgentsConfig{}, Probes{LookPath: lookPathWith("claude"), Home: home})
+	var row AgentRow
+	for _, r := range m.Agents {
+		if r.Agent == "claude" {
+			row = r
+		}
+	}
+	if row.Plugin != FactPresent || !row.PluginStale {
+		t.Fatalf("claude row plugin = %v stale = %v, want present + stale", row.Plugin, row.PluginStale)
+	}
+	if row.Glyph() != "●" {
+		t.Fatalf("glyph = %q; a stale plugin still launches", row.Glyph())
 	}
 }

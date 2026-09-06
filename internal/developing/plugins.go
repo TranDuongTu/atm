@@ -1,6 +1,7 @@
 package developing
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -117,9 +118,32 @@ func PluginStatus(agent string, home string) Status {
 		if agent == "codex" && (!codexPluginEnabled(home) || !codexPluginCached(home)) {
 			return Status{Agent: agent, State: "partial", Path: root}
 		}
+		if !deployedAssetsMatch(agent, home, root) {
+			return Status{Agent: agent, State: "stale", Path: root}
+		}
 		return Status{Agent: agent, State: "installed", Path: root}
 	}
 	return Status{Agent: agent, State: "missing", Path: root}
+}
+
+// deployedAssetsMatch reports whether every embedded asset is on disk
+// byte-for-byte at its install destination. Any difference or missing file
+// is stale: the binary shipped a newer plugin than the one installed, and
+// `atm init` (or the wizard's [i]) is the fix. The manager plugin has done
+// this for its single file since ATM-0047; the developing plugin never did,
+// so an upgraded atm with an old plugin read "installed" forever.
+func deployedAssetsMatch(agent, home, root string) bool {
+	assets, ok := PluginAssets(agent)
+	if !ok {
+		return true
+	}
+	for _, a := range assets {
+		deployed, err := os.ReadFile(pluginAssetDestination(agent, home, root, a))
+		if err != nil || !bytes.Equal(deployed, a.Content) {
+			return false
+		}
+	}
+	return true
 }
 
 type assetDest struct {

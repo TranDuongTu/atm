@@ -31,6 +31,9 @@ type agentOption struct {
 	// agentOptions: readiness is a PATH fact, the model is a stored one.
 	model string
 	ready bool
+	// stale: the agent launches, but its plugin is older than this binary's
+	// assets, so it will not report session status.
+	stale bool
 	hint  string
 }
 
@@ -50,7 +53,7 @@ func agentOptions() []agentOption {
 	var out []agentOption
 	for _, e := range agent.Catalog() {
 		r := agent.Status(e, home, exec.LookPath)
-		out = append(out, agentOption{name: e.Name, ready: r.Ready(), hint: r.String()})
+		out = append(out, agentOption{name: e.Name, ready: r.Ready(), stale: r.StalePlugin, hint: r.String()})
 	}
 	return out
 }
@@ -838,6 +841,9 @@ func (d *dispatchModel) previewBody(w int) string {
 	b.WriteString("Agent:   ‹ " + ag.label() + " ›\n")
 	if ag.ready || d.launchesTUI() {
 		b.WriteString(styles.Success.Render("         ready") + "\n")
+		if ag.stale && !d.launchesTUI() {
+			b.WriteString(styles.Warning.Render("         ⚠ plugin outdated: session status will not be reported") + "\n")
+		}
 	} else {
 		b.WriteString(styles.Error.Render("         x "+ag.hint) + "\n")
 	}

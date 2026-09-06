@@ -11,6 +11,7 @@ import (
 	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	atmsetup "atm/internal/setup"
 	"atm/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -1279,5 +1280,51 @@ func TestDispatchTUIPersonaHidesSessionOnlyFields(t *testing.T) {
 	}
 	if !strings.Contains(view, "Mode:") {
 		t.Fatalf("the mode field is what replaced it:\n%s", view)
+	}
+}
+
+// TestDispatchDialogWarnsOnStalePlugin: a stale plugin still launches, so the
+// dialog must not paint it as not-ready — it says what actually degrades.
+func TestDispatchDialogWarnsOnStalePlugin(t *testing.T) {
+	m := newTestModel(t)
+	seedDispatchProject(t, m)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+
+	m.dispatcher = &fakeDispatcher{preview: "tmux · new window"}
+	m.agentOptionsFn = func() []agentOption {
+		return []agentOption{{name: "claude", ready: true, stale: true, hint: "plugin outdated (reinstall)"}}
+	}
+
+	dispatchKey(m, "D")
+	view := m.dispatchDlg.renderOverlay()
+	if !strings.Contains(view, "plugin outdated: session status will not be reported") {
+		t.Fatalf("stale warning missing:\n%s", view)
+	}
+	if strings.Contains(view, "x plugin outdated") {
+		t.Fatalf("stale must not render as not-ready:\n%s", view)
+	}
+}
+
+// TestSetupPluginCellAndMissingFactsSayStale pins the two setup surfaces: the
+// PLUGIN cell reads stale while the row's own glyph stays ready.
+func TestSetupPluginCellAndMissingFactsSayStale(t *testing.T) {
+	row := atmsetup.AgentRow{Agent: "claude", Binary: atmsetup.FactPresent, Plugin: atmsetup.FactPresent, PluginStale: true}
+	if got := setupPluginCell(row); got != "stale" {
+		t.Fatalf("plugin cell = %q, want stale", got)
+	}
+	if got := setupMissingFacts(row); !strings.Contains(got, "plugin outdated (press [i] to reinstall)") {
+		t.Fatalf("missing facts = %q, want the reinstall hint", got)
+	}
+	if row.Glyph() != "●" {
+		t.Fatalf("glyph = %q; a stale plugin still launches", row.Glyph())
+	}
+	fresh := atmsetup.AgentRow{Agent: "claude", Binary: atmsetup.FactPresent, Plugin: atmsetup.FactPresent}
+	if got := setupPluginCell(fresh); got == "stale" {
+		t.Fatalf("a current plugin must not read stale: %q", got)
+	}
+	if got := setupMissingFacts(fresh); got != "" {
+		t.Fatalf("a complete row has nothing missing, got %q", got)
 	}
 }

@@ -222,7 +222,7 @@ func (s *setupModel) agentDetail(row atmsetup.AgentRow) []string {
 	landed := !s.probing
 	out := []string{
 		"version    " + asyncCell(row.Version, landed),
-		"binary     " + row.Binary.String() + "     plugin  " + row.Plugin.String(),
+		"binary     " + row.Binary.String() + "     plugin  " + setupPluginCell(row),
 		"launchers  " + setupLaunchersCell(row),
 	}
 	if missing := setupMissingFacts(row); missing != "" {
@@ -264,6 +264,15 @@ func setupConnectedWord(f atmsetup.Fact) string {
 // unknown are kept apart even though Glyph() grades them the same, because
 // the fix is not the same: one is a thing to install, the other a probe to
 // re-run.
+// setupPluginCell: the plugin fact, or "stale" when it is present but
+// outdated — the glyph stays ● because a stale plugin still launches.
+func setupPluginCell(row atmsetup.AgentRow) string {
+	if row.PluginStale {
+		return "stale"
+	}
+	return row.Plugin.String()
+}
+
 func setupMissingFacts(row atmsetup.AgentRow) string {
 	var parts []string
 	for _, f := range []struct {
@@ -279,6 +288,9 @@ func setupMissingFacts(row atmsetup.AgentRow) string {
 		case atmsetup.FactUnknown:
 			parts = append(parts, f.name+" unknown")
 		}
+	}
+	if row.PluginStale {
+		parts = append(parts, "plugin outdated (press [i] to reinstall)")
 	}
 	return strings.Join(parts, ", ")
 }
@@ -337,7 +349,7 @@ func (s *setupModel) agentTable(width int) string {
 			fmt.Sprintf("%s %-*s", row.Glyph(), setupColAgentW, row.Agent),
 			ver, plugin, launchers, model, channels,
 			asyncCell(row.Version, landed),
-			row.Plugin.String(),
+			setupPluginCell(row),
 			setupLaunchersCell(row),
 			setupModelCell(row),
 			setupChannelsCell(row, s.model.Project != nil, landed),
