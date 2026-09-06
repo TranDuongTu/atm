@@ -241,3 +241,18 @@ func TestOnlyEventlogImportsEventsourceLib(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeIsALeaf pins the session registry as a leaf: it is read by the
+// launcher, the CLI, the TUI and dispatch, so an edge back into any of them
+// would close a cycle the moment Runtime 2 wires the launcher up. The
+// registry needs the domain leaf for its clock and stamp format and the
+// filesystem seam for atomic writes and locking — nothing else.
+func TestRuntimeIsALeaf(t *testing.T) {
+	for f, imps := range internalImports(t, "internal/runtime") {
+		for _, p := range imps {
+			if p != "atm/internal/core" && p != "atm/internal/store/fsio" {
+				t.Errorf("%s imports %q; internal/runtime may import only atm/internal/core and atm/internal/store/fsio", f, p)
+			}
+		}
+	}
+}
