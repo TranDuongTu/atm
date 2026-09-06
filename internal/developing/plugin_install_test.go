@@ -55,6 +55,15 @@ func TestInstallPluginWritesAssetsAndStatusInstalled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "atm-developing", "skills", "atm-developing", "SKILL.md")); err != nil {
 		t.Fatalf("bundled Claude skill missing: %v", err)
 	}
+	// The status hook is exec'd by the harness, so it has to land executable
+	// or every status event is a silent no-op.
+	info, err := os.Stat(filepath.Join(home, ".claude", "skills", "atm-developing", "hooks", "session-status"))
+	if err != nil {
+		t.Fatalf("status hook missing: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("status hook mode = %o, want the executable bit set", info.Mode())
+	}
 }
 
 func TestInstallOpenCodePluginWritesPluginAndSkill(t *testing.T) {
@@ -257,4 +266,37 @@ printf '{"name":"atm-developing"}\n' > "$HOME/.codex/plugins/cache/atm-local/atm
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return bin
+}
+
+// TestPluginStatusStaleWhenAnyAssetDiffers: an upgraded atm ships newer
+// plugin assets than the installed ones, and until now that read "installed"
+// forever. One byte of difference is enough to call it stale.
+func TestPluginStatusStaleWhenAnyAssetDiffers(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := PluginInstallRoot("claude", home)
+	p := filepath.Join(root, "hooks", "session-start")
+	b, _ := os.ReadFile(p)
+	_ = os.WriteFile(p, append(b, '\n'), 0o755) // one byte off
+	if st := PluginStatus("claude", home); st.State != "stale" {
+		t.Fatalf("state = %q, want stale", st.State)
+	}
+	if _, err := InstallPlugin("claude", home, false); err != nil {
+		t.Fatal(err)
+	}
+	if st := PluginStatus("claude", home); st.State != "installed" {
+		t.Fatalf("reinstall must clear stale, got %q", st.State)
+	}
+}
+
+func TestPluginStatusOpenCodeStaleOnPluginFile(t *testing.T) {
+	home := t.TempDir()
+	_, _ = InstallPlugin("opencode", home, false)
+	root, _ := PluginInstallRoot("opencode", home)
+	_ = os.WriteFile(root, []byte("// old plugin"), 0o644)
+	if st := PluginStatus("opencode", home); st.State != "stale" {
+		t.Fatalf("state = %q, want stale", st.State)
+	}
 }

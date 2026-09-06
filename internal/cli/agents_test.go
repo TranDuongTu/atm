@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"atm/internal/agent"
 )
 
 // listAgentRows runs `agents list` in JSON mode and returns the rows.
@@ -185,5 +188,24 @@ func TestAgentsListTextIsAnAgentByLauncherTable(t *testing.T) {
 	// The ollama binary is reported once, globally.
 	if strings.Count(stdout, "ollama:") > 1 {
 		t.Fatalf("ollama readiness repeated per row:\n%s", stdout)
+	}
+}
+
+// TestAgentsTableShowsStalePlugin: the PLUGIN column distinguishes an
+// outdated plugin from a missing one — the fixes differ.
+func TestAgentsTableShowsStalePlugin(t *testing.T) {
+	var buf bytes.Buffer
+	writeAgentTable(&buf, nil, map[string]agent.Readiness{"claude": {StalePlugin: true}})
+	var claudeRow string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(line, "claude") {
+			claudeRow = line
+		}
+	}
+	if claudeRow == "" {
+		t.Fatalf("no claude row:\n%s", buf.String())
+	}
+	if !strings.Contains(claudeRow, "stale") {
+		t.Fatalf("claude PLUGIN cell must read stale: %q", claudeRow)
 	}
 }

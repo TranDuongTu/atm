@@ -33,6 +33,7 @@ type AgentRow struct {
 	Version     string // "" until the async tier lands, or when unknowable
 	Binary      Fact
 	Plugin      Fact
+	PluginStale bool // installed but older than this binary's assets; still ●
 	NativeOK    Fact
 	OllamaOK    Fact
 	Model       string

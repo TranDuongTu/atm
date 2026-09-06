@@ -8,6 +8,9 @@ type Readiness struct {
 	launcher      string
 	MissingBin    bool
 	MissingPlugin bool
+	// StalePlugin: installed but older than the assets this binary ships.
+	// Still launchable; only session status reporting degrades.
+	StalePlugin bool
 }
 
 // Ready reports whether the entry is fully installed and launchable.
@@ -21,7 +24,11 @@ func Status(e Entry, home string, lookPath func(string) (string, error)) Readine
 	if _, err := lookPath(e.Launcher); err != nil {
 		r.MissingBin = true
 	}
-	if developing.PluginStatus(e.PluginAgent(), home).State != "installed" {
+	switch developing.PluginStatus(e.PluginAgent(), home).State {
+	case "installed":
+	case "stale":
+		r.StalePlugin = true
+	default:
 		r.MissingPlugin = true
 	}
 	return r
@@ -36,6 +43,8 @@ func (r Readiness) String() string {
 		bin = "needs ollama binary"
 	}
 	switch {
+	case r.Ready() && r.StalePlugin:
+		return "plugin outdated (reinstall)"
 	case r.Ready():
 		return "ready"
 	case r.MissingBin && r.MissingPlugin:
