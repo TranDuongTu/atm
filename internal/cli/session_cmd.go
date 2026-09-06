@@ -223,7 +223,7 @@ func newSessionShowCmd(st *cliState) *cobra.Command {
 			}
 			rec, err := reg.Get(args[0])
 			if err != nil {
-				return fmt.Errorf("%w: run %s %v", ErrUsage, args[0], err)
+				return fmt.Errorf("%w: run %s: %v", ErrUsage, args[0], err)
 			}
 			row := rowOf(runtime.Entry{Record: *rec, Liveness: reg.Liveness(*rec)})
 			if st.isJSON() {
@@ -283,7 +283,7 @@ func newSessionStatusCmd(st *cliState) *cobra.Command {
 				w = &runtime.Watch{Channel: channel, LastPollAt: lastPoll, NextPollAt: nextPoll, ItemsSeen: items}
 			}
 			if err := reg.SetStatus(run, runtime.Status{State: runtime.State(state), Text: text, Source: "hook"}, w); err != nil {
-				return fmt.Errorf("%w: run %s %v", ErrUsage, run, err)
+				return fmt.Errorf("%w: run %s: %v", ErrUsage, run, err)
 			}
 			if st.isJSON() {
 				return writeJSON(st.stdout(), map[string]any{"run_id": run, "state": state, "text": text})
