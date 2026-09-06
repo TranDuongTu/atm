@@ -128,3 +128,61 @@ func TestSessionsCountsForStatusBar(t *testing.T) {
 		t.Fatalf("forTask = %d, want 2", len(got))
 	}
 }
+
+func TestTaskDetailShowsSessionsBlock(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 40)
+	_, _ = m.store.CreateProject("ATM", "Acme", testActor)
+	tk, _ := m.store.CreateTask("ATM", "Monitor agents", "watch them", nil, testActor)
+	m.projectScope = "ATM"
+	seedSessions(t, m)
+	// Re-point the two task-bound records at the real task id.
+	for _, id := range []string{"ATM-20260905080000-live00", "ATM-20260905079000-live01"} {
+		rec, _ := m.sessions.reg.Get(id)
+		_ = os.Remove(filepath.Join(m.sessions.reg.Dir(), id+".json"))
+		rec.Task = tk.ID
+		_ = m.sessions.reg.Create(*rec)
+	}
+	m.refreshAll()
+	m.focused = paneTasks
+	m.tasks.openDetail(tk.ID)
+	view := stripANSI(m.tasks.renderDrillModal())
+	for _, want := range []string{"SESSIONS  2", "live00", "live01", "blocked", "tmux %30", "s sessions"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail missing %q:\n%s", want, view)
+		}
+	}
+	m.handleKey(keyMsg("s"))
+	if !m.sessions.open || m.sessions.taskFilter != tk.ID {
+		t.Fatalf("s must open the sessions overlay filtered to the task: open=%v filter=%q", m.sessions.open, m.sessions.taskFilter)
+	}
+	if len(m.sessions.rows()) != 2 {
+		t.Fatalf("filtered rows = %d, want 2", len(m.sessions.rows()))
+	}
+}
+
+func TestTaskDetailWithoutSessionsHasNoBlock(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(140, 40)
+	_, _ = m.store.CreateProject("ATM", "Acme", testActor)
+	tk, _ := m.store.CreateTask("ATM", "Quiet task", "nobody ran it", nil, testActor)
+	m.projectScope = "ATM"
+	m.focused = paneTasks
+	m.tasks.openDetail(tk.ID)
+	if strings.Contains(stripANSI(m.tasks.renderDrillModal()), "SESSIONS") {
+		t.Fatal("a task with no runs shows no SESSIONS block")
+	}
+}
+
+func TestStatusLineShowsSessionCounts(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(160, 40)
+	if strings.Contains(stripANSI(m.renderStatusLine()), "live") {
+		t.Fatal("no sessions -> no segment")
+	}
+	seedSessions(t, m)
+	line := stripANSI(m.renderStatusLine())
+	if !strings.Contains(line, "2 live") || !strings.Contains(line, "1 blocked") {
+		t.Fatalf("status line = %q", line)
+	}
+}

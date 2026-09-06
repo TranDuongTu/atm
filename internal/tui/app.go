@@ -1230,6 +1230,15 @@ func (m *Model) renderStatusLine() string {
 	// fields), and is entirely absent the moment nothing is. This is a pure
 	// read of the already-probed snapshot, so it costs nothing extra on a
 	// render that runs every frame.
+	if live, blocked := m.sessions.counts(); live > 0 {
+		seg := fmt.Sprintf("● %d live", live)
+		style := m.styles.StatusOK
+		if blocked > 0 {
+			seg += fmt.Sprintf(" · ⚠ %d blocked", blocked)
+			style = m.styles.Warning
+		}
+		rightSegments = append(rightSegments, style.Render(seg))
+	}
 	if setupUnready(m.setup.model.Agents) {
 		rightSegments = append(rightSegments, m.styles.Warning.Render("⚠ setup [W]"))
 	}

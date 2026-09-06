@@ -34,6 +34,29 @@ var (
 // the current capability's Parenter hook — the same pure call the list's
 // grouping makes, so the two views cannot drift. No section at all when
 // there is no parent; the page does not render empty structure.
+// sessionsRows is the task-centric view of the registry (spec ATM-9339a7
+// §9.2): every registered run bound to this task, blocked first. Nil when
+// there are none, so a task nobody has dispatched shows no empty caption.
+func (t *tasksModel) sessionsRows(tk *core.Task) []string {
+	runs := t.m.sessions.forTask(tk.ID)
+	if len(runs) == 0 {
+		return nil
+	}
+	rows := t.captionRows(fmt.Sprintf("SESSIONS  %d", len(runs)))
+	now := core.Now()
+	w := t.detailValueWidth()
+	for _, e := range runs {
+		r := e.Record
+		line := fmt.Sprintf("%s %-8s %s  %s · %s · %s  %s  %s",
+			sessionGlyph(e), sessionState(e), r.RunID, r.Persona, orDash(r.Checklist), r.Agent, surfaceCell(r.Surface), sessionAge(r, now))
+		if txt := sessionStatusText(e); txt != "" {
+			line += "  " + txt
+		}
+		rows = append(rows, taskDetailIndent+toneForSession(t.m, e).Render(truncateRunes(line, w)))
+	}
+	return rows
+}
+
 func (t *tasksModel) partOfRows(tk *core.Task) []string {
 	pid := t.parentOf(tk)
 	if pid == "" {
