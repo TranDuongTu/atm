@@ -56,6 +56,7 @@ const (
 	confirmRemoveProject
 	confirmRemoveTask
 	confirmDropIndex
+	confirmChecklistReedit
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane
@@ -596,6 +597,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
+	case checklistEditedMsg:
+		return m, m.profilesOv.applyEdited(msg)
 	case setupProbedMsg:
 		// The wizard's async tier landing. Applied even if the view has since
 		// been closed: the answers are cached for the next open, and dropping
@@ -978,10 +981,20 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 		m.completeAction()
 		return m.confirmYes()
 	case "esc", "n", "q":
-		m.confirm = confirmNone
-		m.confirmPayload = ""
+		m.confirmCancel()
 	}
 	return nil
+}
+
+// confirmCancel dismisses the confirm. A confirm that holds a resource —
+// the re-edit's temp document — releases it here, so Esc never leaves a
+// stray file behind.
+func (m *Model) confirmCancel() {
+	if m.confirm == confirmChecklistReedit {
+		m.profilesOv.discardEdit()
+	}
+	m.confirm = confirmNone
+	m.confirmPayload = ""
 }
 
 // closeForm dismisses the active form without performing its action.
@@ -1133,9 +1146,6 @@ func (m *Model) View() string {
 	if m.form != nil && m.form.Active {
 		out = m.placeOverlay(out, m.form.View(m.styles))
 	}
-	if m.confirm != confirmNone {
-		out = m.placeOverlay(out, m.renderConfirm())
-	}
 	if m.pluginOverlay != -1 {
 		out = m.placeOverlay(out, m.plugins[m.pluginOverlay].Render(m))
 	}
@@ -1156,6 +1166,11 @@ func (m *Model) View() string {
 	}
 	if m.profilesOv.open {
 		out = m.placeOverlay(out, m.profilesOv.renderOverlay())
+	}
+	// The confirm paints LAST: one raised from inside an overlay — the
+	// checklist re-edit, reset, and remove — must sit over it, not under.
+	if m.confirm != confirmNone {
+		out = m.placeOverlay(out, m.renderConfirm())
 	}
 	// Toasts render inline in the status line (see renderStatusLine), not as
 	// a full-screen overlay, so the workspace stays interactive underneath.

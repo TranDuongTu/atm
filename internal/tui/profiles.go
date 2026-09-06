@@ -45,6 +45,11 @@ type profilesModel struct {
 	// the command that answers it.
 	detail bool
 	offset int
+	// pending is the editor round-trip in flight, if any (checklist_edit.go).
+	pending *checklistEdit
+	// runEditor launches the editor; nil means tea.ExecProcess. Tests
+	// install a recorder here — the editor never runs under test.
+	runEditor func(editor, path string, done func(error) tea.Msg) tea.Cmd
 }
 
 // loadFor snapshots the project's readiness. Like the channels overlay it
@@ -135,6 +140,12 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		if !p.detail && len(p.actions()) > 0 {
 			p.detail, p.offset = true, 0
 		}
+	case "e":
+		if a := p.selected(); a != nil {
+			return p.beginEdit(a.Name)
+		}
+	case "n":
+		return p.beginEdit("")
 	case "d":
 		// Dispatch THIS action. The overlay does not fix anything itself;
 		// it hands the dispatch to the dialog, which is the one place a
@@ -185,7 +196,7 @@ func (p *profilesModel) renderOverlay() string {
 	case p.detail:
 		body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [d]dispatch  [v]attest  [Esc]back"))
 	default:
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[↑/↓]move  [Enter]open  [d]dispatch  [v]attest  [Esc]close"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render(fitLine("[Enter]open  [n]new  [e]edit  [d]dispatch  [v]attest  [Esc]close", bw-4)))
 	}
 	h := len(p.actions()) + len(p.appliedLines()) + 9
 	if p.detail {
