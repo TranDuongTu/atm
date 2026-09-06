@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -228,6 +229,34 @@ func TestReadinessDerivesProfileSyncFromOrigins(t *testing.T) {
 	for _, rec := range ps.Records {
 		if rec.Kind == core.ApplyKindPersona && rec.Name == in.Current.Personas[0].Name {
 			t.Fatalf("record %s counted under the wrong profile", rec.Name)
+		}
+	}
+}
+
+// TestReadinessNamesTheModifiedFields: "modified" alone tells the user to
+// reset blind. The diff is what the reset confirm shows.
+func TestReadinessNamesTheModifiedFields(t *testing.T) {
+	in := readyInput(t)
+	in.Available = []core.ProfileEntry{{Name: "scrumban", Version: "1.0.0"}}
+	in.Current.Checklists[0].Purpose = "edited"
+	in.Current.Checklists[0].Steps = append(in.Current.Checklists[0].Steps, core.ChecklistStep{Text: "extra"})
+	r := ComputeReadiness(in)
+	var got *RecordSync
+	for i := range r.Profiles[0].Records {
+		rs := &r.Profiles[0].Records[i]
+		if rs.Kind == core.ApplyKindChecklist && rs.Name == in.Current.Checklists[0].Name {
+			got = rs
+		}
+	}
+	if got == nil || got.State != "modified" {
+		t.Fatalf("record = %+v", got)
+	}
+	if !reflect.DeepEqual(got.Diff, []string{"purpose", "steps"}) {
+		t.Fatalf("diff = %v, want [purpose steps]", got.Diff)
+	}
+	for _, rs := range r.Profiles[0].Records {
+		if rs.State != "modified" && len(rs.Diff) != 0 {
+			t.Fatalf("%s %s is %s but carries a diff %v", rs.Kind, rs.Name, rs.State, rs.Diff)
 		}
 	}
 }
