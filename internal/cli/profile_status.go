@@ -139,8 +139,11 @@ func renderReadiness(w io.Writer, r *profile.Readiness, selected []string) {
 			fmt.Fprintln(w, line)
 		}
 		for _, rec := range p.Records {
-			if rec.State == "modified" || rec.State == "missing" {
-				fmt.Fprintf(w, "    %s %s: %s\n", rec.Kind, rec.Name, rec.State)
+			switch rec.State {
+			case "modified":
+				fmt.Fprintf(w, "    %s %s: modified (%s)\n", rec.Kind, rec.Name, strings.Join(rec.Diff, ", "))
+			case "missing":
+				fmt.Fprintf(w, "    %s %s: missing\n", rec.Kind, rec.Name)
 			}
 		}
 	}

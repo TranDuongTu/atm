@@ -90,11 +90,13 @@ type ProfileSync struct {
 }
 
 // RecordSync is one document's state: in-sync | modified | missing |
-// unverifiable (the version is not installed here).
+// unverifiable (the version is not installed here). Diff names the fields
+// that differ when modified — what a reset would discard.
 type RecordSync struct {
-	Kind  string `json:"kind"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Kind  string   `json:"kind"`
+	Name  string   `json:"name"`
+	State string   `json:"state"`
+	Diff  []string `json:"diff,omitempty"`
 }
 
 // EndpointRow is one endpoint's wiring on this machine and attestation per
@@ -217,6 +219,7 @@ func profileSyncs(in ReadinessInput) []ProfileSync {
 				ps.Missing++
 			case len(diff) > 0:
 				rs.State = "modified"
+				rs.Diff = diff
 				ps.Modified++
 			default:
 				rs.State = "in-sync"
