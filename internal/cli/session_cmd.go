@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -251,11 +252,96 @@ func newSessionShowCmd(st *cliState) *cobra.Command {
 	}
 }
 
-// Task 8 fills these in.
+// newSessionStatusCmd is the hook contract (spec §6): the three agent
+// plugins call this on their own lifecycle events, so it must be cheap,
+// quiet, and never fail loudly enough to disturb the agent.
 func newSessionStatusCmd(st *cliState) *cobra.Command {
-	return &cobra.Command{Use: "status", Hidden: true}
+	var run, state, text, channel, lastPoll, nextPoll string
+	var items int
+	cmd := &cobra.Command{
+		Use:   "status --state <working|idle|blocked|watching>",
+		Short: "Report what this run is doing (called by agent hooks; --run defaults to $ATM_RUN_ID)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if run == "" {
+				run = os.Getenv("ATM_RUN_ID")
+			}
+			if run == "" {
+				return fmt.Errorf("%w: --run is required when ATM_RUN_ID is not set", ErrUsage)
+			}
+			// ended is not writable here: only the launcher ends a run, and
+			// a hook claiming a run ended would strand it with no exit code.
+			if !runtime.ValidState(state) || state == string(runtime.StateEnded) {
+				return fmt.Errorf("%w: --state must be working, idle, blocked, or watching, got %q", ErrUsage, state)
+			}
+			reg, err := st.openRegistry()
+			if err != nil {
+				return err
+			}
+			var w *runtime.Watch
+			if channel != "" || lastPoll != "" || nextPoll != "" || cmd.Flags().Changed("items") {
+				w = &runtime.Watch{Channel: channel, LastPollAt: lastPoll, NextPollAt: nextPoll, ItemsSeen: items}
+			}
+			if err := reg.SetStatus(run, runtime.Status{State: runtime.State(state), Text: text, Source: "hook"}, w); err != nil {
+				return fmt.Errorf("%w: run %s %v", ErrUsage, run, err)
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), map[string]any{"run_id": run, "state": state, "text": text})
+			}
+			if !st.flags.quiet {
+				fmt.Fprintf(st.stdout(), "%s: %s\n", run, state)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&run, "run", "", "run id (default: $ATM_RUN_ID)")
+	cmd.Flags().StringVar(&state, "state", "", "working|idle|blocked|watching (required)")
+	cmd.Flags().StringVar(&text, "text", "", "free-text status line")
+	cmd.Flags().StringVar(&channel, "watch-channel", "", "channel handle a watching session polls")
+	cmd.Flags().StringVar(&lastPoll, "last-poll", "", "RFC3339 time of the last poll")
+	cmd.Flags().StringVar(&nextPoll, "next-poll", "", "RFC3339 time of the next planned poll")
+	cmd.Flags().IntVar(&items, "items", 0, "items seen on the last poll")
+	_ = cmd.MarkFlagRequired("state")
+	return cmd
 }
 
 func newSessionPruneCmd(st *cliState) *cobra.Command {
-	return &cobra.Command{Use: "prune", Hidden: true}
+	var all bool
+	var olderThan string
+	var keep int
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Delete ended and lost runs past the retention rules (never a live one)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := runtime.PruneOptions{All: all, Keep: keep}
+			if olderThan != "" {
+				d, err := time.ParseDuration(olderThan)
+				if err != nil {
+					return fmt.Errorf("%w: --older-than: %v", ErrUsage, err)
+				}
+				opts.OlderThan = d
+			}
+			reg, err := st.openRegistry()
+			if err != nil {
+				return err
+			}
+			res, err := reg.Prune(opts)
+			if err != nil {
+				return err
+			}
+			if st.isJSON() {
+				return writeJSON(st.stdout(), map[string]any{"removed": res.Removed, "orphans": res.Orphans})
+			}
+			fmt.Fprintf(st.stdout(), "pruned %d run(s), swept %d orphan prompt file(s)\n", len(res.Removed), len(res.Orphans))
+			for _, id := range res.Removed {
+				fmt.Fprintln(st.stdout(), "  "+id)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "remove every non-live run regardless of age or cap")
+	cmd.Flags().StringVar(&olderThan, "older-than", "", "age past which ended/lost runs go (default 24h)")
+	cmd.Flags().IntVar(&keep, "keep", 0, "maximum non-live runs to keep (default 50)")
+	return cmd
 }

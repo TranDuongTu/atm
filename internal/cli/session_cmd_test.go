@@ -90,3 +90,56 @@ func TestSessionShow(t *testing.T) {
 		t.Fatalf("unknown run must fail: exit=%d stderr=%s", code, stderr)
 	}
 }
+
+func TestSessionStatusFromEnvRunID(t *testing.T) {
+	h := newGoldenHarness(t)
+	reg := seedSessions(t, h)
+	t.Setenv("ATM_RUN_ID", "ATM-20260905080000-live00")
+	if _, stderr, code := h.run("session", "status", "--state", "watching", "--text", "polling journal",
+		"--watch-channel", "journal", "--last-poll", "2026-09-05T08:03:00Z", "--items", "2"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, stderr)
+	}
+	rec, _ := reg.Get("ATM-20260905080000-live00")
+	if rec.Status.State != runtime.StateWatching || rec.Status.Text != "polling journal" || rec.Status.Source != "hook" {
+		t.Fatalf("status = %+v", rec.Status)
+	}
+	if rec.Watch == nil || rec.Watch.Channel != "journal" || rec.Watch.ItemsSeen != 2 || rec.Watch.LastPollAt != "2026-09-05T08:03:00Z" {
+		t.Fatalf("watch = %+v", rec.Watch)
+	}
+}
+
+func TestSessionStatusValidation(t *testing.T) {
+	h := newGoldenHarness(t)
+	seedSessions(t, h)
+	t.Setenv("ATM_RUN_ID", "")
+	if _, stderr, code := h.run("session", "status", "--state", "idle"); code == ExitSuccess || !strings.Contains(stderr, "--run") {
+		t.Fatalf("no run id must be a usage error: exit=%d stderr=%s", code, stderr)
+	}
+	if _, stderr, code := h.run("session", "status", "--run", "ATM-20260905080000-live00", "--state", "napping"); code == ExitSuccess || !strings.Contains(stderr, "napping") {
+		t.Fatalf("bad state must be refused: exit=%d stderr=%s", code, stderr)
+	}
+	if _, stderr, code := h.run("session", "status", "--run", "ATM-00000000000000-nope00", "--state", "idle"); code == ExitSuccess || !strings.Contains(stderr, "not found") {
+		t.Fatalf("unknown run must fail: exit=%d stderr=%s", code, stderr)
+	}
+	// An ended record still accepts a status write (readers keep showing it ended).
+	if _, stderr, code := h.run("session", "status", "--run", "ATM-20260905060000-ended0", "--state", "idle"); code != ExitSuccess {
+		t.Fatalf("ended record must accept status: %s", stderr)
+	}
+}
+
+func TestSessionPrune(t *testing.T) {
+	h := newGoldenHarness(t)
+	reg := seedSessions(t, h)
+	// Seed stamps are fixed dates, so the default 24h window depends on the
+	// wall clock; assert --all, which is clock-independent.
+	out, _, code := h.run("session", "prune", "--all", "--output", "json")
+	if code != ExitSuccess || !strings.Contains(out, "lost00") || !strings.Contains(out, "ended0") || strings.Contains(out, "live00") {
+		t.Fatalf("prune --all: exit=%d\n%s", code, out)
+	}
+	if entries, _ := reg.List(); len(entries) != 1 || entries[0].Record.RunID != "ATM-20260905080000-live00" {
+		t.Fatalf("only the live record must remain: %+v", entries)
+	}
+	if _, stderr, code := h.run("session", "prune", "--older-than", "bogus"); code == ExitSuccess || !strings.Contains(stderr, "older-than") {
+		t.Fatalf("bad duration must be a usage error: %s", stderr)
+	}
+}
