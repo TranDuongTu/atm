@@ -9,10 +9,12 @@
 // origin they came from and free to diverge afterwards.
 //
 // This package is the FORMAT and nothing else: it reads a profile directory
-// or artifact into core's types, validates it, and packs it back out. It
-// does no file I/O of its own — an fs.FS goes in, values come out — so the
-// data lives in internal/core and keeping installed copies on disk is
-// internal/store's job, beside the persona side store it already owns.
+// or artifact into core's types, validates it, and packs it back out. Write
+// is the inverse of Load: a project's records, or any loaded profile, back
+// to the directory form (DispatchV2 unit 6, ATM-2567c5). It does no file
+// I/O of its own — an fs.FS goes in, values come out — so the data lives in
+// internal/core and keeping installed copies on disk is internal/store's
+// job, beside the persona side store it already owns.
 //
 // Validation that depends on what this build actually knows — which
 // capabilities exist — takes the answer as an argument, so nothing here

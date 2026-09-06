@@ -82,7 +82,7 @@ func everyField() *core.Profile {
 			Name: "act", Purpose: ">", Suits: []string{"ops"},
 			Requires: core.ChecklistRequires{Capabilities: []string{"scrum"}, Channels: []string{"design"}},
 			Target:   core.ChecklistTargetTask, Targets: "(<CODE>:scrum:task) AND <CODE>:scrum-stage:implementable",
-			Mode:     core.ChecklistModeInteractive,
+			Mode: core.ChecklistModeInteractive,
 			Steps: []core.ChecklistStep{
 				{Text: "Top: one", Children: []core.ChecklistStep{
 					{Text: "child 1.1", Children: []core.ChecklistStep{{Text: "grandchild 1.1.1"}}},
