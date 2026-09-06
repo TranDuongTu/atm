@@ -1140,6 +1140,10 @@ func (m *Model) confirmYes() tea.Cmd {
 		name := m.confirmPayload
 		m.confirm, m.confirmPayload = confirmNone, ""
 		return m.profilesOv.resetConfirmed(name)
+	case confirmChecklistRemove:
+		name := m.confirmPayload
+		m.confirm, m.confirmPayload = confirmNone, ""
+		return m.profilesOv.removeConfirmed(name)
 	}
 	m.confirm = confirmNone
 	return nil

@@ -148,6 +148,15 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		return p.beginEdit("")
 	case "r":
 		return p.requestReset()
+	case "x":
+		a := p.selected()
+		if a == nil {
+			return nil
+		}
+		p.m.confirm = confirmChecklistRemove
+		p.m.confirmPayload = a.Name
+		p.m.confirmMsg = "Remove checklist " + a.Name + "?"
+		p.m.confirmArg = "The record and its history are removed. A profile checklist can be re-applied with atm profile apply."
 	case "d":
 		// Dispatch THIS action. The overlay does not fix anything itself;
 		// it hands the dispatch to the dialog, which is the one place a
@@ -200,6 +209,20 @@ func (p *profilesModel) requestReset() tea.Cmd {
 	return nil
 }
 
+// removeConfirmed runs the remove verb (confirm: Enter), drops back to the
+// list, and reloads — loadFor clamps the cursor.
+func (p *profilesModel) removeConfirmed(name string) tea.Cmd {
+	if err := p.m.store.RemoveChecklist(p.project, name, "", p.m.actor); err != nil {
+		p.m.showToast("error: " + err.Error())
+		return nil
+	}
+	p.detail, p.offset = false, 0
+	p.loadFor(p.project)
+	p.m.refreshAll()
+	p.m.showToast("removed checklist " + name)
+	return nil
+}
+
 // resetConfirmed runs the reset verb (confirm: Enter) and reloads.
 func (p *profilesModel) resetConfirmed(name string) tea.Cmd {
 	rec, err := p.m.store.ResetChecklistRecord(p.project, name, p.m.actor)
@@ -235,10 +258,13 @@ func (p *profilesModel) renderOverlay() string {
 	var body strings.Builder
 	body.WriteString(p.previewBody(bw-4) + "\n")
 	switch {
+	// Single spaces between the keys: the overlay now carries nine of them,
+	// and at the usual box width the old double-spaced footer lost its tail
+	// to fitLine — a key menu that truncates is worse than a dense one.
 	case p.detail:
-		body.WriteString("\n" + styles.KeyMenuDim.Render("[j/k]scroll  [d]dispatch  [v]attest  [Esc]back"))
+		body.WriteString("\n" + styles.KeyMenuDim.Render(fitLine("[j/k]scroll [e]edit [r]reset [x]remove [d]dispatch [v]attest [Esc]back", bw-4)))
 	default:
-		body.WriteString("\n" + styles.KeyMenuDim.Render(fitLine("[Enter]open  [n]new  [e]edit  [d]dispatch  [v]attest  [Esc]close", bw-4)))
+		body.WriteString("\n" + styles.KeyMenuDim.Render(fitLine("[Enter]open [n]new [e]edit [r]reset [x]remove [d]dispatch [v]attest [Esc]close", bw-4)))
 	}
 	h := len(p.actions()) + len(p.appliedLines()) + 9
 	if p.detail {

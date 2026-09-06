@@ -201,6 +201,8 @@ var menuEntries = []menuEntry{
 	{key: "m", label: "Momentum chart: show/hide (Tasks pane)", hidden: true},
 	{key: "A", label: "Toggle project art", hidden: true},
 	{key: "space", label: "Toggle capability (C overlay)", hidden: true},
+	{key: "e / n", label: "Edit / new checklist via $VISUAL or $EDITOR (P overlay)", hidden: true},
+	{key: "r / x", label: "Reset / remove checklist, after a confirm (P overlay)", hidden: true},
 	{key: "q / ctrl+c", label: "Quit", hidden: true},
 }
 
