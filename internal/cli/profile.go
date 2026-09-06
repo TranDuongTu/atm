@@ -176,6 +176,27 @@ func loadProfileToApply(s core.Service, name, version, dir string) (*core.Profil
 	return p, nil
 }
 
+// resolveProfileRef loads the profile a --profile value names: a path to
+// an existing directory loads through the same parser and validation as
+// `apply --dir` and applies as <name>@dev; anything else is name or
+// name@version through the profile store.
+func resolveProfileRef(s core.Service, value string) (*core.Profile, error) {
+	if info, err := os.Stat(value); err == nil && info.IsDir() {
+		p, err := profile.Load(os.DirFS(value))
+		if err != nil {
+			return nil, err
+		}
+		p.Manifest.Version = core.DevVersion
+		return p, nil
+	}
+	name, version, _ := strings.Cut(value, "@")
+	p, _, err := s.GetProfile(name, version)
+	if err != nil {
+		return nil, fmt.Errorf("profile %q: %w", value, err)
+	}
+	return p, nil
+}
+
 // profileSetupReport gathers what the setup report reads: the project's
 // records after apply and whether this machine has a launcher selected.
 func profileSetupReport(s core.Service, code string) ([]core.SetupStep, error) {
