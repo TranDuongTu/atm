@@ -137,6 +137,27 @@ func TestChecklistSetReplacesFromFile(t *testing.T) {
 	mustContain(t, out, `"origin": "user"`)
 }
 
+// TestChecklistSetKeepsTargetTargetsAndMode: the document is the record
+// (decision 11). Before this test, set rebuilt the record from four fields
+// and silently reset the dispatch axes to their defaults.
+func TestChecklistSetKeepsTargetTargetsAndMode(t *testing.T) {
+	st := newTestCLI(t)
+	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")
+	_, _, _ = runArgs(st, "checklist", "add", "--project", "ATM", "--name", "main",
+		"--purpose", "p", "--step", "a", "--actor", "developer@test:unit")
+	doc := filepath.Join(t.TempDir(), "main.md")
+	body := "---\nname: main\npurpose: p\ntarget: task\ntargets: \"scrum:task AND scrum-stage:implementable\"\nmode: interactive\n---\n1. first\n"
+	if err := os.WriteFile(doc, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runArgsOut(t, st, "checklist", "set", "--project", "ATM", "--name", "main", "--file", doc, "--actor", "developer@test:unit")
+	st.output = outputJSON
+	out := runArgsOut(t, st, "checklist", "show", "--project", "ATM", "--name", "main")
+	mustContain(t, out, `"target": "task"`)
+	mustContain(t, out, `"targets": "scrum:task AND scrum-stage:implementable"`)
+	mustContain(t, out, `"mode": "interactive"`)
+}
+
 func TestChecklistSetNameMustMatchFile(t *testing.T) {
 	st := newTestCLI(t)
 	_, _, _ = runArgs(st, "project", "create", "--code", "ATM", "--name", "x", "--actor", "admin@cli:unset")

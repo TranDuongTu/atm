@@ -354,16 +354,9 @@ func newChecklistSetCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%w: %v", core.ErrUsage, err)
 			}
-			rec := core.ChecklistRecord{
-				Purpose: doc.Purpose,
-				Steps:   doc.Steps,
-				Suits:   doc.Suits,
-				Requires: core.ChecklistRequires{
-					Capabilities: doc.Requires.Capabilities,
-					Channels:     doc.Requires.Channels,
-				},
-			}
-			if err := s.SetChecklist(project, name, rec, actor); err != nil {
+			// The document IS the record (decision 11). SetChecklist keeps
+			// Name and Origin from the existing record, never from here.
+			if err := s.SetChecklist(project, name, doc, actor); err != nil {
 				return err
 			}
 			return st.emit(st.stdout(), map[string]any{"project": project, "name": name}, func() {
