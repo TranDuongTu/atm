@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"atm/internal/core"
+	"atm/internal/runtime"
 )
 
 type capturedChild struct {
@@ -1188,5 +1190,146 @@ func TestLaunchTargetsExpressionWarnsThroughTheRealResolver(t *testing.T) {
 	}
 	if strings.Contains(h.stderr.String(), "outside its targets") {
 		t.Fatalf("an eligible task must not warn:\n%s", h.stderr.String())
+	}
+}
+
+// TestSessionLaunchRegistersAndEndsRun is the whole of Runtime 2 in one
+// assertion set: a launch registers a record carrying its identity and its
+// terminal surface, ends it with the child's exit code when the child
+// returns, and journals a start and an end comment on the bound task.
+func TestSessionLaunchRegistersAndEndsRun(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	out, _, _ := h.run("task", "create", "--project", "FOO", "--title", "Monitor", "--actor", "admin@cli:unset", "--output", "json")
+	taskID := regexp.MustCompile(`"id":\s*"(FOO-[0-9a-f]+)"`).FindStringSubmatch(out)[1]
+	captureChild(h)
+	stubLookPath(h)
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,6099,0")
+	t.Setenv("TMUX_PANE", "%30")
+	h.reset()
+
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO", "--task", taskID, "--run-id", "FOO-20260905080000-abc123"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	reg := runtime.Open(h.store.StorePath())
+	rec, err := reg.Get("FOO-20260905080000-abc123")
+	if err != nil {
+		t.Fatalf("record not registered: %v", err)
+	}
+	if rec.Project != "FOO" || rec.Task != taskID || rec.Persona != "developer" || rec.Agent != "codex" || rec.LauncherPID != os.Getpid() {
+		t.Fatalf("record identity wrong: %+v", rec)
+	}
+	if rec.Surface.Kind != "tmux" || rec.Surface.TmuxPane != "%30" || rec.Surface.TmuxSocket != "/tmp/tmux-1000/default" {
+		t.Fatalf("surface not captured: %+v", rec.Surface)
+	}
+	if rec.EndedAt == "" || rec.ExitCode == nil || *rec.ExitCode != 0 || rec.Status.State != runtime.StateEnded {
+		t.Fatalf("record not ended after the child returned: %+v", rec)
+	}
+	want := filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions", "FOO-20260905080000-abc123.md")
+	if rec.ContextPath != want {
+		t.Fatalf("context path = %q, want %q", rec.ContextPath, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("per-run context file missing: %v", err)
+	}
+	cs, err := h.store.ListComments(taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 2 {
+		t.Fatalf("comments = %d, want start + end", len(cs))
+	}
+	if !strings.HasPrefix(cs[0].Body, "session started · run FOO-20260905080000-abc123 · developer · ad-hoc · codex:unset · host ") {
+		t.Errorf("start comment = %q", cs[0].Body)
+	}
+	if !strings.HasPrefix(cs[1].Body, "session ended · run FOO-20260905080000-abc123 · exit 0 · ") {
+		t.Errorf("end comment = %q", cs[1].Body)
+	}
+	for _, c := range cs {
+		if len(c.Labels) != 1 || c.Labels[0] != "FOO:comment:session" || c.CreatedBy != "developer@codex:unset" {
+			t.Errorf("comment labels/actor = %v %s", c.Labels, c.CreatedBy)
+		}
+	}
+}
+
+// TestSessionLaunchMintsRunIDAndPassesItToTheChild pins that the id the child
+// sees in ATM_RUN_ID is the id the registry knows, and that the context file
+// it is pointed at is that run's own.
+func TestSessionLaunchMintsRunIDAndPassesItToTheChild(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	c := captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	re := regexp.MustCompile(`ATM_RUN_ID=(FOO-\d{14}-[0-9a-f]{6})`)
+	m := re.FindStringSubmatch(strings.Join(c.env, "\n"))
+	if m == nil {
+		t.Fatalf("ATM_RUN_ID missing or malformed in child env")
+	}
+	if _, err := runtime.Open(h.store.StorePath()).Get(m[1]); err != nil {
+		t.Fatalf("minted run %s not registered: %v", m[1], err)
+	}
+	if !strings.Contains(strings.Join(c.env, "\n"), "ATM_CONTEXT_FILE="+filepath.Join(h.store.StorePath(), "projects", "FOO", "cache", "sessions", m[1]+".md")) {
+		t.Fatalf("ATM_CONTEXT_FILE must be the per-run file:\n%s", strings.Join(c.env, "\n"))
+	}
+}
+
+// TestSessionLaunchWithoutTaskWritesNoComment: a taskless session is still
+// registered — there is just nowhere to journal it.
+func TestSessionLaunchWithoutTaskWritesNoComment(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d", code)
+	}
+	entries, _ := runtime.Open(h.store.StorePath()).List()
+	if len(entries) != 1 || entries[0].Record.Task != "" {
+		t.Fatalf("one taskless record expected: %+v", entries)
+	}
+}
+
+// TestSessionLaunchDryRunRegistersNothing: a dry run binds and renders, but
+// nothing ran, so there is no run to monitor.
+func TestSessionLaunchDryRunRegistersNothing(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.registryFn = productionRegistry
+	seedDispatchProject(t, h)
+	captureChild(h)
+	stubLookPath(h)
+	h.reset()
+	if _, _, code := h.run("dispatch", "--checklist", "planning", "--project", "ATM", "--agent", "claude", "--dry-run"); code != ExitSuccess {
+		t.Fatalf("exit=%d stderr=%s", code, h.stderr.String())
+	}
+	entries, _ := runtime.Open(h.store.StorePath()).List()
+	if len(entries) != 0 {
+		t.Fatalf("dry run must not register: %+v", entries)
+	}
+}
+
+// TestSessionLaunchPrunesStaleRecordsFirst: the registry cycles at launch, so
+// nobody has to remember to clean it.
+func TestSessionLaunchPrunesStaleRecordsFirst(t *testing.T) {
+	h := newGoldenHarness(t)
+	h.run("project", "create", "--code", "FOO", "--name", "Foo", "--actor", "admin@cli:unset")
+	captureChild(h)
+	stubLookPath(h)
+	reg := runtime.Open(h.store.StorePath())
+	old := runtime.Record{RunID: "FOO-20200101000000-000000", Persona: "developer", Agent: "codex", Actor: "x@codex:unset",
+		LauncherPID: 2147483647, StartedAt: "2020-01-01T00:00:00Z", EndedAt: "2020-01-01T01:00:00Z"}
+	if err := reg.Create(old); err != nil {
+		t.Fatal(err)
+	}
+	h.reset()
+	if _, _, code := h.run("--persona", "developer", "--agent", "codex", "--project", "FOO"); code != ExitSuccess {
+		t.Fatalf("exit=%d", code)
+	}
+	if _, err := reg.Get("FOO-20200101000000-000000"); !errors.Is(err, runtime.ErrNotFound) {
+		t.Fatalf("a 6-year-old ended record must be pruned at launch, got %v", err)
 	}
 }
