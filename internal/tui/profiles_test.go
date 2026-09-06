@@ -307,3 +307,73 @@ func TestProfilesOverlayDetailNamesTheDrift(t *testing.T) {
 		t.Fatalf("detail must name the drifted field:\n%s", view)
 	}
 }
+
+// TestProfilesOverlayResetGatesOnSyncState: only a modified profile record
+// has something to restore. The other states say why without a confirm
+// and without a store round-trip.
+func TestProfilesOverlayResetGatesOnSyncState(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	seedScrumbanChecklist(t, m, "planning")
+	if _, err := m.store.CreateChecklist("ATM", core.ChecklistRecord{
+		Name: "my-routine", Purpose: "mine", Steps: []core.ChecklistStep{{Text: "do"}}}, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+	before, _ := m.store.StoreStats("ATM")
+
+	openProfilesOn(t, m, "my-routine")
+	keys(m, "r")
+	if m.confirm != confirmNone || !strings.Contains(m.toastMsg, "nothing to reset to") {
+		t.Fatalf("user record: confirm=%v toast=%q", m.confirm, m.toastMsg)
+	}
+	openProfilesOn(t, m, "planning")
+	keys(m, "r")
+	if m.confirm != confirmNone || !strings.Contains(m.toastMsg, "already matches scrumban@1.0.0") {
+		t.Fatalf("in-sync record: confirm=%v toast=%q", m.confirm, m.toastMsg)
+	}
+	if after, _ := m.store.StoreStats("ATM"); after.EventCount != before.EventCount {
+		t.Fatal("gating must write nothing")
+	}
+}
+
+// TestProfilesOverlayResetRestoresTheOriginVersion: the confirm names the
+// drifted fields; Enter restores the record from scrumban@1.0.0 and the
+// overlay reads it as in sync again.
+func TestProfilesOverlayResetRestoresTheOriginVersion(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedMatrixProject(t, m)
+	shipped := seedScrumbanChecklist(t, m, "planning")
+	edited := shipped
+	edited.Purpose = "edited locally"
+	if err := m.store.SetChecklist("ATM", "planning", edited, testActor); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshAll()
+
+	openProfilesOn(t, m, "planning")
+	keys(m, "r")
+	if m.confirm != confirmChecklistReset || m.confirmMsg != "Reset planning to scrumban@1.0.0?" || !strings.Contains(m.confirmArg, "purpose") {
+		t.Fatalf("confirm=%v msg=%q arg=%q", m.confirm, m.confirmMsg, m.confirmArg)
+	}
+	keys(m, "esc")
+	if rec, _ := m.store.GetChecklist("ATM", "planning"); rec.Purpose != "edited locally" {
+		t.Fatal("Esc must not reset")
+	}
+	keys(m, "r", "enter")
+	rec, err := m.store.GetChecklist("ATM", "planning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Purpose != shipped.Purpose || rec.Origin != "scrumban@1.0.0" {
+		t.Fatalf("record after reset = %+v", rec)
+	}
+	if m.profilesOv.syncs["planning"].State != "in-sync" || !strings.Contains(m.toastMsg, "reset planning to scrumban@1.0.0") {
+		t.Fatalf("syncs=%+v toast=%q", m.profilesOv.syncs["planning"], m.toastMsg)
+	}
+	if !m.profilesOv.open || m.confirm != confirmNone {
+		t.Fatal("the overlay stays open; the confirm closes")
+	}
+}

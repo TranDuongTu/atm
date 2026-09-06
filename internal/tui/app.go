@@ -57,6 +57,7 @@ const (
 	confirmRemoveTask
 	confirmDropIndex
 	confirmChecklistReedit
+	confirmChecklistReset
 )
 
 // Model is the root Bubble Tea model for the v2 TUI: a persistent two-pane

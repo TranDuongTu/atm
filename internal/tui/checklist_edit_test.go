@@ -23,9 +23,15 @@ func stubEditor(m *Model) *[]string {
 	return calls
 }
 
+// openProfilesOn leaves the overlay OPEN on the named row. P is a toggle, so
+// a second call would close what the first opened — a test that moves between
+// rows must not depend on how many times it has already opened the overlay.
 func openProfilesOn(t *testing.T, m *Model, name string) {
 	t.Helper()
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	if !m.profilesOv.open {
+		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	}
+	m.profilesOv.detail = false
 	for i, a := range m.profilesOv.actions() {
 		if a.Name == name {
 			m.profilesOv.cursor = i

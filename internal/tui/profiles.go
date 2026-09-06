@@ -146,6 +146,8 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case "n":
 		return p.beginEdit("")
+	case "r":
+		return p.requestReset()
 	case "d":
 		// Dispatch THIS action. The overlay does not fix anything itself;
 		// it hands the dispatch to the dialog, which is the one place a
@@ -170,6 +172,46 @@ func (p *profilesModel) handleKey(k tea.KeyMsg) tea.Cmd {
 // attestActionName is the action every profile is expected to ship for
 // verifying its channels on the current agent.
 const attestActionName = "attest"
+
+// requestReset gates on the record's sync state before asking: only a
+// modified profile record has something to restore and a source to restore
+// it from. The store enforces the same rules; the gate says why without a
+// round-trip, and the confirm names what the reset discards.
+func (p *profilesModel) requestReset() tea.Cmd {
+	a := p.selected()
+	if a == nil {
+		return nil
+	}
+	rec := p.records[a.Name]
+	rs, tracked := p.syncs[a.Name]
+	switch {
+	case !tracked:
+		p.m.showToast(fmt.Sprintf("%s has origin %s — nothing to reset to", a.Name, rec.Origin))
+	case rs.State == "unverifiable":
+		p.m.showToast(fmt.Sprintf("%s is not installed here — install it, or atm profile apply", rec.Origin))
+	case rs.State != "modified":
+		p.m.showToast(fmt.Sprintf("%s already matches %s", a.Name, rec.Origin))
+	default:
+		p.m.confirm = confirmChecklistReset
+		p.m.confirmPayload = a.Name
+		p.m.confirmMsg = fmt.Sprintf("Reset %s to %s?", a.Name, rec.Origin)
+		p.m.confirmArg = "Discards local edits to: " + strings.Join(rs.Diff, ", ") + "."
+	}
+	return nil
+}
+
+// resetConfirmed runs the reset verb (confirm: Enter) and reloads.
+func (p *profilesModel) resetConfirmed(name string) tea.Cmd {
+	rec, err := p.m.store.ResetChecklistRecord(p.project, name, p.m.actor)
+	if err != nil {
+		p.m.showToast("error: " + err.Error())
+		return nil
+	}
+	p.loadFor(p.project)
+	p.m.refreshAll()
+	p.m.showToast("reset " + rec.Name + " to " + rec.Origin)
+	return nil
+}
 
 func (p *profilesModel) title() string {
 	switch {
