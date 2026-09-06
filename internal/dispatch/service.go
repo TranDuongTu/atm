@@ -1,5 +1,7 @@
 package dispatch
 
+import "atm/internal/runtime"
+
 // Service is the TUI-facing facade. Config is loaded once at construction;
 // detection runs per call so environment changes are reflected.
 type Service struct {
@@ -41,3 +43,6 @@ func (s *Service) Spawn(spec Spec) error {
 	}
 	return t.Spawn(spec)
 }
+
+// Focus brings a registered session's surface to the front.
+func (s *Service) Focus(sf runtime.Surface) error { return Focus(s.env, sf) }
