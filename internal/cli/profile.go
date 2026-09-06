@@ -58,62 +58,11 @@ func newProfileApplyCmd(st *cliState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Unknown capability: hard error, before any write.
-			if err := profile.ValidateCapabilities(profile.RequiredCapabilities(p), st.fullRegistry.Names()); err != nil {
-				return fmt.Errorf("%w: %v", core.ErrUsage, err)
-			}
-			proj, err := s.GetProject(code)
+			plan, setup, err := applyProfileToProject(st, s, code, p, actor, force, dryRun)
 			if err != nil {
 				return err
 			}
-			plan, err := s.PlanProfile(code, p)
-			if err != nil {
-				return err
-			}
-			if !dryRun {
-				for _, c := range plan.Capabilities {
-					if c.Enabled {
-						continue
-					}
-					if err := s.EnableProjectCapability(code, c.Name, actor); err != nil {
-						return err
-					}
-				}
-				proj, err = s.GetProject(code)
-				if err != nil {
-					return err
-				}
-				if _, err := st.fullRegistry.For(proj).EnsureVocabulary(s, code, actor); err != nil {
-					return err
-				}
-				applied, err := s.ApplyProfile(code, p, force, actor)
-				if applied != nil {
-					// Keep the pre-apply capability view: it says what THIS
-					// run turned on, which the post-apply plan cannot.
-					applied.Capabilities = plan.Capabilities
-					plan = applied
-				}
-				if err != nil {
-					return err
-				}
-			}
-			setup, err := profileSetupReport(s, code)
-			if err != nil {
-				return err
-			}
-			conflicts := plan.Conflicts()
-			if err := st.emit(st.stdout(), map[string]any{
-				"project": code, "plan": plan, "applied": !dryRun, "setup": setup,
-			}, func() {
-				renderApplyPlan(st.stdout(), code, plan, dryRun)
-				renderSetupReport(st.stdout(), setup)
-			}); err != nil {
-				return err
-			}
-			if len(conflicts) > 0 && !dryRun {
-				return fmt.Errorf("%w: %d record(s) left untouched because the project's copy differs; overwrite them with --force", core.ErrUsage, len(conflicts))
-			}
-			return nil
+			return emitApplyResult(st, code, plan, setup, dryRun, nil)
 		},
 	}
 	cmd.Flags().String("project", "", "project code (or ATM_PROJECT)")
@@ -123,6 +72,76 @@ func newProfileApplyCmd(st *cliState) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report what apply would do and write nothing")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite conflicting records and take ownership of them")
 	return cmd
+}
+
+// applyProfileToProject is the apply body both `profile apply` and
+// `project create --profile` run: validate the profile's capabilities
+// against the registry, plan, enable what the plan needs, ensure the
+// vocabulary, apply, and gather the setup report. dryRun plans and
+// gathers only. Keeping it in one place is what stops the two commands
+// from drifting into two different meanings of "apply".
+func applyProfileToProject(st *cliState, s core.Service, code string, p *core.Profile, actor string, force, dryRun bool) (*core.ApplyPlan, []core.SetupStep, error) {
+	// Unknown capability: hard error, before any write.
+	if err := profile.ValidateCapabilities(profile.RequiredCapabilities(p), st.fullRegistry.Names()); err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", core.ErrUsage, err)
+	}
+	plan, err := s.PlanProfile(code, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !dryRun {
+		for _, c := range plan.Capabilities {
+			if c.Enabled {
+				continue
+			}
+			if err := s.EnableProjectCapability(code, c.Name, actor); err != nil {
+				return nil, nil, err
+			}
+		}
+		proj, err := s.GetProject(code)
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := st.fullRegistry.For(proj).EnsureVocabulary(s, code, actor); err != nil {
+			return nil, nil, err
+		}
+		applied, err := s.ApplyProfile(code, p, force, actor)
+		if applied != nil {
+			// Keep the pre-apply capability view: it says what THIS run
+			// turned on, which the post-apply plan cannot.
+			applied.Capabilities = plan.Capabilities
+			plan = applied
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	setup, err := profileSetupReport(s, code)
+	if err != nil {
+		return nil, nil, err
+	}
+	return plan, setup, nil
+}
+
+// emitApplyResult prints the plan and the setup report (text or JSON) and
+// turns unresolved conflicts into the non-zero exit apply promises. extra
+// is merged over the JSON object, so a caller may say more about what it
+// did — apply itself passes nil and its output stays byte-identical.
+func emitApplyResult(st *cliState, code string, plan *core.ApplyPlan, setup []core.SetupStep, dryRun bool, extra map[string]any) error {
+	payload := map[string]any{"project": code, "plan": plan, "applied": !dryRun, "setup": setup}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	if err := st.emit(st.stdout(), payload, func() {
+		renderApplyPlan(st.stdout(), code, plan, dryRun)
+		renderSetupReport(st.stdout(), setup)
+	}); err != nil {
+		return err
+	}
+	if conflicts := plan.Conflicts(); len(conflicts) > 0 && !dryRun {
+		return fmt.Errorf("%w: %d record(s) left untouched because the project's copy differs; overwrite them with --force", core.ErrUsage, len(conflicts))
+	}
+	return nil
 }
 
 // profileProject resolves the target project: --project flag, else ATM_PROJECT.
