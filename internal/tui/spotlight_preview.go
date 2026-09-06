@@ -104,6 +104,10 @@ var previewRegistry = map[string]previewFunc{
 		m.channelsOv.loadFor(m.overlayProject()) // populates entries; does not open
 		return m.channelsOv.previewBody(w)
 	},
+	"R|views": func(m *Model, w, h int) string {
+		m.sessions.refresh() // populates entries; does not open
+		return m.sessions.previewBody(w)
+	},
 	"V|views": func(m *Model, w, h int) string {
 		m.personasOv.loadFor() // populates entries; does not open
 		return m.personasOv.previewBody(w)

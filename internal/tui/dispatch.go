@@ -11,6 +11,7 @@ import (
 	"atm/internal/compose"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	"atm/internal/runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +23,8 @@ type Dispatcher interface {
 	Preview() (string, error)
 	PreviewTarget(string) (string, error)
 	Spawn(dispatch.Spec) error
+	// Focus brings a registered run's recorded surface to the front.
+	Focus(runtime.Surface) error
 }
 
 type agentOption struct {
@@ -707,12 +710,26 @@ func (d *dispatchModel) submit() {
 	d.spawn(argv, a.Name)
 }
 
-// spawn hands the built argv to the dispatcher and closes the dialog.
+// spawn hands the built argv to the dispatcher and closes the dialog. The
+// run id is minted HERE rather than at either call site so both dispatch
+// paths name the run the same way.
 func (d *dispatchModel) spawn(argv []string, label string) {
 	dir, err := os.Getwd()
 	if err != nil {
 		d.m.showToast("error: " + err.Error())
 		return
+	}
+	// Pre-mint the run id so the toast (and the Sessions row that follows)
+	// can name it; the launcher registers under exactly this id. A TUI
+	// vehicle launches no agent session, so it gets none.
+	runID := ""
+	if !d.launchesTUI() {
+		code := d.project
+		if code == "" {
+			code = "atm"
+		}
+		runID = runtime.NewRunID(code)
+		argv = append(argv, "--run-id", runID)
 	}
 	if len(d.repos) > 0 {
 		dir = d.repos[d.repoCursor].Path
@@ -721,7 +738,11 @@ func (d *dispatchModel) spawn(argv []string, label string) {
 		d.m.showToast("error: " + err.Error())
 		return
 	}
-	d.m.showToast("dispatched " + label + " → " + d.preview)
+	toast := "dispatched " + label + " → " + d.preview
+	if runID != "" {
+		toast += " · run " + runID
+	}
+	d.m.showToast(toast)
 	d.active = false
 	// A successful dispatch completes the action; land on the workspace
 	// rather than reopening the spotlight over the toast (see completeAction).

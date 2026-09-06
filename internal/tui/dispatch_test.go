@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"atm/internal/capability/scrum"
 	"atm/internal/core"
 	"atm/internal/dispatch"
+	"atm/internal/runtime"
 	atmsetup "atm/internal/setup"
 	"atm/internal/store"
 
@@ -24,6 +26,19 @@ type fakeDispatcher struct {
 	spawned       []dispatch.Spec
 	spawnErr      error
 	previewTarget func(string) (string, error)
+	focused       []runtime.Surface
+	focusErr      error
+}
+
+func (f *fakeDispatcher) Focus(s runtime.Surface) error {
+	f.focused = append(f.focused, s)
+	if f.focusErr != nil {
+		return f.focusErr
+	}
+	if s.Kind == "terminal" {
+		return dispatch.ErrFocusUnsupported
+	}
+	return nil
 }
 
 func (f *fakeDispatcher) Preview() (string, error) { return f.preview, f.previewErr }
@@ -36,6 +51,22 @@ func (f *fakeDispatcher) PreviewTarget(target string) (string, error) {
 func (f *fakeDispatcher) Spawn(s dispatch.Spec) error {
 	f.spawned = append(f.spawned, s)
 	return f.spawnErr
+}
+
+// argvWithoutRunID drops the pre-minted --run-id pair. Its value is random by
+// construction, so a test pinning the rest of the argv strips it rather than
+// matching it; TestDispatchSubmitPassesRunIDAndNamesItInToast pins the pair
+// itself.
+func argvWithoutRunID(argv []string) []string {
+	out := make([]string, 0, len(argv))
+	for i := 0; i < len(argv); i++ {
+		if argv[i] == "--run-id" {
+			i++
+			continue
+		}
+		out = append(out, argv[i])
+	}
+	return out
 }
 
 func testAgents() []agentOption {
@@ -89,7 +120,7 @@ func TestDispatchManagerFromProjectsPane(t *testing.T) {
 	}
 	got := fd.spawned[0]
 	wantArgv := []string{"atm", "dispatch", "--checklist", "mgr-sweep", "--project", "ATM", "--agent", "claude"}
-	if strings.Join(got.Argv, " ") != strings.Join(wantArgv, " ") {
+	if strings.Join(argvWithoutRunID(got.Argv), " ") != strings.Join(wantArgv, " ") {
 		t.Errorf("argv = %v, want %v", got.Argv, wantArgv)
 	}
 	// The title names the ACTION and what it runs on — what a human scanning
@@ -1130,7 +1161,7 @@ func TestDispatchArgvIsTheDispatchVerb(t *testing.T) {
 		t.Fatal("must spawn")
 	}
 	want := "atm dispatch --checklist dev-cycle --project ATM --agent claude"
-	if got := strings.Join(fd.spawned[0].Argv, " "); got != want {
+	if got := strings.Join(argvWithoutRunID(fd.spawned[0].Argv), " "); got != want {
 		t.Fatalf("argv = %q, want %q", got, want)
 	}
 }
@@ -1326,5 +1357,33 @@ func TestSetupPluginCellAndMissingFactsSayStale(t *testing.T) {
 	}
 	if got := setupMissingFacts(fresh); got != "" {
 		t.Fatalf("a complete row has nothing missing, got %q", got)
+	}
+}
+
+// TestDispatchSubmitPassesRunIDAndNamesItInToast: the dialog mints the run id
+// itself so the toast can name the run the launcher will register under.
+func TestDispatchSubmitPassesRunIDAndNamesItInToast(t *testing.T) {
+	m := newTestModel(t)
+	m.SetSize(120, 40)
+	seedDispatchProject(t, m)
+	m.projectScope = "ATM"
+	m.focused = paneProjects
+	sizeDispatchModel(m)
+	fd := &fakeDispatcher{preview: "tmux · new window"}
+	m.dispatcher = fd
+	m.agentOptionsFn = testAgents
+	dispatchKey(m, "D")
+	m.dispatchDlg.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fd.spawned) != 1 {
+		t.Fatalf("spawned = %d", len(fd.spawned))
+	}
+	argv := strings.Join(fd.spawned[0].Argv, " ")
+	re := regexp.MustCompile(`--run-id (ATM-\d{14}-[0-9a-f]{6})`)
+	mm := re.FindStringSubmatch(argv)
+	if mm == nil {
+		t.Fatalf("argv lacks --run-id: %s", argv)
+	}
+	if !strings.Contains(m.toastMsg, "run "+mm[1]) {
+		t.Fatalf("toast %q must name the run id", m.toastMsg)
 	}
 }

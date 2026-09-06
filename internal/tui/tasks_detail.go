@@ -31,7 +31,7 @@ const (
 // can break BETWEEN hints instead of through one.
 var detailFooterHints = []string{
 	"e edit title", "d description", "b add label", "B remove label",
-	"M comment", "v view", "C thread", "j/k move", "enter drill in", "esc back",
+	"M comment", "v view", "C thread", "s sessions", "j/k move", "enter drill in", "esc back",
 }
 
 // drillRow is one cursor target on a page: the line it starts at, and the
@@ -211,6 +211,9 @@ func (t *tasksModel) clampOffset(level *drillLevel, page drillPage) {
 // which act on the task the level names, plus the drill-ins it can open.
 func (t *tasksModel) handleDetailActionKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
+	case "s":
+		// The task's own runs, without leaving the task.
+		t.m.sessions.openOverlay(t.detailID())
 	case "e":
 		t.openTitleForm()
 	case "d":
@@ -357,6 +360,10 @@ func (t *tasksModel) detailPage(level *drillLevel) drillPage {
 	head = append(head, t.descriptionRows(tk)...)
 	head = append(head, "")
 	if rows := t.partOfRows(tk); len(rows) > 0 {
+		head = append(head, rows...)
+		head = append(head, "")
+	}
+	if rows := t.sessionsRows(tk); len(rows) > 0 {
 		head = append(head, rows...)
 		head = append(head, "")
 	}

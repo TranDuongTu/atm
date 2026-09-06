@@ -258,6 +258,13 @@ func TestMenuEntriesConsumedByHandlers(t *testing.T) {
 				}
 			},
 		},
+		"R|views": {
+			check: func(t *testing.T, m *Model) {
+				if !m.sessions.open {
+					t.Error("R must open the sessions overlay")
+				}
+			},
+		},
 		"V|views": {
 			check: func(t *testing.T, m *Model) {
 				if !m.personasOv.open {
